@@ -9,6 +9,7 @@ namespace Brmble.Server.WebSockets;
 public static class BrmbleWebSocketHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    internal static TimeSpan DeactivationGracePeriod = TimeSpan.FromSeconds(10);
 
     public static async Task HandleAsync(HttpContext context)
     {
@@ -38,10 +39,17 @@ public static class BrmbleWebSocketHandler
         var eventBus = context.RequestServices.GetRequiredService<IBrmbleEventBus>();
         var activeSessions = context.RequestServices.GetRequiredService<IActiveBrmbleSessions>();
 
-        using var ws = await context.WebSockets.AcceptWebSocketAsync();
-        if (sessionMapping.TryGetMappingByUserId(user.Id, out var currentSessionId, out var currentMapping))
+        // Keepalive so a dead peer (crash, network drop) tears the socket down promptly
+        // instead of leaving the cert marked Brmble-active until TCP gives up.
+        using var ws = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext
         {
-            activeSessions.TrackMumbleName(currentMapping!.MumbleName, hash, active: true);
+            KeepAliveInterval = TimeSpan.FromSeconds(30),
+            KeepAliveTimeout = TimeSpan.FromSeconds(15)
+        });
+        if (sessionMapping.TryGetMappingByUserId(user.Id, out var currentSessionId, out var currentMapping)
+            && (currentMapping!.CertHash is null || currentMapping.CertHash == hash))
+        {
+            activeSessions.TrackMumbleName(currentMapping.MumbleName, hash, active: true);
             sessionMapping.TryUpdateBrmbleStatus(currentSessionId, true);
             sessionMapping.TryUpdateCertHash(currentSessionId, hash);
             await eventBus.BroadcastAsync(CreateUserMappingAddedPayload(currentSessionId, currentMapping, hash));
@@ -85,7 +93,18 @@ public static class BrmbleWebSocketHandler
         {
             eventBus.RemoveClient(ws);
             if (!eventBus.HasConnectedClient(user.Id))
-                activeSessions.Deactivate(hash);
+            {
+                // Grace period: a webview reload or brief network blip reconnects within
+                // seconds; deactivating immediately would flap the user to "Mumble user"
+                // and back for everyone. All captured services are singletons.
+                var userId = user.Id;
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(DeactivationGracePeriod);
+                    if (!eventBus.HasConnectedClient(userId))
+                        activeSessions.Deactivate(hash);
+                });
+            }
         }
     }
 
@@ -95,6 +114,7 @@ public static class BrmbleWebSocketHandler
         sessionId,
         matrixUserId = mapping.MatrixUserId,
         mumbleName = mapping.MumbleName,
+        companionId = mapping.CompanionId,
         certHash,
         isBrmbleClient = true
     };

@@ -79,35 +79,24 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
-    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)
+    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient) =>
+        TryUpdateMapping(sessionId, m => m with { IsBrmbleClient = isBrmbleClient });
+
+    public bool TryUpdateCompanionId(int sessionId, string companionId) =>
+        TryUpdateMapping(sessionId, m => m with { CompanionId = companionId });
+
+    public bool TryUpdateCertHash(int sessionId, string certHash) =>
+        TryUpdateMapping(sessionId, m => m with { CertHash = certHash });
+
+    // CAS loop: concurrent field updates from the Ice, auth, and WebSocket threads
+    // must not overwrite each other via a plain read-modify-write.
+    private bool TryUpdateMapping(int sessionId, Func<SessionMapping, SessionMapping> update)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { IsBrmbleClient = isBrmbleClient };
-            return true;
+            if (_sessionToMapping.TryUpdate(sessionId, update(existing), existing))
+                return true;
         }
-        return false;
-    }
-
-    public bool TryUpdateCompanionId(int sessionId, string companionId)
-    {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
-        {
-            _sessionToMapping[sessionId] = existing with { CompanionId = companionId };
-            return true;
-        }
-
-        return false;
-    }
-
-    public bool TryUpdateCertHash(int sessionId, string certHash)
-    {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
-        {
-            _sessionToMapping[sessionId] = existing with { CertHash = certHash };
-            return true;
-        }
-
         return false;
     }
 

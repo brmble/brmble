@@ -112,13 +112,14 @@ public class SessionMappingHandlerTests
     {
         var user = await _repo.Insert("abc123", "Alice");
         _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy")).Returns(false);
-        _mapping.Setup(m => m.TryUpdateBrmbleStatus(1, false)).Returns(true);
         _mapping.Setup(m => m.TryUpdateCertHash(1, "abc123")).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
         _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy"), Times.Once);
-        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, false), Times.Once);
+        // Upgrade-only: a non-Brmble connect must not write false (could race away a
+        // concurrent Authenticate's true)
+        _mapping.Verify(m => m.TryUpdateBrmbleStatus(It.IsAny<int>(), false), Times.Never);
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
             message.GetType().GetProperty("type")!.GetValue(message)!.Equals("userMappingAdded") &&
             message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1) &&
@@ -153,5 +154,37 @@ public class SessionMappingHandlerTests
 
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"companionId\":\"engineer\""))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserDisconnected_ActiveCertNoWebSocket_DeactivatesCert()
+    {
+        var user = await _repo.Insert("abc123", "Alice");
+        _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
+        _bus.Setup(b => b.HasConnectedClient(user.Id)).Returns(false);
+
+        await _handler.OnUserDisconnected(new MumbleUser("Alice", "abc123", 1));
+
+        _activeSessions.Verify(s => s.Deactivate("abc123"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserDisconnected_LiveWebSocket_KeepsCertActive()
+    {
+        var user = await _repo.Insert("abc123", "Alice");
+        _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
+        _bus.Setup(b => b.HasConnectedClient(user.Id)).Returns(true);
+
+        await _handler.OnUserDisconnected(new MumbleUser("Alice", "abc123", 1));
+
+        _activeSessions.Verify(s => s.Deactivate(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task OnUserDisconnected_InactiveCert_DoesNothing()
+    {
+        await _handler.OnUserDisconnected(new MumbleUser("Bob", "plain-cert", 2));
+
+        _activeSessions.Verify(s => s.Deactivate(It.IsAny<string>()), Times.Never);
     }
 }

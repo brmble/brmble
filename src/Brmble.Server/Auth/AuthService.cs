@@ -276,18 +276,21 @@ public class AuthService : IActiveBrmbleSessions
         {
             _activeSessions.Remove(certHash);
             if (_certToName.Remove(certHash, out var name))
-            {
                 _activeNames.Remove(name);
-                // Broadcast Brmble client deactivation
-                if (_sessionMapping.TryGetSessionId(name, out var deactivatedSessionId))
+        }
+
+        // Demote by cert, not by name: _certToName may have been rebound to a newer
+        // session, which would de-flag the wrong session or silently miss.
+        foreach (var (sessionId, mapping) in _sessionMapping.GetSnapshot())
+        {
+            if (mapping.CertHash == certHash && mapping.IsBrmbleClient)
+            {
+                _sessionMapping.TryUpdateBrmbleStatus(sessionId, false);
+                _ = _eventBus.BroadcastAsync(new
                 {
-                    _sessionMapping.TryUpdateBrmbleStatus(deactivatedSessionId, false);
-                    _ = _eventBus.BroadcastAsync(new
-                    {
-                        type = "brmbleClientDeactivated",
-                        sessionId = deactivatedSessionId
-                    });
-                }
+                    type = "brmbleClientDeactivated",
+                    sessionId
+                });
             }
         }
     }
