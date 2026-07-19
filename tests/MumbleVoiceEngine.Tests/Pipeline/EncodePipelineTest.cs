@@ -76,12 +76,13 @@ namespace MumbleVoiceEngine.Tests.Pipeline
 
             Assert.AreEqual(2, packets.Count);
 
-            // Parse sequence numbers from client→server packets
+            // Parse sequence numbers from client→server packets. Mumble sequence
+            // numbers count 10ms units, so a 20ms frame advances by 2.
             using var reader0 = new PacketReader(new MemoryStream(packets[0], 1, packets[0].Length - 1));
             Assert.AreEqual(0L, reader0.ReadVarInt64());
 
             using var reader1 = new PacketReader(new MemoryStream(packets[1], 1, packets[1].Length - 1));
-            Assert.AreEqual(1L, reader1.ReadVarInt64());
+            Assert.AreEqual(2L, reader1.ReadVarInt64());
         }
 
         [TestMethod]
@@ -324,10 +325,50 @@ namespace MumbleVoiceEngine.Tests.Pipeline
             Assert.AreEqual(0L, pipeline.CurrentSequence);
 
             pipeline.SubmitPcm(new byte[960 * 2]);
-            Assert.AreEqual(1L, pipeline.CurrentSequence);
+            Assert.AreEqual(2L, pipeline.CurrentSequence);
 
             pipeline.SubmitPcm(new byte[960 * 2]);
+            Assert.AreEqual(4L, pipeline.CurrentSequence);
+        }
+
+        [TestMethod]
+        public void SequenceNumber_NonDefaultSampleRate_StillAdvancesInTenMsUnits()
+        {
+            // 20ms at 16kHz = 320 samples; Mumble sequence units are 10ms
+            // regardless of sample rate, so this must advance by 2 (not 320/480=0).
+            using var pipeline = new EncodePipeline(
+                sampleRate: 16000, channels: 1, bitrate: 24000,
+                onPacketReady: _ => { }, frameSize: 320);
+
+            pipeline.SubmitPcm(new byte[320 * 2]);
             Assert.AreEqual(2L, pipeline.CurrentSequence);
+        }
+
+        [TestMethod]
+        public void Constructor_SubTenMsFrame_Throws()
+        {
+            // 2.5ms and 5ms frames are permitted by Opus but cannot be
+            // represented in Mumble's 10ms sequence units — consecutive packets
+            // would reuse the same sequence number.
+            Assert.ThrowsException<ArgumentException>(() => new EncodePipeline(
+                sampleRate: 48000, channels: 1, bitrate: 72000,
+                onPacketReady: _ => { }, frameSize: 120));
+        }
+
+        [TestMethod]
+        public void SequenceNumber_AdvancesByFrameDurationInTenMsUnits()
+        {
+            // 10ms frame (480 samples) → +1; 40ms frame (1920 samples) → +4.
+            foreach (var (frameSize, expectedStride) in new[] { (480, 1L), (1920, 4L) })
+            {
+                using var pipeline = new EncodePipeline(
+                    sampleRate: 48000, channels: 1, bitrate: 72000,
+                    onPacketReady: _ => { }, frameSize: frameSize);
+
+                pipeline.SubmitPcm(new byte[frameSize * 2]);
+                Assert.AreEqual(expectedStride, pipeline.CurrentSequence,
+                    $"frameSize {frameSize}");
+            }
         }
     }
 }
