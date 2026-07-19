@@ -14,15 +14,18 @@ namespace Brmble.Client.Tests.Services;
 [TestClass]
 public class AudioManagerPttTests
 {
+    private static FieldInfo RequireField(string name)
+    {
+        var field = typeof(AudioManager).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, $"private field '{name}' not found on AudioManager — was it renamed?");
+        return field;
+    }
+
     private static bool GetPttActive(AudioManager audio)
-        => (bool)typeof(AudioManager)
-            .GetField("_pttActive", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(audio)!;
+        => (bool)RequireField("_pttActive").GetValue(audio)!;
 
     private static object? GetField(AudioManager audio, string name)
-        => typeof(AudioManager)
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(audio);
+        => RequireField(name).GetValue(audio);
 
     [TestMethod]
     public void ModeSwitch_CancelsPendingSilenceTail()

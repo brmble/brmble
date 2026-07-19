@@ -970,7 +970,7 @@ internal sealed class AudioManager : IDisposable
                 // and the packet callback runs the network send. An unhandled
                 // exception here kills the NAudio capture thread and silently
                 // deadens the mic — drop the frame instead.
-                AudioLog.Write($"[Audio] SubmitPcm failed, dropping frame: {ex.Message}");
+                AudioLog.Write($"[Audio] SubmitPcm failed, dropping frame: {ex}");
             }
         }
         // else: encoded audio is ignored (the encoder keeps running)
