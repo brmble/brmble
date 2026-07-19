@@ -38,6 +38,8 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
+import { DeathrollModal } from './components/Games/DeathrollModal';
+import { useGameState } from './components/Games/useGameState';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -930,6 +932,19 @@ function App() {
   const [selfLeftVoice, setSelfLeftVoice] = useState(false);
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
+  const gameState = useGameState(selfSession);
+  const resolveGamePlayerName = useCallback(
+    (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
+    [],
+  );
+  useEffect(() => {
+    if (gameState.incomingInvite) notifQueueRef.current.register('game-invite', 'info');
+    else notifQueueRef.current.unregister('game-invite');
+  }, [gameState.incomingInvite]);
+  useEffect(() => {
+    if (gameState.lastError) notifQueueRef.current.register('game-error', 'error');
+    else notifQueueRef.current.unregister('game-error');
+  }, [gameState.lastError]);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
   const hasMatrixCredentialsForSessionRef = useRef(false);
@@ -4108,6 +4123,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
+          onChallengeDeathroll={(session) => gameState.invite(session)}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -4305,7 +4321,50 @@ const handleConnect = (serverData: SavedServer) => {
         onQuit={handleCloseQuit}
       />
 
+      {(gameState.activeMatch || gameState.ended) && (
+        <DeathrollModal
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          resolveName={resolveGamePlayerName}
+          onRoll={gameState.roll}
+          onForfeit={gameState.forfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : gameState.forfeit}
+        />
+      )}
+
       <div className="notification-stack">
+        {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={!!gameState.incomingInvite}
+            title="Deathroll challenge"
+            detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to Deathroll.`}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => gameState.acceptInvite()}
+              >
+                Accept
+              </button>
+            }
+            onDismiss={() => gameState.declineInvite()}
+            onExited={() => notifQueue.unregister('game-invite')}
+          />
+        )}
+        {gameState.lastError && notifQueue.isVisible('game-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={!!gameState.lastError}
+            title="Game error"
+            detail={gameState.lastError}
+            onDismiss={() => gameState.clearError()}
+            onExited={() => notifQueue.unregister('game-error')}
+          />
+        )}
         {updateInfo && notifQueue.isVisible('update') && (
           <UpdateNotification
             version={updateInfo.version}

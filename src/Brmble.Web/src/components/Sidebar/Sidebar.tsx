@@ -38,6 +38,7 @@ interface SidebarProps {
   username?: string;
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
+  onChallengeDeathroll?: (session: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -73,6 +74,7 @@ export function Sidebar({
   username,
   onDisconnect,
   onStartDM,
+  onChallengeDeathroll,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -466,6 +468,23 @@ export function Sidebar({
               ),
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
+            ...(() => {
+              if (contextMenu.isSelf || !onChallengeDeathroll) return [];
+              const target = users.find(u => u.session === parseInt(contextMenu.userId));
+              const selfChannelId = users.find(u => u.self)?.channelId;
+              const eligible = !!target?.isBrmbleClient
+                && target.channelId != null
+                && target.channelId === selfChannelId;
+              if (!eligible) return [];
+              return [{
+                type: 'item' as const,
+                label: 'Challenge to Deathroll',
+                icon: (
+                  <Icon name="triangle-right" size={14} />
+                ),
+                onClick: () => onChallengeDeathroll(parseInt(contextMenu.userId)),
+              }];
+            })(),
             {
               type: 'item' as const,
               label: 'User Info',

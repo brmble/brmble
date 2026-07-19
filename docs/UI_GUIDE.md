@@ -165,6 +165,39 @@ Rules:
 3. Content area stops propagation: `onClick={(e) => e.stopPropagation()}`
 4. Title is always `h2.heading-title.modal-title`
 
+### Minigame Modal Pattern
+
+Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`
+
+Real-time minigame modals (e.g. Deathroll) reuse the shared modal shell — global
+`div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
+`h2.heading-title.modal-title` — and add game-specific content styling via a colocated
+CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
+
+Rules:
+1. Reuse the shared modal shell classes above; only game-board content (player rows,
+   stat tiles, countdown bar, result banner) lives in the CSS module.
+2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
+   `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
+3. Turn countdowns render as a token-styled shrinking bar plus a seconds label; drive
+   them with a local `setInterval` and clear it on unmount/when the match ends.
+4. Action buttons use the shared `.btn` classes (`btn-primary` for the main action,
+   `btn-danger` for forfeit). Disable the primary action when it is not the local
+   player's turn.
+
+### Minigame Invite Pattern
+
+Incoming minigame invites use the shared top-right `<Notification>` + `useNotificationQueue`
+(status `info`). The single primary action button is Accept; the `×` dismiss declines the
+invite (`onDismiss` → decline). Do not add a separate "Decline" text button — `×` is the
+decline affordance, per the Notification rules. Register the invite under a stable queue id
+(`game-invite`) and unregister it from `onExited`.
+
+The per-user "Challenge to Deathroll" entry point is a `ContextMenu` item on the user row
+(same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
+shares the local user's voice channel.
+
+
 ### Settings Tab Pattern
 
 Reference: `AudioSettingsTab.tsx`
