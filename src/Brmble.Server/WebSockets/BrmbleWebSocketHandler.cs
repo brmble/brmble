@@ -43,15 +43,8 @@ public static class BrmbleWebSocketHandler
         {
             activeSessions.TrackMumbleName(currentMapping!.MumbleName, hash, active: true);
             sessionMapping.TryUpdateBrmbleStatus(currentSessionId, true);
-            await eventBus.BroadcastAsync(new
-            {
-                type = "userMappingAdded",
-                sessionId = currentSessionId,
-                matrixUserId = currentMapping.MatrixUserId,
-                mumbleName = currentMapping.MumbleName,
-                certHash = currentMapping.CertHash,
-                isBrmbleClient = true
-            });
+            sessionMapping.TryUpdateCertHash(currentSessionId, hash);
+            await eventBus.BroadcastAsync(CreateUserMappingAddedPayload(currentSessionId, currentMapping, hash));
         }
 
         eventBus.AddClient(ws, user.Id);
@@ -95,4 +88,14 @@ public static class BrmbleWebSocketHandler
                 activeSessions.Deactivate(hash);
         }
     }
+
+    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new
+    {
+        type = "userMappingAdded",
+        sessionId,
+        matrixUserId = mapping.MatrixUserId,
+        mumbleName = mapping.MumbleName,
+        certHash,
+        isBrmbleClient = true
+    };
 }

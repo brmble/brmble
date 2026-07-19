@@ -509,4 +509,42 @@ describe('useDMStore contact directory merge', () => {
     expect(sendMumbleDM).toHaveBeenLastCalledWith(42, 'new session');
     expect(sendMumbleDM).not.toHaveBeenCalledWith(2, 'new session');
   });
+
+  it('keeps a selected first-time Mumble contact on the Mumble route after disconnect', () => {
+    const sendMumbleDM = vi.fn();
+    const sendMatrixDM = vi.fn().mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(
+      ({ users }) => useDMStore(makeOptions({
+        sendMumbleDM,
+        sendMatrixDM,
+        users,
+      })),
+      {
+        initialProps: {
+          users: [
+            { name: 'me', session: 1, self: true },
+            { name: 'Mumble Mike', session: 2, certHash: 'cert-mike' },
+          ] as DMStoreOptions['users'],
+        },
+      },
+    );
+
+    act(() => result.current.selectContact('cert-mike'));
+
+    rerender({
+      users: [
+        { name: 'me', session: 1, self: true },
+      ] as DMStoreOptions['users'],
+    });
+
+    act(() => result.current.sendMessage('after disconnect'));
+
+    expect(sendMumbleDM).not.toHaveBeenCalled();
+    expect(sendMatrixDM).not.toHaveBeenCalledWith('cert-mike', 'after disconnect');
+    expect(result.current.selectedContact).toEqual(expect.objectContaining({
+      id: 'cert-mike',
+      isEphemeral: true,
+      mumbleSessionId: null,
+    }));
+  });
 });
