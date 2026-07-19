@@ -9,6 +9,7 @@ namespace Brmble.Server.WebSockets;
 public static class BrmbleWebSocketHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    internal static TimeSpan DeactivationGracePeriod = TimeSpan.FromSeconds(10);
 
     public static async Task HandleAsync(HttpContext context)
     {
@@ -92,7 +93,18 @@ public static class BrmbleWebSocketHandler
         {
             eventBus.RemoveClient(ws);
             if (!eventBus.HasConnectedClient(user.Id))
-                activeSessions.Deactivate(hash);
+            {
+                // Grace period: a webview reload or brief network blip reconnects within
+                // seconds; deactivating immediately would flap the user to "Mumble user"
+                // and back for everyone. All captured services are singletons.
+                var userId = user.Id;
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(DeactivationGracePeriod);
+                    if (!eventBus.HasConnectedClient(userId))
+                        activeSessions.Deactivate(hash);
+                });
+            }
         }
     }
 
