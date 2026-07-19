@@ -814,7 +814,11 @@ internal sealed class AudioManager : IDisposable
                         // still holds unprocessed input for subsequent chunks.
                         if (_resampleOutScratch == null || _resampleOutScratch.Length < totalOut + outSamples)
                         {
-                            var grown = new float[totalOut + outSamples];
+                            // Amortized doubling: converges to the steady-state
+                            // size after the first few callbacks instead of
+                            // reallocating per chunk on a large callback.
+                            int newCap = Math.Max(totalOut + outSamples, (_resampleOutScratch?.Length ?? 0) * 2);
+                            var grown = new float[newCap];
                             if (_resampleOutScratch != null)
                                 Array.Copy(_resampleOutScratch, grown, totalOut);
                             _resampleOutScratch = grown;
