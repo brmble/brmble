@@ -34,6 +34,7 @@ public sealed class GameSessionManager
     private static readonly TimeSpan InviteTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan PenaltyTimeout = TimeSpan.FromSeconds(5);
+    private const int MetadataSchemaVersion = 1;
 
     private readonly IReadOnlyDictionary<string, IGameEngine> _engines;
     private readonly IRandomSource _rng;
@@ -394,16 +395,16 @@ public sealed class GameSessionManager
     private static string BuildMatchMetadata(LiveMatch match)
         => JsonSerializer.Serialize(new
         {
-            schemaVersion = 1,
+            schemaVersion = MetadataSchemaVersion,
             summary = match.Engine.MatchSummary(match.State),
         });
 
     // Keyed by SESSION id (matches SessionToName and engine state keys).
-    private string BuildParticipantMetadata(LiveMatch match, long sessionId)
+    private static string BuildParticipantMetadata(LiveMatch match, long sessionId)
     {
         var envelope = new Dictionary<string, object?>
         {
-            ["schemaVersion"] = 1,
+            ["schemaVersion"] = MetadataSchemaVersion,
             ["displayName"] = NameOf(match, sessionId),
         };
         var stats = match.Engine.ParticipantStats(match.State, sessionId);
