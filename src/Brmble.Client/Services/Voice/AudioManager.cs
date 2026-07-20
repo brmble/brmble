@@ -246,7 +246,28 @@ internal sealed class AudioManager : IDisposable
     public void ResetLossStats()
     {
         _smoothedLoss = -1;
+        lock (_lock)
+        {
+            _outboundLossPercent = -1;
+        }
         OnLossReport?.Invoke(null);
+    }
+
+    // Last observed outbound loss percent (server ping crypt stats); -1 = no data yet.
+    private int _outboundLossPercent = -1;
+
+    /// <summary>
+    /// Feed observed outbound packet loss to the Opus encoder so FEC redundancy
+    /// scales with actual network conditions (#596). Survives pipeline recreation.
+    /// </summary>
+    public void UpdatePacketLoss(int lossPercent)
+    {
+        lossPercent = Math.Clamp(lossPercent, 0, 100);
+        lock (_lock)
+        {
+            _outboundLossPercent = lossPercent;
+            _encodePipeline?.UpdatePacketLoss(lossPercent);
+        }
     }
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
@@ -328,6 +349,8 @@ internal sealed class AudioManager : IDisposable
                 dtx: _dtxEnabled,
                 initialSequence: seq);
             _encodePipeline.SetVolume(_inputVolume);
+            if (_outboundLossPercent >= 0)
+                _encodePipeline.UpdatePacketLoss(_outboundLossPercent);
         }
     }
 

@@ -226,6 +226,64 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
     }
 
+    // Baseline for the server's cumulative crypt receive counters (client→server
+    // direction), reported back in every TCP Ping reply. Deltas between replies
+    // give the outbound packet loss the encoder's FEC should protect against.
+    private uint _pingGoodBase, _pingLateBase, _pingLostBase;
+    private bool _hasPingBase;
+
+    /// <summary>
+    /// Ping reply from the server. Murmur fills good/late/lost with its own
+    /// crypt receive counters for this client, so the lost delta measures
+    /// outbound voice loss — fed to the Opus encoder for adaptive FEC (#596).
+    /// </summary>
+    public override void Ping(Ping ping)
+    {
+        base.Ping(ping);
+        // All three counters must be present: absent optional fields read as 0
+        // and would fake a counter regression or a bogus loss figure.
+        if (!ping.ShouldSerializeGood() || !ping.ShouldSerializeLate() || !ping.ShouldSerializeLost())
+            return;
+        int? loss = ComputeOutboundLossPercent(ping.Good, ping.Late, ping.Lost,
+            ref _pingGoodBase, ref _pingLateBase, ref _pingLostBase, ref _hasPingBase);
+        if (loss is int pct)
+            _audioManager?.UpdatePacketLoss(pct);
+    }
+
+    internal static int? ComputeOutboundLossPercent(uint good, uint late, uint lost,
+        ref uint goodBase, ref uint lateBase, ref uint lostBase, ref bool hasBase)
+    {
+        // First sample, or counter regression (reconnect / server restart): re-baseline.
+        // Note: lost legitimately decreases when a late packet arrives (late = -1 lost
+        // in Murmur's CryptState); that just costs one skipped sample here.
+        if (!hasBase || good < goodBase || late < lateBase || lost < lostBase)
+        {
+            goodBase = good; lateBase = late; lostBase = lost; hasBase = true;
+            return null;
+        }
+        uint dGood = good - goodBase, dLost = lost - lostBase;
+        goodBase = good; lateBase = late; lostBase = lost;
+        // Good already includes late packets (CryptState increments Good for every
+        // accepted packet), so the denominator is delivered + lost — not + late.
+        // ulong so extreme deltas (e.g. first sample after hours of uptime on a
+        // rebaselined counter) cannot wrap the sum.
+        ulong total = (ulong)dGood + dLost;
+        // Ping keepalives keep the counters moving even when the mic is idle,
+        // so total is rarely 0. Require a real sample: at ~50 voice packets/s,
+        // fewer than 10 packets per interval means silence (only pings), where
+        // one dropped ping would otherwise spike the estimate to 50-100%.
+        if (total < 10)
+            return null;
+        // Murmur's uiLost-- on a late packet can wrap to ~2^32 when the counter
+        // is 0 (e.g. a pre-resync straggler); a wrapped value passes the
+        // regression guard as an increase. 100k packets in one ~5s ping
+        // interval is far beyond any real rate — drop the bogus sample
+        // (baselines are already updated, so the next delta self-corrects).
+        if (total > 100_000)
+            return null;
+        return (int)(dLost * 100UL / total);
+    }
+
     /// <summary>
     /// Dispatches a shortcut action when its key is released. Previously lived
     /// in AudioManager; moved here as part of Task 13 (InputRouter ownership).
@@ -280,6 +338,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // sets it to true *after* calling Connect(); clearing here prevents
         // stale state if a previous connection dropped before ServerSync.
         _isReconnect = false;
+
+        // New connection = new server crypt counters; a delta spanning two
+        // connections would be meaningless.
+        _hasPingBase = false;
 
         if (apiUrl is not null)
             _apiUrl = apiUrl;
