@@ -19,6 +19,10 @@ public interface IGamePresence
     // database user id. Games operate in Mumble session-id space (the identity the
     // web/client speak); the stable userId is used only for routing and persistence.
     bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId);
+
+    // Resolves a live session id to a human-readable display name for chat
+    // announcements. Returns null if unknown.
+    string? GetDisplayName(long sessionId);
 }
 
 public record InviteResult(bool Success, long MatchId, string? Error);
@@ -64,6 +68,7 @@ public sealed class GameSessionManager
         public required object State;
         public required long[] Players; // [inviter, target] as Mumble session ids
         public required IReadOnlyDictionary<long, long> SessionToUser; // session id -> stable db user id
+        public required IReadOnlyDictionary<long, string> SessionToName; // session id -> display name
         public required int ChannelId;
         public string Status = "pending"; // pending | live | done
         public DateTimeOffset StartedAt;
@@ -108,6 +113,11 @@ public sealed class GameSessionManager
             {
                 [inviterSession] = inviterUserId,
                 [targetSession] = targetUserId,
+            },
+            SessionToName = new Dictionary<long, string>
+            {
+                [inviterSession] = _presence.GetDisplayName(inviterSession) ?? $"user {inviterSession}",
+                [targetSession] = _presence.GetDisplayName(targetSession) ?? $"user {targetSession}",
             },
             ChannelId = inviterChannel,
         };
@@ -306,7 +316,7 @@ public sealed class GameSessionManager
 
         var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
         var text = winner is not null
-            ? $"Game over ({match.GameType}): user {winner.UserId} wins!"
+            ? $"Game over ({match.GameType}): {NameOf(match, winner.UserId)} wins!"
             : $"Game over ({match.GameType}).";
         await _announcer.AnnounceResultAsync(match.ChannelId, text);
 
@@ -349,11 +359,14 @@ public sealed class GameSessionManager
             new { type = "game.ended", matchId, abandoned = true, reason });
 
         await _announcer.AnnounceResultAsync(match.ChannelId,
-            $"Game over ({match.GameType}): user {userId} {reason}. User {otherId} wins.");
+            $"Game over ({match.GameType}): {NameOf(match, userId)} {reason}. {NameOf(match, otherId)} wins.");
 
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
     }
+
+    private static string NameOf(LiveMatch match, long sessionId)
+        => match.SessionToName.TryGetValue(sessionId, out var name) ? name : $"user {sessionId}";
 
     public bool TryGetActiveMatch(long userId, out long matchId)
         => _userToMatch.TryGetValue(userId, out matchId);

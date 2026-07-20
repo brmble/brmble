@@ -61,6 +61,20 @@ public class DeathrollEngineTests
     }
 
     [TestMethod]
+    public void AcceptsRollFromJsonElementPayload()
+    {
+        // Actions arrive over HTTP as System.Text.Json, so `roll: true` is a
+        // JsonElement, not a boxed bool. The engine must accept it.
+        var engine = new DeathrollEngine();
+        var rng = new QueueRandom(500);
+        var state = engine.InitialState(Players, rng);
+        var json = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(
+            "{\"roll\":true}")!;
+        engine.ApplyAction(state, 10, json, rng);
+        Assert.IsTrue(engine.IsUsersTurn(state, 20));
+    }
+
+    [TestMethod]
     public void TimeoutPenaltyLowersCeilingByTwentyPercent()
     {
         var engine = new DeathrollEngine();

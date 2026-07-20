@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.Json;
 
 namespace Brmble.Server.Games.Engines;
 
@@ -36,10 +37,19 @@ public sealed class DeathrollEngine : IGameEngine
         var s = (State)state;
         if (s.LoserId is not null) throw new InvalidGameActionException("Game already finished.");
         if (s.Players[s.CurrentIndex] != userId) throw new InvalidGameActionException("Not your turn.");
-        if (!action.TryGetValue("roll", out var roll) || roll is not true)
+        if (!action.TryGetValue("roll", out var roll) || !IsTrue(roll))
             throw new InvalidGameActionException("Unknown action.");
         return DoRoll(s, userId, rng);
     }
+
+    // Action payloads arrive over HTTP as System.Text.Json, so a JSON `true`
+    // is a JsonElement rather than a boxed bool. Accept both.
+    private static bool IsTrue(object? value) => value switch
+    {
+        bool b => b,
+        JsonElement e => e.ValueKind == JsonValueKind.True,
+        _ => false,
+    };
 
     public IReadOnlyList<GameEvent> ApplyTimeoutPenalty(object state, IRandomSource rng)
     {

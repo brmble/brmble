@@ -13,6 +13,7 @@ file sealed class FakePresence : IGamePresence
         if (Users.TryGetValue(sessionId, out var v)) { channelId = v.ch; isBrmble = v.brmble; userId = v.userId; return true; }
         channelId = 0; isBrmble = false; userId = 0; return false;
     }
+    public string? GetDisplayName(long sessionId) => $"user{sessionId}";
 }
 file sealed class FakePublisher : IGameEventPublisher
 {

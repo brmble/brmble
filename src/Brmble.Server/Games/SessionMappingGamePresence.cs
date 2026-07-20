@@ -24,4 +24,9 @@ public sealed class SessionMappingGamePresence : IGamePresence
         userId = mapping.UserId;
         return _membership.TryGetChannel((int)sessionId, out channelId);
     }
+
+    public string? GetDisplayName(long sessionId)
+        => _sessions.GetSnapshot().TryGetValue((int)sessionId, out var mapping) && mapping is not null
+            ? mapping.MumbleName
+            : null;
 }
