@@ -143,7 +143,7 @@ public sealed class GameSessionManager
 
         await _publisher.PublishToUsersAsync(
             new HashSet<long> { targetUserId },
-            new { type = "game.invited", matchId, gameType, from = inviterSession });
+            new { type = "game.invited", matchId, gameType, from = inviterSession, inviteMs = (int)InviteTimeout.TotalMilliseconds });
 
         match.InviteTimer = new Timer(_ => OnInviteExpired(matchId), null, InviteTimeout, Timeout.InfiniteTimeSpan);
 

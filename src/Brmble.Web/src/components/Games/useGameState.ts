@@ -19,6 +19,8 @@ export interface IncomingInvite {
   matchId: number;
   gameType: string;
   from: number;
+  /** Server-owned invite window in ms (for the visual countdown). */
+  inviteMs?: number;
 }
 
 export interface ActiveMatch {
@@ -105,9 +107,9 @@ export function useGameState(myUserId: number): GameState {
 
   useEffect(() => {
     const handleInvited = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; from?: number };
+      const d = data as { matchId?: number; gameType?: string; from?: number; inviteMs?: number };
       if (d.matchId == null || d.from == null) return;
-      setIncomingInvite({ matchId: d.matchId, gameType: d.gameType ?? 'deathroll', from: d.from });
+      setIncomingInvite({ matchId: d.matchId, gameType: d.gameType ?? 'deathroll', from: d.from, inviteMs: d.inviteMs });
     };
 
     const handleStarted = (data: unknown) => {
@@ -179,7 +181,17 @@ export function useGameState(myUserId: number): GameState {
 
     const handleError = (data: unknown) => {
       const d = data as { error?: string };
-      setLastError(d.error || 'A game error occurred.');
+      const msg = d.error || 'A game error occurred.';
+      // In the WebView client, a rejected invite (e.g. a blocked target) comes
+      // back as a game.error rather than a rejected invite() promise. If we have
+      // a pending outgoing invite and this is the blocked message, surface it as
+      // the friendly "blocked" outcome instead of a raw error.
+      if (outgoingInviteRef.current && /isn't accepting challenges/i.test(msg)) {
+        setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current.targetSession });
+        outgoingInviteRef.current = null;
+        return;
+      }
+      setLastError(msg);
     };
 
     bridge.on('game.invited', handleInvited);

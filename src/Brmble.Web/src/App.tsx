@@ -4346,6 +4346,7 @@ const handleConnect = (serverData: SavedServer) => {
             status="info"
             position="top-right"
             duration={null}
+            countdownMs={gameState.incomingInvite.inviteMs ?? 30000}
             visible={!!gameState.incomingInvite}
             title="Deathroll challenge"
             detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to Deathroll.`}
