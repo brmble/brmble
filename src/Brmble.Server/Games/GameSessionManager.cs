@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace Brmble.Server.Games;
 
@@ -308,9 +309,12 @@ public sealed class GameSessionManager
         // Engine participants are keyed by Mumble session id; translate to stable
         // db user ids for persistence so stats remain stable across reconnects.
         var persistedParticipants = outcome.Participants
-            .Select(p => match.SessionToUser.TryGetValue(p.UserId, out var dbId)
-                ? p with { UserId = dbId }
-                : p)
+            .Select(p =>
+            {
+                var meta = BuildParticipantMetadata(match, p.UserId); // p.UserId = session id here
+                var dbId = match.SessionToUser.TryGetValue(p.UserId, out var id) ? id : p.UserId;
+                return p with { UserId = dbId, MetadataJson = meta };
+            })
             .ToArray();
         var completed = new CompletedMatch(
             GameType: match.GameType,
@@ -320,7 +324,8 @@ public sealed class GameSessionManager
             AbandonReason: null,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
-            Participants: persistedParticipants);
+            Participants: persistedParticipants,
+            MetadataJson: BuildMatchMetadata(match));
 
         await _repository.SaveCompletedMatchAsync(completed);
 
@@ -354,8 +359,10 @@ public sealed class GameSessionManager
         var loserDbId = match.SessionToUser.TryGetValue(userId, out var lId) ? lId : userId;
         var participants = new[]
         {
-            new CompletedParticipant(winnerDbId, Placement: 1, Score: null, Result: "win"),
-            new CompletedParticipant(loserDbId, Placement: 2, Score: null, Result: "abandoned"),
+            new CompletedParticipant(winnerDbId, Placement: 1, Score: null, Result: "win",
+                MetadataJson: BuildParticipantMetadata(match, otherId)),
+            new CompletedParticipant(loserDbId, Placement: 2, Score: null, Result: "abandoned",
+                MetadataJson: BuildParticipantMetadata(match, userId)),
         };
         var completed = new CompletedMatch(
             GameType: match.GameType,
@@ -365,7 +372,8 @@ public sealed class GameSessionManager
             AbandonReason: reason,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
-            Participants: participants);
+            Participants: participants,
+            MetadataJson: BuildMatchMetadata(match));
 
         await _repository.SaveCompletedMatchAsync(completed);
 
@@ -382,6 +390,26 @@ public sealed class GameSessionManager
 
     private static string NameOf(LiveMatch match, long sessionId)
         => match.SessionToName.TryGetValue(sessionId, out var name) ? name : $"user {sessionId}";
+
+    private static string BuildMatchMetadata(LiveMatch match)
+        => JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            summary = match.Engine.MatchSummary(match.State),
+        });
+
+    // Keyed by SESSION id (matches SessionToName and engine state keys).
+    private string BuildParticipantMetadata(LiveMatch match, long sessionId)
+    {
+        var envelope = new Dictionary<string, object?>
+        {
+            ["schemaVersion"] = 1,
+            ["displayName"] = NameOf(match, sessionId),
+        };
+        var stats = match.Engine.ParticipantStats(match.State, sessionId);
+        if (stats is not null) envelope[match.GameType] = stats;
+        return JsonSerializer.Serialize(envelope);
+    }
 
     // Ephemeral spectator feed: composed by the server and broadcast to everyone
     // in the match's channel. Never persisted to Matrix — reconnecting users

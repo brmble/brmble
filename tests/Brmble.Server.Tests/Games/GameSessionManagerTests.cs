@@ -1,6 +1,7 @@
 using System.Linq;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Engines;
+using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Games;
@@ -146,5 +147,65 @@ public class GameSessionManagerTests
         Assert.AreEqual(1, s10.GamesPlayed);
         Assert.AreEqual(1, s20.GamesPlayed);
         Assert.AreEqual(1, s10.Wins + s20.Wins);
+    }
+
+    [TestMethod]
+    public async Task CompletedMatch_PersistsVersionedMetadataEnvelope()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var mgr = NewManager(presence, new FakePublisher(), repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        for (var i = 0; i < 100000 && mgr.IsMatchLive(invite.MatchId); i++)
+        {
+            var current = mgr.GetCurrentPlayer(invite.MatchId);
+            await mgr.ActionAsync(invite.MatchId, current, new Dictionary<string, object?> { ["roll"] = true });
+        }
+
+        using var conn = db.CreateConnection();
+        var matchMeta = await conn.QuerySingleAsync<string>(
+            "SELECT metadata_json FROM game_matches ORDER BY id DESC LIMIT 1");
+        Assert.IsTrue(matchMeta.Contains("\"schemaVersion\":1"));
+        Assert.IsTrue(matchMeta.Contains("\"summary\""));
+        Assert.IsTrue(matchMeta.Contains("startingCeiling"));
+
+        var partMetas = (await conn.QueryAsync<string>(
+            "SELECT metadata_json FROM game_match_participants")).ToList();
+        Assert.AreEqual(2, partMetas.Count);
+        foreach (var m in partMetas)
+        {
+            Assert.IsTrue(m.Contains("\"schemaVersion\":1"));
+            Assert.IsTrue(m.Contains("displayName"));
+            Assert.IsTrue(m.Contains("deathroll"));
+        }
+    }
+
+    [TestMethod]
+    public async Task ForfeitedMatch_PersistsVersionedMetadataEnvelope()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var mgr = NewManager(presence, new FakePublisher(), repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        await mgr.ForfeitAsync(invite.MatchId, userId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
+
+        using var conn = db.CreateConnection();
+        var matchMeta = await conn.QuerySingleAsync<string>(
+            "SELECT metadata_json FROM game_matches ORDER BY id DESC LIMIT 1");
+        Assert.IsTrue(matchMeta.Contains("\"schemaVersion\":1"));
+        Assert.IsTrue(matchMeta.Contains("\"summary\""));
+
+        var partMetas = (await conn.QueryAsync<string>(
+            "SELECT metadata_json FROM game_match_participants")).ToList();
+        Assert.AreEqual(2, partMetas.Count);
+        Assert.IsTrue(partMetas.All(m => m.Contains("displayName") && m.Contains("deathroll")));
     }
 }
