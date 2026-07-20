@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import bridge from '../../bridge';
 import * as gamesApi from '../../api/games';
 
-/** Turn timeout in ms (server enforces ~15s per turn). */
-const TURN_TIMEOUT_MS = 15000;
+/** Fallback turn window in ms if the server omits `turnMs` (normal turn). */
+const DEFAULT_TURN_MS = 15000;
 
 /** Per-player Deathroll view (engine PublicView, camelCase). */
 export interface DeathrollView {
@@ -40,6 +40,10 @@ export interface GameState {
   ended: EndedMatch | null;
   lastError: string | null;
   turnDeadline: number | null;
+  /** Length of the current turn window in ms (shrinks to 5s during escalation). */
+  turnWindowMs: number;
+  /** True while the match is in escalation (timeout penalty) mode. */
+  penalty: boolean;
   invite: (targetUserId: number) => void;
   acceptInvite: () => void;
   declineInvite: () => void;
@@ -74,6 +78,8 @@ export function useGameState(myUserId: number): GameState {
   const [ended, setEnded] = useState<EndedMatch | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [turnDeadline, setTurnDeadline] = useState<number | null>(null);
+  const [turnWindowMs, setTurnWindowMs] = useState<number>(DEFAULT_TURN_MS);
+  const [penalty, setPenalty] = useState<boolean>(false);
 
   // Refs so bridge handlers (registered once) can read current values.
   const myUserIdRef = useRef(myUserId);
@@ -93,20 +99,26 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleStarted = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; views?: unknown };
+      const d = data as { matchId?: number; gameType?: string; views?: unknown; turnMs?: number };
       if (d.matchId == null) return;
       setActiveMatch({ matchId: d.matchId, gameType: d.gameType ?? incomingInviteRef.current?.gameType ?? 'deathroll' });
       setIncomingInvite(null);
       setEnded(null);
       setView(pickMyView(d.views, myUserIdRef.current));
-      setTurnDeadline(Date.now() + TURN_TIMEOUT_MS);
+      const windowMs = d.turnMs ?? DEFAULT_TURN_MS;
+      setTurnWindowMs(windowMs);
+      setPenalty(false);
+      setTurnDeadline(Date.now() + windowMs);
     };
 
     const handleStateUpdated = (data: unknown) => {
-      const d = data as { matchId?: number; views?: unknown };
+      const d = data as { matchId?: number; views?: unknown; turnMs?: number; penalty?: boolean };
       const nextView = pickMyView(d.views, myUserIdRef.current);
       if (nextView) setView(nextView);
-      setTurnDeadline(Date.now() + TURN_TIMEOUT_MS);
+      const windowMs = d.turnMs ?? DEFAULT_TURN_MS;
+      setTurnWindowMs(windowMs);
+      setPenalty(d.penalty ?? false);
+      setTurnDeadline(Date.now() + windowMs);
     };
 
     const handleEnded = (data: unknown) => {
@@ -125,12 +137,14 @@ export function useGameState(myUserId: number): GameState {
       setActiveMatch(null);
       setView(null);
       setTurnDeadline(null);
+      setPenalty(false);
     };
 
     const handleDeclined = () => {
       setIncomingInvite(null);
       setActiveMatch(null);
       setTurnDeadline(null);
+      setPenalty(false);
     };
 
     const handleActionRejected = (data: unknown) => {
@@ -211,6 +225,8 @@ export function useGameState(myUserId: number): GameState {
     ended,
     lastError,
     turnDeadline,
+    turnWindowMs,
+    penalty,
     invite,
     acceptInvite,
     declineInvite,

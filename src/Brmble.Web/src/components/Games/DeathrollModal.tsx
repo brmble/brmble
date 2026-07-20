@@ -8,19 +8,21 @@ interface DeathrollModalProps {
   ended: EndedMatch | null;
   myUserId: number;
   turnDeadline: number | null;
+  turnWindowMs: number;
+  penalty: boolean;
   resolveName: (userId: number) => string;
   onRoll: () => void;
   onForfeit: () => void;
   onClose: () => void;
 }
 
-const TURN_TIMEOUT_MS = 15000;
-
 export function DeathrollModal({
   view,
   ended,
   myUserId,
   turnDeadline,
+  turnWindowMs,
+  penalty,
   resolveName,
   onRoll,
   onForfeit,
@@ -37,7 +39,8 @@ export function DeathrollModal({
 
   const remainingMs = turnDeadline != null ? Math.max(0, turnDeadline - now) : 0;
   const remainingSec = Math.ceil(remainingMs / 1000);
-  const remainingRatio = turnDeadline != null ? Math.max(0, Math.min(1, remainingMs / TURN_TIMEOUT_MS)) : 0;
+  const windowMs = turnWindowMs > 0 ? turnWindowMs : 1;
+  const remainingRatio = turnDeadline != null ? Math.max(0, Math.min(1, remainingMs / windowMs)) : 0;
 
   const isMyTurn = !!view && !view.finished && view.currentPlayer === myUserId;
   const canRoll = isMyTurn && !ended;
@@ -103,7 +106,7 @@ export function DeathrollModal({
           <div className={styles.board}>
             <div className={styles.stat}>
               <span className={styles.statLabel}>Ceiling</span>
-              <span className={styles.statCeiling}>{view.ceiling}</span>
+              <span className={`${styles.statCeiling} ${penalty ? styles.statCeilingPenalty : ''}`}>{view.ceiling}</span>
             </div>
             <div className={styles.stat}>
               <span className={styles.statLabel}>Last roll</span>
@@ -116,11 +119,11 @@ export function DeathrollModal({
           <div className={styles.countdown} aria-hidden="true">
             <div className={styles.countdownTrack}>
               <div
-                className={styles.countdownBar}
+                className={`${styles.countdownBar} ${penalty ? styles.countdownBarPenalty : ''}`}
                 style={{ width: `${remainingRatio * 100}%` }}
               />
             </div>
-            <span className={styles.countdownLabel}>{remainingSec}s</span>
+            <span className={`${styles.countdownLabel} ${penalty ? styles.countdownLabelPenalty : ''}`}>{remainingSec}s</span>
           </div>
         )}
 

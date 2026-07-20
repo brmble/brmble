@@ -174,6 +174,8 @@ public sealed class GameSessionManager
                     type = "game.started",
                     matchId,
                     firstTurn = CurrentPlayer(match),
+                    turnMs = (int)TurnTimeout.TotalMilliseconds,
+                    penalty = false,
                     views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
                 });
             StartTurnTimer(match, TurnTimeout);
@@ -235,6 +237,8 @@ public sealed class GameSessionManager
             {
                 type = "game.stateUpdated",
                 matchId,
+                turnMs = (int)TurnTimeout.TotalMilliseconds,
+                penalty = false,
                 views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
@@ -274,6 +278,8 @@ public sealed class GameSessionManager
             {
                 type = "game.stateUpdated",
                 matchId,
+                turnMs = (int)PenaltyTimeout.TotalMilliseconds,
+                penalty = true,
                 views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });

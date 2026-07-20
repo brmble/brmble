@@ -77,6 +77,11 @@
   color: var(--accent-primary);
 }
 
+/* Escalation: ceiling shrinks under timeout penalties — signal urgency. */
+.statCeilingPenalty {
+  color: var(--accent-danger);
+}
+
 .countdown {
   display: flex;
   align-items: center;
@@ -99,12 +104,21 @@
   transition: width var(--transition-fast) linear;
 }
 
+/* Escalation (5s penalty turns): draw attention with the danger token. */
+.countdownBarPenalty {
+  background: var(--accent-danger);
+}
+
 .countdownLabel {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-secondary);
   min-width: var(--space-xl);
   text-align: right;
+}
+
+.countdownLabelPenalty {
+  color: var(--accent-danger-text);
 }
 
 .result {

@@ -4327,6 +4327,8 @@ const handleConnect = (serverData: SavedServer) => {
           ended={gameState.ended}
           myUserId={selfSession}
           turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
           resolveName={resolveGamePlayerName}
           onRoll={gameState.roll}
           onForfeit={gameState.forfeit}

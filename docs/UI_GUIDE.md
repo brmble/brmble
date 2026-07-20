@@ -180,7 +180,12 @@ Rules:
 2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
    `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
 3. Turn countdowns render as a token-styled shrinking bar plus a seconds label; drive
-   them with a local `setInterval` and clear it on unmount/when the match ends.
+   them with a local `setInterval` and clear it on unmount/when the match ends. The
+   bar's window length comes from the server (`turnMs`), not a hardcoded constant, so
+   escalation phases (e.g. Deathroll's 5s timeout-penalty turns) shrink correctly. In
+   an escalation/penalty phase (`penalty` flag), swap the bar, seconds label, and the
+   escalating stat (ceiling) to the danger tokens (`--accent-danger`,
+   `--accent-danger-text`) to signal urgency — never hardcode a red value.
 4. Action buttons use the shared `.btn` classes (`btn-primary` for the main action,
    `btn-danger` for forfeit). Disable the primary action when it is not the local
    player's turn.
