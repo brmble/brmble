@@ -130,6 +130,19 @@ namespace MumbleSharp
             State = ConnectionStates.Connecting;
             Protocol.Initialise(this);
 
+            // Connect-after-Close reuses this instance: evidence from the
+            // previous session must not authorize UDP or skew statistics.
+            MarkUdpUnusable();
+            _consecutiveDecryptFailures = 0;
+            _lastResyncRequestMs = NeverMs;
+            ResyncRequests = 0;
+            UdpPingAverage = null;
+            UdpPingVariance = null;
+            UdpPingPackets = null;
+            _meanOfUdpPings = 0;
+            _varianceTimesCountOfUdpPings = 0;
+            _countOfUdpPings = 0;
+
             _tcp = new TcpSocket(Host, Protocol, this);
             _tcp.Connect(username, password, tokens, serverName);
 
