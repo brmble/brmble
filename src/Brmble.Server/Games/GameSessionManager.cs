@@ -157,8 +157,11 @@ public sealed class GameSessionManager
 
     private void OnInviteExpired(long matchId)
     {
-        _ = DeclineOrExpireAsync(matchId);
+        _ = EndPendingAsync(matchId, "game.expired");
     }
+
+    // Test hook: simulate the 30s invite timer firing.
+    internal Task ExpireInviteForTestAsync(long matchId) => EndPendingAsync(matchId, "game.expired");
 
     public async Task RespondAsync(long matchId, long targetSession, bool accept)
     {
@@ -191,11 +194,11 @@ public sealed class GameSessionManager
         }
         else
         {
-            await DeclineOrExpireAsync(matchId);
+            await EndPendingAsync(matchId, "game.declined");
         }
     }
 
-    private async Task DeclineOrExpireAsync(long matchId)
+    private async Task EndPendingAsync(long matchId, string eventType)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
         lock (match.Lock)
@@ -207,7 +210,7 @@ public sealed class GameSessionManager
         }
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
-            new { type = "game.declined", matchId });
+            new { type = eventType, matchId });
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
     }

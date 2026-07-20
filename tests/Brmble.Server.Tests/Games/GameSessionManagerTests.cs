@@ -38,6 +38,41 @@ public class GameSessionManagerTests
         return new GameSessionManager(engines, new CryptoRandomSource(), presence, pub, ann, repo);
     }
 
+    private static bool SentType(IEnumerable<(string kind, object msg)> sent, string type) =>
+        sent.Any(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == type);
+
+    [TestMethod]
+    public async Task ExplicitDecline_EmitsGameDeclined()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, new FakeAnnouncer(), GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
+
+        Assert.IsTrue(SentType(pub.Sent, "game.declined"));
+        Assert.IsFalse(SentType(pub.Sent, "game.expired"));
+    }
+
+    [TestMethod]
+    public async Task InviteExpiry_EmitsGameExpired()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, new FakeAnnouncer(), GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.ExpireInviteForTestAsync(invite.MatchId);
+
+        Assert.IsTrue(SentType(pub.Sent, "game.expired"));
+        Assert.IsFalse(SentType(pub.Sent, "game.declined"));
+    }
+
     [TestMethod]
     public async Task Invite_RejectsWhenTargetNotInSameChannel()
     {
