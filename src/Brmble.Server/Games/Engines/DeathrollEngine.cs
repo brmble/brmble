@@ -5,7 +5,7 @@ namespace Brmble.Server.Games.Engines;
 
 public sealed class DeathrollEngine : IGameEngine
 {
-    private const int StartCeiling = 1000;
+    private const int StartCeiling = 100;
     private const double PenaltyFactor = 0.8; // -20% per timeout step
 
     public string GameType => "deathroll";

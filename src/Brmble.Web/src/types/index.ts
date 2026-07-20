@@ -61,6 +61,8 @@ export interface ChatMessage {
   timestamp: Date;
   type?: 'system';
   systemType?: string;
+  /** For game feed messages (systemType 'game'): the game type, e.g. 'deathroll'. Selects the per-game avatar. */
+  gameType?: string;
   html?: boolean;
   media?: MediaAttachment[];
   pending?: boolean;

@@ -245,6 +245,16 @@ no longer posted to Matrix (the old `IGameAnnouncer`/`MatrixGameAnnouncer` path 
 Copy is emoji-led and playful: `⚔️` match start, `🎲` each roll / timeout, `💀` a losing
 roll, `🏳️` a forfeit. Keep new game feed copy in this style and compose it server-side.
 
+**Per-game avatar & sender.** Each `game.feed` payload carries a `gameType` (e.g. `deathroll`).
+App threads it as the message `gameType` (`ChatMessage.gameType`), and uses it to set the
+sender label to the game's display name (e.g. "Deathroll") instead of a generic "Game".
+`<Avatar gameType=…>` renders a per-game icon (`avatar--game` variant) via the `<Icon>`
+component instead of the Mumble/Brmble fallback. Game presentation (display name + icon) is
+centralized in `src/Brmble.Web/src/utils/games.ts`. **To add a future game (e.g. Rock Paper
+Scissors):** add its icon under the GAMES category in `Icon.tsx`, then add one entry to the
+`GAME_META` map in `games.ts` — the feed label and avatar update automatically, no other
+wiring needed.
+
 #### Games settings tab
 
 The **Games** settings tab (`GamesSettingsTab.tsx`) holds the server-backed "Block all
@@ -848,6 +858,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
+| **Games** | `game-deathroll` | Per-game avatars for the ephemeral minigame spectator feed (keyed by `gameType`; see `utils/games.ts`) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 

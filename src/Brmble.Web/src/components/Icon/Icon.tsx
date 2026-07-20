@@ -472,6 +472,27 @@ const iconPaths: Record<string, IconDef> = {
   'gotchi-cleanliness': {
     paths: <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />,
   },
+
+  // ╔══════════════════════════════════════════════════════════════════════╗
+  // ║  GAMES                                                              ║
+  // ║  Per-game avatars for the ephemeral minigame spectator feed.        ║
+  // ║  One icon per game type; keyed by the server's gameType string.     ║
+  // ╚══════════════════════════════════════════════════════════════════════╝
+
+  /* ── deathroll ───────────────────────────────────────── */
+
+  'game-deathroll': {
+    paths: (
+      <>
+        <rect width="12" height="12" x="2" y="10" rx="2" ry="2" />
+        <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6" />
+        <path d="M6 18h.01" />
+        <path d="M10 14h.01" />
+        <path d="M15 6h.01" />
+        <path d="M18 9h.01" />
+      </>
+    ),
+  },
 };
 
 // ── Exported type for autocompletion ──

@@ -967,6 +967,7 @@ const [replyState, setReplyState] = useState<{
                     timestamp={item.message.timestamp}
                     isOwnMessage={!item.message.type && item.message.sender === currentUsername}
                     isSystem={item.message.type === 'system'}
+                    gameType={item.message.gameType}
                     collapsed={!item.isGroupStart}
                     html={item.message.html}
                     media={item.message.media}

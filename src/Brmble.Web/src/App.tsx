@@ -67,6 +67,7 @@ import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
+import { gameDisplayName } from './utils/games';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1998,13 +1999,15 @@ function App() {
     // everyone in the match's channel; never persisted (systemType 'game' is in
     // EPHEMERAL_TYPES, so it is purged from localStorage and never sent to Matrix).
     const onGameFeed = ((data: unknown) => {
-      const d = data as { channelId?: number; text?: string } | undefined;
+      const d = data as { channelId?: number; text?: string; gameType?: string } | undefined;
       if (d?.channelId === undefined || !d.text) return;
       const channelId = String(d.channelId);
+      const gameType = d.gameType || undefined;
+      const sender = gameDisplayName(gameType);
       if (currentChannelIdRef.current === channelId) {
-        addMessageRef.current('Game', d.text, 'system', undefined, undefined, 'game');
+        addMessageRef.current(sender, d.text, 'system', undefined, undefined, 'game', gameType);
       } else {
-        addMessageToStore(`channel-${channelId}`, 'Game', d.text, 'system', undefined, undefined, 'game');
+        addMessageToStore(`channel-${channelId}`, sender, d.text, 'system', undefined, undefined, 'game', gameType);
       }
     });
 

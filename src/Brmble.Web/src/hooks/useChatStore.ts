@@ -188,6 +188,7 @@ export function useChatStore(channelId: string) {
     html?: boolean,
     media?: MediaAttachment[],
     systemType?: string,
+    gameType?: string,
   ) => {
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -197,6 +198,7 @@ export function useChatStore(channelId: string) {
       timestamp: new Date(),
       ...(type && { type }),
       ...(systemType && { systemType }),
+      ...(gameType && { gameType }),
       ...(html && { html }),
       ...(media && media.length > 0 && { media }),
     };
@@ -234,6 +236,7 @@ export function addMessageToStore(
   html?: boolean,
   media?: MediaAttachment[],
   systemType?: string,
+  gameType?: string,
 ) {
   const newMessage: ChatMessage = {
     id: crypto.randomUUID(),
@@ -243,6 +246,7 @@ export function addMessageToStore(
     timestamp: new Date(),
     ...(type && { type }),
     ...(systemType && { systemType }),
+    ...(gameType && { gameType }),
     ...(html && { html }),
     ...(media && media.length > 0 && { media }),
   };
