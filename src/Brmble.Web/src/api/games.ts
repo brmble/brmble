@@ -9,6 +9,10 @@ export interface GameStats {
   winRatio: number;
 }
 
+export interface GameSettings {
+  challengesBlocked: boolean;
+}
+
 function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
@@ -130,4 +134,62 @@ export async function getStats(
     throw new Error(response.statusText || `Request failed (${response.status}).`);
   }
   return response.json() as Promise<GameStats>;
+}
+
+export async function getGameSettings(): Promise<GameSettings> {
+  if (isWebViewBridgeAvailable()) {
+    const requestId = nextRequestId++;
+    return new Promise<GameSettings>((resolve, reject) => {
+      const cleanup = () => bridge.off('games.response', handleResponse);
+      const handleResponse = (data: unknown) => {
+        const response = data as { requestId?: number; success?: boolean; body?: string; statusCode?: number; error?: string };
+        if (response.requestId !== requestId) return;
+        cleanup();
+        if (response.success && response.body) {
+          resolve(JSON.parse(response.body) as GameSettings);
+          return;
+        }
+        reject(new Error(response.error || (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.')));
+      };
+      bridge.on('games.response', handleResponse);
+      bridge.send('games.request', { action: 'settings-get', requestId });
+    });
+  }
+
+  const response = await fetch('/games/settings');
+  if (!response.ok) {
+    throw new Error(response.statusText || `Request failed (${response.status}).`);
+  }
+  return response.json() as Promise<GameSettings>;
+}
+
+export async function setGameSettings(settings: GameSettings): Promise<GameSettings> {
+  if (isWebViewBridgeAvailable()) {
+    const requestId = nextRequestId++;
+    return new Promise<GameSettings>((resolve, reject) => {
+      const cleanup = () => bridge.off('games.response', handleResponse);
+      const handleResponse = (data: unknown) => {
+        const response = data as { requestId?: number; success?: boolean; body?: string; statusCode?: number; error?: string };
+        if (response.requestId !== requestId) return;
+        cleanup();
+        if (response.success && response.body) {
+          resolve(JSON.parse(response.body) as GameSettings);
+          return;
+        }
+        reject(new Error(response.error || (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.')));
+      };
+      bridge.on('games.response', handleResponse);
+      bridge.send('games.request', { action: 'settings-set', requestId, challengesBlocked: settings.challengesBlocked });
+    });
+  }
+
+  const response = await fetch('/games/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    throw new Error(response.statusText || `Request failed (${response.status}).`);
+  }
+  return response.json() as Promise<GameSettings>;
 }
