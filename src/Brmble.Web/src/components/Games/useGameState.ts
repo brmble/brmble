@@ -33,6 +33,13 @@ export interface EndedMatch {
   winnerId?: number;
 }
 
+export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked';
+
+export interface InviteOutcome {
+  kind: InviteOutcomeKind;
+  targetSession: number | null;
+}
+
 export interface GameState {
   incomingInvite: IncomingInvite | null;
   activeMatch: ActiveMatch | null;
@@ -44,6 +51,9 @@ export interface GameState {
   turnWindowMs: number;
   /** True while the match is in escalation (timeout penalty) mode. */
   penalty: boolean;
+  /** Challenger-facing result of the last outgoing invite; null when none. */
+  inviteOutcome: InviteOutcome | null;
+  clearInviteOutcome: () => void;
   invite: (targetUserId: number) => void;
   acceptInvite: () => void;
   declineInvite: () => void;
@@ -80,6 +90,8 @@ export function useGameState(myUserId: number): GameState {
   const [turnDeadline, setTurnDeadline] = useState<number | null>(null);
   const [turnWindowMs, setTurnWindowMs] = useState<number>(DEFAULT_TURN_MS);
   const [penalty, setPenalty] = useState<boolean>(false);
+  const [inviteOutcome, setInviteOutcome] = useState<InviteOutcome | null>(null);
+  const outgoingInviteRef = useRef<{ targetSession: number } | null>(null);
 
   // Refs so bridge handlers (registered once) can read current values.
   const myUserIdRef = useRef(myUserId);
@@ -109,6 +121,7 @@ export function useGameState(myUserId: number): GameState {
       setTurnWindowMs(windowMs);
       setPenalty(false);
       setTurnDeadline(Date.now() + windowMs);
+      outgoingInviteRef.current = null;
     };
 
     const handleStateUpdated = (data: unknown) => {
@@ -140,12 +153,24 @@ export function useGameState(myUserId: number): GameState {
       setPenalty(false);
     };
 
-    const handleDeclined = () => {
-      setIncomingInvite(null);
+    const resolveOutgoing = (kind: InviteOutcomeKind) => {
+      const out = outgoingInviteRef.current;
+      // Recipient side: an incoming invite was open -> just clear it, no outcome.
+      if (incomingInviteRef.current) {
+        setIncomingInvite(null);
+      }
+      // Challenger side: we had an outgoing invite -> show the outcome.
+      if (out) {
+        setInviteOutcome({ kind, targetSession: out.targetSession });
+        outgoingInviteRef.current = null;
+      }
       setActiveMatch(null);
       setTurnDeadline(null);
       setPenalty(false);
     };
+
+    const handleDeclined = () => resolveOutgoing('declined');
+    const handleExpired = () => resolveOutgoing('expired');
 
     const handleActionRejected = (data: unknown) => {
       const d = data as { reason?: string };
@@ -162,6 +187,7 @@ export function useGameState(myUserId: number): GameState {
     bridge.on('game.stateUpdated', handleStateUpdated);
     bridge.on('game.ended', handleEnded);
     bridge.on('game.declined', handleDeclined);
+    bridge.on('game.expired', handleExpired);
     bridge.on('game.actionRejected', handleActionRejected);
     bridge.on('game.error', handleError);
 
@@ -171,14 +197,25 @@ export function useGameState(myUserId: number): GameState {
       bridge.off('game.stateUpdated', handleStateUpdated);
       bridge.off('game.ended', handleEnded);
       bridge.off('game.declined', handleDeclined);
+      bridge.off('game.expired', handleExpired);
       bridge.off('game.actionRejected', handleActionRejected);
       bridge.off('game.error', handleError);
     };
   }, []);
 
   const invite = useCallback((targetUserId: number) => {
+    outgoingInviteRef.current = { targetSession: targetUserId };
+    setInviteOutcome(null);
     gamesApi.invite(targetUserId, 'deathroll').catch(e => {
-      setLastError(e instanceof Error ? e.message : 'Failed to send invite.');
+      // A blocked target comes back as a rejected invite; surface it as an outcome.
+      const msg = e instanceof Error ? e.message : 'Failed to send invite.';
+      if (/isn't accepting challenges/i.test(msg)) {
+        setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current?.targetSession ?? null });
+        outgoingInviteRef.current = null;
+      } else {
+        setLastError(msg);
+        outgoingInviteRef.current = null;
+      }
     });
   }, []);
 
@@ -217,6 +254,7 @@ export function useGameState(myUserId: number): GameState {
 
   const dismissEnded = useCallback(() => setEnded(null), []);
   const clearError = useCallback(() => setLastError(null), []);
+  const clearInviteOutcome = useCallback(() => setInviteOutcome(null), []);
 
   return {
     incomingInvite,
@@ -227,6 +265,8 @@ export function useGameState(myUserId: number): GameState {
     turnDeadline,
     turnWindowMs,
     penalty,
+    inviteOutcome,
+    clearInviteOutcome,
     invite,
     acceptInvite,
     declineInvite,
