@@ -36,9 +36,16 @@ namespace MumbleSharp
             return buffer;
         }
 
-        public long ReadVarInt64()
+        public long ReadVarInt64() => ReadVarInt64(0);
+
+        private long ReadVarInt64(int depth)
         {
-            //My implementation, neater (imo) but broken
+            // The 0xF8 (negative-recursive) prefix nests another varint. A real
+            // encoder emits it at most once; unbounded recursion on a network
+            // packet full of 0xF8 bytes would exhaust the stack.
+            if (depth > 4)
+                throw new InvalidDataException("Varint recursion too deep");
+
             byte b = ReadByte();
             int leadingOnes = LeadingOnes(b);
             switch (leadingOnes)
@@ -74,7 +81,7 @@ namespace MumbleSharp
                     }
                 case 5:
                     //111110 + varint (negative)
-                    return ~ReadVarInt64();
+                    return ~ReadVarInt64(depth + 1);
                 case 6:
                 case 7:
                 case 8:

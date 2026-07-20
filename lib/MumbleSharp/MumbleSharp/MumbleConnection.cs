@@ -308,6 +308,7 @@ namespace MumbleSharp
                 }
             }
             catch (IOException) { /* malformed echo payload — liveness already noted */ }
+            catch (InvalidDataException) { /* invalid varint in echo payload */ }
         }
 
         private void UnpackVoicePacket(byte[] packet, int type)
