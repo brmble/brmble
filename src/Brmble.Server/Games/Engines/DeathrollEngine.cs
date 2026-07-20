@@ -18,12 +18,31 @@ public sealed class DeathrollEngine : IGameEngine
         public int Ceiling = StartCeiling;
         public int? LastRoll;
         public long? LoserId;
+        public int StartingCeiling = StartCeiling;
+        public int TotalRolls;
+        public readonly Dictionary<long, PlayerLuck> Luck = new();
+    }
+
+    private sealed class PlayerLuck
+    {
+        public int Rolls;
+        public int AboveMid;
+        public int BelowMid;
+        public double RatioSum;
     }
 
     public object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng)
     {
         if (players.Count != 2) throw new InvalidGameActionException("Deathroll requires exactly 2 players.");
-        return new State { Players = new[] { players[0].UserId, players[1].UserId } };
+        return new State
+        {
+            Players = new[] { players[0].UserId, players[1].UserId },
+            Luck =
+            {
+                [players[0].UserId] = new PlayerLuck(),
+                [players[1].UserId] = new PlayerLuck(),
+            },
+        };
     }
 
     public bool IsUsersTurn(object state, long userId)
@@ -71,6 +90,12 @@ public sealed class DeathrollEngine : IGameEngine
     private static IReadOnlyList<GameEvent> DoRoll(State s, long userId, IRandomSource rng)
     {
         var value = rng.Roll(s.Ceiling);
+        var top = s.Ceiling;
+        var luck = s.Luck[userId];
+        luck.Rolls++;
+        s.TotalRolls++;
+        if (value > top / 2.0) luck.AboveMid++; else luck.BelowMid++;
+        luck.RatioSum += (double)value / top;
         s.LastRoll = value;
         var events = new List<GameEvent> { Event("roll", ("userId", userId), ("value", value), ("ceiling", s.Ceiling)) };
 
@@ -112,6 +137,30 @@ public sealed class DeathrollEngine : IGameEngine
             lastRoll = s.LastRoll,
             finished = s.LoserId is not null,
             loserId = s.LoserId,
+        };
+    }
+
+    public object? MatchSummary(object state)
+    {
+        var s = (State)state;
+        return new
+        {
+            startingCeiling = s.StartingCeiling,
+            totalRolls = s.TotalRolls,
+            finalRoll = s.LoserId is not null ? s.LastRoll : (int?)null,
+        };
+    }
+
+    public object? ParticipantStats(object state, long userId)
+    {
+        var s = (State)state;
+        if (!s.Luck.TryGetValue(userId, out var luck)) return null;
+        return new
+        {
+            rolls = luck.Rolls,
+            rollsAboveMid = luck.AboveMid,
+            rollsBelowMid = luck.BelowMid,
+            avgRollRatio = luck.Rolls == 0 ? 0.0 : luck.RatioSum / luck.Rolls,
         };
     }
 

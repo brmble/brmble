@@ -37,6 +37,14 @@ public interface IGameEngine
 
     // Per-player public view (hide opponent secrets). For Deathroll everything is public.
     object PublicView(object state, long forUserId);
+
+    // Game-specific match-level summary for persistence (metadata_json.summary).
+    // Returns null when the game has no summary. Default: none.
+    object? MatchSummary(object state) => null;
+
+    // Game-specific per-player stats for persistence (metadata_json[gameType]).
+    // Returns null when the game has none. Default: none.
+    object? ParticipantStats(object state, long userId) => null;
 }
 
 public sealed class InvalidGameActionException : Exception
