@@ -226,6 +226,45 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         };
     }
 
+    // Baseline for the server's cumulative crypt receive counters (client→server
+    // direction), reported back in every TCP Ping reply. Deltas between replies
+    // give the outbound packet loss the encoder's FEC should protect against.
+    private uint _pingGoodBase, _pingLateBase, _pingLostBase;
+    private bool _hasPingBase;
+
+    /// <summary>
+    /// Ping reply from the server. Murmur fills good/late/lost with its own
+    /// crypt receive counters for this client, so the lost delta measures
+    /// outbound voice loss — fed to the Opus encoder for adaptive FEC (#596).
+    /// </summary>
+    public override void Ping(Ping ping)
+    {
+        base.Ping(ping);
+        if (!ping.ShouldSerializeGood() && !ping.ShouldSerializeLate() && !ping.ShouldSerializeLost())
+            return;
+        int? loss = ComputeOutboundLossPercent(ping.Good, ping.Late, ping.Lost,
+            ref _pingGoodBase, ref _pingLateBase, ref _pingLostBase, ref _hasPingBase);
+        if (loss is int pct)
+            _audioManager?.UpdatePacketLoss(pct);
+    }
+
+    internal static int? ComputeOutboundLossPercent(uint good, uint late, uint lost,
+        ref uint goodBase, ref uint lateBase, ref uint lostBase, ref bool hasBase)
+    {
+        // First sample, or counter regression (reconnect / server restart): re-baseline.
+        if (!hasBase || good < goodBase || late < lateBase || lost < lostBase)
+        {
+            goodBase = good; lateBase = late; lostBase = lost; hasBase = true;
+            return null;
+        }
+        uint dGood = good - goodBase, dLate = late - lateBase, dLost = lost - lostBase;
+        goodBase = good; lateBase = late; lostBase = lost;
+        uint total = dGood + dLate + dLost;
+        if (total == 0)
+            return null; // nothing sent since the last ping (mic idle)
+        return (int)(dLost * 100 / total);
+    }
+
     /// <summary>
     /// Dispatches a shortcut action when its key is released. Previously lived
     /// in AudioManager; moved here as part of Task 13 (InputRouter ownership).
