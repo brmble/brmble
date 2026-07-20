@@ -240,7 +240,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void Ping(Ping ping)
     {
         base.Ping(ping);
-        if (!ping.ShouldSerializeGood() && !ping.ShouldSerializeLate() && !ping.ShouldSerializeLost())
+        // All three counters must be present: absent optional fields read as 0
+        // and would fake a counter regression or a bogus loss figure.
+        if (!ping.ShouldSerializeGood() || !ping.ShouldSerializeLate() || !ping.ShouldSerializeLost())
             return;
         int? loss = ComputeOutboundLossPercent(ping.Good, ping.Late, ping.Lost,
             ref _pingGoodBase, ref _pingLateBase, ref _pingLostBase, ref _hasPingBase);
@@ -252,17 +254,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         ref uint goodBase, ref uint lateBase, ref uint lostBase, ref bool hasBase)
     {
         // First sample, or counter regression (reconnect / server restart): re-baseline.
+        // Note: lost legitimately decreases when a late packet arrives (late = -1 lost
+        // in Murmur's CryptState); that just costs one skipped sample here.
         if (!hasBase || good < goodBase || late < lateBase || lost < lostBase)
         {
             goodBase = good; lateBase = late; lostBase = lost; hasBase = true;
             return null;
         }
-        uint dGood = good - goodBase, dLate = late - lateBase, dLost = lost - lostBase;
+        uint dGood = good - goodBase, dLost = lost - lostBase;
         goodBase = good; lateBase = late; lostBase = lost;
-        uint total = dGood + dLate + dLost;
-        if (total == 0)
-            return null; // nothing sent since the last ping (mic idle)
-        return (int)(dLost * 100 / total);
+        // Good already includes late packets (CryptState increments Good for every
+        // accepted packet), so the denominator is delivered + lost — not + late.
+        uint total = dGood + dLost;
+        // Ping keepalives keep the counters moving even when the mic is idle,
+        // so total is rarely 0. Require a real sample: at ~50 voice packets/s,
+        // fewer than 10 packets per interval means silence (only pings), where
+        // one dropped ping would otherwise spike the estimate to 50-100%.
+        if (total < 10)
+            return null;
+        return (int)(dLost * 100UL / total);
     }
 
     /// <summary>

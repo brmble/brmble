@@ -35,6 +35,15 @@ public class MumbleAdapterLossTests
     }
 
     [TestMethod]
+    public void PingOnlyTraffic_ReturnsNull()
+    {
+        // Mic idle: only UDP keepalive pings moved the counters (~2 per interval).
+        // One lost ping among those must not spike the loss estimate.
+        Update(100, 0, 0);
+        Assert.IsNull(Update(102, 0, 1), "Fewer than 10 packets is not a usable sample");
+    }
+
+    [TestMethod]
     public void CounterRegression_Rebaselines()
     {
         Update(100, 0, 5);
@@ -45,10 +54,11 @@ public class MumbleAdapterLossTests
     }
 
     [TestMethod]
-    public void LateCountsAsDelivered()
+    public void LateIsNotDoubleCounted()
     {
         Update(0, 0, 0);
-        // 50 good + 30 late + 20 lost → 20% loss
-        Assert.AreEqual(20, Update(50, 30, 20));
+        // Good already includes the 30 late packets, so 50 delivered + 20 lost
+        // → 20/70 ≈ 28%, not 20/100.
+        Assert.AreEqual(28, Update(50, 30, 20));
     }
 }
