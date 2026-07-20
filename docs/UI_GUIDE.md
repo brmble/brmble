@@ -198,9 +198,35 @@ invite (`onDismiss` → decline). Do not add a separate "Decline" text button �
 decline affordance, per the Notification rules. Register the invite under a stable queue id
 (`game-invite`) and unregister it from `onExited`.
 
+The invite notification uses `duration={null}` — it has NO client auto-dismiss timer and
+does NOT extend on hover. The server owns the 30s invite window and removes the invite by
+emitting `game.expired` at timeout (distinct from `game.declined` when the recipient presses
+`×`). Do not re-add a client-side timer to this notification.
+
 The per-user "Challenge to Deathroll" entry point is a `ContextMenu` item on the user row
 (same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
 shares the local user's voice channel.
+
+#### Challenger invite-outcome notifications
+
+The challenger (not the recipient) sees exactly one of three replaceable `info` notifications
+under the queue id `game-outcome`, driven by `useGameState.inviteOutcome`:
+
+- **"Challenge declined"** — recipient pressed `×` (`game.declined`).
+- **"No response"** — the 30s invite window expired with no answer (`game.expired`).
+- **"Challenge blocked"** — recipient has "Block all challenges" enabled (the invite request
+  is rejected server-side with the message `"This player isn't accepting challenges."`).
+
+Because it is a generated/replaceable id, the App effect unregisters `game-outcome` before
+re-registering it so only one outcome shows at a time (covered by the repeated-event test in
+`hooks/useNotificationQueue.test.ts`). These use the default `info` 5s auto-dismiss.
+
+#### Games settings tab
+
+The **Games** settings tab (`GamesSettingsTab.tsx`) holds the server-backed "Block all
+challenges" toggle and the (relocated) Deathroll stats. Deathroll stats are no longer shown in
+the Profile tab. The toggle uses the standard `settings-item settings-toggle` + `brmble-toggle`
+markup and persists via `getGameSettings`/`setGameSettings` (server-authoritative).
 
 
 ### Settings Tab Pattern
