@@ -165,5 +165,11 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='companion_id'");
         if (hasCompanionId == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN companion_id TEXT DEFAULT 'floppy'");
+
+        // Migrate: add challenges_blocked column (server-authoritative game invite block)
+        var hasChallengesBlocked = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='challenges_blocked'");
+        if (hasChallengesBlocked == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN challenges_blocked INTEGER NOT NULL DEFAULT 0");
     }
 }
