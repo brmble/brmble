@@ -330,6 +330,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // stale state if a previous connection dropped before ServerSync.
         _isReconnect = false;
 
+        // New connection = new server crypt counters; a delta spanning two
+        // connections would be meaningless.
+        _hasPingBase = false;
+
         if (apiUrl is not null)
             _apiUrl = apiUrl;
 
