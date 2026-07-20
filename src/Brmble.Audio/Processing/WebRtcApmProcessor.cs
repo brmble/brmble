@@ -144,7 +144,7 @@ public sealed class WebRtcApmProcessor : IDisposable
         float gain = OutputGain;
         for (int i = 0; i < FrameSamples; i++)
         {
-            int s = (int)MathF.Round(SoftLimit(outFloat[i] * gain) * 32767f);
+            int s = (int)MathF.Round(SoftLimit(outFloat[i] * gain) * 32768f);
             if (s > short.MaxValue) s = short.MaxValue;
             else if (s < short.MinValue) s = short.MinValue;
             outPcm16[i * 2] = (byte)(s & 0xFF);
