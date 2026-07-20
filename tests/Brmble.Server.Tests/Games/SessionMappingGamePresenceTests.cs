@@ -24,6 +24,7 @@ file sealed class FakeSessionMapping : ISessionMappingService
     public bool TryGetMappingByUserId(long userId, out int sessionId, out SessionMapping? mapping) => throw new NotImplementedException();
     public bool TryUpdateCompanionId(int sessionId, string companionId) => throw new NotImplementedException();
     public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient) => throw new NotImplementedException();
+    public bool TryUpdateCertHash(int sessionId, string certHash) => throw new NotImplementedException();
 }
 
 file sealed class FakeChannelMembership : IChannelMembershipService

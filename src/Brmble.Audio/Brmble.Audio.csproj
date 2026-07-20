@@ -6,6 +6,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Brmble.Audio.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="SoundFlow.Extensions.WebRtc.Apm" Version="1.4.0" />
   </ItemGroup>

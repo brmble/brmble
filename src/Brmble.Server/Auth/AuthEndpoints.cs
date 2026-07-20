@@ -88,6 +88,7 @@ public static class AuthEndpoints
                 var companionId = await userRepository.GetCompanionId(result.UserId);
                 if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId, companionId))
                 {
+                    sessionMapping.TryUpdateCertHash(sid, certHash);
                     // This user just authenticated via Brmble, so mark them as a Brmble client
                     // immediately. Authenticate() may have failed to update the mapping if
                     // TryAddMatrixUser hadn't been called yet (race with SessionMappingHandler).
@@ -99,6 +100,7 @@ public static class AuthEndpoints
                         matrixUserId = result.MatrixUserId,
                         mumbleName = resolvedName,
                         companionId,
+                        certHash,
                         isBrmbleClient = true
                     });
                 }
@@ -108,6 +110,7 @@ public static class AuthEndpoints
                     // Ensure Brmble status is up to date — Authenticate() sets _activeSessions
                     // but TryUpdateBrmbleStatus may not have been called if the mapping
                     // was created before auth completed.
+                    sessionMapping.TryUpdateCertHash(sid, certHash);
                     sessionMapping.TryUpdateBrmbleStatus(sid, true);
                 }
             }
@@ -173,6 +176,7 @@ public static class AuthEndpoints
                             matrixUserId = kvp.Value.MatrixUserId,
                             mumbleName = kvp.Value.MumbleName,
                             companionId = kvp.Value.CompanionId,
+                            certHash = kvp.Value.CertHash,
                             isBrmbleClient = kvp.Value.IsBrmbleClient
                         }),
                 registered = result.IsRegistered,

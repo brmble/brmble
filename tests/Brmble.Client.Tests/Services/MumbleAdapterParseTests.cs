@@ -288,6 +288,26 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
 public class MumbleAdapterParseTests
 {
     [TestMethod]
+    public void ParseSessionMappings_PreservesCertHash()
+    {
+        using var doc = JsonDocument.Parse("""
+        {
+            "42": {
+                "matrixUserId": "@mjg:example.com",
+                "mumbleName": "MJG",
+                "companionId": "bee",
+                "isBrmbleClient": false,
+                "certHash": "cert-mjg"
+            }
+        }
+        """);
+
+        var mappings = MumbleAdapter.ParseSessionMappings(doc.RootElement);
+
+        Assert.AreEqual("cert-mjg", mappings[42].CertHash);
+    }
+
+    [TestMethod]
     public void ServerSync_JoinsReconnectTargetAfterAuthenticateTokensApply()
     {
         var bridge = NativeBridgeTestHarness.Create();

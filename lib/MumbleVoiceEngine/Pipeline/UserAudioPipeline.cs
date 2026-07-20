@@ -76,7 +76,11 @@ public class UserAudioPipeline : IWaveProvider, IDisposable
     {
         if (current <= last)
             return 0;
-        return current - last - 1;
+        // Mumble sequence numbers count 10ms units, so the expected stride
+        // between consecutive packets is the previous packet's duration in
+        // those units (2 for a 20ms frame) — not 1.
+        long lastDurationUnits = Math.Max(1, _lastDecodedSamples / (_sampleRate / 100));
+        return Math.Max(0, current - last - lastDurationUnits);
     }
 
     private void GeneratePLC(int frames, int sampleCount)

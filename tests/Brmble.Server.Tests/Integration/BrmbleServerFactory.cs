@@ -56,6 +56,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             .Returns((int sessionId, bool isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
+        SessionMappingMock.Setup(s => s.TryUpdateCertHash(It.IsAny<int>(), It.IsAny<string>()))
+            .Returns((int sessionId, string certHash) => defaultSessionMapping.TryUpdateCertHash(sessionId, certHash));
         SessionMappingMock.Setup(s => s.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny))
             .Returns((string mumbleName, out int sessionId) => defaultSessionMapping.TryGetSessionId(mumbleName, out sessionId));
         SessionMappingMock.Setup(s => s.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))

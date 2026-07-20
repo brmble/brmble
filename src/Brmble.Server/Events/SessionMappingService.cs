@@ -100,6 +100,17 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
+    public bool TryUpdateCertHash(int sessionId, string certHash)
+    {
+        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            _sessionToMapping[sessionId] = existing with { CertHash = certHash };
+            return true;
+        }
+
+        return false;
+    }
+
     public IReadOnlyDictionary<int, SessionMapping> GetSnapshot()
     {
         return new Dictionary<int, SessionMapping>(_sessionToMapping);

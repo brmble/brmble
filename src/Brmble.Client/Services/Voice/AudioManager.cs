@@ -146,8 +146,6 @@ internal sealed class AudioManager : IDisposable
     private volatile bool _pttActive;
     private System.Threading.Timer? _pttSilenceTailTimer;
     private int _pttSilenceTailGeneration; // incremented each time the timer is cancelled/replaced
-    private long _pttLastToggleMs;
-    private const int MinPttToggleThresholdMs = 100; // debounce to prevent WASAPI stress
 
     // Speaking detection (polls per-user JitterBuffer.IsSpeaking directly)
     private readonly HashSet<uint> _currentlySpeaking = new();
@@ -202,7 +200,10 @@ internal sealed class AudioManager : IDisposable
         public int LostUnits;
     }
 
-    // Device→48kHz resampler (r8brain)
+    // Device→48kHz resampler (r8brain). _resamplerLock serializes the native
+    // handle between the capture thread (Process) and stop/dispose paths
+    // (Clear/Dispose) — StopRecording() doesn't wait for the capture thread.
+    private readonly object _resamplerLock = new();
     private R8BrainResampler? _deviceResampler;
     private int _deviceSampleRate;
     private int _deviceMaxInLen;
@@ -245,7 +246,28 @@ internal sealed class AudioManager : IDisposable
     public void ResetLossStats()
     {
         _smoothedLoss = -1;
+        lock (_lock)
+        {
+            _outboundLossPercent = -1;
+        }
         OnLossReport?.Invoke(null);
+    }
+
+    // Last observed outbound loss percent (server ping crypt stats); -1 = no data yet.
+    private int _outboundLossPercent = -1;
+
+    /// <summary>
+    /// Feed observed outbound packet loss to the Opus encoder so FEC redundancy
+    /// scales with actual network conditions (#596). Survives pipeline recreation.
+    /// </summary>
+    public void UpdatePacketLoss(int lossPercent)
+    {
+        lossPercent = Math.Clamp(lossPercent, 0, 100);
+        lock (_lock)
+        {
+            _outboundLossPercent = lossPercent;
+            _encodePipeline?.UpdatePacketLoss(lossPercent);
+        }
     }
 
     // Allowed Opus bitrates (bps). Must match the UI options in AudioSettingsTab.tsx.
@@ -327,6 +349,8 @@ internal sealed class AudioManager : IDisposable
                 dtx: _dtxEnabled,
                 initialSequence: seq);
             _encodePipeline.SetVolume(_inputVolume);
+            if (_outboundLossPercent >= 0)
+                _encodePipeline.UpdatePacketLoss(_outboundLossPercent);
         }
     }
 
@@ -659,7 +683,16 @@ internal sealed class AudioManager : IDisposable
             if (_waveIn is WasapiCapture recheck &&
                 recheck.CaptureState != NAudio.CoreAudioApi.CaptureState.Stopped)
             {
+                // Another start may have won the race while we were unlocked;
+                // if the capture is actively recording, the mic is live and
+                // _micStarted is correct — don't clear it.
+                if (recheck.CaptureState == NAudio.CoreAudioApi.CaptureState.Capturing)
+                    return;
+
                 AudioLog.Write($"[Audio] WASAPI capture still stopping after wait, skipping StartRecording");
+                // Recording never started: clear _micStarted so the next
+                // StartMic retries instead of no-opping against a dead mic.
+                _micStarted = false;
                 return;
             }
         }
@@ -702,8 +735,14 @@ internal sealed class AudioManager : IDisposable
         }
         _encodePipeline?.Dispose();
         _encodePipeline = null;
-        _deviceResampler?.Dispose();
-        _deviceResampler = null;
+        // Keep the resampler instance across transmissions (recreating it per
+        // PTT press re-primes its FIR filter, clipping the start of speech);
+        // just reset its internal state so no stale tail leaks into the next one.
+        try { lock (_resamplerLock) { _deviceResampler?.Clear(); } }
+        catch (Exception ex) { AudioLog.Write($"[Audio] Resampler clear failed: {ex.Message}"); }
+        // Same for the APM: drop its buffered sub-frame leftover so the stale
+        // tail of this transmission is not prepended to the next one.
+        lock (_processorLock) { _processor?.Reset(); }
         _micStarted = false;
         uint capturedUserId = _localUserId;
         bool wasSpeaking = capturedUserId != 0 && _currentlySpeaking.Remove(capturedUserId);
@@ -716,6 +755,7 @@ internal sealed class AudioManager : IDisposable
     [ThreadStatic] private static float[]? _wasapiMonoScratch;
     [ThreadStatic] private static byte[]? _wasapiInt16Scratch;
     [ThreadStatic] private static double[]? _resampleDoubleScratch;
+    [ThreadStatic] private static float[]? _resampleOutScratch;
     [ThreadStatic] private static bool _threadPriorityBoosted;
 
     private void OnMicData(object? sender, WaveInEventArgs e)
@@ -767,31 +807,61 @@ internal sealed class AudioManager : IDisposable
             int srcRate = fmt.SampleRate;
             if (srcRate != 48000)
             {
-                // Create or recreate r8brain resampler if device rate changed or buffer exceeds maxInLen
-                if (_deviceResampler == null || _deviceSampleRate != srcRate || monoFrames > _deviceMaxInLen)
+                // Create the resampler once per device rate with 100ms of input
+                // headroom. Recreating it mid-stream (as the old size-based
+                // condition did when WASAPI callbacks coalesced under load)
+                // drops the samples buffered in its FIR state and re-primes,
+                // splicing an audible gap into the outgoing stream.
+                // Hold _resamplerLock across create/process: StopRecording()
+                // doesn't wait for the capture thread, so StopMicLocked's
+                // Clear() (and Dispose) can otherwise race a Process() still
+                // running here on the native handle.
+                int totalOut = 0;
+                lock (_resamplerLock)
                 {
-                    _deviceResampler?.Dispose();
-                    _deviceSampleRate = srcRate;
-                    _deviceMaxInLen = monoFrames;
-                    _deviceResampler = new R8BrainResampler(srcRate, 48000, monoFrames);
+                    if (_deviceResampler == null || _deviceSampleRate != srcRate)
+                    {
+                        _deviceResampler?.Dispose();
+                        _deviceSampleRate = srcRate;
+                        _deviceMaxInLen = Math.Max(srcRate / 10, monoFrames);
+                        _deviceResampler = new R8BrainResampler(srcRate, 48000, _deviceMaxInLen);
+                    }
+
+                    // Process in chunks of at most maxInLen; larger-than-headroom
+                    // callbacks are handled without touching the resampler state.
+                    int processedFrames = 0;
+                    while (processedFrames < monoFrames)
+                    {
+                        int chunk = Math.Min(_deviceMaxInLen, monoFrames - processedFrames);
+                        if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < chunk)
+                            _resampleDoubleScratch = new double[chunk];
+                        for (int i = 0; i < chunk; i++)
+                            _resampleDoubleScratch[i] = _wasapiMonoScratch[processedFrames + i];
+
+                        int outSamples = _deviceResampler.Process(_resampleDoubleScratch, chunk, out double[] resampledDouble);
+
+                        // Accumulate into a separate output scratch; the mono scratch
+                        // still holds unprocessed input for subsequent chunks.
+                        if (_resampleOutScratch == null || _resampleOutScratch.Length < totalOut + outSamples)
+                        {
+                            // Amortized doubling: converges to the steady-state
+                            // size after the first few callbacks instead of
+                            // reallocating per chunk on a large callback.
+                            int newCap = Math.Max(totalOut + outSamples, (_resampleOutScratch?.Length ?? 0) * 2);
+                            var grown = new float[newCap];
+                            if (_resampleOutScratch != null)
+                                Array.Copy(_resampleOutScratch, grown, totalOut);
+                            _resampleOutScratch = grown;
+                        }
+                        for (int i = 0; i < outSamples; i++)
+                            _resampleOutScratch[totalOut + i] = (float)resampledDouble[i];
+                        totalOut += outSamples;
+                        processedFrames += chunk;
+                    }
                 }
 
-                // Convert float→double for r8brain
-                if (_resampleDoubleScratch == null || _resampleDoubleScratch.Length < monoFrames)
-                    _resampleDoubleScratch = new double[monoFrames];
-                for (int i = 0; i < monoFrames; i++)
-                    _resampleDoubleScratch[i] = _wasapiMonoScratch[i];
-
-                int outSamples = _deviceResampler.Process(_resampleDoubleScratch, out double[] resampledDouble);
-
-                // Reuse mono scratch buffer for float conversion
-                if (_wasapiMonoScratch == null || _wasapiMonoScratch.Length < outSamples)
-                    _wasapiMonoScratch = new float[outSamples];
-                for (int i = 0; i < outSamples; i++)
-                    _wasapiMonoScratch[i] = (float)resampledDouble[i];
-
-                monoAt48k = _wasapiMonoScratch;
-                monoFrames = outSamples;
+                monoAt48k = _resampleOutScratch ?? Array.Empty<float>();
+                monoFrames = totalOut;
             }
             else
             {
@@ -953,7 +1023,18 @@ internal sealed class AudioManager : IDisposable
         // Software gate: for PTT+, send audio to the server only when PTT is active
         if (shouldSubmitPcm)
         {
-            pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+            try
+            {
+                pipeline?.SubmitPcm(new ReadOnlySpan<byte>(processedBuffer, 0, processedBytes));
+            }
+            catch (Exception ex)
+            {
+                // The pipeline can be disposed by a concurrent settings change,
+                // and the packet callback runs the network send. An unhandled
+                // exception here kills the NAudio capture thread and silently
+                // deadens the mic — drop the frame instead.
+                AudioLog.Write($"[Audio] SubmitPcm failed, dropping frame: {ex}");
+            }
         }
         // else: encoded audio is ignored (the encoder keeps running)
     }
@@ -1181,6 +1262,13 @@ internal sealed class AudioManager : IDisposable
         _pttActive = false;
         _transmissionMode = mode;
 
+        // A pending PTT silence tail belongs to the previous mode; cancel it
+        // (and advance the generation for an already-fired callback) so it
+        // cannot stop the mic the new mode is about to start.
+        _pttSilenceTailTimer?.Dispose();
+        _pttSilenceTailTimer = null;
+        Interlocked.Increment(ref _pttSilenceTailGeneration);
+
         // For PTT, start with mic off until key pressed
         if (mode == TransmissionMode.PushToTalk)
             StopMic();
@@ -1203,28 +1291,22 @@ internal sealed class AudioManager : IDisposable
     private void SetPttActive(bool active)
     {
         bool startMic = false;
-        bool scheduleSilenceTail = false;
-        int silenceTailGeneration = 0;
-        int holdMs = 200;
         bool fireSpeakingEvent = false;
         bool fireSilentEvent = false;
 
         lock (_lock)
         {
-            long now = Environment.TickCount64;
-
-            // Debounce: Ignore rapid activations to prevent WASAPI stress and socket buffer exhaustion,
-            // but never drop a deactivation. Releasing PTT must always clear _pttActive and
-            // schedule the silence tail so the mic cannot be left running.
-            if (active && now - _pttLastToggleMs < MinPttToggleThresholdMs)
-                return;
-
-            // Coalesce: If state hasn't changed, do nothing
+            // Coalesce: If state hasn't changed, do nothing. Note there is
+            // deliberately no press-debounce here: the coalesce already absorbs
+            // repeated same-state events, so a debounce could only ever drop a
+            // press-after-release — leaving the user holding a dead key while
+            // the release's silence tail stops the mic under them. Rapid
+            // press/release cycles don't stress WASAPI either way, because the
+            // silence tail keeps the mic running between them.
             if (_pttActive == active)
                 return;
 
             AudioLog.Write($"[Audio] SetPttActive: active={active}, muted={_muted}");
-            _pttLastToggleMs = now;
             _pttActive = active;
 
             if (active && !_muted && _transmissionMode != TransmissionMode.PushToTalkPlus)
@@ -1269,10 +1351,14 @@ internal sealed class AudioManager : IDisposable
                 }
                 else
                 {
-                    // For regular PTT, schedule the silence tail after the hold delay
-                    silenceTailGeneration = Interlocked.Increment(ref _pttSilenceTailGeneration);
-                    scheduleSilenceTail = true;
-                    holdMs = _voiceHoldMs;
+                    // For regular PTT, schedule the silence tail after the hold
+                    // delay. Create the timer while still holding the lock so a
+                    // re-press can never interleave between scheduling decision
+                    // and timer assignment.
+                    int generation = Interlocked.Increment(ref _pttSilenceTailGeneration);
+                    _pttSilenceTailTimer = new System.Threading.Timer(
+                        _ => SilenceTailElapsed(generation), null,
+                        dueTime: _voiceHoldMs, period: Timeout.Infinite);
                 }
             }
             // else: active but muted - do nothing
@@ -1295,20 +1381,24 @@ internal sealed class AudioManager : IDisposable
             UserStoppedSpeaking?.Invoke(_localUserId);
         }
 
-        // Schedule silence tail outside the lock
-        if (scheduleSilenceTail)
+    }
+
+    private void SilenceTailElapsed(int generation)
+    {
+        bool wasSpeaking;
+        uint capturedUserId;
+        lock (_lock)
         {
-            int generation = silenceTailGeneration;
-            _pttSilenceTailTimer = new System.Threading.Timer(_ =>
-            {
-                // Guard against the timer callback running after cancel/dispose.
-                // If generation has advanced, a newer cancel/restart supersedes this callback.
-                if (Interlocked.CompareExchange(ref _pttSilenceTailGeneration, generation, generation) != generation)
-                    return;
-                if (_pttActive || _muted) return;
-                StopMic();
-            }, null, dueTime: holdMs, period: Timeout.Infinite);
+            // Re-check generation and PTT state under the same lock that
+            // SetPttActive mutates them, so a press that lands between the
+            // timer firing and this callback running cannot have its freshly
+            // started mic stopped underneath it.
+            if (Volatile.Read(ref _pttSilenceTailGeneration) != generation) return;
+            if (_pttActive || _muted) return;
+            (wasSpeaking, capturedUserId) = StopMicLocked();
         }
+        if (wasSpeaking)
+            UserStoppedSpeaking?.Invoke(capturedUserId);
     }
 
     private void CheckSpeakingState(object? state)
@@ -1369,8 +1459,11 @@ internal sealed class AudioManager : IDisposable
 
     public void Dispose()
     {
-        _deviceResampler?.Dispose();
-        _deviceResampler = null;
+        lock (_resamplerLock)
+        {
+            _deviceResampler?.Dispose();
+            _deviceResampler = null;
+        }
         lock (_processorLock)
         {
             _processor?.Dispose();

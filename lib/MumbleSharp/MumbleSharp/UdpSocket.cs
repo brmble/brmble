@@ -42,41 +42,56 @@ namespace MumbleSharp
             _client.Close();
         }
 
-        public void SendPing()
+        /// <summary>
+        /// Send a datagram. A refused/unreachable UDP path (e.g. ICMP port
+        /// unreachable surfacing as SocketException on Windows) is not fatal to
+        /// the session — it just means UDP is down; the caller falls back to
+        /// the TCP tunnel and pings keep probing for recovery.
+        /// </summary>
+        public bool TrySend(byte[] data, int length)
         {
-            long timestamp = DateTime.UtcNow.Ticks;
-
-            byte[] buffer = new byte[9];
-            buffer[0] = 1 << 5;
-            buffer[1] = (byte)((timestamp >> 56) & 0xFF);
-            buffer[2] = (byte)((timestamp >> 48) & 0xFF);
-            buffer[3] = (byte)((timestamp >> 40) & 0xFF);
-            buffer[4] = (byte)((timestamp >> 32) & 0xFF);
-            buffer[5] = (byte)((timestamp >> 24) & 0xFF);
-            buffer[6] = (byte)((timestamp >> 16) & 0xFF);
-            buffer[7] = (byte)((timestamp >> 8) & 0xFF);
-            buffer[8] = (byte)((timestamp) & 0xFF);
-
-            _client.Send(buffer, buffer.Length);
-        }
-
-        public void Send(byte[] data, int length)
-        {
-            _client.Send(data, length);
+            try
+            {
+                _client.Send(data, length);
+                return true;
+            }
+            catch (SocketException)
+            {
+                _connection.MarkUdpUnusable();
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
         }
 
         public bool Process()
         {
-            if (_client.Client == null
-                || _client.Available == 0)
+            try
+            {
+                if (_client.Client == null
+                    || _client.Available == 0)
+                    return false;
+
+                IPEndPoint sender = _host;
+                byte[] data = _client.Receive(ref sender);
+
+                _connection.ReceivedEncryptedUdp(data);
+
+                return true;
+            }
+            catch (SocketException)
+            {
+                // ICMP port unreachable from a previous send is delivered on
+                // the next receive call. UDP down, session stays up.
+                _connection.MarkUdpUnusable();
                 return false;
-
-            IPEndPoint sender = _host;
-            byte[] data = _client.Receive(ref sender);
-
-            _connection.ReceivedEncryptedUdp(data);
-
-            return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
         }
     }
 }

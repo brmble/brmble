@@ -14,6 +14,7 @@ public class EncodePipeline : IDisposable
     private readonly OpusEncoder _encoder;
     private readonly int _frameSize;        // samples per frame (960)
     private readonly int _frameSizeBytes;   // bytes per frame (1920 for mono 16-bit)
+    private readonly int _sequenceStride;   // Mumble 10ms units per packet
     private readonly byte[] _accumulator;
     private int _accumulatorPos;
     private long _sequenceNumber;
@@ -27,6 +28,17 @@ public class EncodePipeline : IDisposable
     {
         _frameSize = frameSize;
         _frameSizeBytes = frameSize * sizeof(short) * channels;
+
+        // Mumble sequence numbers count 10ms units at the stream's sample
+        // rate. Frames shorter than 10ms (Opus permits 2.5/5ms) cannot be
+        // represented — consecutive packets would reuse a sequence number.
+        int samplesPerTenMs = sampleRate / 100;
+        if (frameSize % samplesPerTenMs != 0)
+            throw new ArgumentException(
+                $"Frame size {frameSize} samples is not a multiple of 10ms at {sampleRate} Hz " +
+                "and cannot be represented in Mumble sequence units.",
+                nameof(frameSize));
+        _sequenceStride = frameSize / samplesPerTenMs;
         _accumulator = new byte[_frameSizeBytes];
         _onPacketReady = onPacketReady;
         _sequenceNumber = initialSequence;
@@ -57,10 +69,18 @@ public class EncodePipeline : IDisposable
 
     public long CurrentSequence => _sequenceNumber;
 
+    // -1 = no pending update. Written from any thread, consumed on the encode thread.
+    private int _pendingLossPercent = -1;
+
+    /// <summary>
+    /// Thread-safe: may be called from the network thread. The value is stashed
+    /// and applied on the encoding thread at the next frame, because
+    /// opus_encoder_ctl must not run concurrently with opus_encode.
+    /// </summary>
     public void UpdatePacketLoss(int observedLossPercent)
     {
         int clamped = Math.Clamp(observedLossPercent + 5, 5, 25);
-        _encoder.PacketLossPercentage = clamped;
+        Interlocked.Exchange(ref _pendingLossPercent, clamped);
     }
 
     /// <summary>
@@ -134,6 +154,10 @@ public class EncodePipeline : IDisposable
 
     private void EncodeAndEmit(bool terminator)
     {
+        int pendingLoss = Interlocked.Exchange(ref _pendingLossPercent, -1);
+        if (pendingLoss >= 0)
+            _encoder.PacketLossPercentage = pendingLoss;
+
         byte[] scaled;
 
         if (_volume != 1.0f)
@@ -173,7 +197,9 @@ public class EncodePipeline : IDisposable
             Array.Copy(encoded, opusData, encodedLen);
 
             byte[] packet = VoicePacketBuilder.Build(opusData, _sequenceNumber, _target, terminator);
-            _sequenceNumber++;
+            // Mumble sequence numbers count 10ms units, so a 20ms frame
+            // advances the sequence by 2, not 1.
+            _sequenceNumber += _sequenceStride;
 
             _onPacketReady(packet);
         }

@@ -102,6 +102,23 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public void HasConnectedClient_TracksRemainingClientsForUser()
+    {
+        var ws1 = CreateMockWebSocket(WebSocketState.Open);
+        var ws2 = CreateMockWebSocket(WebSocketState.Open);
+        _bus.AddClient(ws1.Object, 1L);
+        _bus.AddClient(ws2.Object, 1L);
+
+        _bus.RemoveClient(ws1.Object);
+
+        Assert.IsTrue(_bus.HasConnectedClient(1L));
+
+        _bus.RemoveClient(ws2.Object);
+
+        Assert.IsFalse(_bus.HasConnectedClient(1L));
+    }
+
+    [TestMethod]
     public async Task BroadcastToChannelAsync_SendsOnlyToUsersInChannel()
     {
         // Set up channel membership: channel 5 has sessions 10 and 20

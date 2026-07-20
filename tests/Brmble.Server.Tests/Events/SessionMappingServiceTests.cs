@@ -143,4 +143,15 @@ public class SessionMappingServiceTests
         Assert.IsTrue(updated);
         Assert.AreEqual("floppy", _svc.GetSnapshot()[42].CompanionId);
     }
+
+    [TestMethod]
+    public void TryUpdateCertHash_UpdatesExistingMapping()
+    {
+        _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
+
+        var updated = _svc.TryUpdateCertHash(42, "cert-alice");
+
+        Assert.IsTrue(updated);
+        Assert.AreEqual("cert-alice", _svc.GetSnapshot()[42].CertHash);
+    }
 }
