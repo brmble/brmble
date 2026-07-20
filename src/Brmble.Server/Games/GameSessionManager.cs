@@ -23,9 +23,15 @@ public interface IGamePresence
     // Resolves a live session id to a human-readable display name for chat
     // announcements. Returns null if unknown.
     string? GetDisplayName(long sessionId);
+
+    // Returns true if the given live session's user has blocked all game challenges.
+    // Read live (per-invite) so runtime toggles take effect immediately.
+    Task<bool> AreChallengesBlockedAsync(long sessionId);
 }
 
-public record InviteResult(bool Success, long MatchId, string? Error);
+public enum InviteRejectReason { None, Blocked, Other }
+
+public record InviteResult(bool Success, long MatchId, string? Error, InviteRejectReason Reason = InviteRejectReason.None);
 
 public sealed class GameSessionManager
 {
@@ -90,6 +96,9 @@ public sealed class GameSessionManager
 
         if (!_presence.TryGetChannel(targetSession, out var targetChannel, out var targetBrmble, out var targetUserId) || !targetBrmble)
             return new InviteResult(false, 0, "The other player must be connected to Brmble.");
+
+        if (await _presence.AreChallengesBlockedAsync(targetSession))
+            return new InviteResult(false, 0, "This player isn't accepting challenges.", InviteRejectReason.Blocked);
 
         if (inviterChannel != targetChannel)
             return new InviteResult(false, 0, "You must be in the same channel to start a game.");

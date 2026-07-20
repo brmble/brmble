@@ -8,12 +8,14 @@ namespace Brmble.Server.Tests.Games;
 file sealed class FakePresence : IGamePresence
 {
     public Dictionary<long, (int ch, bool brmble, long userId)> Users = new();
+    public HashSet<long> Blocked = new();
     public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
     {
         if (Users.TryGetValue(sessionId, out var v)) { channelId = v.ch; isBrmble = v.brmble; userId = v.userId; return true; }
         channelId = 0; isBrmble = false; userId = 0; return false;
     }
     public string? GetDisplayName(long sessionId) => $"user{sessionId}";
+    public Task<bool> AreChallengesBlockedAsync(long sessionId) => Task.FromResult(Blocked.Contains(sessionId));
 }
 file sealed class FakePublisher : IGameEventPublisher
 {
@@ -58,6 +60,21 @@ public class GameSessionManagerTests
         var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), GameTestHelpers.NewRepo());
         var result = await mgr.InviteAsync(10, 20, "deathroll");
         Assert.IsFalse(result.Success);
+    }
+
+    [TestMethod]
+    public async Task Invite_RejectsBlockedTarget_WithBlockedReason()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        presence.Blocked.Add(20);
+        var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), GameTestHelpers.NewRepo());
+
+        var result = await mgr.InviteAsync(10, 20, "deathroll");
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(InviteRejectReason.Blocked, result.Reason);
     }
 
     [TestMethod]

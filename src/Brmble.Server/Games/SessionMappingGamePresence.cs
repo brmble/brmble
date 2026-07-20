@@ -1,3 +1,4 @@
+using Brmble.Server.Auth;
 using Brmble.Server.Events;
 
 namespace Brmble.Server.Games;
@@ -6,11 +7,13 @@ public sealed class SessionMappingGamePresence : IGamePresence
 {
     private readonly ISessionMappingService _sessions;
     private readonly IChannelMembershipService _membership;
+    private readonly UserRepository _users;
 
-    public SessionMappingGamePresence(ISessionMappingService sessions, IChannelMembershipService membership)
+    public SessionMappingGamePresence(ISessionMappingService sessions, IChannelMembershipService membership, UserRepository users)
     {
         _sessions = sessions;
         _membership = membership;
+        _users = users;
     }
 
     public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
@@ -29,4 +32,11 @@ public sealed class SessionMappingGamePresence : IGamePresence
         => _sessions.GetSnapshot().TryGetValue((int)sessionId, out var mapping) && mapping is not null
             ? mapping.MumbleName
             : null;
+
+    public async Task<bool> AreChallengesBlockedAsync(long sessionId)
+    {
+        if (!_sessions.GetSnapshot().TryGetValue((int)sessionId, out var mapping) || mapping is null)
+            return false;
+        return await _users.GetChallengesBlocked(mapping.UserId);
+    }
 }
