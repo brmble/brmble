@@ -56,4 +56,38 @@ public class GameRepositoryTests
         Assert.AreEqual(1, h2h.low_wins);
         Assert.AreEqual(0, h2h.high_wins);
     }
+
+    [TestMethod]
+    public async Task SaveCompletedMatch_PersistsMetadataJson_RoundTrips()
+    {
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var match = new CompletedMatch(
+            GameType: "deathroll",
+            ChannelId: 7,
+            Format: "1v1",
+            Outcome: "decided",
+            AbandonReason: null,
+            StartedAt: DateTimeOffset.UtcNow.AddMinutes(-1),
+            EndedAt: DateTimeOffset.UtcNow,
+            Participants: new[]
+            {
+                new CompletedParticipant(10, 1, null, "win",
+                    MetadataJson: "{\"schemaVersion\":1,\"displayName\":\"Alice\"}"),
+                new CompletedParticipant(20, 2, 1, "loss",
+                    MetadataJson: "{\"schemaVersion\":1,\"displayName\":\"Bob\"}"),
+            },
+            MetadataJson: "{\"schemaVersion\":1,\"summary\":{\"totalRolls\":3}}");
+
+        var matchId = await repo.SaveCompletedMatchAsync(match);
+
+        using var conn = db.CreateConnection();
+        var matchMeta = await conn.QuerySingleAsync<string>(
+            "SELECT metadata_json FROM game_matches WHERE id = @matchId", new { matchId });
+        Assert.IsTrue(matchMeta.Contains("\"totalRolls\":3"));
+
+        var aliceMeta = await conn.QuerySingleAsync<string>(
+            "SELECT metadata_json FROM game_match_participants WHERE match_id = @matchId AND user_id = 10",
+            new { matchId });
+        Assert.IsTrue(aliceMeta.Contains("Alice"));
+    }
 }

@@ -12,4 +12,12 @@ internal static class GameTestHelpers
         db.Initialize();
         return new GameRepository(db);
     }
+
+    public static (GameRepository repo, Database db) NewRepoWithDb()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"brmble-test-{Guid.NewGuid():N}.db");
+        var db = new Database($"Data Source={path}");
+        db.Initialize();
+        return (new GameRepository(db), db);
+    }
 }
