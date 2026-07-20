@@ -274,6 +274,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // one dropped ping would otherwise spike the estimate to 50-100%.
         if (total < 10)
             return null;
+        // Murmur's uiLost-- on a late packet can wrap to ~2^32 when the counter
+        // is 0 (e.g. a pre-resync straggler); a wrapped value passes the
+        // regression guard as an increase. 100k packets in one ~5s ping
+        // interval is far beyond any real rate — drop the bogus sample
+        // (baselines are already updated, so the next delta self-corrects).
+        if (total > 100_000)
+            return null;
         return (int)(dLost * 100UL / total);
     }
 

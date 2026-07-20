@@ -54,6 +54,18 @@ public class MumbleAdapterLossTests
     }
 
     [TestMethod]
+    public void WrappedServerLostCounter_IsRejected()
+    {
+        // Murmur's uiLost-- can wrap to ~2^32 when the counter is 0; the wrap
+        // looks like an increase so the regression guard passes. The sample
+        // must be dropped instead of pegging FEC at ~100% loss.
+        Update(100, 0, 0);
+        Assert.IsNull(Update(200, 1, uint.MaxValue));
+        // Next interval computes from the updated baselines and self-corrects.
+        Assert.AreEqual(0, Update(300, 1, uint.MaxValue));
+    }
+
+    [TestMethod]
     public void LateIsNotDoubleCounted()
     {
         Update(0, 0, 0);
