@@ -38,7 +38,6 @@ public class MumbleIceServiceTests
                 new Brmble.Server.Games.CryptoRandomSource(),
                 new Mock<Brmble.Server.Games.IGamePresence>().Object,
                 new Mock<Brmble.Server.Games.IGameEventPublisher>().Object,
-                new Mock<Brmble.Server.Games.IGameAnnouncer>().Object,
                 Brmble.Server.Tests.Games.GameTestHelpers.NewRepo()),
             NullLogger<MumbleServerCallback>.Instance);
 

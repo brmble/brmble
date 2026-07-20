@@ -203,6 +203,13 @@ does NOT extend on hover. The server owns the 30s invite window and removes the 
 emitting `game.expired` at timeout (distinct from `game.declined` when the recipient presses
 `×`). Do not re-add a client-side timer to this notification.
 
+The invite notification passes `countdownMs` (from the server `game.invited` payload's
+`inviteMs`) to `<Notification>`. This renders a **visual-only** shrinking progress bar showing
+the remaining accept window. It is purely cosmetic: it never auto-dismisses, never pauses on
+hover, and never triggers `onDismiss` (which would decline). The server remains the sole owner
+of the timeout via `game.expired`. Use `countdownMs` (not `duration`) whenever a notification
+needs a visible countdown without client-side dismissal.
+
 The per-user "Challenge to Deathroll" entry point is a `ContextMenu` item on the user row
 (same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
 shares the local user's voice channel.
@@ -220,6 +227,23 @@ under the queue id `game-outcome`, driven by `useGameState.inviteOutcome`:
 Because it is a generated/replaceable id, the App effect unregisters `game-outcome` before
 re-registering it so only one outcome shows at a time (covered by the repeated-event test in
 `hooks/useNotificationQueue.test.ts`). These use the default `info` 5s auto-dismiss.
+
+#### Deathroll spectator feed (ephemeral chat)
+
+Live Deathroll play is narrated into the match channel's chat as **ephemeral system
+messages**, not notifications and not persistent chat. The server (`GameSessionManager`)
+composes the copy and broadcasts a `game.feed` event (`{ channelId, text, … }`) to everyone
+in the channel. App injects each line into the channel chat store via
+`addMessage(...'system'..., 'game')` / `addMessageToStore(..., 'game')`, rendering with the
+existing `MessageBubble` `isSystem` styling — reuse it, do not create a new game-log component.
+
+`'game'` is registered in `EPHEMERAL_TYPES` (`useChatStore.ts`), so these lines are purged
+from `localStorage` on reconnect and are **never** written to Matrix. A user who joins or
+reconnects mid-match sees no backlog — the feed is strictly live. Game results are therefore
+no longer posted to Matrix (the old `IGameAnnouncer`/`MatrixGameAnnouncer` path was removed).
+
+Copy is emoji-led and playful: `⚔️` match start, `🎲` each roll / timeout, `💀` a losing
+roll, `🏳️` a forfeit. Keep new game feed copy in this style and compose it server-side.
 
 #### Games settings tab
 

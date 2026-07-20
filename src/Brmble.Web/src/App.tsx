@@ -1994,6 +1994,20 @@ function App() {
       }
     });
 
+    // Ephemeral Deathroll spectator feed. Live-only inline system messages for
+    // everyone in the match's channel; never persisted (systemType 'game' is in
+    // EPHEMERAL_TYPES, so it is purged from localStorage and never sent to Matrix).
+    const onGameFeed = ((data: unknown) => {
+      const d = data as { channelId?: number; text?: string } | undefined;
+      if (d?.channelId === undefined || !d.text) return;
+      const channelId = String(d.channelId);
+      if (currentChannelIdRef.current === channelId) {
+        addMessageRef.current('Game', d.text, 'system', undefined, undefined, 'game');
+      } else {
+        addMessageToStore(`channel-${channelId}`, 'Game', d.text, 'system', undefined, undefined, 'game');
+      }
+    });
+
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; companionId?: CompanionId; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
@@ -2659,6 +2673,7 @@ function App() {
     bridge.on('voice.error', onVoiceError);
     bridge.on('voice.message', onVoiceMessage);
     bridge.on('voice.system', onVoiceSystem);
+    bridge.on('game.feed', onGameFeed);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.channelRemoved', onVoiceChannelRemoved);
@@ -2748,6 +2763,7 @@ function App() {
       bridge.off('voice.error', onVoiceError);
       bridge.off('voice.message', onVoiceMessage);
       bridge.off('voice.system', onVoiceSystem);
+      bridge.off('game.feed', onGameFeed);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.channelRemoved', onVoiceChannelRemoved);

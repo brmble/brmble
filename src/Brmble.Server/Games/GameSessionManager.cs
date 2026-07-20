@@ -8,11 +8,6 @@ public interface IGameEventPublisher
     Task PublishToChannelAsync(int channelId, object message);
 }
 
-public interface IGameAnnouncer
-{
-    Task AnnounceResultAsync(int channelId, string text);
-}
-
 public interface IGamePresence
 {
     // Resolves a live Brmble session id to its channel, Brmble status, and stable
@@ -43,7 +38,6 @@ public sealed class GameSessionManager
     private readonly IRandomSource _rng;
     private readonly IGamePresence _presence;
     private readonly IGameEventPublisher _publisher;
-    private readonly IGameAnnouncer _announcer;
     private readonly GameRepository _repository;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
@@ -55,14 +49,12 @@ public sealed class GameSessionManager
         IRandomSource rng,
         IGamePresence presence,
         IGameEventPublisher publisher,
-        IGameAnnouncer announcer,
         GameRepository repository)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
         _presence = presence;
         _publisher = publisher;
-        _announcer = announcer;
         _repository = repository;
     }
 
@@ -190,6 +182,8 @@ public sealed class GameSessionManager
                     penalty = false,
                     views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
                 });
+            await PublishFeedAsync(match,
+                $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started (ceiling {CeilingOf(match)})");
             StartTurnTimer(match, TurnTimeout);
         }
         else
@@ -255,6 +249,7 @@ public sealed class GameSessionManager
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
 
+        if (!finished) await BroadcastRollFeedAsync(match, events);
         if (finished) await CompleteMatchAsync(match);
     }
 
@@ -296,6 +291,7 @@ public sealed class GameSessionManager
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
 
+        if (!finished) await BroadcastRollFeedAsync(match, events);
         if (finished) await CompleteMatchAsync(match);
     }
 
@@ -333,10 +329,11 @@ public sealed class GameSessionManager
             new { type = "game.ended", matchId = match.MatchId });
 
         var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
-        var text = winner is not null
-            ? $"Game over ({match.GameType}): {NameOf(match, winner.UserId)} wins!"
-            : $"Game over ({match.GameType}).";
-        await _announcer.AnnounceResultAsync(match.ChannelId, text);
+        var loser = outcome.Participants.FirstOrDefault(p => p.Placement == 2);
+        var feedText = winner is not null && loser is not null
+            ? $"💀 {NameOf(match, loser.UserId)} rolled {loser.Score ?? 1} — {NameOf(match, winner.UserId)} wins!"
+            : $"💀 {GameName(match.GameType)} over.";
+        await PublishFeedAsync(match, feedText);
 
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(match.MatchId, out _);
@@ -376,8 +373,8 @@ public sealed class GameSessionManager
             RouteSet(match),
             new { type = "game.ended", matchId, abandoned = true, reason });
 
-        await _announcer.AnnounceResultAsync(match.ChannelId,
-            $"Game over ({match.GameType}): {NameOf(match, userId)} {reason}. {NameOf(match, otherId)} wins.");
+        await PublishFeedAsync(match,
+            $"🏳️ {NameOf(match, userId)} forfeited — {NameOf(match, otherId)} wins!");
 
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
@@ -385,6 +382,45 @@ public sealed class GameSessionManager
 
     private static string NameOf(LiveMatch match, long sessionId)
         => match.SessionToName.TryGetValue(sessionId, out var name) ? name : $"user {sessionId}";
+
+    // Ephemeral spectator feed: composed by the server and broadcast to everyone
+    // in the match's channel. Never persisted to Matrix — reconnecting users
+    // never see it.
+    private Task PublishFeedAsync(LiveMatch match, string text)
+        => _publisher.PublishToChannelAsync(match.ChannelId, new
+        {
+            type = "game.feed",
+            channelId = match.ChannelId,
+            gameType = match.GameType,
+            matchId = match.MatchId,
+            text,
+        });
+
+    // Turns non-terminal engine events (rolls, timeout penalties) into feed lines.
+    // Terminal loss/forfeit lines are emitted by CompleteMatchAsync/ForfeitAsync.
+    private async Task BroadcastRollFeedAsync(LiveMatch match, IReadOnlyList<GameEvent> events)
+    {
+        foreach (var e in events)
+        {
+            string? text = e.Kind switch
+            {
+                "roll" => $"🎲 {NameOf(match, Convert.ToInt64(e.Data["userId"]))} rolled {e.Data["value"]} (1–{e.Data["ceiling"]})",
+                "penalty" when e.Data.ContainsKey("userId") =>
+                    $"🎲 {NameOf(match, Convert.ToInt64(e.Data["userId"]))} ran out of time — ceiling drops to {e.Data["ceiling"]}",
+                _ => null,
+            };
+            if (text is not null) await PublishFeedAsync(match, text);
+        }
+    }
+
+    private static string GameName(string gameType)
+        => string.IsNullOrEmpty(gameType) ? gameType : char.ToUpperInvariant(gameType[0]) + gameType[1..];
+
+    private static int CeilingOf(LiveMatch match)
+    {
+        dynamic view = match.Engine.PublicView(match.State, match.Players[0]);
+        return (int)view.ceiling;
+    }
 
     public bool TryGetActiveMatch(long userId, out long matchId)
         => _userToMatch.TryGetValue(userId, out matchId);

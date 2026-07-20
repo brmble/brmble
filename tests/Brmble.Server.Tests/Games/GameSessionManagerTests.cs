@@ -23,23 +23,23 @@ file sealed class FakePublisher : IGameEventPublisher
     public Task PublishToUsersAsync(IReadOnlySet<long> u, object m) { Sent.Add(("users", m)); return Task.CompletedTask; }
     public Task PublishToChannelAsync(int c, object m) { Sent.Add(("channel", m)); return Task.CompletedTask; }
 }
-file sealed class FakeAnnouncer : IGameAnnouncer
-{
-    public List<string> Announcements = new();
-    public Task AnnounceResultAsync(int c, string t) { Announcements.Add(t); return Task.CompletedTask; }
-}
 
 [TestClass]
 public class GameSessionManagerTests
 {
-    private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, IGameAnnouncer ann, GameRepository repo)
+    private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
     {
         var engines = new IGameEngine[] { new DeathrollEngine() };
-        return new GameSessionManager(engines, new CryptoRandomSource(), presence, pub, ann, repo);
+        return new GameSessionManager(engines, new CryptoRandomSource(), presence, pub, repo);
     }
 
     private static bool SentType(IEnumerable<(string kind, object msg)> sent, string type) =>
         sent.Any(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == type);
+
+    private static List<string> FeedTexts(IEnumerable<(string kind, object msg)> sent) =>
+        sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.feed")
+            .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
+            .ToList();
 
     [TestMethod]
     public async Task ExplicitDecline_EmitsGameDeclined()
@@ -48,7 +48,7 @@ public class GameSessionManagerTests
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (1, true, 20);
         var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, new FakeAnnouncer(), GameTestHelpers.NewRepo());
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
@@ -64,7 +64,7 @@ public class GameSessionManagerTests
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (1, true, 20);
         var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, new FakeAnnouncer(), GameTestHelpers.NewRepo());
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         await mgr.ExpireInviteForTestAsync(invite.MatchId);
@@ -80,7 +80,7 @@ public class GameSessionManagerTests
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (2, true, 20);
         var repo = GameTestHelpers.NewRepo();
-        var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), repo);
+        var mgr = NewManager(presence, new FakePublisher(), repo);
         var result = await mgr.InviteAsync(inviterSession: 10, targetSession: 20, gameType: "deathroll");
         Assert.IsFalse(result.Success);
         Assert.IsTrue(result.Error!.Contains("channel", StringComparison.OrdinalIgnoreCase));
@@ -92,7 +92,7 @@ public class GameSessionManagerTests
         var presence = new FakePresence();
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (1, false, 20);
-        var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), GameTestHelpers.NewRepo());
+        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
         var result = await mgr.InviteAsync(10, 20, "deathroll");
         Assert.IsFalse(result.Success);
     }
@@ -104,7 +104,7 @@ public class GameSessionManagerTests
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (1, true, 20);
         presence.Blocked.Add(20);
-        var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), GameTestHelpers.NewRepo());
+        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
 
         var result = await mgr.InviteAsync(10, 20, "deathroll");
 
@@ -113,15 +113,14 @@ public class GameSessionManagerTests
     }
 
     [TestMethod]
-    public async Task AcceptedMatch_PlaysToCompletion_PersistsAndAnnounces()
+    public async Task AcceptedMatch_PlaysToCompletion_PersistsAndFeeds()
     {
         var presence = new FakePresence();
         presence.Users[10] = (1, true, 10);
         presence.Users[20] = (1, true, 20);
         var repo = GameTestHelpers.NewRepo();
         var pub = new FakePublisher();
-        var ann = new FakeAnnouncer();
-        var mgr = NewManager(presence, pub, ann, repo);
+        var mgr = NewManager(presence, pub, repo);
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         Assert.IsTrue(invite.Success);
@@ -134,7 +133,13 @@ public class GameSessionManagerTests
         }
 
         Assert.IsFalse(mgr.IsMatchLive(invite.MatchId));
-        Assert.AreEqual(1, ann.Announcements.Count);
+
+        // Ephemeral spectator feed is broadcast to the channel (never Matrix):
+        // a start line, at least one roll line, and exactly one terminal line.
+        var feed = FeedTexts(pub.Sent);
+        Assert.IsTrue(feed.Any(t => t.Contains("started")), "expected a start feed line");
+        Assert.IsTrue(feed.Any(t => t.StartsWith("🎲")), "expected roll feed lines");
+        Assert.AreEqual(1, feed.Count(t => t.StartsWith("💀")), "expected one terminal feed line");
 
         var s10 = await repo.GetUserStatsAsync(10, "deathroll");
         var s20 = await repo.GetUserStatsAsync(20, "deathroll");

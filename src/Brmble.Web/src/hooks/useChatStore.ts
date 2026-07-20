@@ -7,7 +7,7 @@ const SERVER_ROOT_MAX_MESSAGES = 200;
 const NON_SERVER_ROOT_MAX_MESSAGES = 200;
 const DEBOUNCE_MS = 500;
 
-const EPHEMERAL_TYPES = new Set(['connecting', 'welcome', 'userJoined', 'userLeft']);
+const EPHEMERAL_TYPES = new Set(['connecting', 'welcome', 'userJoined', 'userLeft', 'game']);
 
 // --- Debounce infrastructure for server-root ---
 //

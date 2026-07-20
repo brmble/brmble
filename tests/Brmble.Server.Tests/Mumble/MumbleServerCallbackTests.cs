@@ -65,13 +65,11 @@ public class MumbleServerCallbackTests
     {
         var presence = new Mock<IGamePresence>().Object;
         var publisher = new Mock<IGameEventPublisher>().Object;
-        var announcer = new Mock<IGameAnnouncer>().Object;
         return new GameSessionManager(
             Array.Empty<IGameEngine>(),
             new CryptoRandomSource(),
             presence,
             publisher,
-            announcer,
             Brmble.Server.Tests.Games.GameTestHelpers.NewRepo());
     }
 

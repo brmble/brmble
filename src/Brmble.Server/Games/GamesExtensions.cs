@@ -12,7 +12,6 @@ public static class GamesExtensions
         services.AddSingleton<GameStatsService>();
         services.AddSingleton<IGamePresence, SessionMappingGamePresence>();
         services.AddSingleton<IGameEventPublisher, EventBusGameEventPublisher>();
-        services.AddSingleton<IGameAnnouncer, MatrixGameAnnouncer>();
         services.AddSingleton<GameSessionManager>();
         return services;
     }
