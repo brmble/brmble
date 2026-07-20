@@ -103,6 +103,22 @@ internal sealed class GameService : IService
                 SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
                 break;
             }
+            case "settings-get":
+            {
+                var result = await _getAsync(cert, new Uri(baseUri, "games/settings"));
+                SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                break;
+            }
+            case "settings-set":
+            {
+                var challengesBlocked = data.TryGetProperty("challengesBlocked", out var cbEl)
+                    && (cbEl.ValueKind == JsonValueKind.True || cbEl.ValueKind == JsonValueKind.False)
+                    && cbEl.GetBoolean();
+                var body = JsonSerializer.Serialize(new { challengesBlocked });
+                var result = await _postJsonAsync(cert, new Uri(baseUri, "games/settings"), body);
+                SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                break;
+            }
             default:
                 SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
                 break;
