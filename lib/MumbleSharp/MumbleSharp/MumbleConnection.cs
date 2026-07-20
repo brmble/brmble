@@ -56,13 +56,23 @@ namespace MumbleSharp
         readonly CryptState _cryptState = new CryptState();
         internal CryptState CryptState => _cryptState;
 
-        // Ticks (DateTime.UtcNow) of the last successfully decrypted UDP packet.
+        // Sentinel meaning "never" that stays far away from any real monotonic
+        // timestamp (which starts near 0 at boot), without subtraction overflow.
+        private const long NeverMs = long.MinValue / 2;
+
+        // Monotonic milliseconds (Stopwatch is wall-clock independent;
+        // Environment.TickCount64 is unavailable on netstandard2.0/2.1).
+        private static long MonotonicMs =>
+            System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+
+        // Monotonic ms (wall-clock adjustments must not affect liveness)
+        // of the last successfully decrypted UDP packet.
         // Written from the process thread, read from the capture thread (SendVoice).
-        private long _lastGoodUdpTicks;
+        private long _lastGoodUdpMs = NeverMs;
 
         // Client-initiated crypt resync state (see MaybeRequestCryptResync).
         private int _consecutiveDecryptFailures;
-        private long _lastResyncRequestTicks;
+        private long _lastResyncRequestMs = NeverMs;
         internal uint ResyncRequests { get; private set; }
 
         /// <summary>
@@ -72,11 +82,11 @@ namespace MumbleSharp
         /// probing, so this recovers automatically when UDP comes back.
         /// </summary>
         public bool UdpHealthy =>
-            (DateTime.UtcNow - new DateTime(System.Threading.Volatile.Read(ref _lastGoodUdpTicks), DateTimeKind.Utc))
-                .TotalMilliseconds < UDP_LIVENESS_TIMEOUT_MILLISECONDS;
+            MonotonicMs - System.Threading.Volatile.Read(ref _lastGoodUdpMs)
+                < UDP_LIVENESS_TIMEOUT_MILLISECONDS;
 
         internal void MarkUdpAlive() =>
-            System.Threading.Volatile.Write(ref _lastGoodUdpTicks, DateTime.UtcNow.Ticks);
+            System.Threading.Volatile.Write(ref _lastGoodUdpMs, MonotonicMs);
 
         /// <summary>
         /// Called by UdpSocket when the OS reports the UDP path unusable
@@ -84,7 +94,7 @@ namespace MumbleSharp
         /// Voice falls back to the TCP tunnel immediately; pings keep probing.
         /// </summary>
         internal void MarkUdpUnusable() =>
-            System.Threading.Volatile.Write(ref _lastGoodUdpTicks, 0);
+            System.Threading.Volatile.Write(ref _lastGoodUdpMs, NeverMs);
 
         /// <summary>
         /// Creates a connection to the server using the given address and port.
@@ -253,10 +263,10 @@ namespace MumbleSharp
         {
             if (_consecutiveDecryptFailures < 10)
                 return;
-            var now = DateTime.UtcNow.Ticks;
-            if (TimeSpan.FromTicks(now - _lastResyncRequestTicks).TotalMilliseconds < 5000)
+            var now = MonotonicMs;
+            if (now - _lastResyncRequestMs < 5000)
                 return;
-            _lastResyncRequestTicks = now;
+            _lastResyncRequestMs = now;
             ResyncRequests++;
             SendControl<CryptSetup>(PacketType.CryptSetup, new CryptSetup());
         }
