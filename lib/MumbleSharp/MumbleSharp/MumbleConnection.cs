@@ -286,7 +286,10 @@ namespace MumbleSharp
 
         private void ReceiveUdpPingEcho(byte[] packet)
         {
-            MarkUdpAlive();
+            // No MarkUdpAlive here: this method is also reached via the TCP
+            // tunnel path (TcpSocket forwards UDPTunnel payloads), which proves
+            // nothing about UDP. Liveness is recorded in ReceivedEncryptedUdp,
+            // the UDP-only receive path.
             try
             {
                 using (var reader = new UdpPacketReader(new MemoryStream(packet, 1, packet.Length - 1)))

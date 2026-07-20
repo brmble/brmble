@@ -18,14 +18,13 @@ public class MumbleConnectionUdpTests
     }
 
     [TestMethod]
-    public void PingEcho_MarksUdpHealthy_AndMeasuresRtt()
+    public void PingEcho_MeasuresRtt()
     {
         var conn = CreateConnection();
         var echo = MumbleConnection.BuildUdpPing(DateTime.UtcNow.Ticks);
 
         conn.ReceiveDecryptedUdp(echo);
 
-        Assert.IsTrue(conn.UdpHealthy);
         Assert.IsNotNull(conn.UdpPingAverage);
         Assert.IsTrue(conn.UdpPingAverage.Value >= 0 && conn.UdpPingAverage.Value < 1000,
             $"RTT should be near zero for a same-instant echo, got {conn.UdpPingAverage}");
@@ -33,10 +32,22 @@ public class MumbleConnectionUdpTests
     }
 
     [TestMethod]
+    public void TunneledPingEcho_DoesNotProveUdpLiveness()
+    {
+        var conn = CreateConnection();
+
+        // ReceiveDecryptedUdp is the shared path also fed by TCP UDPTunnel
+        // packets — a type-1 payload arriving there must not mark UDP healthy.
+        conn.ReceiveDecryptedUdp(MumbleConnection.BuildUdpPing(DateTime.UtcNow.Ticks));
+
+        Assert.IsFalse(conn.UdpHealthy, "Only the encrypted UDP receive path may prove liveness");
+    }
+
+    [TestMethod]
     public void MarkUdpUnusable_RevertsToUnhealthy()
     {
         var conn = CreateConnection();
-        conn.ReceiveDecryptedUdp(MumbleConnection.BuildUdpPing(DateTime.UtcNow.Ticks));
+        conn.MarkUdpAlive();
         Assert.IsTrue(conn.UdpHealthy);
 
         conn.MarkUdpUnusable();
