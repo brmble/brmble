@@ -10,6 +10,7 @@ public static class GameEndpoints
     public record RespondDto(long MatchId, bool Accept);
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
+    public record GameSettingsDto(bool ChallengesBlocked);
 
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
@@ -70,6 +71,24 @@ public static class GameEndpoints
             var (from, to) = ResolveWindow(window);
             var s = await stats.GetWindowedStatsAsync(user.UserId, gameType, from, to);
             return Results.Ok(s);
+        });
+
+        app.MapGet("/games/settings", async (HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            var blocked = await users.GetChallengesBlocked(user.UserId);
+            return Results.Ok(new GameSettingsDto(blocked));
+        });
+
+        app.MapPost("/games/settings", async (GameSettingsDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            await users.SetChallengesBlocked(user.UserId, dto.ChallengesBlocked);
+            return Results.Ok(new GameSettingsDto(dto.ChallengesBlocked));
         });
 
         return app;
