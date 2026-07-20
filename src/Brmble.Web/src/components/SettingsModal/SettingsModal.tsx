@@ -9,6 +9,7 @@ import { InterfaceSettingsTab } from './InterfaceSettingsTab';
 import { type AppearanceSettings, type OverlaySettings, type BrmblegotchiSettings, type CompanionSelection, DEFAULT_APPEARANCE, DEFAULT_OVERLAY, DEFAULT_BRMBLEGOTCHI, normalizeOverlaySettings } from './InterfaceSettingsTypes';
 import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSettingsTab';
 import { ProfileSettingsTab } from './ProfileSettingsTab';
+import { GamesSettingsTab } from './GamesSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
 import { ScreenShareSettingsTab } from './ScreenShareSettingsTab';
 import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
@@ -44,7 +45,7 @@ interface SettingsModalProps {
   };
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
-  initialTab?: 'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
+  initialTab?: 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
@@ -115,7 +116,7 @@ const VALID_NS_LEVELS = ['Off', 'Low', 'Moderate', 'High', 'VeryHigh'] as const;
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
@@ -438,6 +439,12 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Profile
           </button>
+          <button
+            className={`settings-tab ${activeTab === 'games' ? 'active' : ''}`}
+            onClick={() => setActiveTab('games')}
+          >
+            Games
+          </button>
           <button 
             className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
             onClick={() => setActiveTab('audio')}
@@ -498,6 +505,7 @@ export function SettingsModal(props: SettingsModalProps) {
               <MyChannelRequests refreshKey={props.channelRequestRefreshKey ?? 0} connected={props.connected ?? false} />
             </>
           )}
+          {activeTab === 'games' && <GamesSettingsTab />}
           {activeTab === 'audio' && <AudioSettingsTab settings={settings.audio} onChange={handleAudioChange} noiseSuppression={settings.noiseSuppression} onNoiseSuppressionChange={handleNoiseSuppressionChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'shortcuts' && <ShortcutsSettingsTab settings={settings.shortcuts} onChange={handleShortcutsChange} allBindings={allBindings} onClearBinding={handleClearBinding} />}
           {activeTab === 'messages' && <MessagesSettingsTab settings={settings.messages} onChange={handleMessagesChange} />}

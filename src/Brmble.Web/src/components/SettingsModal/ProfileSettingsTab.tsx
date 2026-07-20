@@ -8,7 +8,6 @@ import { validateProfileName } from '../../utils/profileValidation';
 import { Select } from '../Select/Select';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
-import { GameStats } from '../Profile/GameStats';
 import './ProfileSettingsTab.css';
 import './ProfilesSettingsTab.css';
 
@@ -309,12 +308,6 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
             </span>
           </div>
         )}
-      </div>
-
-      {/* Game stats section */}
-      <div className="settings-section">
-        <h3 className="heading-section settings-section-title">Deathroll Stats</h3>
-        <GameStats gameType="deathroll" />
       </div>
 
       {/* Manage Profiles section */}
