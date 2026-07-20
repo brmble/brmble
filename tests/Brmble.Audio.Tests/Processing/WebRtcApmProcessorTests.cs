@@ -73,4 +73,21 @@ public class WebRtcApmProcessorTests
         // Allow small residual from HPF and processing (but expect near-silence)
         Assert.IsTrue(maxAbs < 100, $"Expected silence, but found max absolute value: {maxAbs}");
     }
+
+    [TestMethod]
+    public void SoftLimit_PassesThroughBelowKnee_AndBoundsAboveIt()
+    {
+        // Identity below the knee
+        Assert.AreEqual(0.5f, WebRtcApmProcessor.SoftLimit(0.5f));
+        Assert.AreEqual(-0.5f, WebRtcApmProcessor.SoftLimit(-0.5f));
+
+        // A full-scale peak with 1.5x gain (the issue #597 scenario) must not hard-clip
+        float limited = WebRtcApmProcessor.SoftLimit(1.5f);
+        Assert.IsTrue(limited < 1f, $"Expected < 1.0, got {limited}");
+        Assert.IsTrue(limited > 0.85f, $"Expected above the knee, got {limited}");
+        Assert.AreEqual(-limited, WebRtcApmProcessor.SoftLimit(-1.5f), "Limiter must be symmetric");
+
+        // Monotonic: louder in stays louder out (no folding artifacts)
+        Assert.IsTrue(WebRtcApmProcessor.SoftLimit(1.2f) < WebRtcApmProcessor.SoftLimit(1.5f));
+    }
 }

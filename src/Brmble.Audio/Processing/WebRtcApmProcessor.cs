@@ -30,9 +30,12 @@ public sealed class WebRtcApmProcessor : IDisposable
     /// Linear gain applied after APM processing, before int16 conversion.
     /// AGC2 targets ~-19 dBFS which is quieter than typical VOIP expectations;
     /// a post-gain of ~1.6-2.0x (4-6 dB) brings output closer to -10 dBFS.
-    /// Hard-clipped at int16 bounds.
+    /// Peaks above the limiter knee are soft-limited instead of hard-clipped.
     /// </summary>
     public float OutputGain { get; set; } = 1.5f;
+
+    // Above this level the signal is compressed toward full scale instead of clipping.
+    private const float LimiterKnee = 0.85f;
 
     public WebRtcApmProcessor() : this(NoiseSuppressionLevel.High) { }
 
@@ -141,12 +144,26 @@ public sealed class WebRtcApmProcessor : IDisposable
         float gain = OutputGain;
         for (int i = 0; i < FrameSamples; i++)
         {
-            int s = (int)MathF.Round(outFloat[i] * gain * 32768f);
+            int s = (int)MathF.Round(SoftLimit(outFloat[i] * gain) * 32767f);
             if (s > short.MaxValue) s = short.MaxValue;
             else if (s < short.MinValue) s = short.MinValue;
             outPcm16[i * 2] = (byte)(s & 0xFF);
             outPcm16[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
         }
+    }
+
+    /// <summary>
+    /// Soft limiter: identity up to <see cref="LimiterKnee"/>, then a tanh knee that
+    /// asymptotically approaches ±1. Continuous with slope 1 at the knee, so gained
+    /// peaks compress audibly cleanly instead of hard-clipping (issue #597).
+    /// </summary>
+    internal static float SoftLimit(float x)
+    {
+        float abs = MathF.Abs(x);
+        if (abs <= LimiterKnee) return x;
+        const float range = 1f - LimiterKnee;
+        float limited = LimiterKnee + range * MathF.Tanh((abs - LimiterKnee) / range);
+        return x < 0 ? -limited : limited;
     }
 
     public void Dispose()
