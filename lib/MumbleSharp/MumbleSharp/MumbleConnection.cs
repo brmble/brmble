@@ -20,9 +20,18 @@ namespace MumbleSharp
     {
         private static double PING_DELAY_MILLISECONDS = 5000;
 
+        // UDP is considered alive while the last successfully decrypted UDP
+        // packet (ping echo or voice) is younger than this. Two missed ping
+        // intervals plus margin, matching the reference client's behaviour.
+        internal const double UDP_LIVENESS_TIMEOUT_MILLISECONDS = 12000;
+
         public float? TcpPingAverage { get; set; }
         public float? TcpPingVariance { get; set; }
         public uint? TcpPingPackets { get; set; }
+
+        public float? UdpPingAverage { get; private set; }
+        public float? UdpPingVariance { get; private set; }
+        public uint? UdpPingPackets { get; private set; }
 
         public ConnectionStates State { get; private set; }
 
@@ -45,6 +54,47 @@ namespace MumbleSharp
         }
 
         readonly CryptState _cryptState = new CryptState();
+        internal CryptState CryptState => _cryptState;
+
+        // Sentinel meaning "never" that stays far away from any real monotonic
+        // timestamp (which starts near 0 at boot), without subtraction overflow.
+        private const long NeverMs = long.MinValue / 2;
+
+        // Monotonic milliseconds (Stopwatch is wall-clock independent;
+        // Environment.TickCount64 is unavailable on netstandard2.0/2.1).
+        private static long MonotonicMs =>
+            System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+
+        // Monotonic ms (wall-clock adjustments must not affect liveness)
+        // of the last successfully decrypted UDP packet.
+        // Written from the process thread, read from the capture thread (SendVoice).
+        private long _lastGoodUdpMs = NeverMs;
+
+        // Client-initiated crypt resync state (see MaybeRequestCryptResync).
+        private int _consecutiveDecryptFailures;
+        private long _lastResyncRequestMs = NeverMs;
+        internal uint ResyncRequests { get; private set; }
+
+        /// <summary>
+        /// True while UDP voice is confirmed working: an encrypted ping echo or
+        /// voice packet round-tripped recently. Voice is only committed to UDP
+        /// while healthy; otherwise it goes over the TCP tunnel. Pings keep
+        /// probing, so this recovers automatically when UDP comes back.
+        /// </summary>
+        public bool UdpHealthy =>
+            MonotonicMs - System.Threading.Volatile.Read(ref _lastGoodUdpMs)
+                < UDP_LIVENESS_TIMEOUT_MILLISECONDS;
+
+        internal void MarkUdpAlive() =>
+            System.Threading.Volatile.Write(ref _lastGoodUdpMs, MonotonicMs);
+
+        /// <summary>
+        /// Called by UdpSocket when the OS reports the UDP path unusable
+        /// (e.g. ICMP port unreachable surfacing as a SocketException).
+        /// Voice falls back to the TCP tunnel immediately; pings keep probing.
+        /// </summary>
+        internal void MarkUdpUnusable() =>
+            System.Threading.Volatile.Write(ref _lastGoodUdpMs, NeverMs);
 
         /// <summary>
         /// Creates a connection to the server using the given address and port.
@@ -79,6 +129,19 @@ namespace MumbleSharp
 
             State = ConnectionStates.Connecting;
             Protocol.Initialise(this);
+
+            // Connect-after-Close reuses this instance: evidence from the
+            // previous session must not authorize UDP or skew statistics.
+            MarkUdpUnusable();
+            _consecutiveDecryptFailures = 0;
+            _lastResyncRequestMs = NeverMs;
+            ResyncRequests = 0;
+            UdpPingAverage = null;
+            UdpPingVariance = null;
+            UdpPingPackets = null;
+            _meanOfUdpPings = 0;
+            _varianceTimesCountOfUdpPings = 0;
+            _countOfUdpPings = 0;
 
             _tcp = new TcpSocket(Host, Protocol, this);
             _tcp.Connect(username, password, tokens, serverName);
@@ -138,29 +201,27 @@ namespace MumbleSharp
             if (!_cryptState.Initialized)
                 return;
 
-            // Build the raw ping payload (same format as UdpSocket.SendPing)
-            long timestamp = DateTime.UtcNow.Ticks;
-            byte[] pingData = new byte[9];
-            pingData[0] = 1 << 5; // Ping type
-            pingData[1] = (byte)((timestamp >> 56) & 0xFF);
-            pingData[2] = (byte)((timestamp >> 48) & 0xFF);
-            pingData[3] = (byte)((timestamp >> 40) & 0xFF);
-            pingData[4] = (byte)((timestamp >> 32) & 0xFF);
-            pingData[5] = (byte)((timestamp >> 24) & 0xFF);
-            pingData[6] = (byte)((timestamp >> 16) & 0xFF);
-            pingData[7] = (byte)((timestamp >> 8) & 0xFF);
-            pingData[8] = (byte)((timestamp) & 0xFF);
+            byte[] pingData = BuildUdpPing(DateTime.UtcNow.Ticks);
 
             // Encrypt before sending — server requires all UDP to be OCB-AES128 encrypted
             byte[] encrypted = _cryptState.Encrypt(pingData, pingData.Length);
             if (encrypted != null)
-                _udp.Send(encrypted, encrypted.Length);
+                _udp.TrySend(encrypted, encrypted.Length);
         }
 
         /// <summary>
-        /// When true, voice is sent via TCP tunnel even if UDP is connected.
+        /// Builds a UDP ping packet: type header + timestamp as a Mumble varint
+        /// (in practice the 0xF4 8-byte form, since a tick count never fits the
+        /// short forms).
         /// </summary>
-        public bool ForceTcp { get; set; }
+        internal static byte[] BuildUdpPing(long timestamp)
+        {
+            byte[] varint = Var64.writeVarint64_alternative((ulong)timestamp);
+            byte[] pingData = new byte[1 + varint.Length];
+            pingData[0] = 1 << 5; // Ping type
+            Array.Copy(varint, 0, pingData, 1, varint.Length);
+            return pingData;
+        }
 
         public void SendVoice(ArraySegment<byte> packet)
         {
@@ -170,31 +231,56 @@ namespace MumbleSharp
             if (!VoiceSupportEnabled)
                 throw new InvalidOperationException("Voice Support is disabled with this connection");
 
-            if (!ForceTcp && _udp != null && _udp.IsConnected)
+            // Commit voice to UDP only when crypt is ready and the UDP path has
+            // recently proven itself (ping echo / incoming voice). Everything
+            // else goes through the TCP tunnel, like the reference client.
+            if (_udp != null && _udp.IsConnected && _cryptState.Initialized && UdpHealthy)
             {
-                // Encrypt and send via UDP
                 byte[] voiceData = new byte[packet.Count];
                 Buffer.BlockCopy(packet.Array, packet.Offset, voiceData, 0, packet.Count);
                 byte[] encrypted = _cryptState.Encrypt(voiceData, voiceData.Length);
-                if (encrypted != null)
-                    _udp.Send(encrypted, encrypted.Length);
-                else
-                    _tcp.SendVoice(PacketType.UDPTunnel, packet); // Encryption failed, fallback to TCP
+                if (encrypted != null && _udp.TrySend(encrypted, encrypted.Length))
+                    return;
             }
-            else
-            {
-                _tcp.SendVoice(PacketType.UDPTunnel, packet); // TCP tunnel fallback
-            }
+
+            _tcp.SendVoice(PacketType.UDPTunnel, packet); // TCP tunnel fallback
         }
 
         internal void ReceivedEncryptedUdp(byte[] packet)
         {
+            if (!_cryptState.Initialized)
+                return;
+
             byte[] plaintext = _cryptState.Decrypt(packet, packet.Length);
 
             if (plaintext == null)
+            {
+                _consecutiveDecryptFailures++;
+                MaybeRequestCryptResync();
                 return;
+            }
 
+            _consecutiveDecryptFailures = 0;
+            MarkUdpAlive();
             ReceiveDecryptedUdp(plaintext);
+        }
+
+        /// <summary>
+        /// A nonce desync silently kills UDP receive: every packet fails to
+        /// decrypt and is dropped. After a burst of consecutive failures, ask
+        /// the server for its current nonce by sending an empty CryptSetup
+        /// (rate-limited to one request per 5 seconds).
+        /// </summary>
+        private void MaybeRequestCryptResync()
+        {
+            if (_consecutiveDecryptFailures < 10)
+                return;
+            var now = MonotonicMs;
+            if (now - _lastResyncRequestMs < 5000)
+                return;
+            _lastResyncRequestMs = now;
+            ResyncRequests++;
+            SendControl<CryptSetup>(PacketType.CryptSetup, new CryptSetup());
         }
 
         internal void ReceiveDecryptedUdp(byte[] packet)
@@ -202,13 +288,42 @@ namespace MumbleSharp
             var type = packet[0] >> 5 & 0x7;
 
             if (type == 1)
+            {
+                ReceiveUdpPingEcho(packet);
                 Protocol.UdpPing(packet);
+            }
             else if(VoiceSupportEnabled)
                 UnpackVoicePacket(packet, type);
         }
 
-        private void PackVoicePacket(ArraySegment<byte> packet)
+        private void ReceiveUdpPingEcho(byte[] packet)
         {
+            // No MarkUdpAlive here: this method is also reached via the TCP
+            // tunnel path (TcpSocket forwards UDPTunnel payloads), which proves
+            // nothing about UDP. Liveness is recorded in ReceivedEncryptedUdp,
+            // the UDP-only receive path.
+            try
+            {
+                using (var reader = new UdpPacketReader(new MemoryStream(packet, 1, packet.Length - 1)))
+                {
+                    long sentTicks = reader.ReadVarInt64();
+                    float rttMs = (float)TimeSpan.FromTicks(DateTime.UtcNow.Ticks - sentTicks).TotalMilliseconds;
+                    if (rttMs < 0 || rttMs > 60000)
+                        return; // garbage or foreign timestamp format — liveness already noted
+
+                    var previousMean = _meanOfUdpPings;
+                    _countOfUdpPings++;
+                    _meanOfUdpPings = _meanOfUdpPings + ((rttMs - _meanOfUdpPings) / _countOfUdpPings);
+                    _varianceTimesCountOfUdpPings = _varianceTimesCountOfUdpPings +
+                                                    ((rttMs - _meanOfUdpPings) * (rttMs - previousMean));
+
+                    UdpPingPackets = (uint)_countOfUdpPings;
+                    UdpPingAverage = _meanOfUdpPings;
+                    UdpPingVariance = _varianceTimesCountOfUdpPings / _countOfUdpPings;
+                }
+            }
+            catch (IOException) { /* malformed echo payload — liveness already noted */ }
+            catch (InvalidDataException) { /* invalid varint in echo payload */ }
         }
 
         private void UnpackVoicePacket(byte[] packet, int type)
@@ -265,6 +380,10 @@ namespace MumbleSharp
         private float _meanOfPings;
         private float _varianceTimesCountOfPings;
         private int _countOfPings;
+
+        private float _meanOfUdpPings;
+        private float _varianceTimesCountOfUdpPings;
+        private int _countOfUdpPings;
 
         /// <summary>
         /// Gets a value indicating whether ping stats should set timestamp when pinging.

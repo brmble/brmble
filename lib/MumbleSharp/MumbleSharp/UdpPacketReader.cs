@@ -36,9 +36,16 @@ namespace MumbleSharp
             return buffer;
         }
 
-        public long ReadVarInt64()
+        public long ReadVarInt64() => ReadVarInt64(0);
+
+        private long ReadVarInt64(int depth)
         {
-            //My implementation, neater (imo) but broken
+            // The 0xF8 (negative-recursive) prefix nests another varint. A real
+            // encoder emits it at most once; unbounded recursion on a network
+            // packet full of 0xF8 bytes would exhaust the stack.
+            if (depth > 4)
+                throw new InvalidDataException("Varint recursion too deep");
+
             byte b = ReadByte();
             int leadingOnes = LeadingOnes(b);
             switch (leadingOnes)
@@ -61,16 +68,20 @@ namespace MumbleSharp
                     if ((b & 4) == 4)
                     {
                         //111101__ + long (8 bytes)
-                        return ReadByte() << 56 | ReadByte() << 48 | ReadByte() << 40 | ReadByte() << 32 | ReadByte() << 24 | ReadByte() << 16 | ReadByte() << 8 | ReadByte();
+                        //Shifts must be on long: an int shift count is masked to 0-31,
+                        //so `byte << 56` silently became `<< 24` and scrambled the value.
+                        return (long)ReadByte() << 56 | (long)ReadByte() << 48 | (long)ReadByte() << 40 | (long)ReadByte() << 32
+                             | (long)ReadByte() << 24 | (long)ReadByte() << 16 | (long)ReadByte() << 8 | ReadByte();
                     }
                     else
                     {
                         //111100__ + int (4 bytes)
-                        return ReadByte() << 24 | ReadByte() << 16 | ReadByte() << 8 | ReadByte();
+                        //Widen before shifting so values ≥ 2^31 don't sign-extend negative.
+                        return (long)ReadByte() << 24 | (long)ReadByte() << 16 | (long)ReadByte() << 8 | ReadByte();
                     }
                 case 5:
                     //111110 + varint (negative)
-                    return ~ReadVarInt64();
+                    return ~ReadVarInt64(depth + 1);
                 case 6:
                 case 7:
                 case 8:

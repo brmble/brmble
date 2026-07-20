@@ -287,9 +287,15 @@ channel.SendMessage("<b>bold</b> text", recursive: false);
 
 ### Transport
 
+Voice transport is selected automatically: packets go over UDP only while
+the encrypted UDP path has recently proven itself (ping echo or incoming
+voice within 12s) and fall back to the TCP tunnel otherwise, recovering
+automatically when UDP comes back. There is no manual override (the old
+`ForceTcp` property was removed).
+
 ```csharp
-// Force TCP tunnel for voice (instead of UDP)
-connection.ForceTcp = true;
+// Observe the current UDP path health
+if (connection.UdpHealthy) { }
 
 // Check connection state
 if (connection.State == ConnectionStates.Connected) { }

@@ -173,6 +173,31 @@ namespace MumbleSharp
                 ping.TcpPackets = _connection.TcpPingPackets.Value;
             }
 
+            if (_connection.UdpPingAverage.HasValue)
+            {
+                ping.UdpPingAvg = _connection.UdpPingAverage.Value;
+            }
+            if (_connection.UdpPingVariance.HasValue)
+            {
+                ping.UdpPingVar = _connection.UdpPingVariance.Value;
+            }
+            if (_connection.UdpPingPackets.HasValue)
+            {
+                ping.UdpPackets = _connection.UdpPingPackets.Value;
+            }
+
+            // Our crypt receive counters (server→client direction) plus how often
+            // we asked for a resync — this is what makes the server-side user
+            // info dialog show real numbers for Brmble clients instead of zeros.
+            var crypt = _connection.CryptState;
+            if (crypt.Initialized)
+            {
+                ping.Good = (uint)crypt.Good;
+                ping.Late = (uint)crypt.Late;
+                ping.Lost = (uint)crypt.Lost;
+                ping.Resync = _connection.ResyncRequests;
+            }
+
             lock (_sendLock)
                 Send<Ping>(PacketType.Ping, ping);
         }
