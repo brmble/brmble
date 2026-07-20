@@ -210,17 +210,16 @@ namespace MumbleSharp
         }
 
         /// <summary>
-        /// Builds a UDP ping packet: type header + timestamp as a Mumble varint.
-        /// Always uses the 8-byte varint form (0xF4 prefix) since a tick count
-        /// never fits the short forms anyway.
+        /// Builds a UDP ping packet: type header + timestamp as a Mumble varint
+        /// (in practice the 0xF4 8-byte form, since a tick count never fits the
+        /// short forms).
         /// </summary>
         internal static byte[] BuildUdpPing(long timestamp)
         {
-            byte[] pingData = new byte[10];
+            byte[] varint = Var64.writeVarint64_alternative((ulong)timestamp);
+            byte[] pingData = new byte[1 + varint.Length];
             pingData[0] = 1 << 5; // Ping type
-            pingData[1] = 0xF4;   // varint prefix: 111101__ = 8-byte value follows
-            for (int i = 0; i < 8; i++)
-                pingData[2 + i] = (byte)(timestamp >> (56 - 8 * i));
+            Array.Copy(varint, 0, pingData, 1, varint.Length);
             return pingData;
         }
 
