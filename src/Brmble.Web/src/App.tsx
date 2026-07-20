@@ -3366,12 +3366,20 @@ const handleConnect = (serverData: SavedServer) => {
     : undefined;
 
   const channelChatMessages = useMemo(
-    () => canOpenActiveChannelChat
-      ? [
-        ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+    () => {
+      if (!canOpenActiveChannelChat) return [];
+      // When Matrix is active, channel history comes from Matrix. Ephemeral
+      // game-feed lines live only in the local chat store (systemType 'game',
+      // never persisted), so merge them in explicitly — otherwise they are
+      // written but never rendered.
+      const base = isMatrixActive
+        ? [...(matrixMessages ?? []), ...messages.filter(m => m.systemType === 'game')]
+        : messages;
+      return [
+        ...base,
         ...optimisticImages.filter(m => m.channelId === currentChannelId),
-      ]
-      : [],
+      ];
+    },
     [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
   );
 
