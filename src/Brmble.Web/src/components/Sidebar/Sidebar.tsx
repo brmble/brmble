@@ -441,6 +441,7 @@ export function Sidebar({
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
+          onChallengeDeathroll={onChallengeDeathroll}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}
