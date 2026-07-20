@@ -29,7 +29,7 @@ public interface IGamePresence
     Task<bool> AreChallengesBlockedAsync(long sessionId);
 }
 
-public enum InviteRejectReason { None, Blocked, Other }
+public enum InviteRejectReason { None, Blocked }
 
 public record InviteResult(bool Success, long MatchId, string? Error, InviteRejectReason Reason = InviteRejectReason.None);
 
