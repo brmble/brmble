@@ -942,6 +942,10 @@ function App() {
     else notifQueueRef.current.unregister('game-invite');
   }, [gameState.incomingInvite]);
   useEffect(() => {
+    if (gameState.inviteOutcome) notifQueueRef.current.register('game-outcome', 'info');
+    else notifQueueRef.current.unregister('game-outcome');
+  }, [gameState.inviteOutcome]);
+  useEffect(() => {
     if (gameState.lastError) notifQueueRef.current.register('game-error', 'error');
     else notifQueueRef.current.unregister('game-error');
   }, [gameState.lastError]);
@@ -4341,6 +4345,7 @@ const handleConnect = (serverData: SavedServer) => {
           <Notification
             status="info"
             position="top-right"
+            duration={null}
             visible={!!gameState.incomingInvite}
             title="Deathroll challenge"
             detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to Deathroll.`}
@@ -4356,6 +4361,26 @@ const handleConnect = (serverData: SavedServer) => {
             onExited={() => notifQueue.unregister('game-invite')}
           />
         )}
+        {gameState.inviteOutcome && notifQueue.isVisible('game-outcome') && (() => {
+          const o = gameState.inviteOutcome;
+          const name = o.targetSession != null ? resolveGamePlayerName(o.targetSession) : 'The player';
+          const copy = o.kind === 'declined'
+            ? { title: 'Challenge declined', detail: `${name} declined your Deathroll challenge.` }
+            : o.kind === 'expired'
+              ? { title: 'No response', detail: `${name} didn't respond to your challenge.` }
+              : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
+          return (
+            <Notification
+              status="info"
+              position="top-right"
+              visible={!!gameState.inviteOutcome}
+              title={copy.title}
+              detail={copy.detail}
+              onDismiss={() => gameState.clearInviteOutcome()}
+              onExited={() => notifQueue.unregister('game-outcome')}
+            />
+          );
+        })()}
         {gameState.lastError && notifQueue.isVisible('game-error') && (
           <Notification
             status="error"
