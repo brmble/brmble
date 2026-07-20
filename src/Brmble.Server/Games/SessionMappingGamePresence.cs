@@ -13,13 +13,15 @@ public sealed class SessionMappingGamePresence : IGamePresence
         _membership = membership;
     }
 
-    public bool TryGetChannel(long userId, out int channelId, out bool isBrmble)
+    public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
     {
         channelId = 0;
         isBrmble = false;
-        if (!_sessions.TryGetMappingByUserId(userId, out var sessionId, out var mapping) || mapping is null)
+        userId = 0;
+        if (!_sessions.GetSnapshot().TryGetValue((int)sessionId, out var mapping) || mapping is null)
             return false;
         isBrmble = mapping.IsBrmbleClient;
-        return _membership.TryGetChannel(sessionId, out channelId);
+        userId = mapping.UserId;
+        return _membership.TryGetChannel((int)sessionId, out channelId);
     }
 }

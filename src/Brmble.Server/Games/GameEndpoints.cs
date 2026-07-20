@@ -1,5 +1,6 @@
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
+using Brmble.Server.Events;
 
 namespace Brmble.Server.Games;
 
@@ -13,38 +14,51 @@ public static class GameEndpoints
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/games/invite", async (InviteDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr) =>
+            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            var r = await mgr.InviteAsync(user.UserId, dto.TargetUserId, dto.GameType);
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new { error = "You must be connected to Brmble to start a game." });
+            // dto.TargetUserId is a Mumble session id supplied by the web client.
+            var r = await mgr.InviteAsync(session, dto.TargetUserId, dto.GameType);
             return r.Success ? Results.Ok(new { matchId = r.MatchId }) : Results.BadRequest(new { error = r.Error });
         });
 
         app.MapPost("/games/respond", async (RespondDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr) =>
+            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            await mgr.RespondAsync(dto.MatchId, user.UserId, dto.Accept);
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            await mgr.RespondAsync(dto.MatchId, session, dto.Accept);
             return Results.Ok();
         });
 
         app.MapPost("/games/action", async (ActionDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr) =>
+            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            await mgr.ActionAsync(dto.MatchId, user.UserId, dto.Action);
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            await mgr.ActionAsync(dto.MatchId, session, dto.Action);
             return Results.Ok();
         });
 
         app.MapPost("/games/forfeit", async (ForfeitDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr) =>
+            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            await mgr.ForfeitAsync(dto.MatchId, user.UserId, "forfeit");
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            await mgr.ForfeitAsync(dto.MatchId, session, "forfeit");
             return Results.Ok();
         });
 

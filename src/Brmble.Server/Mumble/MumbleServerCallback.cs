@@ -166,8 +166,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         {
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
 
-            if (_gameSessions.TryGetActiveMatch(mapping.UserId, out var matchId))
-                await _gameSessions.ForfeitAsync(matchId, mapping.UserId, "disconnect");
+            if (_gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
+                await _gameSessions.ForfeitAsync(matchId, user.SessionId, "disconnect");
         }
 
         _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
@@ -200,8 +200,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            if (channelChanged && _gameSessions.TryGetActiveMatch(mapping.UserId, out var matchId))
-                await _gameSessions.ForfeitAsync(matchId, mapping.UserId, "left_channel");
+            if (channelChanged && _gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
+                await _gameSessions.ForfeitAsync(matchId, user.SessionId, "left_channel");
 
             var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
             foreach (var roomName in shareRooms)

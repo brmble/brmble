@@ -7,11 +7,11 @@ namespace Brmble.Server.Tests.Games;
 
 file sealed class FakePresence : IGamePresence
 {
-    public Dictionary<long, (int ch, bool brmble)> Users = new();
-    public bool TryGetChannel(long userId, out int channelId, out bool isBrmble)
+    public Dictionary<long, (int ch, bool brmble, long userId)> Users = new();
+    public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
     {
-        if (Users.TryGetValue(userId, out var v)) { channelId = v.ch; isBrmble = v.brmble; return true; }
-        channelId = 0; isBrmble = false; return false;
+        if (Users.TryGetValue(sessionId, out var v)) { channelId = v.ch; isBrmble = v.brmble; userId = v.userId; return true; }
+        channelId = 0; isBrmble = false; userId = 0; return false;
     }
 }
 file sealed class FakePublisher : IGameEventPublisher
@@ -39,11 +39,11 @@ public class GameSessionManagerTests
     public async Task Invite_RejectsWhenTargetNotInSameChannel()
     {
         var presence = new FakePresence();
-        presence.Users[10] = (1, true);
-        presence.Users[20] = (2, true);
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (2, true, 20);
         var repo = GameTestHelpers.NewRepo();
         var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), repo);
-        var result = await mgr.InviteAsync(inviterUserId: 10, targetUserId: 20, gameType: "deathroll");
+        var result = await mgr.InviteAsync(inviterSession: 10, targetSession: 20, gameType: "deathroll");
         Assert.IsFalse(result.Success);
         Assert.IsTrue(result.Error!.Contains("channel", StringComparison.OrdinalIgnoreCase));
     }
@@ -52,8 +52,8 @@ public class GameSessionManagerTests
     public async Task Invite_RejectsNonBrmbleTarget()
     {
         var presence = new FakePresence();
-        presence.Users[10] = (1, true);
-        presence.Users[20] = (1, false);
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, false, 20);
         var mgr = NewManager(presence, new FakePublisher(), new FakeAnnouncer(), GameTestHelpers.NewRepo());
         var result = await mgr.InviteAsync(10, 20, "deathroll");
         Assert.IsFalse(result.Success);
@@ -63,8 +63,8 @@ public class GameSessionManagerTests
     public async Task AcceptedMatch_PlaysToCompletion_PersistsAndAnnounces()
     {
         var presence = new FakePresence();
-        presence.Users[10] = (1, true);
-        presence.Users[20] = (1, true);
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
         var repo = GameTestHelpers.NewRepo();
         var pub = new FakePublisher();
         var ann = new FakeAnnouncer();
@@ -72,7 +72,7 @@ public class GameSessionManagerTests
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         Assert.IsTrue(invite.Success);
-        await mgr.RespondAsync(invite.MatchId, targetUserId: 20, accept: true);
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
 
         for (var i = 0; i < 100000 && mgr.IsMatchLive(invite.MatchId); i++)
         {

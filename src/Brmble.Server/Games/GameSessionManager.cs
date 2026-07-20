@@ -15,8 +15,10 @@ public interface IGameAnnouncer
 
 public interface IGamePresence
 {
-    // Returns (channelId, isBrmble) if the user has a live Brmble session.
-    bool TryGetChannel(long userId, out int channelId, out bool isBrmble);
+    // Resolves a live Brmble session id to its channel, Brmble status, and stable
+    // database user id. Games operate in Mumble session-id space (the identity the
+    // web/client speak); the stable userId is used only for routing and persistence.
+    bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId);
 }
 
 public record InviteResult(bool Success, long MatchId, string? Error);
@@ -60,7 +62,8 @@ public sealed class GameSessionManager
         public required string GameType;
         public required IGameEngine Engine;
         public required object State;
-        public required long[] Players; // [inviter, target]
+        public required long[] Players; // [inviter, target] as Mumble session ids
+        public required IReadOnlyDictionary<long, long> SessionToUser; // session id -> stable db user id
         public required int ChannelId;
         public string Status = "pending"; // pending | live | done
         public DateTimeOffset StartedAt;
@@ -69,46 +72,51 @@ public sealed class GameSessionManager
         public readonly object Lock = new();
     }
 
-    public async Task<InviteResult> InviteAsync(long inviterUserId, long targetUserId, string gameType)
+    public async Task<InviteResult> InviteAsync(long inviterSession, long targetSession, string gameType)
     {
-        if (inviterUserId == targetUserId)
+        if (inviterSession == targetSession)
             return new InviteResult(false, 0, "You cannot invite yourself.");
 
         if (!_engines.TryGetValue(gameType, out var engine))
             return new InviteResult(false, 0, $"Unknown game type '{gameType}'.");
 
-        if (!_presence.TryGetChannel(inviterUserId, out var inviterChannel, out var inviterBrmble) || !inviterBrmble)
+        if (!_presence.TryGetChannel(inviterSession, out var inviterChannel, out var inviterBrmble, out var inviterUserId) || !inviterBrmble)
             return new InviteResult(false, 0, "You must be connected to Brmble to start a game.");
 
-        if (!_presence.TryGetChannel(targetUserId, out var targetChannel, out var targetBrmble) || !targetBrmble)
+        if (!_presence.TryGetChannel(targetSession, out var targetChannel, out var targetBrmble, out var targetUserId) || !targetBrmble)
             return new InviteResult(false, 0, "The other player must be connected to Brmble.");
 
         if (inviterChannel != targetChannel)
             return new InviteResult(false, 0, "You must be in the same channel to start a game.");
 
-        if (_userToMatch.ContainsKey(inviterUserId))
+        if (_userToMatch.ContainsKey(inviterSession))
             return new InviteResult(false, 0, "You already have an active game.");
 
-        if (_userToMatch.ContainsKey(targetUserId))
+        if (_userToMatch.ContainsKey(targetSession))
             return new InviteResult(false, 0, "The other player already has an active game.");
 
         var matchId = Interlocked.Increment(ref _matchIdCounter);
-        var players = new[] { new GamePlayer(inviterUserId), new GamePlayer(targetUserId) };
+        var players = new[] { new GamePlayer(inviterSession), new GamePlayer(targetSession) };
         var match = new LiveMatch
         {
             MatchId = matchId,
             GameType = gameType,
             Engine = engine,
             State = engine.InitialState(players, _rng),
-            Players = new[] { inviterUserId, targetUserId },
+            Players = new[] { inviterSession, targetSession },
+            SessionToUser = new Dictionary<long, long>
+            {
+                [inviterSession] = inviterUserId,
+                [targetSession] = targetUserId,
+            },
             ChannelId = inviterChannel,
         };
 
-        if (!_userToMatch.TryAdd(inviterUserId, matchId))
+        if (!_userToMatch.TryAdd(inviterSession, matchId))
             return new InviteResult(false, 0, "You already have an active game.");
-        if (!_userToMatch.TryAdd(targetUserId, matchId))
+        if (!_userToMatch.TryAdd(targetSession, matchId))
         {
-            _userToMatch.TryRemove(inviterUserId, out _);
+            _userToMatch.TryRemove(inviterSession, out _);
             return new InviteResult(false, 0, "The other player already has an active game.");
         }
 
@@ -116,19 +124,24 @@ public sealed class GameSessionManager
 
         await _publisher.PublishToUsersAsync(
             new HashSet<long> { targetUserId },
-            new { type = "game.invited", matchId, gameType, from = inviterUserId });
+            new { type = "game.invited", matchId, gameType, from = inviterSession });
 
         match.InviteTimer = new Timer(_ => OnInviteExpired(matchId), null, InviteTimeout, Timeout.InfiniteTimeSpan);
 
         return new InviteResult(true, matchId, null);
     }
 
+    // Maps a match's Mumble session players to the stable db user ids used for
+    // WebSocket routing.
+    private static IReadOnlySet<long> RouteSet(LiveMatch match)
+        => match.SessionToUser.Values.ToHashSet();
+
     private void OnInviteExpired(long matchId)
     {
         _ = DeclineOrExpireAsync(matchId);
     }
 
-    public async Task RespondAsync(long matchId, long targetUserId, bool accept)
+    public async Task RespondAsync(long matchId, long targetSession, bool accept)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
 
@@ -138,14 +151,14 @@ public sealed class GameSessionManager
             lock (match.Lock)
             {
                 if (match.Status != "pending") return;
-                if (match.Players[1] != targetUserId) return;
+                if (match.Players[1] != targetSession) return;
                 match.InviteTimer?.Dispose();
                 match.InviteTimer = null;
                 match.Status = "live";
                 match.StartedAt = DateTimeOffset.UtcNow;
             }
             await _publisher.PublishToUsersAsync(
-                new HashSet<long>(match.Players),
+                RouteSet(match),
                 new
                 {
                     type = "game.started",
@@ -172,7 +185,7 @@ public sealed class GameSessionManager
             match.InviteTimer = null;
         }
         await _publisher.PublishToUsersAsync(
-            new HashSet<long>(match.Players),
+            RouteSet(match),
             new { type = "game.declined", matchId });
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
@@ -193,8 +206,11 @@ public sealed class GameSessionManager
             }
             catch (InvalidGameActionException ex)
             {
+                var rejectRoute = match.SessionToUser.TryGetValue(userId, out var rejectUserId)
+                    ? new HashSet<long> { rejectUserId }
+                    : new HashSet<long> { userId };
                 _ = _publisher.PublishToUsersAsync(
-                    new HashSet<long> { userId },
+                    rejectRoute,
                     new { type = "game.actionRejected", matchId, reason = ex.Message });
                 return;
             }
@@ -204,7 +220,7 @@ public sealed class GameSessionManager
         }
 
         await _publisher.PublishToUsersAsync(
-            new HashSet<long>(match.Players),
+            RouteSet(match),
             new
             {
                 type = "game.stateUpdated",
@@ -243,7 +259,7 @@ public sealed class GameSessionManager
         }
 
         await _publisher.PublishToUsersAsync(
-            new HashSet<long>(match.Players),
+            RouteSet(match),
             new
             {
                 type = "game.stateUpdated",
@@ -265,6 +281,13 @@ public sealed class GameSessionManager
         }
 
         var outcome = (GameOutcome.Finished)match.Engine.GetOutcome(match.State);
+        // Engine participants are keyed by Mumble session id; translate to stable
+        // db user ids for persistence so stats remain stable across reconnects.
+        var persistedParticipants = outcome.Participants
+            .Select(p => match.SessionToUser.TryGetValue(p.UserId, out var dbId)
+                ? p with { UserId = dbId }
+                : p)
+            .ToArray();
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
@@ -273,12 +296,12 @@ public sealed class GameSessionManager
             AbandonReason: null,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
-            Participants: outcome.Participants);
+            Participants: persistedParticipants);
 
         await _repository.SaveCompletedMatchAsync(completed);
 
         await _publisher.PublishToUsersAsync(
-            new HashSet<long>(match.Players),
+            RouteSet(match),
             new { type = "game.ended", matchId = match.MatchId });
 
         var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
@@ -302,10 +325,12 @@ public sealed class GameSessionManager
         }
 
         var otherId = match.Players[0] == userId ? match.Players[1] : match.Players[0];
+        var winnerDbId = match.SessionToUser.TryGetValue(otherId, out var wId) ? wId : otherId;
+        var loserDbId = match.SessionToUser.TryGetValue(userId, out var lId) ? lId : userId;
         var participants = new[]
         {
-            new CompletedParticipant(otherId, Placement: 1, Score: null, Result: "win"),
-            new CompletedParticipant(userId, Placement: 2, Score: null, Result: "abandoned"),
+            new CompletedParticipant(winnerDbId, Placement: 1, Score: null, Result: "win"),
+            new CompletedParticipant(loserDbId, Placement: 2, Score: null, Result: "abandoned"),
         };
         var completed = new CompletedMatch(
             GameType: match.GameType,
@@ -320,7 +345,7 @@ public sealed class GameSessionManager
         await _repository.SaveCompletedMatchAsync(completed);
 
         await _publisher.PublishToUsersAsync(
-            new HashSet<long>(match.Players),
+            RouteSet(match),
             new { type = "game.ended", matchId, abandoned = true, reason });
 
         await _announcer.AnnounceResultAsync(match.ChannelId,
