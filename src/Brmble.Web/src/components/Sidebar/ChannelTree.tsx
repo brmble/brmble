@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
+import { buildChallengeMenuItem } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
@@ -613,14 +614,7 @@ onClick: () => {
                 && contextMenu.channelId != null
                 && contextMenu.channelId === currentChannelId;
               if (!eligible) return [];
-              return [{
-                type: 'item' as const,
-                label: 'Challenge to Deathroll',
-                icon: (
-                  <Icon name="triangle-right" size={14} />
-                ),
-                onClick: () => onChallengeDeathroll(parseInt(contextMenu.userId)),
-              }];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
             })(),
             {
               type: 'item' as const,

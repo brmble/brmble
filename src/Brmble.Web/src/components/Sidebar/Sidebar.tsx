@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
+import { buildChallengeMenuItem } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -477,14 +478,7 @@ export function Sidebar({
                 && target.channelId != null
                 && target.channelId === selfChannelId;
               if (!eligible) return [];
-              return [{
-                type: 'item' as const,
-                label: 'Challenge to Deathroll',
-                icon: (
-                  <Icon name="triangle-right" size={14} />
-                ),
-                onClick: () => onChallengeDeathroll(parseInt(contextMenu.userId)),
-              }];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
             })(),
             {
               type: 'item' as const,

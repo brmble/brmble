@@ -18,6 +18,7 @@ export interface GameMeta {
 
 const GAME_META: Record<string, GameMeta> = {
   deathroll: { name: 'Deathroll', icon: 'game-deathroll' },
+  rps: { name: 'Rock Paper Scissors', icon: 'game-rps' },
 };
 
 /** Fallback avatar icon for an unknown/future game type. */

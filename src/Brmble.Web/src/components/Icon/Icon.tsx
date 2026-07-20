@@ -479,6 +479,23 @@ const iconPaths: Record<string, IconDef> = {
   // ║  One icon per game type; keyed by the server's gameType string.     ║
   // ╚══════════════════════════════════════════════════════════════════════╝
 
+  /* ── duel (challenge menu parent) ────────────────────── */
+
+  'swords': {
+    paths: (
+      <>
+        <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5" />
+        <line x1="13" y1="19" x2="19" y2="13" />
+        <line x1="16" y1="16" x2="20" y2="20" />
+        <line x1="19" y1="21" x2="21" y2="19" />
+        <polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5" />
+        <line x1="5" y1="14" x2="9" y2="18" />
+        <line x1="7" y1="17" x2="4" y2="20" />
+        <line x1="3" y1="19" x2="5" y2="21" />
+      </>
+    ),
+  },
+
   /* ── deathroll ───────────────────────────────────────── */
 
   'game-deathroll': {
@@ -490,6 +507,20 @@ const iconPaths: Record<string, IconDef> = {
         <path d="M10 14h.01" />
         <path d="M15 6h.01" />
         <path d="M18 9h.01" />
+      </>
+    ),
+  },
+
+  /* ── rock paper scissors ─────────────────────────────── */
+
+  'game-rps': {
+    paths: (
+      <>
+        <circle cx="6" cy="6" r="3" />
+        <path d="M8.12 8.12 12 12" />
+        <path d="M20 4 8.12 15.88" />
+        <circle cx="6" cy="18" r="3" />
+        <path d="M14.8 14.8 20 20" />
       </>
     ),
   },

@@ -210,9 +210,13 @@ hover, and never triggers `onDismiss` (which would decline). The server remains 
 of the timeout via `game.expired`. Use `countdownMs` (not `duration`) whenever a notification
 needs a visible countdown without client-side dismissal.
 
-The per-user "Challenge to Deathroll" entry point is a `ContextMenu` item on the user row
+The per-user "Challenge to a duel" entry point is a `ContextMenu` item on the user row
 (same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
-shares the local user's voice channel.
+shares the local user's voice channel. It is a submenu of game types: **Deathroll** challenges
+immediately; **Rock Paper Scissors** opens a further "Best of 3 / 5 / 7" submenu whose options
+are disabled ("coming soon") until an RPS engine exists server-side. The menu is assembled by
+the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused by
+both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
 
 #### Challenger invite-outcome notifications
 
@@ -858,7 +862,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
-| **Games** | `game-deathroll` | Per-game avatars for the ephemeral minigame spectator feed (keyed by `gameType`; see `utils/games.ts`) |
+| **Games** | `swords`, `game-deathroll`, `game-rps` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 
