@@ -69,10 +69,18 @@ public class EncodePipeline : IDisposable
 
     public long CurrentSequence => _sequenceNumber;
 
+    // -1 = no pending update. Written from any thread, consumed on the encode thread.
+    private int _pendingLossPercent = -1;
+
+    /// <summary>
+    /// Thread-safe: may be called from the network thread. The value is stashed
+    /// and applied on the encoding thread at the next frame, because
+    /// opus_encoder_ctl must not run concurrently with opus_encode.
+    /// </summary>
     public void UpdatePacketLoss(int observedLossPercent)
     {
         int clamped = Math.Clamp(observedLossPercent + 5, 5, 25);
-        _encoder.PacketLossPercentage = clamped;
+        Interlocked.Exchange(ref _pendingLossPercent, clamped);
     }
 
     /// <summary>
@@ -146,6 +154,10 @@ public class EncodePipeline : IDisposable
 
     private void EncodeAndEmit(bool terminator)
     {
+        int pendingLoss = Interlocked.Exchange(ref _pendingLossPercent, -1);
+        if (pendingLoss >= 0)
+            _encoder.PacketLossPercentage = pendingLoss;
+
         byte[] scaled;
 
         if (_volume != 1.0f)
