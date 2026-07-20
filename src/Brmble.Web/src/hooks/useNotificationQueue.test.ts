@@ -52,3 +52,29 @@ describe('useNotificationQueue identity', () => {
     expect(after.isVisible('screen-share')).toBe(false);
   });
 });
+
+describe('game-outcome replaceable id', () => {
+  it('keeps exactly one entry visible across repeated outcome events', () => {
+    const { result } = renderHook(() => useNotificationQueue());
+
+    // Simulate the App effect firing four outcome notifications in a row:
+    // each new outcome unregisters the prior id before re-registering.
+    for (let i = 0; i < 4; i++) {
+      act(() => {
+        result.current.unregister('game-outcome');
+        result.current.register('game-outcome', 'info');
+      });
+
+      // Only ever one entry under this id, and it is visible.
+      expect(result.current.totalCount).toBe(1);
+      expect(result.current.isVisible('game-outcome')).toBe(true);
+    }
+
+    // Final unregister clears it entirely.
+    act(() => {
+      result.current.unregister('game-outcome');
+    });
+    expect(result.current.totalCount).toBe(0);
+    expect(result.current.isVisible('game-outcome')).toBe(false);
+  });
+});
