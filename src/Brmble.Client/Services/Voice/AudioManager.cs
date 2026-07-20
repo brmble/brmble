@@ -246,6 +246,10 @@ internal sealed class AudioManager : IDisposable
     public void ResetLossStats()
     {
         _smoothedLoss = -1;
+        lock (_lock)
+        {
+            _outboundLossPercent = -1;
+        }
         OnLossReport?.Invoke(null);
     }
 
@@ -258,6 +262,7 @@ internal sealed class AudioManager : IDisposable
     /// </summary>
     public void UpdatePacketLoss(int lossPercent)
     {
+        lossPercent = Math.Clamp(lossPercent, 0, 100);
         lock (_lock)
         {
             _outboundLossPercent = lossPercent;

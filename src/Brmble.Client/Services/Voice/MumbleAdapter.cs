@@ -265,7 +265,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         goodBase = good; lateBase = late; lostBase = lost;
         // Good already includes late packets (CryptState increments Good for every
         // accepted packet), so the denominator is delivered + lost — not + late.
-        uint total = dGood + dLost;
+        // ulong so extreme deltas (e.g. first sample after hours of uptime on a
+        // rebaselined counter) cannot wrap the sum.
+        ulong total = (ulong)dGood + dLost;
         // Ping keepalives keep the counters moving even when the mic is idle,
         // so total is rarely 0. Require a real sample: at ~50 voice packets/s,
         // fewer than 10 packets per interval means silence (only pings), where
