@@ -253,6 +253,68 @@ describe('DMContactList directory behavior', () => {
     expect(screen.getByText('Mumble users')).toBeInTheDocument();
   });
 
+  it('collapses Brmble users without conversations into an Others section by default', () => {
+    renderList([matrixContact, offlineMatrixContact, mumbleContact]);
+
+    const othersToggle = screen.getByRole('button', { name: 'Others' });
+
+    expect(othersToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('persistent preview')).toBeInTheDocument();
+    expect(screen.queryByText('Offline Olive')).not.toBeInTheDocument();
+    expect(screen.getByText('Mumble users')).toBeInTheDocument();
+  });
+
+  it('persists the expanded Others state after the section is toggled open', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderList([matrixContact, offlineMatrixContact]);
+
+    await user.click(screen.getByRole('button', { name: 'Others' }));
+
+    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Offline Olive')).toBeInTheDocument();
+    expect(localStorage.getItem('dm-others-expanded')).toBe('true');
+
+    unmount();
+    renderList([matrixContact, offlineMatrixContact]);
+
+    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Offline Olive')).toBeInTheDocument();
+  });
+
+  it('expands Others during search and returns to the saved collapsed state when search clears', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('dm-others-expanded', 'false');
+    renderList([matrixContact, offlineMatrixContact]);
+
+    await user.type(screen.getByPlaceholderText('Search users...'), 'olive');
+
+    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Offline Olive')).toBeInTheDocument();
+
+    await user.clear(screen.getByPlaceholderText('Search users...'));
+
+    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Offline Olive')).not.toBeInTheDocument();
+  });
+
+  it('keeps Others expanded during search even when no Others contacts match', async () => {
+    const user = userEvent.setup();
+    renderList([matrixContact, offlineMatrixContact]);
+
+    await user.type(screen.getByPlaceholderText('Search users...'), 'vanilla');
+
+    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Vanilla Val')).toBeInTheDocument();
+    expect(screen.queryByText('Offline Olive')).not.toBeInTheDocument();
+  });
+
+  it('does not render the Others section when every Brmble user has a conversation', () => {
+    renderList([matrixContact, mumbleContact]);
+
+    expect(screen.queryByRole('button', { name: 'Others' })).not.toBeInTheDocument();
+    expect(screen.getByText('Mumble users')).toBeInTheDocument();
+  });
+
   it('uses user-focused empty copy while searching the directory', async () => {
     const user = userEvent.setup();
     renderList();
@@ -333,9 +395,11 @@ describe('DMContactList directory behavior', () => {
     expect(onSelectContact).toHaveBeenCalledWith('@val:example.com', 'Vanilla Val');
   });
 
-  it('disables user info for an offline Matrix directory contact', () => {
+  it('disables user info for an offline Matrix directory contact', async () => {
+    const user = userEvent.setup();
     renderList([offlineMatrixContact]);
 
+    await user.click(screen.getByRole('button', { name: 'Others' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: /Offline Olive/ }));
 
     expect(screen.getByRole('button', { name: 'User Information' })).toBeDisabled();
