@@ -179,6 +179,7 @@ type PendingViewerAttempt = {
   id: number;
   roomName: string;
   userId: number;
+  matrixUserId?: string;
   cancel: () => void;
   promise: Promise<never>;
 };
@@ -317,6 +318,7 @@ export function useScreenShare(
   const [error, setError] = useState<string | null>(null);
   const [activeShares, setActiveShares] = useState<ShareInfo[]>([]);
   const [watchingShares, setWatchingShares] = useState<ShareInfo[]>([]);
+  const [pendingViewerShares, setPendingViewerShares] = useState<ShareInfo[]>([]);
   const [isViewerConnectPending, setIsViewerConnectPending] = useState(false);
   const [focusedShare, _setFocusedShare] = useState<ShareInfo | null>(null);
   const [remoteVideoEls, setRemoteVideoEls] = useState<Map<number, HTMLVideoElement>>(new Map());
@@ -377,20 +379,31 @@ export function useScreenShare(
     setIsViewerConnectPending(viewerConnectPendingCountRef.current > 0);
   }, []);
 
-  const registerPendingViewerAttempt = useCallback((roomName: string, userId: number) => {
+  const publishPendingViewerAttempts = useCallback(() => {
+    setPendingViewerShares(Array.from(pendingViewerAttemptsRef.current.values()).map(({ roomName, userId, matrixUserId }) => ({
+      roomName,
+      userId,
+      matrixUserId,
+      userName: activeSharesRef.current.find(share => share.roomName === roomName && share.userId === userId)?.userName ?? '',
+    })));
+  }, []);
+
+  const registerPendingViewerAttempt = useCallback((roomName: string, userId: number, matrixUserId?: string) => {
     const id = ++pendingViewerAttemptIdRef.current;
     let cancel!: () => void;
     const promise = new Promise<never>((_, reject) => {
       cancel = () => reject(createSupersededRoomRequestError());
     });
-    const attempt: PendingViewerAttempt = { id, roomName, userId, cancel, promise };
+    const attempt: PendingViewerAttempt = { id, roomName, userId, matrixUserId, cancel, promise };
     pendingViewerAttemptsRef.current.set(id, attempt);
+    publishPendingViewerAttempts();
     return attempt;
-  }, []);
+  }, [publishPendingViewerAttempts]);
 
   const unregisterPendingViewerAttempt = useCallback((attempt: PendingViewerAttempt) => {
     pendingViewerAttemptsRef.current.delete(attempt.id);
-  }, []);
+    publishPendingViewerAttempts();
+  }, [publishPendingViewerAttempts]);
 
   const setFocusedShare: typeof _setFocusedShare = useCallback((action) => {
     _setFocusedShare(prev => {
@@ -737,7 +750,8 @@ export function useScreenShare(
     for (const roomName of canceledRooms) {
       maybeCancelPendingRoomForViewerRoom(roomName);
     }
-  }, [maybeCancelPendingRoomForViewerRoom]);
+    publishPendingViewerAttempts();
+  }, [maybeCancelPendingRoomForViewerRoom, publishPendingViewerAttempts]);
 
   // Try to disconnect the room, but only if we're not sharing AND not watching
   const maybeDisconnectRoom = useCallback(async () => {
@@ -1394,7 +1408,7 @@ export function useScreenShare(
     }
 
     beginViewerConnectAttempt();
-    const pendingAttempt = registerPendingViewerAttempt(roomName, targetUserId);
+    const pendingAttempt = registerPendingViewerAttempt(roomName, targetUserId, matrixUserId);
     setError(null);
 
     try {
@@ -1484,6 +1498,7 @@ export function useScreenShare(
 
     // No userId: remove all streams (channel switch / full cleanup)
     cancelPendingViewerAttempts();
+    setPendingViewerShares([]);
     if (room) {
       for (const share of watchingSharesRef.current) {
         const targetIdentity = share.matrixUserId ?? String(share.userId);
@@ -1684,6 +1699,8 @@ export function useScreenShare(
     activeShares,      // new: all active shares
     watchingShare,     // backward compat
     watchingShares,    // new
+    pendingViewerShares,
+    remoteWatchCount: watchingShares.length + pendingViewerShares.length,
     isViewerConnectPending,
     focusedShare,      // new
     setFocusedShare,   // new
