@@ -93,6 +93,10 @@ export const workspaceReducer = (
       return { ...state, foreground, previousContent: foreground };
     }
     case 'SELECTED_DM_INVALIDATED': {
+      if (state.foreground.kind !== 'dm') {
+        return state;
+      }
+
       const foreground =
         state.remoteWatchCount > 0 ? { kind: 'channel' as const } : { ...emptyDm };
       if (

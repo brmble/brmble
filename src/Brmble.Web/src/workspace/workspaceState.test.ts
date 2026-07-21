@@ -103,6 +103,17 @@ describe('workspace state machine', () => {
     expect(state.foreground).toEqual({ kind: 'dm', contactId: '' });
   });
 
+  it('keeps the foreground channel when a background DM is invalidated', () => {
+    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
+    state = workspaceReducer(state, { type: 'SELECT_CHANNEL' });
+    const channelState = state;
+
+    state = workspaceReducer(state, { type: 'SELECTED_DM_INVALIDATED' });
+
+    expect(state).toBe(channelState);
+    expect(state.foreground).toEqual({ kind: 'channel' });
+  });
+
   it('preserves previous content when opening or toggling the Messages panel', () => {
     let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
     const previousContent = state.previousContent;
