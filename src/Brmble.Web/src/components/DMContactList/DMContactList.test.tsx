@@ -70,18 +70,37 @@ function renderList(
   return { ...view, onSelectContact, onCloseConversation, onToggleVisibility };
 }
 
-function VisibilityHarness() {
+function VisibilityHarness({
+  contacts = [matrixContact],
+  selectedUserId = matrixContact.id,
+  onSelectContact = vi.fn(),
+  onCloseConversation = vi.fn(),
+  withExternalCollapseControl = false,
+}: Partial<{
+  contacts: DMContact[];
+  selectedUserId: string | null;
+  onSelectContact: (id: string, displayName: string) => void;
+  onCloseConversation: (id: string) => void;
+  withExternalCollapseControl: boolean;
+}>) {
   const [visible, setVisible] = useState(true);
 
   return (
-    <DMContactList
-      contacts={[matrixContact]}
-      selectedUserId={matrixContact.id}
-      onSelectContact={vi.fn()}
-      onCloseConversation={vi.fn()}
-      onToggleVisibility={() => setVisible((current) => !current)}
-      visible={visible}
-    />
+    <>
+      {withExternalCollapseControl && (
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setVisible(false)}>
+          Collapse externally
+        </button>
+      )}
+      <DMContactList
+        contacts={contacts}
+        selectedUserId={selectedUserId}
+        onSelectContact={onSelectContact}
+        onCloseConversation={onCloseConversation}
+        onToggleVisibility={() => setVisible((current) => !current)}
+        visible={visible}
+      />
+    </>
   );
 }
 
@@ -93,32 +112,62 @@ describe('DMContactList directory behavior', () => {
     localStorage.setItem('volume_33', '100');
   });
 
-  it('expands the persistent Messages rail with Enter and keeps panel content hidden', async () => {
+  it('expands the persistent Messages rail with Enter and restores the preserved search state', async () => {
     const user = userEvent.setup();
-    const { onToggleVisibility } = renderList(undefined, { visible: false });
+    render(<VisibilityHarness contacts={[matrixContact, mumbleContact]} />);
+
+    const search = screen.getByPlaceholderText('Search users...');
+    await user.type(search, 'val');
+    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
 
     const expand = screen.getByRole('button', { name: 'Expand Messages panel' });
     expect(expand.querySelector('polyline')).toHaveAttribute('points', '18 6 12 12 18 18');
-
     expand.focus();
     await user.keyboard('{Enter}');
 
-    expect(onToggleVisibility).toHaveBeenCalledTimes(1);
-    expect(screen.getByPlaceholderText('Search users...').closest('.dm-contact-list-content')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button', { name: 'Collapse Messages panel' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search users...')).toHaveValue('val');
+    expect(screen.getAllByText('Vanilla Val')).toHaveLength(2);
   });
 
-  it('collapses the Messages panel with Space while keeping focus on its control', async () => {
+  it('collapses the Messages panel with Space and updates the rail state', async () => {
     const user = userEvent.setup();
-    const { onToggleVisibility } = renderList();
+    render(<VisibilityHarness />);
 
     const collapse = screen.getByRole('button', { name: 'Collapse Messages panel' });
     expect(collapse.querySelector('polyline')).toHaveAttribute('points', '6 6 12 12 6 18');
-
     collapse.focus();
     await user.keyboard(' ');
 
-    expect(onToggleVisibility).toHaveBeenCalledTimes(1);
-    expect(collapse).toHaveFocus();
+    const expand = screen.getByRole('button', { name: 'Expand Messages panel' });
+    expect(expand.querySelector('polyline')).toHaveAttribute('points', '18 6 12 12 18 18');
+    expect(screen.getByPlaceholderText('Search users...').closest('.dm-contact-list-content')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('moves focus to the rail control when a focused contact collapses through a state transition', async () => {
+    const user = userEvent.setup();
+    render(<VisibilityHarness withExternalCollapseControl />);
+
+    const contact = screen.getByRole('button', { name: /Vanilla Val/ });
+    contact.focus();
+    await user.click(screen.getByRole('button', { name: 'Collapse externally' }));
+
+    expect(screen.getByRole('button', { name: 'Expand Messages panel' })).toHaveFocus();
+  });
+
+  it('shows contact unread badges only while expanded and the total on the collapsed rail', async () => {
+    const user = userEvent.setup();
+    render(<VisibilityHarness contacts={[matrixContact, mumbleContact]} />);
+
+    expect(screen.getAllByText('2')).toHaveLength(1);
+    expect(screen.getAllByText('1')).toHaveLength(1);
+    expect(screen.queryByLabelText('3 unread messages')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
+
+    expect(screen.getByLabelText('3 unread messages')).toHaveTextContent('3');
+    expect(screen.queryByText('2')).not.toBeInTheDocument();
+    expect(screen.queryByText('1')).not.toBeInTheDocument();
   });
 
   it('settles on the expanded state after rapid repeated rail toggles', async () => {
@@ -131,25 +180,20 @@ describe('DMContactList directory behavior', () => {
     expect(screen.getByRole('button', { name: 'Collapse Messages panel' })).toBeInTheDocument();
   });
 
-  it('closes a contact context menu when the panel collapses without changing the selection', () => {
-    const { onSelectContact, rerender } = renderList([matrixContact], { selectedUserId: matrixContact.id });
+  it('closes a contact context menu when the panel collapses without selection or close side effects', async () => {
+    const user = userEvent.setup();
+    const onSelectContact = vi.fn();
+    const onCloseConversation = vi.fn();
+    render(<VisibilityHarness onSelectContact={onSelectContact} onCloseConversation={onCloseConversation} />);
 
     fireEvent.contextMenu(screen.getByRole('button', { name: /Vanilla Val/ }));
     expect(screen.getByRole('button', { name: 'Send Direct Message' })).toBeInTheDocument();
 
-    rerender(
-      <DMContactList
-        contacts={[matrixContact]}
-        selectedUserId={matrixContact.id}
-        onSelectContact={onSelectContact}
-        onCloseConversation={vi.fn()}
-        onToggleVisibility={vi.fn()}
-        visible={false}
-      />,
-    );
+    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
 
     expect(screen.queryByRole('button', { name: 'Send Direct Message' })).not.toBeInTheDocument();
     expect(onSelectContact).not.toHaveBeenCalled();
+    expect(onCloseConversation).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Vanilla Val/, hidden: true })).toHaveClass('active');
   });
 

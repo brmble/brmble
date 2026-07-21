@@ -1,4 +1,5 @@
 .dm-contact-list {
+  position: relative;
   width: 40px;
   min-width: 40px;
   height: calc(100vh - var(--header-height));
@@ -46,12 +47,28 @@
   flex-direction: column;
   min-width: 260px;
   overflow: hidden;
-  transition: opacity var(--transition-slow), visibility var(--transition-slow);
+  transition: opacity var(--transition-slow);
 }
 
 .dm-contact-list:not(.visible) .dm-contact-list-content {
   opacity: 0;
-  visibility: hidden;
+}
+
+.dm-contact-list-rail-unread {
+  align-items: center;
+  background: var(--accent-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  display: flex;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  height: 18px;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 var(--space-2xs);
+  position: absolute;
+  right: var(--space-2xs);
+  top: 28px;
 }
 
 .dm-contact-list-header {
