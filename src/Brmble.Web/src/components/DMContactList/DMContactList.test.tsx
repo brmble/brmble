@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import bridge from '../../bridge';
@@ -43,22 +44,45 @@ const mumbleContact: DMContact = {
   mumbleSessionId: 44,
 };
 
-function renderList(contacts: DMContact[] = [matrixContact, mumbleContact]) {
+function renderList(
+  contacts: DMContact[] = [matrixContact, mumbleContact],
+  options: Partial<{
+    visible: boolean;
+    onToggleVisibility: () => void;
+    selectedUserId: string | null;
+  }> = {},
+) {
   const onSelectContact = vi.fn();
   const onCloseConversation = vi.fn();
+  const onToggleVisibility = options.onToggleVisibility ?? vi.fn();
 
   const view = render(
     <DMContactList
       contacts={contacts}
-      selectedUserId={null}
+      selectedUserId={options.selectedUserId ?? null}
       onSelectContact={onSelectContact}
       onCloseConversation={onCloseConversation}
-      onToggleVisibility={vi.fn()}
-      visible={true}
+      onToggleVisibility={onToggleVisibility}
+      visible={options.visible ?? true}
     />,
   );
 
-  return { ...view, onSelectContact, onCloseConversation };
+  return { ...view, onSelectContact, onCloseConversation, onToggleVisibility };
+}
+
+function VisibilityHarness() {
+  const [visible, setVisible] = useState(true);
+
+  return (
+    <DMContactList
+      contacts={[matrixContact]}
+      selectedUserId={matrixContact.id}
+      onSelectContact={vi.fn()}
+      onCloseConversation={vi.fn()}
+      onToggleVisibility={() => setVisible((current) => !current)}
+      visible={visible}
+    />
+  );
 }
 
 describe('DMContactList directory behavior', () => {
@@ -67,6 +91,66 @@ describe('DMContactList directory behavior', () => {
     localStorage.clear();
     localStorage.setItem('volume_44', '100');
     localStorage.setItem('volume_33', '100');
+  });
+
+  it('expands the persistent Messages rail with Enter and keeps panel content hidden', async () => {
+    const user = userEvent.setup();
+    const { onToggleVisibility } = renderList(undefined, { visible: false });
+
+    const expand = screen.getByRole('button', { name: 'Expand Messages panel' });
+    expect(expand.querySelector('polyline')).toHaveAttribute('points', '18 6 12 12 18 18');
+
+    expand.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onToggleVisibility).toHaveBeenCalledTimes(1);
+    expect(screen.getByPlaceholderText('Search users...').closest('.dm-contact-list-content')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('collapses the Messages panel with Space while keeping focus on its control', async () => {
+    const user = userEvent.setup();
+    const { onToggleVisibility } = renderList();
+
+    const collapse = screen.getByRole('button', { name: 'Collapse Messages panel' });
+    expect(collapse.querySelector('polyline')).toHaveAttribute('points', '6 6 12 12 6 18');
+
+    collapse.focus();
+    await user.keyboard(' ');
+
+    expect(onToggleVisibility).toHaveBeenCalledTimes(1);
+    expect(collapse).toHaveFocus();
+  });
+
+  it('settles on the expanded state after rapid repeated rail toggles', async () => {
+    const user = userEvent.setup();
+    render(<VisibilityHarness />);
+
+    const collapse = screen.getByRole('button', { name: 'Collapse Messages panel' });
+    await user.dblClick(collapse);
+
+    expect(screen.getByRole('button', { name: 'Collapse Messages panel' })).toBeInTheDocument();
+  });
+
+  it('closes a contact context menu when the panel collapses without changing the selection', () => {
+    const { onSelectContact, rerender } = renderList([matrixContact], { selectedUserId: matrixContact.id });
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Vanilla Val/ }));
+    expect(screen.getByRole('button', { name: 'Send Direct Message' })).toBeInTheDocument();
+
+    rerender(
+      <DMContactList
+        contacts={[matrixContact]}
+        selectedUserId={matrixContact.id}
+        onSelectContact={onSelectContact}
+        onCloseConversation={vi.fn()}
+        onToggleVisibility={vi.fn()}
+        visible={false}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Send Direct Message' })).not.toBeInTheDocument();
+    expect(onSelectContact).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Vanilla Val/, hidden: true })).toHaveClass('active');
   });
 
   it('renders a registered standard-Mumble user as two visually distinct route entries', () => {

@@ -755,7 +755,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Media** | `monitor`, `monitor-off`, `minimize-2`, `maximize-2` | Screen share & fullscreen |
 | **Chat** | `message-square`, `message-circle` | Message bubble variants |
 | **Server** | `server`, `globe`, `folder`, `lock`, `unlock`, `key-round`, `shield`, `star`, `ban`, `triangle-right` | Infrastructure, moderation, and restricted channel access states (`lock` denied, `unlock` allowed, `key-round` password-protected) |
-| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `refresh-cw`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `info`, `info-filled` | Generic interactive icons |
+| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `refresh-cw`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `chevron-left`, `chevron-right`, `info`, `info-filled` | Generic interactive icons |
 | **UI — Objects** | `user`, `settings`, `save`, `palette`, `moon` | Profiles, preferences, idle indicator |
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |

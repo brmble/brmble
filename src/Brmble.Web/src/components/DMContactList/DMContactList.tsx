@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -17,7 +17,6 @@ interface DMContactListProps {
 }
 
 export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onToggleVisibility, visible }: DMContactListProps) {
-  void onToggleVisibility;
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -35,6 +34,10 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
     mumbleSessionId?: number | null;
     onlineSessionId?: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (!visible) setContextMenu(null);
+  }, [visible]);
 
   const filtered = contacts.filter(c =>
     c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -57,6 +60,16 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
   return (
     <div className={`dm-contact-list ${visible ? 'visible' : ''}`}>
+      <button
+        type="button"
+        className="dm-contact-list-toggle"
+        onClick={onToggleVisibility}
+        aria-label={visible ? 'Collapse Messages panel' : 'Expand Messages panel'}
+      >
+        <Icon name={visible ? 'chevron-right' : 'chevron-left'} size={18} />
+      </button>
+
+      <div className="dm-contact-list-content" aria-hidden={!visible} inert={!visible}>
       <div className="dm-contact-list-header">
         <h3 className="heading-section">Messages</h3>
       </div>
@@ -113,6 +126,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
             )}
           </div>
         )}
+      </div>
       </div>
 
       {contextMenu && (
