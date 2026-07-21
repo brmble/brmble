@@ -97,17 +97,15 @@ export const workspaceReducer = (
         return state;
       }
 
-      const foreground =
-        state.remoteWatchCount > 0 ? { kind: 'channel' as const } : { ...emptyDm };
-      if (
-        state.foreground.kind === foreground.kind &&
-        (foreground.kind === 'channel' ||
-          (state.foreground.kind === 'dm' &&
-            state.foreground.contactId === foreground.contactId))
-      ) {
+      if (state.remoteWatchCount > 0) {
+        return { ...state, foreground: { kind: 'channel' } };
+      }
+
+      if (state.foreground.contactId === emptyDm.contactId) {
         return state;
       }
-      return { ...state, foreground };
+
+      return { ...state, foreground: { ...emptyDm } };
     }
   }
 };
