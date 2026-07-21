@@ -646,6 +646,114 @@ describe('active share discovery', () => {
     expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
   });
 
+  it('keeps Messages collapsed until the final remote watch ends, including duplicate final-watch updates', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    screenShareState.remoteWatchCount = 2;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    screenShareState.remoteWatchCount = 1;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    screenShareState.remoteWatchCount = 0;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+  });
+
+  it('does not collapse Messages for local sharing alone', async () => {
+    screenShareState.isSharing = true;
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+    expect(screenShareState.remoteWatchCount).toBe(0);
+    view.unmount();
+  });
+
+  it('preserves manual panel intent during a remote watch and reopens Messages when the final watch ends', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    screenShareState.remoteWatchCount = 1;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    act(() => view.getByTestId('header-toggle-messages').click());
+    expect(dmContactListProps.current.visible).toBe(true);
+
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+
+    act(() => view.getByTestId('header-toggle-messages').click());
+    expect(dmContactListProps.current.visible).toBe(false);
+
+    screenShareState.remoteWatchCount = 0;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+  });
+
+  it('cleans up viewers before a channel selection and lets cleared watches reopen Messages', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Work' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+    await waitFor(() => expect(getActiveShareRequests()).toHaveLength(1));
+
+    screenShareState.remoteWatchCount = 1;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    act(() => view.getByTestId('sidebar-select-channel-2').click());
+    await waitFor(() => expect(getActiveShareRequests()).toHaveLength(2));
+
+    const cleanupOrder = vi.mocked(disconnectViewer).mock.invocationCallOrder[0];
+    const channelTwoDiscoveryCall = vi.mocked(bridge.send).mock.calls
+      .map(([type, payload], index) => ({ type, payload, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
+      .find(call => call.type === 'livekit.checkActiveShare' && (call.payload as { roomName?: string }).roomName === 'channel-2');
+    expect(cleanupOrder).toBeLessThan(channelTwoDiscoveryCall!.order);
+
+    screenShareState.remoteWatchCount = 0;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+  });
+
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'idle-pre-leave');
     idleActionsState.preLeaveStartedAt = 1000;

@@ -46,3 +46,28 @@
 ## Concerns
 
 None.
+
+## Review Follow-up: Acceptance Coverage
+
+### Fixes
+
+- Added focused App integration coverage for remote-watch count transitions, including multiple watches and a duplicate final-watch update.
+- Added coverage that local sharing alone leaves Messages open, manual Messages intent persists during an active remote watch, and the final remote-watch end reopens Messages after a manual close.
+- Added coverage that viewer cleanup occurs before channel-specific discovery after channel selection and that clearing a stale remote-watch count reopens Messages without changing channel foreground.
+- Added coverage that a selected DM remains foreground through remote-watch start/end, and that an unread-DM badge update does not navigate away from a selected channel.
+
+### Tests
+
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
+  - Passed: 185 tests in 4 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+
+### Files
+
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+- `.superpowers/sdd/task-4-report.md`
+
+### Concerns
+
+- No App production change was needed. Invalid-contact fallback remains covered by reducer-level tests; this App harness does not expose a practical contact-removal interaction without broadening the mock surface.

@@ -89,7 +89,11 @@ vi.mock('./bridge', () => {
 });
 
 vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => { mockValues.setHeaderProps(props); return <header />; } }));
-vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: () => <aside /> }));
+vi.mock('./components/Sidebar/Sidebar', () => ({
+  Sidebar: (props: Record<string, unknown>) => {
+    return <button type="button" data-testid="sidebar-select-channel" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(1)} />;
+  },
+}));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({
   ChatPanel: (props: Record<string, unknown>) => {
     if (props.isDM) mockValues.setDmChatPanelProps(props);
@@ -118,13 +122,16 @@ vi.mock('./hooks/useNotificationQueue', () => ({ useNotificationQueue: () => moc
 vi.mock('./hooks/useScreenShare', () => ({ useScreenShare: () => mockValues.screenShare }));
 
 function renderConnectedApp() {
-  render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+  const view = render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
   act(() => {
     (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('server.credentials', {
       matrix: { homeserverUrl: 'https://example.com', accessToken: 'token', userId: '@me:example.com', roomMap: {} },
     });
-    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
+    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', {
+      username: 'Me', channelId: 1, channels: [{ id: 1, name: 'General' }], users: [],
+    });
   });
+  return view;
 }
 
 describe('DM route Matrix isolation', () => {
@@ -137,6 +144,10 @@ describe('DM route Matrix isolation', () => {
     mockValues.setDmStoreOptions(undefined);
     mockValues.matrixClient.dmRoomMap.clear();
     mockValues.dmStore.selectedContact = null;
+    mockValues.screenShare.isSharing = false;
+    mockValues.screenShare.remoteWatchCount = 0;
+    mockValues.screenShare.pendingViewerShares = [];
+    mockValues.unreadTracker.totalDmUnreadCount = 0;
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
@@ -209,5 +220,38 @@ describe('DM route Matrix isolation', () => {
     });
 
     await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
+  });
+
+  it('keeps a selected DM foreground while remote watches start and end', async () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    const view = renderConnectedApp();
+
+    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+
+    mockValues.screenShare.remoteWatchCount = 1;
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    await waitFor(() => {
+      expect(mockValues.headerProps?.dmActive).toBe(false);
+      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+    });
+
+    mockValues.screenShare.remoteWatchCount = 0;
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    await waitFor(() => {
+      expect(mockValues.headerProps?.dmActive).toBe(true);
+      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+    });
+  });
+
+  it('updates the unread DM badge without leaving the foreground channel', async () => {
+    const view = renderConnectedApp();
+
+    act(() => view.getByTestId('sidebar-select-channel').click());
+    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+    mockValues.unreadTracker.totalDmUnreadCount = 3;
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+
+    await waitFor(() => expect(mockValues.headerProps?.unreadDMCount).toBe(3));
+    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
   });
 });
