@@ -15,7 +15,7 @@ The scoped regression suites cover the Task 6 acceptance criteria as follows:
 
 - Focused new regression: `npm.cmd run test -- src/workspace/workspaceState.test.ts` passed: 12 tests.
 - Required workspace suites: `npm.cmd run test -- src/workspace/workspaceState.test.ts src/hooks/useScreenShare.test.ts src/components/DMContactList/DMContactList.test.tsx src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx` passed: 7 files, 327 tests.
-- Full frontend suite: `npm.cmd run test` failed: 88 files passed, 1 file failed; 1,024 tests passed, 5 failed.
+- Full frontend suite: `npm.cmd run test` initially failed in `src/App.adminChannelUpdate.test.tsx` because that file's `useScreenShare` mock was missing the new `pendingViewerShares` hook field. After updating the mock, `npm.cmd run test -- src/App.adminChannelUpdate.test.tsx` passed: 1 file, 5 tests. A subsequent full `npm.cmd run test` passed: 89 files, 1,029 tests.
 - Production build: `npm.cmd run build` passed (`tsc -b && vite build`).
 
 ## Manual Native Desktop QA
@@ -38,10 +38,11 @@ Run the native client with the built web bundle and check:
 ## Files Changed
 
 - `src/Brmble.Web/src/workspace/workspaceState.test.ts`
+- `src/Brmble.Web/src/App.adminChannelUpdate.test.tsx`
 - `.superpowers/sdd/task-6-report.md`
 
 ## Concerns
 
-The full frontend suite is blocked outside Task 6 scope by `src/App.adminChannelUpdate.test.tsx`. Its `useScreenShare` mock does not provide `pendingViewerShares`, while `src/App.tsx` now evaluates `pendingViewerShares.length`. The failure reproduces when that file runs alone, causing all five of its tests to fail before their assertions. Add `pendingViewerShares: []` to that test mock in a separately scoped follow-up, then rerun the full suite.
+Native desktop QA remains headless-only in this environment; use the checklist above in the native client.
 
 The focused workspace suites emit expected diagnostics for intentionally simulated screen-share connection/discovery failures; they still pass all 327 assertions.
