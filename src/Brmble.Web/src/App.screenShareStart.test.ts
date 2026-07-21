@@ -58,6 +58,8 @@ const {
     isSharing: false,
     error: null as string | null,
     isViewerConnectPending: false,
+    pendingViewerShares: [] as Array<{ roomName: string; userId: number }> ,
+    remoteWatchCount: 0,
     startSharing: vi.fn().mockResolvedValue(true),
     activeShares: [] as Array<{
       roomName: string;
@@ -180,6 +182,8 @@ vi.mock('./hooks/useScreenShare', () => ({
     activeShare: null,
     activeShares: screenShareState.activeShares,
     watchingShares: [],
+    pendingViewerShares: screenShareState.pendingViewerShares,
+    remoteWatchCount: screenShareState.remoteWatchCount,
     focusedShare: null,
     setFocusedShare: vi.fn(),
     setDiscoveryTarget,
@@ -270,9 +274,10 @@ vi.mock('./components/ErrorBoundary', () => ({
 }));
 
 vi.mock('./components/Header/Header', () => ({
-  Header: ({ onLeaveVoice, onToggleScreenShare }: {
+  Header: ({ onLeaveVoice, onToggleScreenShare, onToggleDM }: {
     onLeaveVoice?: () => void;
     onToggleScreenShare?: () => void;
+    onToggleDM?: () => void;
   }) => React.createElement(React.Fragment, null,
     React.createElement('button', {
       type: 'button',
@@ -283,6 +288,11 @@ vi.mock('./components/Header/Header', () => ({
       type: 'button',
       'data-testid': 'header-toggle-screen-share',
       onClick: onToggleScreenShare,
+    }),
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'header-toggle-messages',
+      onClick: onToggleDM,
     }),
   ),
 }));
@@ -299,6 +309,7 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
     onDisconnect?: () => void;
     onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
     onJoinChannel?: (channelId: number) => void;
+    onSelectChannel?: (channelId: number) => void;
     channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }>;
   }) => {
     sidebarProps.current = props;
@@ -317,6 +328,11 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
       type: 'button',
       'data-testid': 'sidebar-join-channel-2',
       onClick: () => props.onJoinChannel?.(2),
+    }),
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'sidebar-select-channel-2',
+      onClick: () => props.onSelectChannel?.(2),
     }),
   );
   },
@@ -340,7 +356,13 @@ vi.mock('./components/CloseDialog/CloseDialog', () => ({ CloseDialog: () => null
 vi.mock('./components/OnboardingWizard/OnboardingWizard', () => ({ OnboardingWizard: () => null }));
 vi.mock('./components/Version/Version', () => ({ Version: () => null }));
 vi.mock('./components/ZoomIndicator/ZoomIndicator', () => ({ ZoomIndicator: () => null }));
-vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
+const dmContactListProps = vi.hoisted(() => ({ current: { visible: false } }));
+vi.mock('./components/DMContactList/DMContactList', () => ({
+  DMContactList: (props: { visible: boolean }) => {
+    dmContactListProps.current = props;
+    return null;
+  },
+}));
 vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
 vi.mock('./components/UpdateNotification/UpdateNotification', () => ({ UpdateNotification: () => null }));
 vi.mock('./components/BrokenCertNotification/BrokenCertNotification', () => ({ BrokenCertNotification: () => null }));
@@ -537,6 +559,8 @@ describe('active share discovery', () => {
     screenShareState.isSharing = false;
     screenShareState.error = null;
     screenShareState.isViewerConnectPending = false;
+    screenShareState.pendingViewerShares = [];
+    screenShareState.remoteWatchCount = 0;
     screenShareState.startSharing.mockResolvedValue(true);
     screenShareState.activeShares = [];
     serviceStatus.statuses.server = { state: 'connected' };
@@ -568,6 +592,58 @@ describe('active share discovery', () => {
       bridgeHandlers.set(type, eventHandlers);
       return undefined;
     });
+  });
+
+  it('closes Messages while a viewer connection is pending, then reopens it when that only attempt fails', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+
+    screenShareState.pendingViewerShares = [{ roomName: 'channel-1', userId: 10 }];
+    screenShareState.remoteWatchCount = 1;
+    view.rerender(React.createElement(App));
+
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+
+    screenShareState.pendingViewerShares = [];
+    screenShareState.remoteWatchCount = 0;
+    view.rerender(React.createElement(App));
+
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+  });
+
+  it('keeps the channel foreground while active remote watches collapse Messages', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Work' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+
+    act(() => {
+      view.getByTestId('sidebar-select-channel-2').click();
+    });
+
+    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+
+    screenShareState.remoteWatchCount = 1;
+    view.rerender(React.createElement(App));
+
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
+    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
   });
 
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {

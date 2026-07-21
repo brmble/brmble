@@ -1217,7 +1217,9 @@ function App() {
   selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
   const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
-  const isDmMode = workspace.foreground.kind === 'dm';
+  const showDmConversation = workspace.foreground.kind === 'dm';
+  const showChannelConversation = !showDmConversation;
+  const isDmMode = showDmConversation;
   const messagesPanelExpanded = workspace.messagesPanelExpanded;
   const activeDmMatrixContactId = isDmMode && !selectedDmIsMumble
     ? (dmStore.selectedContact?.id ?? null)
@@ -1230,6 +1232,11 @@ function App() {
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
   }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
+
+  const toggleMessagesPanel = useCallback(() => {
+    setShowGame(false);
+    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
+  }, []);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -2386,7 +2393,7 @@ function App() {
 
     const onToggleDmScreen = () => {
       if (connectionStatusRef.current === 'connected') {
-        dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
+        toggleMessagesPanel();
       }
     };
 
@@ -2944,6 +2951,7 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectChannel = (channelId: number) => {
     const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
     if (selection) {
+      void disconnectViewerRef.current?.();
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
@@ -2956,6 +2964,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectServer = () => {
+    void disconnectViewerRef.current?.();
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
     dispatchWorkspace({ type: 'SELECT_CHANNEL' });
@@ -3218,11 +3227,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
     bridge.send('window.quit');
   }, []);
-
-  const toggleDMMode = () => {
-    setShowGame(false);
-    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
-  };
 
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {
@@ -3499,7 +3503,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, remoteWatchCount, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -3507,6 +3511,12 @@ const handleConnect = (serverData: SavedServer) => {
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
   handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
+
+  const hasPendingViewerShares = pendingViewerShares.length > 0;
+
+  useEffect(() => {
+    dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
+  }, [remoteWatchCount]);
 
   const handleLiveCompanionChange = useCallback((nextCompanion: CompanionId, previousCompanion: CompanionId) => {
     const selfUser = usersRef.current.find(user => user.self);
@@ -3764,13 +3774,13 @@ const handleConnect = (serverData: SavedServer) => {
       watchingShareCount: watchingShares.length,
       screenShareError,
       isLocalShareStartPending,
-      isViewerConnectPending,
+      isViewerConnectPending: isViewerConnectPending || hasPendingViewerShares,
     });
 
     if (nextStatus) {
       updateStatus('livekit', nextStatus);
     }
-  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, hasPendingViewerShares, updateStatus]);
 
   const selfVoiceChannelId = users.find(u => u.self)?.channelId;
   const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
@@ -4090,7 +4100,7 @@ const handleConnect = (serverData: SavedServer) => {
       <ErrorBoundary label="Header">
       <Header
         username={username}
-        onToggleDM={connected ? toggleDMMode : undefined}
+        onToggleDM={connected ? toggleMessagesPanel : undefined}
         dmActive={messagesPanelExpanded}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
@@ -4120,7 +4130,7 @@ const handleConnect = (serverData: SavedServer) => {
       />
       </ErrorBoundary>
       
-      <div className="app-body">
+      <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
         <ErrorBoundary label="Sidebar">
         <Sidebar
           channels={channels}
@@ -4158,7 +4168,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
         </ErrorBoundary>
         
-        <main className="main-content">
+        <main className={`main-content workspace-conversation ${messagesPanelExpanded ? 'workspace-conversation--with-panel' : ''}`}>
           {connectionStatus === 'idle' ? (
             certExists === true ? (
               <ServerList onConnect={handleServerConnect} connectDisabled={brokenCertInfo != null && !brokenCertInfo.hasHealthyFallback} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
@@ -4176,8 +4186,8 @@ const handleConnect = (serverData: SavedServer) => {
             showGame ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
-              <div className={`content-slider ${isDmMode ? 'dm-active' : ''}`}>
-                <div className="content-slide">
+              <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
+                <div className="content-slide" aria-hidden={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
                    <ChatPanel
                     channelId={currentChannelId || undefined}
@@ -4213,7 +4223,7 @@ const handleConnect = (serverData: SavedServer) => {
                   />
                   </ErrorBoundary>
                 </div>
-                <div className="content-slide">
+                <div className="content-slide" aria-hidden={!showDmConversation}>
                   <ErrorBoundary label="ChatPanel:DM">
                    <ChatPanel
                     channelId={dmStore.selectedContact ? `dm-${dmStore.selectedContact.id}` : undefined}
