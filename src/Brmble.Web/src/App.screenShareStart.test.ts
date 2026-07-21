@@ -666,10 +666,10 @@ describe('active share discovery', () => {
     view.rerender(React.createElement(App));
     await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
 
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-
     screenShareState.remoteWatchCount = 0;
+    view.rerender(React.createElement(App));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+
     view.rerender(React.createElement(App));
     await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
   });
@@ -735,23 +735,54 @@ describe('active share discovery', () => {
     });
     await waitFor(() => expect(getActiveShareRequests()).toHaveLength(1));
 
+    screenShareState.pendingViewerShares = [{ roomName: 'channel-1', userId: 10 }];
     screenShareState.remoteWatchCount = 1;
     view.rerender(React.createElement(App));
     await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
 
+    const cleanupCallsBeforeChannelSelection = vi.mocked(disconnectViewer).mock.calls.length;
     act(() => view.getByTestId('sidebar-select-channel-2').click());
     await waitFor(() => expect(getActiveShareRequests()).toHaveLength(2));
 
-    const cleanupOrder = vi.mocked(disconnectViewer).mock.invocationCallOrder[0];
+    expect(disconnectViewer.mock.calls.length).toBeGreaterThanOrEqual(cleanupCallsBeforeChannelSelection + 1);
+    const cleanupOrder = vi.mocked(disconnectViewer).mock.invocationCallOrder[cleanupCallsBeforeChannelSelection];
     const channelTwoDiscoveryCall = vi.mocked(bridge.send).mock.calls
       .map(([type, payload], index) => ({ type, payload, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
       .find(call => call.type === 'livekit.checkActiveShare' && (call.payload as { roomName?: string }).roomName === 'channel-2');
     expect(cleanupOrder).toBeLessThan(channelTwoDiscoveryCall!.order);
 
+    screenShareState.pendingViewerShares = [];
     screenShareState.remoteWatchCount = 0;
     view.rerender(React.createElement(App));
     await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+    expect(screenShareState.pendingViewerShares).toEqual([]);
     expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+  });
+
+  it('routes the native Messages shortcut through the Header panel state', async () => {
+    const view = render(React.createElement(App));
+
+    act(() => {
+      bridge.emit('voice.connected', {
+        username: 'TestUser',
+        channelId: 1,
+        channels: [{ id: 1, name: 'General' }],
+        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
+      });
+    });
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+
+    act(() => view.getByTestId('header-toggle-messages').click());
+    expect(dmContactListProps.current.visible).toBe(false);
+
+    act(() => bridge.emit('voice.toggleDmScreen'));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+
+    act(() => view.getByTestId('header-toggle-messages').click());
+    expect(dmContactListProps.current.visible).toBe(false);
+
+    act(() => bridge.emit('voice.toggleDmScreen'));
+    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
   });
 
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {

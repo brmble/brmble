@@ -6,6 +6,7 @@ import { ServiceStatusProvider } from './hooks/useServiceStatus';
 
 const mockValues = vi.hoisted(() => {
   let dmChatPanelProps: Record<string, unknown> | undefined;
+  let dmContactListProps: Record<string, unknown> | undefined;
   let headerProps: Record<string, unknown> | undefined;
   let dmStoreOptions: Record<string, unknown> | undefined;
   const matrixClient = {
@@ -70,6 +71,8 @@ const mockValues = vi.hoisted(() => {
     matrixClient, dmStore, unreadTracker, idleActions, screenShare, notificationQueue,
     get dmChatPanelProps() { return dmChatPanelProps; },
     setDmChatPanelProps: (props: Record<string, unknown> | undefined) => { dmChatPanelProps = props; },
+    get dmContactListProps() { return dmContactListProps; },
+    setDmContactListProps: (props: Record<string, unknown> | undefined) => { dmContactListProps = props; },
     get headerProps() { return headerProps; },
     setHeaderProps: (props: Record<string, unknown> | undefined) => { headerProps = props; },
     get dmStoreOptions() { return dmStoreOptions; },
@@ -102,7 +105,12 @@ vi.mock('./components/ChatPanel/ChatPanel', () => ({
 }));
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => <section /> }));
 vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => <section /> }));
-vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
+vi.mock('./components/DMContactList/DMContactList', () => ({
+  DMContactList: (props: Record<string, unknown>) => {
+    mockValues.setDmContactListProps(props);
+    return null;
+  },
+}));
 vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
 vi.mock('./components/SettingsModal/SettingsModal', () => ({
   DEFAULT_SCREEN_SHARE: { captureAudio: false, resolution: '1080p', fps: 30, systemAudio: false, viewerMode: 'in-app' },
@@ -140,6 +148,7 @@ describe('DM route Matrix isolation', () => {
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
     mockValues.setDmChatPanelProps(undefined);
+    mockValues.setDmContactListProps(undefined);
     mockValues.setHeaderProps(undefined);
     mockValues.setDmStoreOptions(undefined);
     mockValues.matrixClient.dmRoomMap.clear();
@@ -241,6 +250,24 @@ describe('DM route Matrix isolation', () => {
       expect(mockValues.headerProps?.dmActive).toBe(true);
       expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
     });
+  });
+
+  it('falls back to the channel foreground when a selected conversation closes during a remote watch', async () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    const view = renderConnectedApp();
+
+    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+
+    mockValues.screenShare.remoteWatchCount = 1;
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
+
+    act(() => {
+      (mockValues.dmContactListProps?.onCloseConversation as (id: string) => void)('@val:example.com');
+    });
+
+    expect(mockValues.dmStore.closeDM).toHaveBeenCalledWith('@val:example.com');
+    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
   });
 
   it('updates the unread DM badge without leaving the foreground channel', async () => {

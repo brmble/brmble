@@ -71,3 +71,28 @@ None.
 ### Concerns
 
 - No App production change was needed. Invalid-contact fallback remains covered by reducer-level tests; this App harness does not expose a practical contact-removal interaction without broadening the mock surface.
+
+## Re-review Follow-up: Task 4 Coverage
+
+### Fixes
+
+- Corrected the duplicate final-watch case to repeat the final `remoteWatchCount = 0` render and verify Messages stays expanded.
+- Scoped channel-switch cleanup ordering to the explicit post-selection cleanup call, then verified cleared pending/watch state reopens Messages without changing the channel foreground.
+- Captured the existing `DMContactList` App mock callback and covered selected-contact closure while watching, proving the App dispatches the channel fallback.
+- Added native `voice.toggleDmScreen` coverage that alternates with the Header action against the same Messages panel state.
+
+### Tests
+
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
+  - Passed: 187 tests in 4 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+
+### Files
+
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+- `.superpowers/sdd/task-4-report.md`
+
+### Concerns
+
+- No production code changes were needed, so no build was required.
