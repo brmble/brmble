@@ -1194,6 +1194,7 @@ function App() {
     ? currentChannelId
     : undefined;
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
+  const selectedDmContactIdRef = useRef<string | null>(null);
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -1204,16 +1205,20 @@ function App() {
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
     brmbleUsers: brmbleDMUsers,
-    isSelectedConversationForeground: workspace.foreground.kind === 'dm',
+    isSelectedConversationForeground: () =>
+      workspace.foreground.kind === 'dm' &&
+      workspace.foreground.contactId === selectedDmContactIdRef.current,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
       bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
+  selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
   const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
   const isDmMode = workspace.foreground.kind === 'dm';
+  const messagesPanelExpanded = workspace.messagesPanelExpanded;
   const activeDmMatrixContactId = isDmMode && !selectedDmIsMumble
     ? (dmStore.selectedContact?.id ?? null)
     : null;
@@ -1298,6 +1303,7 @@ function App() {
   const currentChannelNameRef = useRef(currentChannelName);
   currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
+  const previousWorkspaceConnectionStatusRef = useRef(connectionStatus);
   const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
   const unreadCountRef = useRef(unreadCount);
@@ -3867,6 +3873,15 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId]);
 
   useEffect(() => {
+    const previousConnectionStatus = previousWorkspaceConnectionStatusRef.current;
+    previousWorkspaceConnectionStatusRef.current = connectionStatus;
+
+    if (connectionStatus === 'connected' && previousConnectionStatus !== 'connected') {
+      dispatchWorkspace({ type: 'CONNECTION_WORKSPACE_READY' });
+    }
+  }, [connectionStatus]);
+
+  useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
     previousConnectionStatusRef.current = connectionStatus;
 
@@ -4076,7 +4091,7 @@ const handleConnect = (serverData: SavedServer) => {
       <Header
         username={username}
         onToggleDM={connected ? toggleDMMode : undefined}
-        dmActive={isDmMode}
+        dmActive={messagesPanelExpanded}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
         onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
@@ -4251,7 +4266,7 @@ const handleConnect = (serverData: SavedServer) => {
               dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
             }
           }}
-          visible={isDmMode}
+          visible={messagesPanelExpanded}
         />
       </div>
 

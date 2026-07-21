@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
@@ -6,6 +6,8 @@ import { ServiceStatusProvider } from './hooks/useServiceStatus';
 
 const mockValues = vi.hoisted(() => {
   let dmChatPanelProps: Record<string, unknown> | undefined;
+  let headerProps: Record<string, unknown> | undefined;
+  let dmStoreOptions: Record<string, unknown> | undefined;
   const matrixClient = {
     lastMessages: new Map(),
     activeMessages: [],
@@ -68,6 +70,10 @@ const mockValues = vi.hoisted(() => {
     matrixClient, dmStore, unreadTracker, idleActions, screenShare, notificationQueue,
     get dmChatPanelProps() { return dmChatPanelProps; },
     setDmChatPanelProps: (props: Record<string, unknown> | undefined) => { dmChatPanelProps = props; },
+    get headerProps() { return headerProps; },
+    setHeaderProps: (props: Record<string, unknown> | undefined) => { headerProps = props; },
+    get dmStoreOptions() { return dmStoreOptions; },
+    setDmStoreOptions: (options: Record<string, unknown> | undefined) => { dmStoreOptions = options; },
   };
 });
 
@@ -82,7 +88,7 @@ vi.mock('./bridge', () => {
   } };
 });
 
-vi.mock('./components/Header/Header', () => ({ Header: () => <header /> }));
+vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => { mockValues.setHeaderProps(props); return <header />; } }));
 vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: () => <aside /> }));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({
   ChatPanel: (props: Record<string, unknown>) => {
@@ -100,7 +106,7 @@ vi.mock('./components/SettingsModal/SettingsModal', () => ({
 }));
 vi.mock('./hooks/useMatrixClient', () => ({ useMatrixClient: () => mockValues.matrixClient }));
 vi.mock('./hooks/useChatStore', () => ({ useChatStore: () => ({ messages: [], addMessage: vi.fn() }), addMessageToStore: vi.fn(), clearChatStorage: vi.fn(), purgeEphemeralMessages: vi.fn() }));
-vi.mock('./hooks/useDMStore', () => ({ useDMStore: () => mockValues.dmStore }));
+vi.mock('./hooks/useDMStore', () => ({ useDMStore: (options: Record<string, unknown>) => { mockValues.setDmStoreOptions(options); return mockValues.dmStore; } }));
 vi.mock('./hooks/useUnreadTracker', () => ({ resetMarkersCache: vi.fn(), useUnreadTracker: () => mockValues.unreadTracker }));
 vi.mock('./hooks/useBrmbleIdle', () => ({ useBrmbleIdle: () => 0 }));
 vi.mock('./hooks/useIdleStatus', () => ({ useIdleStatus: () => ({ voiceIdle: {}, systemIdle: 0, isLocked: false }) }));
@@ -127,7 +133,10 @@ describe('DM route Matrix isolation', () => {
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
     mockValues.setDmChatPanelProps(undefined);
+    mockValues.setHeaderProps(undefined);
+    mockValues.setDmStoreOptions(undefined);
     mockValues.matrixClient.dmRoomMap.clear();
+    mockValues.dmStore.selectedContact = null;
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
@@ -164,5 +173,41 @@ describe('DM route Matrix isolation', () => {
       onTypingStart: mockValues.matrixClient.startTyping, onTypingStop: mockValues.matrixClient.stopTyping,
       onToggleReaction: expect.any(Function), currentUserMatrixId: '@me:example.com',
     }));
+  });
+
+  it('reports an unread foreground only when the workspace and selected contact match', () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+
+    renderConnectedApp();
+
+    expect((mockValues.dmStoreOptions?.isSelectedConversationForeground as () => boolean)()).toBe(false);
+  });
+
+  it('uses the Messages panel state for the Header DM control', () => {
+    renderConnectedApp();
+
+    expect(mockValues.headerProps?.dmActive).toBe(true);
+
+    act(() => {
+      (mockValues.headerProps?.onToggleDM as () => void)();
+    });
+
+    expect(mockValues.headerProps?.dmActive).toBe(false);
+  });
+
+  it('resets the Messages panel when reconnecting', async () => {
+    renderConnectedApp();
+    act(() => {
+      (mockValues.headerProps?.onToggleDM as () => void)();
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
+    });
+
+    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
+
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
+    });
+
+    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
   });
 });

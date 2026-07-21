@@ -39,7 +39,7 @@ export interface DMStoreOptions {
   fetchDMHistory: ((targetMatrixUserId: string) => Promise<void>) | undefined;
   sendMumbleDM?: (targetSession: number, text: string) => void;
   brmbleUsers?: BrmbleDMUser[];
-  isSelectedConversationForeground: boolean;
+  isSelectedConversationForeground: boolean | (() => boolean);
   users: User[];
   username: string;
 }
@@ -486,7 +486,10 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       return next;
     });
     // App owns foreground presentation; the store only owns DM data.
-    if (selectedContactIdRef.current !== certHash || !isSelectedConversationForeground) {
+    const selectedConversationIsForeground = typeof isSelectedConversationForeground === 'function'
+      ? isSelectedConversationForeground()
+      : isSelectedConversationForeground;
+    if (selectedContactIdRef.current !== certHash || !selectedConversationIsForeground) {
       setMumbleContacts(prev => {
         const next = new Map(prev);
         const contact = next.get(certHash);
