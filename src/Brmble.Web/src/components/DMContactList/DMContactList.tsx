@@ -75,19 +75,19 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
   return (
     <div className={`dm-contact-list ${visible ? 'visible' : ''}`}>
-      <button
-        type="button"
-        ref={toggleRef}
-        className="dm-contact-list-toggle"
-        onClick={handleToggleVisibility}
-        aria-label={visible ? 'Collapse Messages panel' : 'Expand Messages panel'}
-      >
-        <Icon name={visible ? 'chevron-right' : 'chevron-left'} size={18} />
-      </button>
-      <div ref={contentRef} className="dm-contact-list-content" aria-hidden={!visible} inert={!visible}>
-      <div className="dm-contact-list-header">
+      <div className={`dm-contact-list-header ${visible ? '' : 'collapsed'}`}>
+        <button
+          type="button"
+          ref={toggleRef}
+          className="dm-contact-list-toggle"
+          onClick={handleToggleVisibility}
+          aria-label={visible ? 'Collapse Messages panel' : 'Expand Messages panel'}
+        >
+          <Icon name={visible ? 'chevron-right' : 'chevron-left'} size={18} />
+        </button>
         <h3 className="heading-section">Messages</h3>
       </div>
+      <div ref={contentRef} className="dm-contact-list-content" aria-hidden={!visible} inert={!visible}>
 
       <div className="dm-contact-search">
         <Icon name="search" size={14} />

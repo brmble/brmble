@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import bridge from '../../bridge';
@@ -43,6 +45,12 @@ const mumbleContact: DMContact = {
   mumbleCertHash: 'cert-val',
   mumbleSessionId: 44,
 };
+
+const appCss = readFileSync(join(process.cwd(), 'src', 'App.css'), 'utf8');
+const dmContactListCss = readFileSync(
+  join(process.cwd(), 'src', 'components', 'DMContactList', 'DMContactList.css'),
+  'utf8',
+);
 
 function renderList(
   contacts: DMContact[] = [matrixContact, mumbleContact],
@@ -208,6 +216,31 @@ describe('DMContactList directory behavior', () => {
     expect(screen.getByText('mumble')).toBeInTheDocument();
     expect(screen.getByTestId('matrix-avatar')).toBeInTheDocument();
     expect(screen.getByTestId('mumble-avatar')).toBeInTheDocument();
+  });
+
+  it('keeps the panel toggle in the Messages header row before the title', () => {
+    renderList();
+
+    const header = screen.getByRole('heading', { name: 'Messages' }).closest('.dm-contact-list-header');
+    expect(header).not.toBeNull();
+    expect(header?.children[0]).toBe(screen.getByRole('button', { name: 'Collapse Messages panel' }));
+    expect(header?.children[1]).toBe(screen.getByRole('heading', { name: 'Messages' }));
+  });
+
+  it('keeps the expand toggle in the visible collapsed rail header', () => {
+    const { container } = renderList([matrixContact], { visible: false });
+
+    const panel = container.querySelector('.dm-contact-list');
+    const header = container.querySelector('.dm-contact-list-header');
+    expect(panel).not.toHaveClass('visible');
+    expect(header).toHaveClass('collapsed');
+    expect(header?.children[0]).toBe(screen.getByRole('button', { name: 'Expand Messages panel' }));
+  });
+
+  it('keeps the collapsed Messages rail wide enough for the toggle', () => {
+    expect(appCss).toContain('--messages-rail-width: 48px;');
+    expect(dmContactListCss).toContain('width: var(--messages-rail-width, 48px);');
+    expect(dmContactListCss).toContain('min-width: var(--messages-rail-width, 48px);');
   });
 
   it('keeps search results in their route sections when both routes match', async () => {

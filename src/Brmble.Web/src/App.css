@@ -1,5 +1,5 @@
 .app {
-  --messages-rail-width: calc(var(--space-lg) + var(--space-xs));
+  --messages-rail-width: 48px;
   height: 100vh;
   display: flex;
   flex-direction: column;
