@@ -4276,6 +4276,7 @@ const handleConnect = (serverData: SavedServer) => {
               dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
             }
           }}
+          onToggleVisibility={toggleMessagesPanel}
           visible={messagesPanelExpanded}
         />
       </div>

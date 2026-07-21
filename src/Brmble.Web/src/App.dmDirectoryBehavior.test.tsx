@@ -215,6 +215,18 @@ describe('DM route Matrix isolation', () => {
     expect(mockValues.headerProps?.dmActive).toBe(false);
   });
 
+  it('routes DMContactList visibility through the shared Messages panel toggle', () => {
+    renderConnectedApp();
+
+    expect(mockValues.dmContactListProps?.onToggleVisibility).toBe(mockValues.headerProps?.onToggleDM);
+
+    act(() => {
+      (mockValues.dmContactListProps?.onToggleVisibility as () => void)();
+    });
+
+    expect(mockValues.headerProps?.dmActive).toBe(false);
+  });
+
   it('resets the Messages panel when reconnecting', async () => {
     renderConnectedApp();
     act(() => {

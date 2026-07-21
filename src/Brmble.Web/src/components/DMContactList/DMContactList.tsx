@@ -12,10 +12,12 @@ interface DMContactListProps {
   selectedUserId: string | null;
   onSelectContact: (id: string, displayName: string) => void;
   onCloseConversation: (id: string) => void;
+  onToggleVisibility: () => void;
   visible: boolean;
 }
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onToggleVisibility, visible }: DMContactListProps) {
+  void onToggleVisibility;
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
     x: number;

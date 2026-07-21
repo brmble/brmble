@@ -53,6 +53,7 @@ function renderList(contacts: DMContact[] = [matrixContact, mumbleContact]) {
       selectedUserId={null}
       onSelectContact={onSelectContact}
       onCloseConversation={onCloseConversation}
+      onToggleVisibility={vi.fn()}
       visible={true}
     />,
   );
@@ -147,6 +148,7 @@ describe('DMContactList directory behavior', () => {
         selectedUserId={null}
         onSelectContact={vi.fn()}
         onCloseConversation={vi.fn()}
+        onToggleVisibility={vi.fn()}
         visible={true}
       />,
     );

@@ -96,3 +96,24 @@ None.
 ### Concerns
 
 - No production code changes were needed, so no build was required.
+
+## Integration Finding Fix: DMContactList Visibility Toggle
+
+### Fixes
+
+- Added the forward-compatible `onToggleVisibility: () => void` prop to `DMContactList`.
+- Passed App's existing `toggleMessagesPanel` callback into `DMContactList`, matching Header and bridge shortcut behavior.
+- Kept panel-local controls out of the UI for Task 5; the callback is read harmlessly until then.
+- Added App regression coverage and updated direct component test renders.
+
+### Tests
+
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx src/components/DMContactList/DMContactList.test.tsx`
+  - Passed: 197 tests in 5 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+- `npm.cmd run build`
+  - Passed: TypeScript project build and Vite production build.
+
+### Concerns
+
+- None.
