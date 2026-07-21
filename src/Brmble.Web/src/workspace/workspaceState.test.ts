@@ -52,6 +52,17 @@ describe('workspace state machine', () => {
     expect(state.messagesPanelExpanded).toBe(true);
   });
 
+  it('reopens the panel when the final watch ends after a manual close during watching', () => {
+    let state = workspaceReducer(createWorkspaceState(), { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
+    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
+    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
+    expect(state.messagesPanelExpanded).toBe(false);
+
+    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
+
+    expect(state.messagesPanelExpanded).toBe(true);
+  });
+
   it('clamps remote-watch counts at zero and changes visibility only at zero edges', () => {
     const initialState = createWorkspaceState();
     let state = initialState;
