@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
@@ -65,6 +65,7 @@ import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
+import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -828,6 +829,7 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
 
 
 function App() {
+  const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
   // --- Notification queue (max 3 visible, priority-based) ---
   const notifQueue = useNotificationQueue();
   // Stable ref to the notification queue so effects that must only run on
@@ -1202,6 +1204,7 @@ function App() {
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
     brmbleUsers: brmbleDMUsers,
+    isSelectedConversationForeground: workspace.foreground.kind === 'dm',
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
@@ -1210,13 +1213,14 @@ function App() {
   });
 
   const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
-  const activeDmMatrixContactId = dmStore.appMode === 'dm' && !selectedDmIsMumble
+  const isDmMode = workspace.foreground.kind === 'dm';
+  const activeDmMatrixContactId = isDmMode && !selectedDmIsMumble
     ? (dmStore.selectedContact?.id ?? null)
     : null;
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : permittedActiveMatrixChannelId);
-  }, [dmStore.appMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
+    matrixClient.setActiveChannel(isDmMode ? null : permittedActiveMatrixChannelId);
+  }, [isDmMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
@@ -1224,7 +1228,7 @@ function App() {
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (dmStore.appMode === 'dm') {
+    if (isDmMode) {
       return activeDmMatrixContactId && matrixClient?.dmRoomMap
         ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
         : null;
@@ -1234,7 +1238,7 @@ function App() {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.appMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [isDmMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
@@ -2375,15 +2379,9 @@ function App() {
     };
 
     const onToggleDmScreen = () => {
-      if (connectionStatusRef.current !== 'connected') {
-        dmStoreRef.current.clearSelection();
-        return;
+      if (connectionStatusRef.current === 'connected') {
+        dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
       }
-      // Clear selection when toggling FROM dm TO channels
-      if (dmStoreRef.current.appModeRef.current === 'dm') {
-        dmStoreRef.current.clearSelection();
-      }
-      dmStoreRef.current.toggleMode();
     };
 
     const onToggleScreenShare = () => {
@@ -2938,19 +2936,14 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const selection = getChannelSelectionOutcome(channelId, channels, dmStore.appMode);
+    const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
     if (selection) {
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
       setShowGame(false);
 
-      if (selection.shouldExitDmMode) {
-        dmStore.toggleMode();
-      }
-      if (selection.shouldClearDmSelection) {
-        dmStore.clearSelection();
-      }
+      dispatchWorkspace({ type: 'SELECT_CHANNEL' });
 
       if (!selection.canOpenChat) return;
     }
@@ -2959,11 +2952,7 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectServer = () => {
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
-    // Close DM mode if open and clear selection (mirrors handleSelectChannel)
-    if (dmStore.appMode === 'dm') {
-      dmStore.toggleMode();
-    }
-    dmStore.clearSelection();
+    dispatchWorkspace({ type: 'SELECT_CHANNEL' });
   };
 
   const handleSendMessage = async (content: string, image?: File) => {
@@ -3226,11 +3215,7 @@ const handleConnect = (serverData: SavedServer) => {
 
   const toggleDMMode = () => {
     setShowGame(false);
-    // Clear selection when toggling FROM dm TO channels
-    if (dmStore.appMode === 'dm') {
-      dmStore.clearSelection();
-    }
-    dmStore.toggleMode();
+    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
   };
 
   // Push DM badge state to native side whenever unread count changes
@@ -3271,14 +3256,17 @@ const handleConnect = (serverData: SavedServer) => {
     if (user?.isBrmbleClient && user.matrixUserId) {
       // Brmble client → Matrix DM (persistent)
       dmStore.startDM(user.matrixUserId, userName, user.avatarUrl);
+      dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
     } else if (user?.certHash) {
       // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
       // Check for existing ephemeral contact first
       const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
       if (existingMumbleContact) {
         dmStore.selectContact(existingMumbleContact.id);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
       } else {
         dmStore.startMumbleDM(user.certHash, user.session, userName);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
       }
     } else {
       console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3295,12 +3283,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (user) {
       if (user.isBrmbleClient && user.matrixUserId) {
         dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
       } else if (user.certHash) {
         const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
         if (existingMumbleContact) {
           dmStore.selectContact(existingMumbleContact.id);
+          dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
         } else {
           dmStore.startMumbleDM(user.certHash, user.session, sender);
+          dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
         }
       } else {
         console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3309,6 +3300,7 @@ const handleConnect = (serverData: SavedServer) => {
       // Fallback: try starting DM by matrixUserId directly for users not in the users list
       if (senderMatrixUserId) {
         dmStore.startDM(senderMatrixUserId, sender, undefined);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: senderMatrixUserId });
       } else {
         console.warn('[DM] Cannot start DM: user not found');
       }
@@ -4084,7 +4076,7 @@ const handleConnect = (serverData: SavedServer) => {
       <Header
         username={username}
         onToggleDM={connected ? toggleDMMode : undefined}
-        dmActive={dmStore.appMode === 'dm'}
+        dmActive={isDmMode}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
         onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
@@ -4169,7 +4161,7 @@ const handleConnect = (serverData: SavedServer) => {
             showGame ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
-              <div className={`content-slider ${dmStore.appMode === 'dm' ? 'dm-active' : ''}`}>
+              <div className={`content-slider ${isDmMode ? 'dm-active' : ''}`}>
                 <div className="content-slide">
                   <ErrorBoundary label="ChatPanel:Channel">
                    <ChatPanel
@@ -4199,7 +4191,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={matrixCredentials?.userId}
                     onToggleReaction={handleToggleChannelReaction}
-                     typingIndicatorText={dmStore.appMode === 'dm' ? undefined : matrixClient.activeTypingText}
+                     typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
                      typingTargetId={activeChannelId ?? undefined}
                      onTypingStart={matrixClient.startTyping}
                      onTypingStop={matrixClient.stopTyping}
@@ -4225,7 +4217,7 @@ const handleConnect = (serverData: SavedServer) => {
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={selectedDmIsMumble ? undefined : matrixCredentials?.userId}
                     onToggleReaction={selectedDmIsMumble ? undefined : handleToggleDmReaction}
-                    typingIndicatorText={!selectedDmIsMumble && dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
+                    typingIndicatorText={!selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
                     typingTargetId={!selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
                     onTypingStart={!selectedDmIsMumble ? matrixClient.startTyping : undefined}
                     onTypingStop={!selectedDmIsMumble ? matrixClient.stopTyping : undefined}
@@ -4249,9 +4241,17 @@ const handleConnect = (serverData: SavedServer) => {
         <DMContactList
           contacts={dmContactsWithUnreads}
           selectedUserId={dmStore.selectedContact?.id ?? null}
-          onSelectContact={(id: string) => dmStore.selectContact(id)}
-          onCloseConversation={dmStore.closeDM}
-          visible={dmStore.appMode === 'dm'}
+          onSelectContact={(id: string) => {
+            dmStore.selectContact(id);
+            dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
+          }}
+          onCloseConversation={(id: string) => {
+            dmStore.closeDM(id);
+            if (dmStore.selectedContact?.id === id) {
+              dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
+            }
+          }}
+          visible={isDmMode}
         />
       </div>
 

@@ -34,14 +34,11 @@ const mockValues = vi.hoisted(() => {
     contacts: [],
     selectedContact: null as { id: string; displayName: string; unreadCount: number; isEphemeral?: boolean; mumbleSessionId?: number | null } | null,
     messages: [],
-    appMode: 'dm' as 'channels' | 'dm',
     selectContact: vi.fn(),
     sendMessage: vi.fn(),
     startDM: vi.fn(),
     clearSelection: vi.fn(),
-    toggleMode: vi.fn(),
     closeDM: vi.fn(),
-    appModeRef: { current: 'dm' as 'channels' | 'dm' },
     selectedContactIdRef: { current: null as string | null },
     receiveMumbleDM: vi.fn(),
     updateMumbleSession: vi.fn(),
@@ -131,8 +128,6 @@ describe('DM route Matrix isolation', () => {
     (bridge as unknown as { __reset: () => void }).__reset();
     mockValues.setDmChatPanelProps(undefined);
     mockValues.matrixClient.dmRoomMap.clear();
-    mockValues.dmStore.appMode = 'dm';
-    mockValues.dmStore.appModeRef.current = 'dm';
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
