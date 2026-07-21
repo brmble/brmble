@@ -1219,7 +1219,7 @@ function App() {
   const showDmConversation = workspace.foreground.kind === 'dm';
   const showChannelConversation = !showDmConversation;
   const isDmMode = showDmConversation;
-  const messagesPanelExpanded = workspace.messagesPanelExpanded;
+  const messagesPanelExpanded = connected && workspace.messagesPanelExpanded;
   const foregroundDmContactId = workspace.foreground.kind === 'dm'
     ? workspace.foreground.contactId
     : null;
@@ -4063,13 +4063,13 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Same pattern for DM switches
   useEffect(() => {
-    const selectedId = dmStore.selectedContact?.id ?? null;
+    const selectedId = activeDmMatrixContactId;
     const dmChanged = selectedId !== prevDMUserIdRef.current;
     if (dmChanged) {
       prevDMUserIdRef.current = selectedId;
     }
 
-    if (!selectedId || !dmStore.selectedContact) {
+    if (!selectedId || !foregroundDmContact) {
       if (dmChanged) setDmDividerTs(null);
       return;
     }
@@ -4113,7 +4113,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [dmStore.selectedContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
+  }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
@@ -4277,22 +4277,24 @@ const handleConnect = (serverData: SavedServer) => {
           )}
         </main>
 
-        <DMContactList
-          contacts={dmContactsWithUnreads}
-          selectedUserId={dmStore.selectedContact?.id ?? null}
-          onSelectContact={(id: string) => {
-            dmStore.selectContact(id);
-            dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
-          }}
-          onCloseConversation={(id: string) => {
-            dmStore.closeDM(id);
-            if (dmStore.selectedContact?.id === id) {
-              dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
-            }
-          }}
-          onToggleVisibility={toggleMessagesPanel}
-          visible={messagesPanelExpanded}
-        />
+        {connected && (
+          <DMContactList
+            contacts={dmContactsWithUnreads}
+            selectedUserId={dmStore.selectedContact?.id ?? null}
+            onSelectContact={(id: string) => {
+              dmStore.selectContact(id);
+              dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
+            }}
+            onCloseConversation={(id: string) => {
+              dmStore.closeDM(id);
+              if (dmStore.selectedContact?.id === id) {
+                dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
+              }
+            }}
+            onToggleVisibility={toggleMessagesPanel}
+            visible={messagesPanelExpanded}
+          />
+        )}
       </div>
 
       {showOnboarding && (

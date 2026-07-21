@@ -29,7 +29,7 @@ const mockValues = vi.hoisted(() => {
     sendDMMessage: vi.fn(),
     fetchDMHistory: vi.fn(),
     fetchAvatarUrl: vi.fn().mockResolvedValue(undefined),
-    client: { marker: 'matrix-client', getRoom: vi.fn(() => undefined) },
+    client: { marker: 'matrix-client', getRoom: vi.fn((): unknown => undefined) },
     activeTypingText: 'Val is typing',
     startTyping: vi.fn(),
     stopTyping: vi.fn(),
@@ -54,7 +54,7 @@ const mockValues = vi.hoisted(() => {
     getRoomUnread: vi.fn(() => ({ notificationCount: 0, highlightCount: 0, fullyReadEventId: null })),
     markRoomRead: vi.fn(),
     getFullyReadEventId: vi.fn(() => null),
-    getMarkerTimestamp: vi.fn(() => null),
+    getMarkerTimestamp: vi.fn((): number | null => null),
     totalUnreadCount: 0,
     totalDmUnreadCount: 0,
   };
@@ -168,6 +168,10 @@ describe('DM route Matrix isolation', () => {
     mockValues.screenShare.shareQualities = new Map();
     mockValues.screenShare.viewerQualities = new Map();
     mockValues.unreadTracker.totalDmUnreadCount = 0;
+    mockValues.unreadTracker.roomUnreads = new Map();
+    mockValues.unreadTracker.getRoomUnread.mockReturnValue({ notificationCount: 0, highlightCount: 0, fullyReadEventId: null });
+    mockValues.unreadTracker.getMarkerTimestamp.mockReturnValue(null);
+    mockValues.matrixClient.client.getRoom.mockReturnValue(undefined);
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
@@ -408,5 +412,57 @@ describe('DM route Matrix isolation', () => {
 
     await waitFor(() => expect(mockValues.headerProps?.unreadDMCount).toBe(3));
     expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+  });
+
+  it('does not mark a selected Matrix DM as read when a channel is in the foreground', async () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    mockValues.matrixClient.dmRoomMap.set('@val:example.com', '!val:example.com');
+    mockValues.matrixClient.client.getRoom.mockReturnValue({
+      getLiveTimeline: () => ({
+        getEvents: () => [{ getId: () => '$latest-dm-event' }],
+      }),
+    });
+    const view = renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    mockValues.unreadTracker.markRoomRead.mockClear();
+
+    act(() => view.getByTestId('sidebar-select-channel').click());
+    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+
+    mockValues.unreadTracker.roomUnreads = new Map([['!val:example.com', { notificationCount: 1 }]]);
+    mockValues.unreadTracker.getRoomUnread.mockReturnValue({ notificationCount: 1, highlightCount: 0, fullyReadEventId: null });
+    mockValues.unreadTracker.getMarkerTimestamp.mockReturnValue(1234);
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+
+    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
+    expect(mockValues.unreadTracker.markRoomRead).not.toHaveBeenCalledWith('!val:example.com', '$latest-dm-event');
+  });
+
+  it.each([
+    ['server list', () => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('cert.status', { exists: true });
+    }],
+    ['onboarding', () => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('cert.status', { exists: false });
+    }],
+    ['disconnected', () => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', {
+        username: 'Me', channelId: 1, channels: [{ id: 1, name: 'General' }], users: [],
+      });
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
+    }],
+  ])('does not reserve Messages panel space on the %s screen', async (_label, enterScreen) => {
+    render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+
+    act(() => enterScreen());
+
+    await waitFor(() => {
+      expect(document.querySelector('.workspace-conversation')).not.toHaveClass('workspace-conversation--with-panel');
+    });
+    expect(mockValues.dmContactListProps).toBeUndefined();
   });
 });
