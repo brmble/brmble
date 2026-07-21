@@ -54,6 +54,12 @@ export const themes: ThemeDefinition[] = [
     description: 'Phosphor green CRT — monochrome hacker aesthetic',
     fontUrl: 'https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
   },
+  {
+    id: 'windows-2000',
+    name: 'Windows 2000',
+    description: 'Classic Windows Explorer white-pane nostalgia',
+    fontUrl: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+  },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {
