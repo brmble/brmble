@@ -1216,13 +1216,23 @@ function App() {
   });
   selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
-  const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
   const showDmConversation = workspace.foreground.kind === 'dm';
   const showChannelConversation = !showDmConversation;
   const isDmMode = showDmConversation;
   const messagesPanelExpanded = workspace.messagesPanelExpanded;
-  const activeDmMatrixContactId = isDmMode && !selectedDmIsMumble
-    ? (dmStore.selectedContact?.id ?? null)
+  const foregroundDmContactId = workspace.foreground.kind === 'dm'
+    ? workspace.foreground.contactId
+    : null;
+  const foregroundDmContact = foregroundDmContactId
+    ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
+      ?? (dmStore.selectedContact?.id === foregroundDmContactId ? dmStore.selectedContact : null)
+    : null;
+  const foregroundDmMessages = foregroundDmContact?.id === dmStore.selectedContact?.id
+    ? dmStore.messages
+    : [];
+  const selectedDmIsMumble = foregroundDmContact?.isEphemeral === true;
+  const activeDmMatrixContactId = foregroundDmContactId && !selectedDmIsMumble
+    ? foregroundDmContactId
     : null;
 
   useLayoutEffect(() => {
@@ -3513,6 +3523,18 @@ const handleConnect = (serverData: SavedServer) => {
   handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
 
   const hasPendingViewerShares = pendingViewerShares.length > 0;
+  const screenShareViewerProps = {
+    watchingShares,
+    focusedShare,
+    remoteVideoEls,
+    roomQuality,
+    shareQualities,
+    viewerQualities,
+    onFocusShare: setFocusedShare,
+    onCloseShare: (share: ShareInfo) => disconnectViewer(share.userId),
+    onViewerQualityChange: setViewerQuality,
+    screenShareViewerMode: screenShareSettings.viewerMode,
+  };
 
   useEffect(() => {
     dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
@@ -4187,7 +4209,7 @@ const handleConnect = (serverData: SavedServer) => {
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
-                <div className="content-slide" aria-hidden={!showChannelConversation}>
+                <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
                    <ChatPanel
                     channelId={currentChannelId || undefined}
@@ -4199,16 +4221,7 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixClient={matrixClient.client}
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
-                    watchingShares={watchingShares}
-                    focusedShare={focusedShare}
-                    remoteVideoEls={remoteVideoEls}
-                     roomQuality={roomQuality}
-                     shareQualities={shareQualities}
-                     viewerQualities={viewerQualities}
-                     onFocusShare={setFocusedShare}
-                     onCloseShare={(share) => disconnectViewer(share.userId)}
-                     onViewerQualityChange={setViewerQuality}
-                     screenShareViewerMode={screenShareSettings.viewerMode}
+                    {...(showChannelConversation ? screenShareViewerProps : {})}
                     users={users}
                     disabled={!canSendActiveChannelChat}
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
@@ -4223,29 +4236,30 @@ const handleConnect = (serverData: SavedServer) => {
                   />
                   </ErrorBoundary>
                 </div>
-                <div className="content-slide" aria-hidden={!showDmConversation}>
+                <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
                   <ErrorBoundary label="ChatPanel:DM">
                    <ChatPanel
-                    channelId={dmStore.selectedContact ? `dm-${dmStore.selectedContact.id}` : undefined}
-                    channelName={dmStore.selectedContact?.displayName ?? ''}
-                    messages={dmStore.messages}
+                    channelId={foregroundDmContact ? `dm-${foregroundDmContact.id}` : undefined}
+                    channelName={foregroundDmContact?.displayName ?? ''}
+                    messages={foregroundDmMessages}
                     currentUsername={username}
                     onSendMessage={dmStore.sendMessage}
                     isDM={true}
-                    matrixClient={selectedDmIsMumble ? null : matrixClient.client}
-                    matrixRoomId={selectedDmIsMumble ? null : dmMatrixRoomId}
-                    readMarkerTs={selectedDmIsMumble ? null : dmDividerTs}
+                    matrixClient={foregroundDmContact && !selectedDmIsMumble ? matrixClient.client : null}
+                    matrixRoomId={foregroundDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null}
+                    readMarkerTs={foregroundDmContact && !selectedDmIsMumble ? dmDividerTs : null}
+                    {...(showDmConversation ? screenShareViewerProps : {})}
                     users={users}
-                    disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
+                    disabled={foregroundDmContact?.isEphemeral === true && foregroundDmContact.mumbleSessionId == null}
                     topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={selectedDmIsMumble ? undefined : matrixCredentials?.userId}
-                    onToggleReaction={selectedDmIsMumble ? undefined : handleToggleDmReaction}
-                    typingIndicatorText={!selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
-                    typingTargetId={!selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
-                    onTypingStart={!selectedDmIsMumble ? matrixClient.startTyping : undefined}
-                    onTypingStop={!selectedDmIsMumble ? matrixClient.stopTyping : undefined}
+                    currentUserMatrixId={foregroundDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined}
+                    onToggleReaction={foregroundDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined}
+                    typingIndicatorText={foregroundDmContact && !selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
+                    typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
+                    onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
+                    onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
                   />
                   </ErrorBoundary>
                 </div>

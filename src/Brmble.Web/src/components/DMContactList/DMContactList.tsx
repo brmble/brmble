@@ -52,7 +52,6 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
   );
   const messageContacts = filtered.filter(c => !c.isEphemeral);
   const mumbleContacts = filtered.filter(c => c.isEphemeral);
-  const totalUnread = contacts.reduce((total, contact) => total + contact.unreadCount, 0);
 
   const handleToggleVisibility = () => {
     if (visible && contentRef.current?.contains(document.activeElement)) {
@@ -85,12 +84,6 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
       >
         <Icon name={visible ? 'chevron-right' : 'chevron-left'} size={18} />
       </button>
-      {!visible && totalUnread > 0 && (
-        <span className="dm-contact-list-rail-unread" aria-label={`${totalUnread} unread messages`}>
-          {totalUnread}
-        </span>
-      )}
-
       <div ref={contentRef} className="dm-contact-list-content" aria-hidden={!visible} inert={!visible}>
       <div className="dm-contact-list-header">
         <h3 className="heading-section">Messages</h3>

@@ -54,23 +54,6 @@
   opacity: 0;
 }
 
-.dm-contact-list-rail-unread {
-  align-items: center;
-  background: var(--accent-primary);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  display: flex;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  height: 18px;
-  justify-content: center;
-  min-width: 18px;
-  padding: 0 var(--space-2xs);
-  position: absolute;
-  right: var(--space-2xs);
-  top: 28px;
-}
-
 .dm-contact-list-header {
   padding: var(--space-md) var(--space-md) var(--space-xs);
 }

@@ -6,6 +6,7 @@ import { ServiceStatusProvider } from './hooks/useServiceStatus';
 
 const mockValues = vi.hoisted(() => {
   let dmChatPanelProps: Record<string, unknown> | undefined;
+  let channelChatPanelProps: Record<string, unknown> | undefined;
   let dmContactListProps: Record<string, unknown> | undefined;
   let headerProps: Record<string, unknown> | undefined;
   let dmStoreOptions: Record<string, unknown> | undefined;
@@ -60,10 +61,10 @@ const mockValues = vi.hoisted(() => {
   const idleActions = { autoLeftAt: null, preLeaveStartedAt: null, preLeaveCancelledAt: null, dismissNotification: vi.fn(), dismissPreLeaveCancelled: vi.fn() };
   const screenShare = {
     isSharing: false, startSharing: vi.fn(), stopSharing: vi.fn(), markLocalShareTeardownIntent: vi.fn(), error: null,
-    activeShare: null, activeShares: [], watchingShare: null, watchingShares: [], pendingViewerShares: [], remoteWatchCount: 0, isViewerConnectPending: false,
-    focusedShare: null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null, remoteVideoEls: new Map(),
-    roomQuality: undefined, shareQualities: new Map(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
+    activeShare: null, activeShares: [], watchingShare: null, watchingShares: [] as Array<{ roomName: string; userId: number; userName: string }>, pendingViewerShares: [], remoteWatchCount: 0, isViewerConnectPending: false,
+    focusedShare: null as { roomName: string; userId: number; userName: string } | null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null, remoteVideoEls: new Map<number, HTMLVideoElement>(),
+    roomQuality: undefined as string | undefined, shareQualities: new Map<number, string>(), viewerQualities: new Map<number, string>(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
+    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), setViewerQuality: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
   const notificationQueue = { register: vi.fn(), unregister: vi.fn(), isVisible: vi.fn(() => false), visibleCount: 0, totalCount: 0 };
 
@@ -71,6 +72,8 @@ const mockValues = vi.hoisted(() => {
     matrixClient, dmStore, unreadTracker, idleActions, screenShare, notificationQueue,
     get dmChatPanelProps() { return dmChatPanelProps; },
     setDmChatPanelProps: (props: Record<string, unknown> | undefined) => { dmChatPanelProps = props; },
+    get channelChatPanelProps() { return channelChatPanelProps; },
+    setChannelChatPanelProps: (props: Record<string, unknown> | undefined) => { channelChatPanelProps = props; },
     get dmContactListProps() { return dmContactListProps; },
     setDmContactListProps: (props: Record<string, unknown> | undefined) => { dmContactListProps = props; },
     get headerProps() { return headerProps; },
@@ -100,6 +103,7 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
 vi.mock('./components/ChatPanel/ChatPanel', () => ({
   ChatPanel: (props: Record<string, unknown>) => {
     if (props.isDM) mockValues.setDmChatPanelProps(props);
+    else mockValues.setChannelChatPanelProps(props);
     return <section />;
   },
 }));
@@ -148,6 +152,7 @@ describe('DM route Matrix isolation', () => {
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
     mockValues.setDmChatPanelProps(undefined);
+    mockValues.setChannelChatPanelProps(undefined);
     mockValues.setDmContactListProps(undefined);
     mockValues.setHeaderProps(undefined);
     mockValues.setDmStoreOptions(undefined);
@@ -156,12 +161,22 @@ describe('DM route Matrix isolation', () => {
     mockValues.screenShare.isSharing = false;
     mockValues.screenShare.remoteWatchCount = 0;
     mockValues.screenShare.pendingViewerShares = [];
+    mockValues.screenShare.watchingShares = [];
+    mockValues.screenShare.focusedShare = null;
+    mockValues.screenShare.remoteVideoEls = new Map();
+    mockValues.screenShare.roomQuality = undefined;
+    mockValues.screenShare.shareQualities = new Map();
+    mockValues.screenShare.viewerQualities = new Map();
     mockValues.unreadTracker.totalDmUnreadCount = 0;
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
     mockValues.dmStore.selectedContact = { id: 'cert-val', displayName: 'Vanilla Val', unreadCount: 0, isEphemeral: true, mumbleSessionId: 42 };
     renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('cert-val');
+    });
 
     expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith(null);
     expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
@@ -176,6 +191,10 @@ describe('DM route Matrix isolation', () => {
     mockValues.dmStore.selectedContact = { id: 'cert-val', displayName: 'Vanilla Val', unreadCount: 0, isEphemeral: true, mumbleSessionId: null };
     renderConnectedApp();
 
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('cert-val');
+    });
+
     expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
       channelId: 'dm-cert-val', matrixClient: null, matrixRoomId: null, disabled: true, typingTargetId: undefined,
     }));
@@ -185,6 +204,10 @@ describe('DM route Matrix isolation', () => {
     mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
     mockValues.matrixClient.dmRoomMap.set('@val:example.com', '!val:example.com');
     renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
 
     expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith('@val:example.com');
     expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
@@ -243,9 +266,42 @@ describe('DM route Matrix isolation', () => {
     await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
   });
 
+  it('renders an empty DM foreground and clears Matrix routing after reconnecting with a retained selection', async () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    mockValues.matrixClient.dmRoomMap.set('@val:example.com', '!val:example.com');
+    renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+    expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith('@val:example.com');
+
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
+    });
+    await waitFor(() => expect(document.querySelector('.content-slider')).not.toBeInTheDocument());
+
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
+    });
+
+    await waitFor(() => expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith(null));
+    expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
+      channelId: undefined,
+      channelName: '',
+      messages: [],
+      matrixRoomId: null,
+      typingTargetId: undefined,
+    }));
+  });
+
   it('keeps a selected DM foreground while remote watches start and end', async () => {
     mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
     const view = renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
 
     await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
 
@@ -262,6 +318,66 @@ describe('DM route Matrix isolation', () => {
       expect(mockValues.headerProps?.dmActive).toBe(true);
       expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
     });
+  });
+
+  it('supplies the remote viewer to the foreground DM panel without duplicating it in the inactive channel panel', async () => {
+    const share = { roomName: 'channel-1', userId: 10, userName: 'Vanilla Val' };
+    const remoteVideoEls = new Map([[10, document.createElement('video')]]);
+    const shareQualities = new Map([[10, 'high']]);
+    const viewerQualities = new Map([[10, 'low']]);
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    mockValues.screenShare.watchingShares = [share];
+    mockValues.screenShare.focusedShare = share;
+    mockValues.screenShare.remoteVideoEls = remoteVideoEls;
+    mockValues.screenShare.roomQuality = 'good';
+    mockValues.screenShare.shareQualities = shareQualities;
+    mockValues.screenShare.viewerQualities = viewerQualities;
+    const view = renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+
+    await waitFor(() => {
+      expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
+        watchingShares: [share],
+        focusedShare: share,
+        remoteVideoEls,
+        roomQuality: 'good',
+        shareQualities,
+        viewerQualities,
+        onFocusShare: mockValues.screenShare.setFocusedShare,
+        onCloseShare: expect.any(Function),
+        onViewerQualityChange: mockValues.screenShare.setViewerQuality,
+        screenShareViewerMode: 'in-app',
+      }));
+    });
+    expect(mockValues.channelChatPanelProps).not.toHaveProperty('watchingShares');
+  });
+
+  it('marks inactive conversation slides inert as well as aria-hidden', async () => {
+    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
+    const view = renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+
+    await waitFor(() => {
+      const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
+      expect(channelSlide).toHaveAttribute('aria-hidden', 'true');
+      expect(channelSlide).toHaveAttribute('inert');
+      expect(dmSlide).toHaveAttribute('aria-hidden', 'false');
+      expect(dmSlide).not.toHaveAttribute('inert');
+    });
+
+    act(() => view.getByTestId('sidebar-select-channel').click());
+    const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
+    expect(channelSlide).toHaveAttribute('aria-hidden', 'false');
+    expect(channelSlide).not.toHaveAttribute('inert');
+    expect(dmSlide).toHaveAttribute('aria-hidden', 'true');
+    expect(dmSlide).toHaveAttribute('inert');
   });
 
   it('falls back to the channel foreground when a selected conversation closes during a remote watch', async () => {

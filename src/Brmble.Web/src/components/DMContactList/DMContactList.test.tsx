@@ -155,7 +155,7 @@ describe('DMContactList directory behavior', () => {
     expect(screen.getByRole('button', { name: 'Expand Messages panel' })).toHaveFocus();
   });
 
-  it('shows contact unread badges only while expanded and the total on the collapsed rail', async () => {
+  it('hides contact unread badges when collapsed without adding a separate rail badge', async () => {
     const user = userEvent.setup();
     render(<VisibilityHarness contacts={[matrixContact, mumbleContact]} />);
 
@@ -165,7 +165,7 @@ describe('DMContactList directory behavior', () => {
 
     await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
 
-    expect(screen.getByLabelText('3 unread messages')).toHaveTextContent('3');
+    expect(screen.queryByLabelText('3 unread messages')).not.toBeInTheDocument();
     expect(screen.queryByText('2')).not.toBeInTheDocument();
     expect(screen.queryByText('1')).not.toBeInTheDocument();
   });
