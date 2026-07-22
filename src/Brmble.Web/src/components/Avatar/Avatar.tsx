@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { User } from '../../types';
+import { Icon } from '../Icon/Icon';
+import { gameAvatarIcon } from '../../utils/games';
 import './Avatar.css';
 
 interface AvatarProps {
@@ -9,6 +11,8 @@ interface AvatarProps {
   className?: string;
   /** When true, show the Mumble headset icon instead of the Brmble logo as fallback. */
   isMumbleOnly?: boolean;
+  /** For game feed messages: the game type (e.g. 'deathroll'). Renders a per-game avatar icon. */
+  gameType?: string;
 }
 
 type FallbackState = 'image' | 'platform-logo' | 'letter';
@@ -107,7 +111,7 @@ function BrmbleIcon({ size }: { size: number }) {
   );
 }
 
-export default function Avatar({ user, size, speaking, className, isMumbleOnly }: AvatarProps) {
+export default function Avatar({ user, size, speaking, className, isMumbleOnly, gameType }: AvatarProps) {
   const initialFallback = user.avatarUrl ? 'image' : 'platform-logo';
   const [fallback, setFallback] = useState<FallbackState>(initialFallback);
   const prevUrlRef = useRef(user.avatarUrl);
@@ -133,15 +137,28 @@ export default function Avatar({ user, size, speaking, className, isMumbleOnly }
 
   const letter = user.name?.charAt(0).toUpperCase() || '?';
   const mumbleOnly = isMumbleOnly ?? false;
+  const isGame = gameType !== undefined;
   const iconSize = Math.max(Math.round(size * 0.85), 12);
   const fontSize = Math.max(Math.round(size * 0.45), 10);
 
   const classes = [
     'avatar',
-    mumbleOnly ? 'avatar--mumble' : 'avatar--brmble',
+    isGame ? 'avatar--game' : (mumbleOnly ? 'avatar--mumble' : 'avatar--brmble'),
     speaking ? 'speaking' : '',
     className || '',
   ].filter(Boolean).join(' ');
+
+  // Game feed avatars always render the per-game icon, regardless of avatarUrl fallback state.
+  if (isGame) {
+    return (
+      <div
+        className={classes}
+        style={{ width: size, height: size, minWidth: size, minHeight: size }}
+      >
+        <Icon name={gameAvatarIcon(gameType)} size={iconSize} className="avatar-platform-icon" />
+      </div>
+    );
+  }
 
   return (
     <div

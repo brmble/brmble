@@ -38,6 +38,8 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
+import { DeathrollModal } from './components/Games/DeathrollModal';
+import { useGameState } from './components/Games/useGameState';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -65,6 +67,7 @@ import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
+import { gameDisplayName } from './utils/games';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
 
@@ -937,6 +940,40 @@ function App() {
   const [selfLeftVoice, setSelfLeftVoice] = useState(false);
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
+  const gameState = useGameState(selfSession);
+  const resolveGamePlayerName = useCallback(
+    (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
+    [],
+  );
+  // Forfeiting is recorded as an abandon on the player's permanent stats, so gate
+  // it behind a confirmation. This also guards backdrop/X clicks during a live
+  // match (onClose is wired to this while a match is live).
+  const confirmForfeit = useCallback(async () => {
+    const ok = await confirm({
+      title: 'Forfeit match?',
+      message: 'Forfeiting counts as an abandon on your record. Are you sure?',
+      confirmLabel: 'Forfeit',
+      cancelLabel: 'Keep playing',
+    });
+    if (ok) gameState.forfeit();
+  }, [gameState.forfeit]);
+  useEffect(() => {
+    // A duel challenge is time-sensitive (30s window), so give it a sort priority
+    // above other `info` notifications while keeping its `info` visual status.
+    if (gameState.incomingInvite) notifQueueRef.current.register('game-invite', 'info', 2);
+    else notifQueueRef.current.unregister('game-invite');
+  }, [gameState.incomingInvite]);
+  useEffect(() => {
+    // register() is a no-op when the id is already present, so when one outcome
+    // replaces a prior one we must unregister first — otherwise the replacement
+    // keeps the old _order and can stay hidden behind other info notifications.
+    notifQueueRef.current.unregister('game-outcome');
+    if (gameState.inviteOutcome) notifQueueRef.current.register('game-outcome', 'info');
+  }, [gameState.inviteOutcome]);
+  useEffect(() => {
+    if (gameState.lastError) notifQueueRef.current.register('game-error', 'error');
+    else notifQueueRef.current.unregister('game-error');
+  }, [gameState.lastError]);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
   const hasMatrixCredentialsForSessionRef = useRef(false);
@@ -2020,6 +2057,22 @@ function App() {
       }
     });
 
+    // Ephemeral Deathroll spectator feed. Live-only inline system messages for
+    // everyone in the match's channel; never persisted (systemType 'game' is in
+    // EPHEMERAL_TYPES, so it is purged from localStorage and never sent to Matrix).
+    const onGameFeed = ((data: unknown) => {
+      const d = data as { channelId?: number; text?: string; gameType?: string } | undefined;
+      if (d?.channelId === undefined || !d.text) return;
+      const channelId = String(d.channelId);
+      const gameType = d.gameType || undefined;
+      const sender = gameDisplayName(gameType);
+      if (currentChannelIdRef.current === channelId) {
+        addMessageRef.current(sender, d.text, 'system', undefined, undefined, 'game', gameType);
+      } else {
+        addMessageToStore(`channel-${channelId}`, sender, d.text, 'system', undefined, undefined, 'game', gameType);
+      }
+    });
+
     const onVoiceUserJoined = ((data: unknown) => {
       const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; companionId?: CompanionId; isBrmbleClient?: boolean } | undefined;
       if (d?.session && d.channelId !== undefined) {
@@ -2680,6 +2733,7 @@ function App() {
     bridge.on('voice.error', onVoiceError);
     bridge.on('voice.message', onVoiceMessage);
     bridge.on('voice.system', onVoiceSystem);
+    bridge.on('game.feed', onGameFeed);
     bridge.on('voice.userJoined', onVoiceUserJoined);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.channelRemoved', onVoiceChannelRemoved);
@@ -2769,6 +2823,7 @@ function App() {
       bridge.off('voice.error', onVoiceError);
       bridge.off('voice.message', onVoiceMessage);
       bridge.off('voice.system', onVoiceSystem);
+      bridge.off('game.feed', onGameFeed);
       bridge.off('voice.userJoined', onVoiceUserJoined);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.channelRemoved', onVoiceChannelRemoved);
@@ -3361,12 +3416,24 @@ const handleConnect = (serverData: SavedServer) => {
     : undefined;
 
   const channelChatMessages = useMemo(
-    () => canOpenActiveChannelChat
-      ? [
-        ...(isMatrixActive ? (matrixMessages ?? []) : messages),
+    () => {
+      if (!canOpenActiveChannelChat) return [];
+      // When Matrix is active, channel history comes from Matrix. Ephemeral
+      // game-feed lines live only in the local chat store (systemType 'game',
+      // never persisted), so merge them in explicitly — otherwise they are
+      // written but never rendered. Sort the merged result chronologically so the
+      // game lines interleave with Matrix messages instead of being clustered at
+      // the bottom (ChatPanel/groupMessages assumes chronological input, and
+      // out-of-order messages misplace date separators and the unread divider).
+      const base = isMatrixActive
+        ? [...(matrixMessages ?? []), ...messages.filter(m => m.systemType === 'game')]
+            .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+        : messages;
+      return [
+        ...base,
         ...optimisticImages.filter(m => m.channelId === currentChannelId),
-      ]
-      : [],
+      ];
+    },
     [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
   );
 
@@ -4164,6 +4231,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
+          onChallengeDeathroll={(session) => gameState.invite(session)}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -4363,7 +4431,75 @@ const handleConnect = (serverData: SavedServer) => {
         onQuit={handleCloseQuit}
       />
 
+      {(gameState.activeMatch || gameState.ended) && (
+        <DeathrollModal
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
+          resolveName={resolveGamePlayerName}
+          onRoll={gameState.roll}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+        />
+      )}
+
       <div className="notification-stack">
+        {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
+          <Notification
+            status="info"
+            position="top-right"
+            duration={null}
+            countdownMs={gameState.incomingInvite.inviteMs ?? 30000}
+            visible={!!gameState.incomingInvite}
+            title="Deathroll challenge"
+            detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to Deathroll.`}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => gameState.acceptInvite()}
+                disabled={gameState.accepting}
+              >
+                Accept
+              </button>
+            }
+            onDismiss={() => gameState.declineInvite()}
+            onExited={() => notifQueue.unregister('game-invite')}
+          />
+        )}
+        {gameState.inviteOutcome && notifQueue.isVisible('game-outcome') && (() => {
+          const o = gameState.inviteOutcome;
+          const name = o.targetSession != null ? resolveGamePlayerName(o.targetSession) : 'The player';
+          const copy = o.kind === 'declined'
+            ? { title: 'Challenge declined', detail: `${name} declined your Deathroll challenge.` }
+            : o.kind === 'expired'
+              ? { title: 'No response', detail: `${name} didn't respond to your challenge.` }
+              : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
+          return (
+            <Notification
+              status="info"
+              position="top-right"
+              visible={!!gameState.inviteOutcome}
+              title={copy.title}
+              detail={copy.detail}
+              onDismiss={() => gameState.clearInviteOutcome()}
+              onExited={() => notifQueue.unregister('game-outcome')}
+            />
+          );
+        })()}
+        {gameState.lastError && notifQueue.isVisible('game-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={!!gameState.lastError}
+            title="Game error"
+            detail={gameState.lastError}
+            onDismiss={() => gameState.clearError()}
+            onExited={() => notifQueue.unregister('game-error')}
+          />
+        )}
         {updateInfo && notifQueue.isVisible('update') && (
           <UpdateNotification
             version={updateInfo.version}

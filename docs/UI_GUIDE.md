@@ -165,6 +165,108 @@ Rules:
 3. Content area stops propagation: `onClick={(e) => e.stopPropagation()}`
 4. Title is always `h2.heading-title.modal-title`
 
+### Minigame Modal Pattern
+
+Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`
+
+Real-time minigame modals (e.g. Deathroll) reuse the shared modal shell — global
+`div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
+`h2.heading-title.modal-title` — and add game-specific content styling via a colocated
+CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
+
+Rules:
+1. Reuse the shared modal shell classes above; only game-board content (player rows,
+   stat tiles, countdown bar, result banner) lives in the CSS module.
+2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
+   `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
+3. Turn countdowns render as a token-styled shrinking bar plus a seconds label; drive
+   them with a local `setInterval` and clear it on unmount/when the match ends. The
+   bar's window length comes from the server (`turnMs`), not a hardcoded constant, so
+   escalation phases (e.g. Deathroll's 5s timeout-penalty turns) shrink correctly. In
+   an escalation/penalty phase (`penalty` flag), swap the bar, seconds label, and the
+   escalating stat (ceiling) to the danger tokens (`--accent-danger`,
+   `--accent-danger-text`) to signal urgency — never hardcode a red value.
+4. Action buttons use the shared `.btn` classes (`btn-primary` for the main action,
+   `btn-danger` for forfeit). Disable the primary action when it is not the local
+   player's turn.
+
+### Minigame Invite Pattern
+
+Incoming minigame invites use the shared top-right `<Notification>` + `useNotificationQueue`
+(status `info`). The single primary action button is Accept; the `×` dismiss declines the
+invite (`onDismiss` → decline). Do not add a separate "Decline" text button — `×` is the
+decline affordance, per the Notification rules. Register the invite under a stable queue id
+(`game-invite`) and unregister it from `onExited`.
+
+The invite notification uses `duration={null}` — it has NO client auto-dismiss timer and
+does NOT extend on hover. The server owns the 30s invite window and removes the invite by
+emitting `game.expired` at timeout (distinct from `game.declined` when the recipient presses
+`×`). Do not re-add a client-side timer to this notification.
+
+The invite notification passes `countdownMs` (from the server `game.invited` payload's
+`inviteMs`) to `<Notification>`. This renders a **visual-only** shrinking progress bar showing
+the remaining accept window. It is purely cosmetic: it never auto-dismisses, never pauses on
+hover, and never triggers `onDismiss` (which would decline). The server remains the sole owner
+of the timeout via `game.expired`. Use `countdownMs` (not `duration`) whenever a notification
+needs a visible countdown without client-side dismissal.
+
+The per-user "Challenge to a duel" entry point is a `ContextMenu` item on the user row
+(same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
+shares the local user's voice channel. It is a submenu of game types: **Deathroll** challenges
+immediately; **Rock Paper Scissors** opens a further "Best of 3 / 5 / 7" submenu whose options
+are disabled ("coming soon") until an RPS engine exists server-side. The menu is assembled by
+the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused by
+both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
+
+#### Challenger invite-outcome notifications
+
+The challenger (not the recipient) sees exactly one of three replaceable `info` notifications
+under the queue id `game-outcome`, driven by `useGameState.inviteOutcome`:
+
+- **"Challenge declined"** — recipient pressed `×` (`game.declined`).
+- **"No response"** — the 30s invite window expired with no answer (`game.expired`).
+- **"Challenge blocked"** — recipient has "Block all challenges" enabled (the invite request
+  is rejected server-side with the message `"This player isn't accepting challenges."`).
+
+Because it is a generated/replaceable id, the App effect unregisters `game-outcome` before
+re-registering it so only one outcome shows at a time (covered by the repeated-event test in
+`hooks/useNotificationQueue.test.ts`). These use the default `info` 5s auto-dismiss.
+
+#### Deathroll spectator feed (ephemeral chat)
+
+Live Deathroll play is narrated into the match channel's chat as **ephemeral system
+messages**, not notifications and not persistent chat. The server (`GameSessionManager`)
+composes the copy and broadcasts a `game.feed` event (`{ channelId, text, … }`) to everyone
+in the channel. App injects each line into the channel chat store via
+`addMessage(...'system'..., 'game')` / `addMessageToStore(..., 'game')`, rendering with the
+existing `MessageBubble` `isSystem` styling — reuse it, do not create a new game-log component.
+
+`'game'` is registered in `EPHEMERAL_TYPES` (`useChatStore.ts`), so these lines are purged
+from `localStorage` on reconnect and are **never** written to Matrix. A user who joins or
+reconnects mid-match sees no backlog — the feed is strictly live. Game results are therefore
+no longer posted to Matrix (the old `IGameAnnouncer`/`MatrixGameAnnouncer` path was removed).
+
+Copy is emoji-led and playful: `⚔️` match start, `🎲` each roll / timeout, `💀` a losing
+roll, `🏳️` a forfeit. Keep new game feed copy in this style and compose it server-side.
+
+**Per-game avatar & sender.** Each `game.feed` payload carries a `gameType` (e.g. `deathroll`).
+App threads it as the message `gameType` (`ChatMessage.gameType`), and uses it to set the
+sender label to the game's display name (e.g. "Deathroll") instead of a generic "Game".
+`<Avatar gameType=…>` renders a per-game icon (`avatar--game` variant) via the `<Icon>`
+component instead of the Mumble/Brmble fallback. Game presentation (display name + icon) is
+centralized in `src/Brmble.Web/src/utils/games.ts`. **To add a future game (e.g. Rock Paper
+Scissors):** add its icon under the GAMES category in `Icon.tsx`, then add one entry to the
+`GAME_META` map in `games.ts` — the feed label and avatar update automatically, no other
+wiring needed.
+
+#### Games settings tab
+
+The **Games** settings tab (`GamesSettingsTab.tsx`) holds the server-backed "Block all
+challenges" toggle and the (relocated) Deathroll stats. Deathroll stats are no longer shown in
+the Profile tab. The toggle uses the standard `settings-item settings-toggle` + `brmble-toggle`
+markup and persists via `getGameSettings`/`setGameSettings` (server-authoritative).
+
+
 ### Settings Tab Pattern
 
 Reference: `AudioSettingsTab.tsx`
@@ -760,6 +862,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
+| **Games** | `swords`, `game-deathroll`, `game-rps` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 

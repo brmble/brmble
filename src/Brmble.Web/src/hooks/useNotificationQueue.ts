@@ -15,6 +15,13 @@ export interface QueueEntry {
   status: NotificationStatus;
   /** Arrival order for stable sorting within same priority */
   _order: number;
+  /**
+   * Optional sort-priority override. When set, it replaces the status-derived
+   * priority for ordering only (the notification's visual status is unchanged).
+   * Lets a time-sensitive `info` notification (e.g. a duel challenge) outrank
+   * other `info` notifications without becoming a warning/error visually.
+   */
+  priority?: number;
 }
 
 /**
@@ -33,8 +40,9 @@ export function useNotificationQueue() {
   const orderRef = useRef(0);
 
   const getVisible = useCallback((items: QueueEntry[]): Set<string> => {
+    const weight = (e: QueueEntry) => e.priority ?? PRIORITY[e.status];
     const sorted = [...items].sort((a, b) => {
-      const pDiff = PRIORITY[b.status] - PRIORITY[a.status];
+      const pDiff = weight(b) - weight(a);
       if (pDiff !== 0) return pDiff;
       return a._order - b._order;
     });
@@ -45,10 +53,10 @@ export function useNotificationQueue() {
     return visibleIds;
   }, []);
 
-  const register = useCallback((id: string, status: NotificationStatus) => {
+  const register = useCallback((id: string, status: NotificationStatus, priority?: number) => {
     setEntries(prev => {
       if (prev.some(e => e.id === id)) return prev;
-      return [...prev, { id, status, _order: orderRef.current++ }];
+      return [...prev, { id, status, priority, _order: orderRef.current++ }];
     });
   }, []);
 

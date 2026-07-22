@@ -92,6 +92,56 @@ public class Database
                 WHERE status = 'pending' AND pending_slot IS NOT NULL;
             """);
 
+        conn.Execute("""
+            CREATE TABLE IF NOT EXISTS game_matches (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_type       TEXT NOT NULL,
+                channel_id      INTEGER NOT NULL,
+                format          TEXT NOT NULL DEFAULT '1v1',
+                outcome         TEXT NOT NULL,
+                abandon_reason  TEXT,
+                started_at      TEXT NOT NULL,
+                ended_at        TEXT NOT NULL,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                metadata_json   TEXT
+            );
+            CREATE TABLE IF NOT EXISTS game_match_participants (
+                match_id        INTEGER NOT NULL,
+                user_id         INTEGER NOT NULL,
+                placement       INTEGER NOT NULL,
+                score           INTEGER,
+                result          TEXT NOT NULL,
+                metadata_json   TEXT,
+                PRIMARY KEY (match_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS game_user_stats (
+                user_id         INTEGER NOT NULL,
+                game_type       TEXT NOT NULL,
+                wins            INTEGER NOT NULL DEFAULT 0,
+                losses          INTEGER NOT NULL DEFAULT 0,
+                draws           INTEGER NOT NULL DEFAULT 0,
+                abandons        INTEGER NOT NULL DEFAULT 0,
+                games_played    INTEGER NOT NULL DEFAULT 0,
+                updated_at      TEXT NOT NULL,
+                PRIMARY KEY (user_id, game_type)
+            );
+            CREATE TABLE IF NOT EXISTS game_head_to_head (
+                player_low_id   INTEGER NOT NULL,
+                player_high_id  INTEGER NOT NULL,
+                game_type       TEXT NOT NULL,
+                low_wins        INTEGER NOT NULL DEFAULT 0,
+                high_wins       INTEGER NOT NULL DEFAULT 0,
+                draws           INTEGER NOT NULL DEFAULT 0,
+                updated_at      TEXT NOT NULL,
+                PRIMARY KEY (player_low_id, player_high_id, game_type),
+                CHECK (player_low_id < player_high_id)
+            );
+            CREATE INDEX IF NOT EXISTS ix_game_matches_ended_at ON game_matches(ended_at);
+            CREATE INDEX IF NOT EXISTS ix_game_matches_game_type ON game_matches(game_type);
+            CREATE INDEX IF NOT EXISTS ix_gmp_user_id ON game_match_participants(user_id);
+            CREATE INDEX IF NOT EXISTS ix_gmp_match_id ON game_match_participants(match_id);
+            """);
+
         // Migrate existing deployments: add matrix_access_token if the column is missing
         var hasMatrixToken = conn.ExecuteScalar<int>(
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
@@ -115,5 +165,11 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='companion_id'");
         if (hasCompanionId == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN companion_id TEXT DEFAULT 'floppy'");
+
+        // Migrate: add challenges_blocked column (server-authoritative game invite block)
+        var hasChallengesBlocked = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='challenges_blocked'");
+        if (hasChallengesBlocked == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN challenges_blocked INTEGER NOT NULL DEFAULT 0");
     }
 }

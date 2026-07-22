@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
+import { buildChallengeMenuItem } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
@@ -55,6 +56,7 @@ interface ChannelTreeProps {
   onJoinChannel: (channelId: number) => void;
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
+  onChallengeDeathroll?: (session: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -86,7 +88,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -605,6 +607,15 @@ onClick: () => {
               ),
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
+            ...(() => {
+              if (contextMenu.isSelf || !onChallengeDeathroll) return [];
+              const target = users.find(u => u.session === parseInt(contextMenu.userId));
+              const eligible = !!target?.isBrmbleClient
+                && contextMenu.channelId != null
+                && contextMenu.channelId === currentChannelId;
+              if (!eligible) return [];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
+            })(),
             {
               type: 'item' as const,
               label: 'User Info',

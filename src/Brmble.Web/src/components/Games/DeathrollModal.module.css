@@ -1,0 +1,149 @@
+.modal {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-xl);
+}
+
+.players {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.player {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.playerActive {
+  background: var(--bg-surface-active);
+  border-color: var(--accent-primary);
+}
+
+.playerName {
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.playerTurn {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary);
+}
+
+.board {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.statLabel {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+}
+
+.statCeiling {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--accent-primary);
+}
+
+/* Escalation: ceiling shrinks under timeout penalties — signal urgency. */
+.statCeilingPenalty {
+  color: var(--accent-danger);
+}
+
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.countdownTrack {
+  flex: 1;
+  height: var(--space-xs);
+  background: var(--bg-surface);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.countdownBar {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-fast) linear;
+}
+
+/* Escalation (5s penalty turns): draw attention with the danger token. */
+.countdownBarPenalty {
+  background: var(--accent-danger);
+}
+
+.countdownLabel {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  min-width: var(--space-xl);
+  text-align: right;
+}
+
+.countdownLabelPenalty {
+  color: var(--accent-danger-text);
+}
+
+.result {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.resultText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+}
+
+.footer .btn {
+  flex: 1;
+}

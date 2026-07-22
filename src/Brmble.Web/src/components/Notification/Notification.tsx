@@ -13,6 +13,13 @@ interface NotificationProps {
   children?: React.ReactNode;
   visible: boolean;
   duration?: number | null;
+  /**
+   * Visual-only countdown bar (ms). When set, renders an animated progress bar
+   * over this many ms independent of auto-dismiss — no dismissal, no hover
+   * pause. Use for server-owned windows (e.g. the 30s game invite) where the
+   * client must not dismiss but a countdown is still helpful.
+   */
+  countdownMs?: number;
   onDismiss?: () => void;
   onExited?: () => void;
   pauseOnHover?: boolean;
@@ -56,6 +63,7 @@ export function Notification({
   children,
   visible,
   duration,
+  countdownMs,
   onDismiss,
   onExited,
   pauseOnHover = true,
@@ -186,12 +194,19 @@ export function Notification({
           {actions}
         </div>
       )}
-      {effectiveDuration !== null && effectiveDuration > 0 && isVisible && (
-        <div
-          className={`notification__timer${isPaused ? ' notification__timer--paused' : ''}`}
-          style={{ animationDuration: `${effectiveDuration}ms` }}
-        />
-      )}
+      {(() => {
+        // Prefer an explicit visual-only countdown; otherwise fall back to the
+        // auto-dismiss duration bar. `countdownMs` never pauses on hover.
+        const barMs = countdownMs ?? (effectiveDuration !== null && effectiveDuration > 0 ? effectiveDuration : null);
+        if (barMs === null || !isVisible) return null;
+        const isCountdown = countdownMs != null;
+        return (
+          <div
+            className={`notification__timer${!isCountdown && isPaused ? ' notification__timer--paused' : ''}`}
+            style={{ animationDuration: `${barMs}ms` }}
+          />
+        );
+      })()}
     </div>
   );
 }

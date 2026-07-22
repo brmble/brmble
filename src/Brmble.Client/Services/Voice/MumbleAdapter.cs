@@ -133,6 +133,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>The ID of the ServerEntry that initiated the current connection, if any.</summary>
     public string? ActiveServerId => _activeServerId;
 
+    /// <summary>The currently-resolved Brmble API base URL, or null when not connected.
+    /// Exposed so bridge services wired in Program.cs (e.g. GameService) can reuse
+    /// the same mTLS API endpoint the voice layer discovered.</summary>
+    internal string? ApiUrl => _apiUrl;
+
     public MumbleAdapter(NativeBridge bridge, IntPtr hwnd, CertificateService? certService = null, IAppConfigService? appConfigService = null, VoiceIdleTracker? voiceIdleTracker = null)
     {
         _bridge = bridge;
@@ -1467,13 +1472,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
-    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> PostChannelRequestViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    internal static async Task<ChannelRequestBridgeHandler.TlsCallResult> PostChannelRequestViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
     {
         var result = await PostViaBcTls(cert, uri, jsonBody);
         return new(result.Success, result.Body, result.StatusCode, result.Error);
     }
 
-    private static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
+    internal static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var result = await GetViaBcTls(cert, uri);
         return new(result.Success, result.Body, result.StatusCode, result.Error);
@@ -2702,6 +2707,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     }
                     _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
                     _bridge?.NotifyUiThread();
+                    break;
+
+                default:
+                    // Forward all minigame server events verbatim to the bridge.
+                    // A prefix match means future game event names (game.invited,
+                    // game.started, game.stateUpdated, game.ended, game.declined,
+                    // game.actionRejected, game.error, ...) need no client change.
+                    if (type is not null && type.StartsWith("game.", StringComparison.Ordinal))
+                    {
+                        _bridge?.Send(type, System.Text.Json.JsonSerializer.Deserialize<object>(json));
+                        _bridge?.NotifyUiThread();
+                    }
                     break;
             }
         }

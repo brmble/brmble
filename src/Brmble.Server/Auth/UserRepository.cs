@@ -151,6 +151,23 @@ public class UserRepository
             new { CompanionId = normalized, Id = userId });
     }
 
+    public async Task<bool> GetChallengesBlocked(long userId)
+    {
+        using var conn = _db.CreateConnection();
+        var blocked = await conn.QuerySingleOrDefaultAsync<long?>(
+            "SELECT challenges_blocked FROM users WHERE id = @Id",
+            new { Id = userId });
+        return blocked == 1;
+    }
+
+    public async Task SetChallengesBlocked(long userId, bool blocked)
+    {
+        using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET challenges_blocked = @Blocked WHERE id = @Id",
+            new { Blocked = blocked ? 1 : 0, Id = userId });
+    }
+
     private static string NormalizeCompanionId(string? companionId)
     {
         TryNormalizeCompanionId(companionId, out var normalized);

@@ -1,0 +1,7 @@
+/* Inline load/save error for the Games settings tab. Mirrors the
+   `.profiles-form-error` inline validation-error pattern (see docs/UI_GUIDE.md). */
+.games-settings-error {
+  font-size: var(--text-xs);
+  color: var(--accent-danger-text);
+  margin-top: var(--space-xs);
+}

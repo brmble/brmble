@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
+import { buildChallengeMenuItem } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -38,6 +39,7 @@ interface SidebarProps {
   username?: string;
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
+  onChallengeDeathroll?: (session: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -73,6 +75,7 @@ export function Sidebar({
   username,
   onDisconnect,
   onStartDM,
+  onChallengeDeathroll,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -439,6 +442,7 @@ export function Sidebar({
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
+          onChallengeDeathroll={onChallengeDeathroll}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}
@@ -466,6 +470,16 @@ export function Sidebar({
               ),
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
+            ...(() => {
+              if (contextMenu.isSelf || !onChallengeDeathroll) return [];
+              const target = users.find(u => u.session === parseInt(contextMenu.userId));
+              const selfChannelId = users.find(u => u.self)?.channelId;
+              const eligible = !!target?.isBrmbleClient
+                && target.channelId != null
+                && target.channelId === selfChannelId;
+              if (!eligible) return [];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
+            })(),
             {
               type: 'item' as const,
               label: 'User Info',

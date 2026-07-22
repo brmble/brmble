@@ -313,7 +313,6 @@ export function ProfileSettingsTab({ currentUser, onUploadAvatar, onRemoveAvatar
       {/* Manage Profiles section */}
       <div className="settings-section">
         <h3 className="heading-section settings-section-title">Manage Profiles</h3>
-
         {/* Hidden file input for certificate import */}
         <input
           ref={fileInputRef}

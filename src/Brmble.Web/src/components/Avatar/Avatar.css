@@ -28,6 +28,11 @@
   color: var(--accent-primary);
 }
 
+/* Per-game avatars for the ephemeral minigame spectator feed */
+.avatar--game .avatar-platform-icon {
+  color: var(--accent-primary);
+}
+
 .avatar-letter {
   color: var(--text-primary);
   font-family: var(--font-display);

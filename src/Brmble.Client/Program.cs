@@ -9,6 +9,7 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
+using Brmble.Client.Services.Games;
 using Brmble.Client.Services.Update;
 using Brmble.Client.Services.Idle;
 using Brmble.Client.Overlay;
@@ -26,6 +27,7 @@ static class Program
     private static AppConfigService? _appConfigService;
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
+    private static GameService? _gameService;
     private static UpdateService? _updateService;
     private static IdleService? _idleService;
     private static CompanionOverlayRelay? _overlayRelay;
@@ -366,6 +368,19 @@ static class Program
             };
 
             SetupBridgeHandlers();
+
+            // Game bridge: forwards game.* intents to the server over mTLS,
+            // reusing the same cert + API URL the voice layer discovered.
+            // Server-originated game.* events are re-emitted to the bridge by
+            // MumbleAdapter.HandleWebSocketMessage.
+            _gameService = new GameService(
+                _bridge,
+                _certService,
+                () => _mumbleClient?.ApiUrl,
+                MumbleAdapter.PostChannelRequestViaBcTls,
+                MumbleAdapter.GetChannelRequestViaBcTls);
+            _gameService.Initialize(_bridge);
+            _gameService.RegisterHandlers(_bridge);
 
             // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
             EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;

@@ -154,6 +154,22 @@ describe('purgeEphemeralMessages', () => {
     expect(stored[1].content).toBe('You were kicked');
   });
 
+  it('purges game spectator-feed messages (systemType game) while keeping chat', () => {
+    const messages = [
+      { id: '1', channelId: 'channel-5', sender: 'Game', content: '⚔️ A vs B — Deathroll started (ceiling 1000)', timestamp: new Date().toISOString(), type: 'system', systemType: 'game' },
+      { id: '2', channelId: 'channel-5', sender: 'Game', content: '🎲 A rolled 42 (1–1000)', timestamp: new Date().toISOString(), type: 'system', systemType: 'game' },
+      { id: '3', channelId: 'channel-5', sender: 'User', content: 'gg', timestamp: new Date().toISOString() },
+      { id: '4', channelId: 'channel-5', sender: 'Game', content: '💀 B rolled 1 — A wins!', timestamp: new Date().toISOString(), type: 'system', systemType: 'game' },
+    ];
+    localStorage.setItem('brmble_chat_channel-5', JSON.stringify(messages));
+
+    purgeEphemeralMessages('channel-5');
+
+    const stored = JSON.parse(localStorage.getItem('brmble_chat_channel-5')!);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].content).toBe('gg');
+  });
+
   it('handles empty localStorage gracefully', () => {
     purgeEphemeralMessages('server-root');
     // Should not throw
