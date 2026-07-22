@@ -186,6 +186,7 @@ public sealed class GameSessionManager
                 {
                     type = "game.started",
                     matchId,
+                    gameType = match.GameType,
                     firstTurn = CurrentPlayer(match),
                     turnMs = (int)TurnTimeout.TotalMilliseconds,
                     penalty = false,
@@ -262,6 +263,7 @@ public sealed class GameSessionManager
             {
                 type = "game.stateUpdated",
                 matchId,
+                gameType = match.GameType,
                 turnMs = (int)TurnTimeout.TotalMilliseconds,
                 penalty = false,
                 views,
@@ -315,6 +317,7 @@ public sealed class GameSessionManager
             {
                 type = "game.stateUpdated",
                 matchId,
+                gameType = match.GameType,
                 turnMs = (int)PenaltyTimeout.TotalMilliseconds,
                 penalty = true,
                 views,
@@ -366,7 +369,7 @@ public sealed class GameSessionManager
         // against its own session id — so emit it directly as winnerId.
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
-            new { type = "game.ended", matchId = match.MatchId, winnerId = winner?.UserId });
+            new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId });
 
         var feedText = winner is not null && loser is not null
             ? $"💀 {NameOf(match, loser.UserId)} rolled {loser.Score ?? 1} — {NameOf(match, winner.UserId)} wins!"
@@ -428,7 +431,7 @@ public sealed class GameSessionManager
 
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
-            new { type = "game.ended", matchId, abandoned = true, reason, winnerId = otherId });
+            new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
 
         await PublishFeedAsync(match,
             $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");

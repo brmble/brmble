@@ -255,8 +255,11 @@ export function useGameState(myUserId: number): GameState {
     setInviteOutcome(null);
     gamesApi.invite(targetSessionId, 'deathroll').catch(e => {
       // A blocked target comes back as a rejected invite; surface it as an outcome.
+      // Prefer the server's structured reason code (GameApiError.reason); fall back
+      // to matching the message text for older servers.
       const msg = e instanceof Error ? e.message : 'Failed to send invite.';
-      if (/isn't accepting challenges/i.test(msg)) {
+      const reason = e instanceof gamesApi.GameApiError ? e.reason : undefined;
+      if (reason === 'blocked' || /isn't accepting challenges/i.test(msg)) {
         setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current?.targetSession ?? null });
         outgoingInviteRef.current = null;
       } else {

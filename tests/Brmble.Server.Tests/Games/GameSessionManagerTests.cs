@@ -25,13 +25,23 @@ file sealed class FakePublisher : IGameEventPublisher
     public Task PublishToChannelAsync(int c, object m) { Sent.Add(("channel", m)); return Task.CompletedTask; }
 }
 
+// Deterministic RNG so the manager tests never depend on chance. Each roll returns
+// roughly half the current ceiling (never 1 until the ceiling itself is 1), so a
+// Deathroll match always lasts several non-terminal rolls and then ends
+// predictably — instead of a random first roll of 1 ending it instantly and
+// skipping the roll-feed lines these tests assert on.
+file sealed class HalvingRandom : IRandomSource
+{
+    public int Roll(int maxInclusive) => maxInclusive <= 1 ? 1 : Math.Max(1, maxInclusive / 2);
+}
+
 [TestClass]
 public class GameSessionManagerTests
 {
     private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
     {
         var engines = new IGameEngine[] { new DeathrollEngine() };
-        return new GameSessionManager(engines, new CryptoRandomSource(), presence, pub, repo);
+        return new GameSessionManager(engines, new HalvingRandom(), presence, pub, repo);
     }
 
     private static bool SentType(IEnumerable<(string kind, object msg)> sent, string type) =>

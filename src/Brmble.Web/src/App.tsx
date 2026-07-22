@@ -3421,9 +3421,13 @@ const handleConnect = (serverData: SavedServer) => {
       // When Matrix is active, channel history comes from Matrix. Ephemeral
       // game-feed lines live only in the local chat store (systemType 'game',
       // never persisted), so merge them in explicitly — otherwise they are
-      // written but never rendered.
+      // written but never rendered. Sort the merged result chronologically so the
+      // game lines interleave with Matrix messages instead of being clustered at
+      // the bottom (ChatPanel/groupMessages assumes chronological input, and
+      // out-of-order messages misplace date separators and the unread divider).
       const base = isMatrixActive
         ? [...(matrixMessages ?? []), ...messages.filter(m => m.systemType === 'game')]
+            .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
         : messages;
       return [
         ...base,

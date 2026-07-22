@@ -17,11 +17,47 @@ function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
 
+/**
+ * Error thrown by the fetch (non-WebView) API paths. Carries the server's
+ * structured `reason` code (e.g. `"blocked"`) so callers can branch on a stable
+ * code instead of pattern-matching the human message.
+ */
+export class GameApiError extends Error {
+  readonly reason?: string;
+  constructor(message: string, reason?: string) {
+    super(message);
+    this.name = 'GameApiError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Builds a {@link GameApiError} from a failed response, preferring the server's
+ * JSON `{ error, reason }` body over the bare status text (which discards the
+ * actionable message and the reason code).
+ */
+async function toGameApiError(response: Response): Promise<GameApiError> {
+  const fallback = response.statusText || `Request failed (${response.status}).`;
+  try {
+    const body = await response.json();
+    if (body && typeof body === 'object') {
+      const { error, reason } = body as { error?: unknown; reason?: unknown };
+      return new GameApiError(
+        typeof error === 'string' && error ? error : fallback,
+        typeof reason === 'string' ? reason : undefined,
+      );
+    }
+  } catch {
+    // Non-JSON body — fall through to the status-text fallback.
+  }
+  return new GameApiError(fallback);
+}
+
 async function unwrap(response: Response): Promise<void> {
   if (response.ok) {
     return;
   }
-  throw new Error(response.statusText || `Request failed (${response.status}).`);
+  throw await toGameApiError(response);
 }
 
 export async function invite(targetSessionId: number, gameType: string): Promise<void> {
@@ -157,7 +193,7 @@ export async function getStats(
   const query = window && window !== 'all' ? `?window=${window}` : '';
   const response = await fetch(`/games/stats/${encodeURIComponent(gameType)}${query}`);
   if (!response.ok) {
-    throw new Error(response.statusText || `Request failed (${response.status}).`);
+    throw await toGameApiError(response);
   }
   return response.json() as Promise<GameStats>;
 }
@@ -169,7 +205,7 @@ export async function getGameSettings(): Promise<GameSettings> {
 
   const response = await fetch('/games/settings');
   if (!response.ok) {
-    throw new Error(response.statusText || `Request failed (${response.status}).`);
+    throw await toGameApiError(response);
   }
   return response.json() as Promise<GameSettings>;
 }
@@ -188,7 +224,7 @@ export async function setGameSettings(settings: GameSettings): Promise<GameSetti
     body: JSON.stringify(settings),
   });
   if (!response.ok) {
-    throw new Error(response.statusText || `Request failed (${response.status}).`);
+    throw await toGameApiError(response);
   }
   return response.json() as Promise<GameSettings>;
 }
