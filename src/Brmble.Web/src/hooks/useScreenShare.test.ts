@@ -2426,6 +2426,99 @@ describe('useScreenShare', () => {
     expect(result.current.watchingShares).toEqual([]);
   });
 
+  it('publishes a pending viewer share and clears it on full disconnect', async () => {
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-7', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      result.current.connectAsViewer('channel-7', 10, '@alice:test').catch(() => {});
+    });
+
+    expect(result.current.pendingViewerShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-7', userId: 10 }),
+    ]);
+    expect(result.current.remoteWatchCount).toBe(1);
+
+    await act(async () => {
+      await result.current.disconnectViewer();
+    });
+
+    expect(result.current.pendingViewerShares).toEqual([]);
+    expect(result.current.remoteWatchCount).toBe(0);
+  });
+
+  it('counts a connected watch alongside a different pending viewer attempt', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-7', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+      shareStartedHandler?.({ roomName: 'channel-7', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+    });
+
+    await act(async () => {
+      const connectedWatch = result.current.connectAsViewer('channel-7', 20, '@bob:test');
+      tokenHandler?.(liveKitToken('viewer-jwt'));
+      await connectedWatch;
+    });
+
+    act(() => {
+      result.current.connectAsViewer('channel-7', 10, '@alice:test').catch(() => {});
+    });
+
+    expect(result.current.watchingShares).toEqual([expect.objectContaining({ roomName: 'channel-7', userId: 20 })]);
+    expect(result.current.pendingViewerShares).toEqual([expect.objectContaining({ roomName: 'channel-7', userId: 10 })]);
+    expect(result.current.remoteWatchCount).toBe(2);
+  });
+
+  it('full channel cleanup cancels pending identities before a delayed token can add a stale watch', async () => {
+    let tokenHandler: ((data: unknown) => void) | null = null;
+    let shareStartedHandler: ((data: unknown) => void) | null = null;
+
+    (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+      if (type === 'livekit.token') tokenHandler = handler;
+      if (type === 'livekit.screenShareStarted') shareStartedHandler = handler;
+    });
+
+    const { result } = renderHook(() => useScreenShare());
+
+    act(() => {
+      shareStartedHandler?.({ roomName: 'channel-7', userName: 'alice', userId: 10, matrixUserId: '@alice:test' });
+      shareStartedHandler?.({ roomName: 'channel-7', userName: 'bob', userId: 20, matrixUserId: '@bob:test' });
+      result.current.connectAsViewer('channel-7', 10, '@alice:test').catch(() => {});
+      result.current.connectAsViewer('channel-7', 20, '@bob:test').catch(() => {});
+    });
+
+    expect(result.current.pendingViewerShares).toEqual([
+      expect.objectContaining({ roomName: 'channel-7', userId: 10 }),
+      expect.objectContaining({ roomName: 'channel-7', userId: 20 }),
+    ]);
+
+    await act(async () => {
+      await result.current.disconnectViewer();
+      tokenHandler?.(liveKitToken('viewer-jwt'));
+      await Promise.resolve();
+    });
+
+    expect(result.current.pendingViewerShares).toEqual([]);
+    expect(result.current.watchingShares).toEqual([]);
+    expect(result.current.remoteWatchCount).toBe(0);
+    expect(mockRoom.connect).not.toHaveBeenCalled();
+  });
+
   it('unmount cancels pending viewer connect without waiting for token', async () => {
     let shareStartedHandler: ((data: unknown) => void) | null = null;
 

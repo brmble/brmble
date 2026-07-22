@@ -352,9 +352,10 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
       )}
 
       {onToggleDM && (
-      <Tooltip content="Direct Messages" position="bottom" align="end">
+      <Tooltip content={dmActive ? 'Collapse Messages panel' : 'Expand Messages panel'} position="bottom" align="end">
       <button
         className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
+        aria-label={dmActive ? 'Collapse Messages panel' : 'Expand Messages panel'}
         onMouseDown={handleMouseDown('dm')}
         onMouseUp={handleMouseUp('dm', onToggleDM)}
         onMouseLeave={handleMouseLeave}

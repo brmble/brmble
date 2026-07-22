@@ -39,6 +39,7 @@ export interface DMStoreOptions {
   fetchDMHistory: ((targetMatrixUserId: string) => Promise<void>) | undefined;
   sendMumbleDM?: (targetSession: number, text: string) => void;
   brmbleUsers?: BrmbleDMUser[];
+  isSelectedConversationForeground: () => boolean;
   users: User[];
   username: string;
 }
@@ -47,14 +48,11 @@ export interface DMStore {
   contacts: DMContact[];
   selectedContact: DMContact | null;
   messages: ChatMessage[];
-  appMode: 'channels' | 'dm';
   selectContact: (id: string) => void;
   sendMessage: (content: string) => void;
   startDM: (matrixUserId: string, displayName: string, avatarUrl?: string) => void;
   clearSelection: () => void;
-  toggleMode: () => void;
   closeDM: (id: string) => void;
-  appModeRef: React.RefObject<'channels' | 'dm'>;
   selectedContactIdRef: React.RefObject<string | null>;
   receiveMumbleDM: (certHash: string, sessionId: number, displayName: string, text: string) => void;
   updateMumbleSession: (certHash: string, sessionId: number | null, displayName?: string) => void;
@@ -83,13 +81,13 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     fetchDMHistory,
     sendMumbleDM,
     brmbleUsers = [],
+    isSelectedConversationForeground,
     users,
     username,
   } = options;
 
   // ---- Core state ----------------------------------------------------------
 
-  const [appMode, setAppMode] = useState<'channels' | 'dm'>('channels');
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [pendingMessages, setPendingMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [pendingMatrixContacts, setPendingMatrixContacts] = useState<Map<string, DMContact>>(new Map());
@@ -98,12 +96,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   // ---- Refs for bridge callbacks -------------------------------------------
 
-  const appModeRef = useRef<'channels' | 'dm'>('channels');
   const selectedContactIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    appModeRef.current = appMode;
-  }, [appMode]);
 
   useEffect(() => {
     selectedContactIdRef.current = selectedContactId;
@@ -113,13 +106,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   useEffect(() => {
     if (users.length === 0) {
-      setAppMode('channels');
       setSelectedContactId(null);
       setPendingMessages(new Map());
       setPendingMatrixContacts(new Map());
       setMumbleContacts(new Map());
       setMumbleMessages(new Map());
-      appModeRef.current = 'channels';
       selectedContactIdRef.current = null;
     }
   }, [users.length]);
@@ -292,7 +283,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   const selectContact = useCallback((id: string) => {
     setSelectedContactId(id);
-    setAppMode('dm');
     const ephemeralContact = contacts.find(c => c.id === id && c.isEphemeral);
     const isMumbleContact = mumbleContacts.has(id) || ephemeralContact !== undefined;
 
@@ -338,7 +328,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
 
     setSelectedContactId(matrixUserId);
-    setAppMode('dm');
 
     if (fetchDMHistory) {
       fetchDMHistory(matrixUserId).catch(console.warn);
@@ -347,10 +336,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
 
   const clearSelection = useCallback(() => {
     setSelectedContactId(null);
-  }, []);
-
-  const toggleMode = useCallback(() => {
-    setAppMode(prev => prev === 'channels' ? 'dm' : 'channels');
   }, []);
 
   const sendMessage = useCallback((content: string) => {
@@ -500,8 +485,9 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       next.set(certHash, updated);
       return next;
     });
-    // Increment unread if not currently viewing this contact
-    if (selectedContactIdRef.current !== certHash || appModeRef.current !== 'dm') {
+    // App owns foreground presentation; the store only owns DM data.
+    const selectedConversationIsForeground = isSelectedConversationForeground();
+    if (selectedContactIdRef.current !== certHash || !selectedConversationIsForeground) {
       setMumbleContacts(prev => {
         const next = new Map(prev);
         const contact = next.get(certHash);
@@ -511,7 +497,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
         return next;
       });
     }
-  }, []);
+  }, [isSelectedConversationForeground]);
 
   const updateMumbleSession = useCallback((certHash: string, sessionId: number | null, displayName?: string) => {
     setMumbleContacts(prev => {
@@ -553,7 +539,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       return next;
     });
     setSelectedContactId(certHash);
-    setAppMode('dm');
   }, [selfCertHashes]);
 
   // ---- Return --------------------------------------------------------------
@@ -562,14 +547,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     contacts,
     selectedContact,
     messages,
-    appMode,
     selectContact,
     sendMessage,
     startDM,
     clearSelection,
-    toggleMode,
     closeDM,
-    appModeRef,
     selectedContactIdRef,
     receiveMumbleDM,
     updateMumbleSession,

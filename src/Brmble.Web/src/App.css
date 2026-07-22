@@ -1,4 +1,5 @@
 .app {
+  --messages-rail-width: 48px;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -11,6 +12,11 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+.app-body--messages-collapsed .dm-contact-list {
+  width: var(--messages-rail-width);
+  min-width: var(--messages-rail-width);
 }
 
 .sidebar {
@@ -81,6 +87,14 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+}
+
+.content-slide[aria-hidden="true"] {
+  pointer-events: none;
+}
+
+.workspace-conversation--with-panel {
+  min-width: 0;
 }
 
 /* Page load animations */
