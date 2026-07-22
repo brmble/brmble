@@ -74,6 +74,10 @@ public sealed class GameSessionManager
         public DateTimeOffset StartedAt;
         public Timer? InviteTimer;
         public Timer? TurnTimer;
+        // Bumped every time a turn timer is (re)started. A queued timeout callback
+        // whose generation is stale must bail — Timer.Dispose() doesn't wait for an
+        // in-flight callback, so without this a penalty could hit the wrong player.
+        public long TurnGeneration;
         public readonly object Lock = new();
     }
 
@@ -163,7 +167,7 @@ public sealed class GameSessionManager
 
         if (accept)
         {
-            List<Task> tasks = new();
+            object[] views;
             lock (match.Lock)
             {
                 if (match.Status != "pending") return;
@@ -172,6 +176,9 @@ public sealed class GameSessionManager
                 match.InviteTimer = null;
                 match.Status = "live";
                 match.StartedAt = DateTimeOffset.UtcNow;
+                views = match.Players
+                    .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
+                    .ToArray();
             }
             await _publisher.PublishToUsersAsync(
                 RouteSet(match),
@@ -182,7 +189,7 @@ public sealed class GameSessionManager
                     firstTurn = CurrentPlayer(match),
                     turnMs = (int)TurnTimeout.TotalMilliseconds,
                     penalty = false,
-                    views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
+                    views,
                 });
             await PublishFeedAsync(match,
                 $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started (ceiling {CeilingOf(match)})");
@@ -190,6 +197,10 @@ public sealed class GameSessionManager
         }
         else
         {
+            // Only a participant may decline/cancel a pending invite. Match ids are a
+            // guessable sequential counter, so without this any connected user could
+            // cancel someone else's invite.
+            if (match.Players[0] != targetSession && match.Players[1] != targetSession) return;
             await EndPendingAsync(matchId, "game.declined");
         }
     }
@@ -217,6 +228,7 @@ public sealed class GameSessionManager
 
         IReadOnlyList<GameEvent> events;
         bool finished;
+        object[] views;
         lock (match.Lock)
         {
             if (match.Status != "live") return;
@@ -237,6 +249,11 @@ public sealed class GameSessionManager
             finished = match.Engine.GetOutcome(match.State) is GameOutcome.Finished;
             if (!finished) StartTurnTimer(match, TurnTimeout);
             else DisposeTimers(match);
+            // Capture the snapshot inside the lock so a concurrent mutation can't
+            // cause an inconsistent view to be broadcast.
+            views = match.Players
+                .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
+                .ToArray();
         }
 
         await _publisher.PublishToUsersAsync(
@@ -247,7 +264,7 @@ public sealed class GameSessionManager
                 matchId,
                 turnMs = (int)TurnTimeout.TotalMilliseconds,
                 penalty = false,
-                views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
+                views,
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
 
@@ -258,27 +275,38 @@ public sealed class GameSessionManager
     private void StartTurnTimer(LiveMatch match, TimeSpan due)
     {
         match.TurnTimer?.Dispose();
-        match.TurnTimer = new Timer(_ => OnTurnTimeout(match.MatchId), null, due, Timeout.InfiniteTimeSpan);
+        // Capture the generation this timer belongs to. If the callback is already
+        // queued when we restart the timer, it will see a newer generation and bail.
+        var generation = Interlocked.Increment(ref match.TurnGeneration);
+        match.TurnTimer = new Timer(_ => OnTurnTimeout(match.MatchId, generation), null, due, Timeout.InfiniteTimeSpan);
     }
 
-    private void OnTurnTimeout(long matchId)
+    private void OnTurnTimeout(long matchId, long generation)
     {
-        _ = HandleTurnTimeoutAsync(matchId);
+        _ = HandleTurnTimeoutAsync(matchId, generation);
     }
 
-    private async Task HandleTurnTimeoutAsync(long matchId)
+    private async Task HandleTurnTimeoutAsync(long matchId, long generation)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
 
         IReadOnlyList<GameEvent> events;
         bool finished;
+        object[] views;
         lock (match.Lock)
         {
             if (match.Status != "live") return;
+            // Stale callback: the turn advanced (a roll restarted the timer) between
+            // this timeout firing and acquiring the lock. Don't penalise the new
+            // current player for the previous player's inaction.
+            if (Interlocked.Read(ref match.TurnGeneration) != generation) return;
             events = match.Engine.ApplyTimeoutPenalty(match.State, _rng);
             finished = match.Engine.GetOutcome(match.State) is GameOutcome.Finished;
             if (!finished) StartTurnTimer(match, PenaltyTimeout);
             else DisposeTimers(match);
+            views = match.Players
+                .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
+                .ToArray();
         }
 
         await _publisher.PublishToUsersAsync(
@@ -289,7 +317,7 @@ public sealed class GameSessionManager
                 matchId,
                 turnMs = (int)PenaltyTimeout.TotalMilliseconds,
                 penalty = true,
-                views = match.Players.Select(p => new { userId = p, view = match.Engine.PublicView(match.State, p) }).ToArray(),
+                views,
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
 
@@ -348,6 +376,22 @@ public sealed class GameSessionManager
     public async Task ForfeitAsync(long matchId, long userId, string reason)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
+
+        // Only an actual participant may forfeit. Match ids are a guessable
+        // sequential counter and /games/forfeit only proves a valid session, so
+        // without this any authenticated user could end any live match (and get
+        // persisted as a bogus loser via the SessionToUser fallback below).
+        if (!match.SessionToUser.ContainsKey(userId)) return;
+
+        // A pending (not-yet-accepted) invite has no result to persist. Cancel it
+        // outright so a disconnect/channel-change while an invite is in flight
+        // doesn't leave both players blocked until the 30s invite timer expires.
+        if (match.Status == "pending")
+        {
+            await EndPendingAsync(matchId, "game.expired");
+            return;
+        }
+
         lock (match.Lock)
         {
             if (match.Status != "live") return;

@@ -208,4 +208,71 @@ public class GameSessionManagerTests
         Assert.AreEqual(2, partMetas.Count);
         Assert.IsTrue(partMetas.All(m => m.Contains("displayName") && m.Contains("deathroll")));
     }
+
+    [TestMethod]
+    public async Task Forfeit_ByNonParticipant_IsIgnored()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        presence.Users[99] = (1, true, 99); // an unrelated authenticated user
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // A third party must not be able to end someone else's live match.
+        await mgr.ForfeitAsync(invite.MatchId, userId: 99, reason: "grief");
+
+        Assert.IsTrue(mgr.IsMatchLive(invite.MatchId), "non-participant forfeit must not end the match");
+        Assert.IsFalse(SentType(pub.Sent, "game.ended"));
+        using var conn = db.CreateConnection();
+        var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
+        Assert.AreEqual(0, matches, "no match should be persisted from a bogus forfeit");
+    }
+
+    [TestMethod]
+    public async Task Decline_ByNonParticipant_IsIgnored()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        // A user who isn't the inviter or target can't cancel the pending invite.
+        await mgr.RespondAsync(invite.MatchId, targetSession: 99, accept: false);
+
+        Assert.IsFalse(SentType(pub.Sent, "game.declined"));
+        // The invite is still pending, so the real target can accept it.
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        Assert.IsTrue(mgr.IsMatchLive(invite.MatchId));
+    }
+
+    [TestMethod]
+    public async Task Forfeit_PendingInvite_CancelsWithoutPersisting()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        // Simulate a disconnect/channel-change while the invite is still pending.
+        await mgr.ForfeitAsync(invite.MatchId, userId: 10, reason: "disconnect");
+
+        Assert.IsTrue(SentType(pub.Sent, "game.expired"), "pending invite should be cancelled as expired");
+        Assert.IsFalse(SentType(pub.Sent, "game.ended"));
+        // Both users are freed immediately, so a new invite can start right away.
+        Assert.IsFalse(mgr.TryGetActiveMatch(10, out _));
+        Assert.IsFalse(mgr.TryGetActiveMatch(20, out _));
+        using var conn = db.CreateConnection();
+        var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
+        Assert.AreEqual(0, matches, "a cancelled pending invite must not be persisted");
+    }
 }

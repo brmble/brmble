@@ -83,45 +83,55 @@ internal sealed class GameService : IService
 
         var baseUri = new Uri(apiUrl, UriKind.Absolute);
 
-        switch (action)
+        try
         {
-            case "stats":
+            switch (action)
             {
-                var gameType = data.TryGetProperty("gameType", out var gtEl) ? gtEl.GetString() : null;
-                if (string.IsNullOrWhiteSpace(gameType))
+                case "stats":
                 {
-                    SendResponse(requestId, false, null, 0, "Missing gameType for stats request");
-                    return;
+                    var gameType = data.TryGetProperty("gameType", out var gtEl) ? gtEl.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(gameType))
+                    {
+                        SendResponse(requestId, false, null, 0, "Missing gameType for stats request");
+                        return;
+                    }
+
+                    var window = data.TryGetProperty("window", out var winEl) ? winEl.GetString() : null;
+                    var path = $"games/stats/{Uri.EscapeDataString(gameType)}";
+                    if (!string.IsNullOrWhiteSpace(window))
+                        path += $"?window={Uri.EscapeDataString(window)}";
+
+                    var result = await _getAsync(cert, new Uri(baseUri, path));
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
                 }
-
-                var window = data.TryGetProperty("window", out var winEl) ? winEl.GetString() : null;
-                var path = $"games/stats/{Uri.EscapeDataString(gameType)}";
-                if (!string.IsNullOrWhiteSpace(window))
-                    path += $"?window={Uri.EscapeDataString(window)}";
-
-                var result = await _getAsync(cert, new Uri(baseUri, path));
-                SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
-                break;
+                case "settings-get":
+                {
+                    var result = await _getAsync(cert, new Uri(baseUri, "games/settings"));
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
+                case "settings-set":
+                {
+                    var challengesBlocked = data.TryGetProperty("challengesBlocked", out var cbEl)
+                        && (cbEl.ValueKind == JsonValueKind.True || cbEl.ValueKind == JsonValueKind.False)
+                        && cbEl.GetBoolean();
+                    var body = JsonSerializer.Serialize(new { challengesBlocked });
+                    var result = await _postJsonAsync(cert, new Uri(baseUri, "games/settings"), body);
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
+                default:
+                    SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
+                    break;
             }
-            case "settings-get":
-            {
-                var result = await _getAsync(cert, new Uri(baseUri, "games/settings"));
-                SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
-                break;
-            }
-            case "settings-set":
-            {
-                var challengesBlocked = data.TryGetProperty("challengesBlocked", out var cbEl)
-                    && (cbEl.ValueKind == JsonValueKind.True || cbEl.ValueKind == JsonValueKind.False)
-                    && cbEl.GetBoolean();
-                var body = JsonSerializer.Serialize(new { challengesBlocked });
-                var result = await _postJsonAsync(cert, new Uri(baseUri, "games/settings"), body);
-                SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
-                break;
-            }
-            default:
-                SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
-                break;
+        }
+        catch (Exception ex)
+        {
+            // Any failure here — network error, malformed URI — must still resolve the
+            // frontend promise, otherwise its games.response listener leaks and the
+            // stats/settings UI hangs on "Loading…".
+            SendResponse(requestId, false, null, 0, ex.Message);
         }
     }
 

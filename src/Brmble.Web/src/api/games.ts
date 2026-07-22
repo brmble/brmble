@@ -82,50 +82,76 @@ export async function forfeit(matchId: number): Promise<void> {
 
 let nextRequestId = 1;
 
+interface BridgeResponse {
+  requestId?: number;
+  success?: boolean;
+  body?: string;
+  statusCode?: number;
+  error?: string;
+}
+
+const BRIDGE_REQUEST_TIMEOUT_MS = 15000;
+
+/**
+ * Sends a `games.request` over the bridge and resolves the parsed `games.response`
+ * body correlated by `requestId`. Guards against the two ways this pattern can hang
+ * forever: a client that never replies (timeout) and a malformed body that throws
+ * synchronously during parse (wrapped so the promise rejects instead of silently
+ * hanging). Always cleans up the listener and timer.
+ */
+function bridgeRequest<T>(
+  payload: Record<string, unknown>,
+  timeoutMs = BRIDGE_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const requestId = nextRequestId++;
+  return new Promise<T>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      bridge.off('games.response', handleResponse);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+
+    const handleResponse = (data: unknown) => {
+      const response = data as BridgeResponse;
+      if (response.requestId !== requestId) return;
+      cleanup();
+
+      if (response.success && response.body) {
+        try {
+          resolve(JSON.parse(response.body) as T);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error('Failed to parse response.'));
+        }
+        return;
+      }
+
+      reject(
+        new Error(
+          response.error ||
+            (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.'),
+        ),
+      );
+    };
+
+    bridge.on('games.response', handleResponse);
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Request timed out.'));
+    }, timeoutMs);
+    bridge.send('games.request', { ...payload, requestId });
+  });
+}
+
 export async function getStats(
   gameType: string,
   window?: 'week' | 'month' | 'all',
 ): Promise<GameStats> {
   if (isWebViewBridgeAvailable()) {
-    const requestId = nextRequestId++;
-
-    return new Promise<GameStats>((resolve, reject) => {
-      const cleanup = () => {
-        bridge.off('games.response', handleResponse);
-      };
-
-      const handleResponse = (data: unknown) => {
-        const response = data as {
-          requestId?: number;
-          success?: boolean;
-          body?: string;
-          statusCode?: number;
-          error?: string;
-        };
-
-        if (response.requestId !== requestId) return;
-
-        cleanup();
-        if (response.success && response.body) {
-          resolve(JSON.parse(response.body) as GameStats);
-          return;
-        }
-
-        reject(
-          new Error(
-            response.error ||
-              (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.'),
-          ),
-        );
-      };
-
-      bridge.on('games.response', handleResponse);
-      const payload: Record<string, unknown> = { action: 'stats', requestId, gameType };
-      if (window) {
-        payload.window = window;
-      }
-      bridge.send('games.request', payload);
-    });
+    const payload: Record<string, unknown> = { action: 'stats', gameType };
+    if (window) {
+      payload.window = window;
+    }
+    return bridgeRequest<GameStats>(payload);
   }
 
   const query = window && window !== 'all' ? `?window=${window}` : '';
@@ -138,22 +164,7 @@ export async function getStats(
 
 export async function getGameSettings(): Promise<GameSettings> {
   if (isWebViewBridgeAvailable()) {
-    const requestId = nextRequestId++;
-    return new Promise<GameSettings>((resolve, reject) => {
-      const cleanup = () => bridge.off('games.response', handleResponse);
-      const handleResponse = (data: unknown) => {
-        const response = data as { requestId?: number; success?: boolean; body?: string; statusCode?: number; error?: string };
-        if (response.requestId !== requestId) return;
-        cleanup();
-        if (response.success && response.body) {
-          resolve(JSON.parse(response.body) as GameSettings);
-          return;
-        }
-        reject(new Error(response.error || (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.')));
-      };
-      bridge.on('games.response', handleResponse);
-      bridge.send('games.request', { action: 'settings-get', requestId });
-    });
+    return bridgeRequest<GameSettings>({ action: 'settings-get' });
   }
 
   const response = await fetch('/games/settings');
@@ -165,21 +176,9 @@ export async function getGameSettings(): Promise<GameSettings> {
 
 export async function setGameSettings(settings: GameSettings): Promise<GameSettings> {
   if (isWebViewBridgeAvailable()) {
-    const requestId = nextRequestId++;
-    return new Promise<GameSettings>((resolve, reject) => {
-      const cleanup = () => bridge.off('games.response', handleResponse);
-      const handleResponse = (data: unknown) => {
-        const response = data as { requestId?: number; success?: boolean; body?: string; statusCode?: number; error?: string };
-        if (response.requestId !== requestId) return;
-        cleanup();
-        if (response.success && response.body) {
-          resolve(JSON.parse(response.body) as GameSettings);
-          return;
-        }
-        reject(new Error(response.error || (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.')));
-      };
-      bridge.on('games.response', handleResponse);
-      bridge.send('games.request', { action: 'settings-set', requestId, challengesBlocked: settings.challengesBlocked });
+    return bridgeRequest<GameSettings>({
+      action: 'settings-set',
+      challengesBlocked: settings.challengesBlocked,
     });
   }
 

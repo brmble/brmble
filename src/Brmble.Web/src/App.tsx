@@ -943,13 +943,30 @@ function App() {
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
     [],
   );
+  // Forfeiting is recorded as an abandon on the player's permanent stats, so gate
+  // it behind a confirmation. This also guards backdrop/X clicks during a live
+  // match (onClose is wired to this while a match is live).
+  const confirmForfeit = useCallback(async () => {
+    const ok = await confirm({
+      title: 'Forfeit match?',
+      message: 'Forfeiting counts as an abandon on your record. Are you sure?',
+      confirmLabel: 'Forfeit',
+      cancelLabel: 'Keep playing',
+    });
+    if (ok) gameState.forfeit();
+  }, [gameState.forfeit]);
   useEffect(() => {
-    if (gameState.incomingInvite) notifQueueRef.current.register('game-invite', 'info');
+    // A duel challenge is time-sensitive (30s window), so give it a sort priority
+    // above other `info` notifications while keeping its `info` visual status.
+    if (gameState.incomingInvite) notifQueueRef.current.register('game-invite', 'info', 2);
     else notifQueueRef.current.unregister('game-invite');
   }, [gameState.incomingInvite]);
   useEffect(() => {
+    // register() is a no-op when the id is already present, so when one outcome
+    // replaces a prior one we must unregister first — otherwise the replacement
+    // keeps the old _order and can stay hidden behind other info notifications.
+    notifQueueRef.current.unregister('game-outcome');
     if (gameState.inviteOutcome) notifQueueRef.current.register('game-outcome', 'info');
-    else notifQueueRef.current.unregister('game-outcome');
   }, [gameState.inviteOutcome]);
   useEffect(() => {
     if (gameState.lastError) notifQueueRef.current.register('game-error', 'error');
@@ -4381,8 +4398,8 @@ const handleConnect = (serverData: SavedServer) => {
           penalty={gameState.penalty}
           resolveName={resolveGamePlayerName}
           onRoll={gameState.roll}
-          onForfeit={gameState.forfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : gameState.forfeit}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
         />
       )}
 

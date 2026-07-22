@@ -128,6 +128,10 @@ export function useGameState(myUserId: number): GameState {
 
     const handleStateUpdated = (data: unknown) => {
       const d = data as { matchId?: number; views?: unknown; turnMs?: number; penalty?: boolean };
+      // Ignore late/stray updates from a match that is no longer the active one
+      // (e.g. a rapid rematch) so they can't corrupt the board or reset the timer.
+      const active = activeMatchRef.current;
+      if (d.matchId != null && active && d.matchId !== active.matchId) return;
       const nextView = pickMyView(d.views, myUserIdRef.current);
       if (nextView) setView(nextView);
       const windowMs = d.turnMs ?? DEFAULT_TURN_MS;
@@ -216,6 +220,20 @@ export function useGameState(myUserId: number): GameState {
   }, []);
 
   const invite = useCallback((targetUserId: number) => {
+    // Block starting a new duel while one is already in progress or pending, so a
+    // user can't stack challenges (the server enforces this authoritatively too).
+    if (activeMatchRef.current) {
+      setLastError('You already have a game in progress.');
+      return;
+    }
+    if (outgoingInviteRef.current) {
+      setLastError('You already have a pending challenge.');
+      return;
+    }
+    if (incomingInviteRef.current) {
+      setLastError('Respond to your pending challenge first.');
+      return;
+    }
     outgoingInviteRef.current = { targetSession: targetUserId };
     setInviteOutcome(null);
     gamesApi.invite(targetUserId, 'deathroll').catch(e => {
