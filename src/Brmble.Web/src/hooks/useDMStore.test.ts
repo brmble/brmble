@@ -13,7 +13,7 @@ function makeOptions(overrides: Partial<DMStoreOptions> = {}): DMStoreOptions {
     sendMatrixDM: vi.fn().mockResolvedValue(undefined),
     fetchDMHistory: vi.fn().mockResolvedValue(undefined),
     sendMumbleDM: vi.fn(),
-    isSelectedConversationForeground: false,
+    isSelectedConversationForeground: () => false,
     users: [{ name: 'me', session: 1 }] as DMStoreOptions['users'],
     username: 'me',
     ...overrides,
@@ -40,7 +40,9 @@ describe('useDMStore presentation separation', () => {
 
   it('increments unread when App reports the selected conversation is not foreground', () => {
     const { result, rerender } = renderHook(
-      ({ isSelectedConversationForeground }) => useDMStore(makeOptions({ isSelectedConversationForeground })),
+      ({ isSelectedConversationForeground }) => useDMStore(makeOptions({
+        isSelectedConversationForeground: () => isSelectedConversationForeground,
+      })),
       { initialProps: { isSelectedConversationForeground: true } },
     );
 

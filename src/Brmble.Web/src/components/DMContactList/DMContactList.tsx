@@ -19,7 +19,7 @@ interface DMContactListProps {
 export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onToggleVisibility, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [othersExpanded, setOthersExpanded] = useState(() =>
-    typeof localStorage !== 'undefined' && localStorage.getItem('dm-others-expanded') === 'true'
+    localStorage.getItem('dm-others-expanded') === 'true'
   );
   const contentRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -139,7 +139,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           </div>
         )}
 
-        {hasOtherContacts && (otherContacts.length > 0 || isSearchActive) && (
+        {hasOtherContacts && otherContacts.length > 0 && (
           <div className="dm-contact-section">
             <button
               type="button"

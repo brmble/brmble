@@ -5,7 +5,7 @@ export type ForegroundConversation =
 export interface WorkspaceState {
   messagesPanelExpanded: boolean;
   foreground: ForegroundConversation;
-  previousContent: ForegroundConversation;
+  previousContent: { messagesPanelExpanded: boolean };
   remoteWatchCount: number;
 }
 
@@ -18,12 +18,10 @@ export type WorkspaceEvent =
   | { type: 'SELECT_DM'; contactId: string }
   | { type: 'SELECTED_DM_INVALIDATED' };
 
-const emptyDm: ForegroundConversation = { kind: 'dm', contactId: '' };
-
 export const createWorkspaceState = (): WorkspaceState => ({
   messagesPanelExpanded: true,
-  foreground: { ...emptyDm },
-  previousContent: { ...emptyDm },
+  foreground: { kind: 'channel' },
+  previousContent: { messagesPanelExpanded: true },
   remoteWatchCount: 0,
 });
 
@@ -43,33 +41,38 @@ export const workspaceReducer = (
       const count = Math.max(0, event.count);
       const wasWatching = state.remoteWatchCount > 0;
       const isWatching = count > 0;
+      const previousContent = !wasWatching && isWatching
+        ? { messagesPanelExpanded: state.messagesPanelExpanded }
+        : state.previousContent;
       const messagesPanelExpanded =
         wasWatching === isWatching
           ? state.messagesPanelExpanded
-          : !isWatching;
+          : isWatching
+            ? false
+            : state.previousContent.messagesPanelExpanded;
 
       if (
         count === state.remoteWatchCount &&
-        messagesPanelExpanded === state.messagesPanelExpanded
+        messagesPanelExpanded === state.messagesPanelExpanded &&
+        previousContent === state.previousContent
       ) {
         return state;
       }
 
-      return { ...state, remoteWatchCount: count, messagesPanelExpanded };
+      return { ...state, remoteWatchCount: count, messagesPanelExpanded, previousContent };
     }
     case 'CONNECTION_WORKSPACE_READY':
       if (
         state.messagesPanelExpanded &&
         state.remoteWatchCount === 0 &&
-        state.foreground.kind === 'dm' &&
-        state.foreground.contactId === ''
+        state.foreground.kind === 'channel'
       ) {
         return state;
       }
       return {
         ...state,
         messagesPanelExpanded: true,
-        foreground: { ...emptyDm },
+        foreground: { kind: 'channel' },
         remoteWatchCount: 0,
       };
     case 'TOGGLE_MESSAGES_PANEL':
@@ -90,7 +93,7 @@ export const workspaceReducer = (
         return state;
       }
       const foreground = { kind: 'dm' as const, contactId: event.contactId };
-      return { ...state, foreground, previousContent: foreground };
+      return { ...state, foreground };
     }
     case 'SELECTED_DM_INVALIDATED': {
       if (state.foreground.kind !== 'dm') {
@@ -101,11 +104,11 @@ export const workspaceReducer = (
         return { ...state, foreground: { kind: 'channel' } };
       }
 
-      if (state.foreground.contactId === emptyDm.contactId) {
+      if (state.foreground.contactId === '') {
         return state;
       }
 
-      return { ...state, foreground: { ...emptyDm } };
+      return { ...state, foreground: { kind: 'dm', contactId: '' } };
     }
   }
 };

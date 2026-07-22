@@ -297,13 +297,13 @@ describe('DMContactList directory behavior', () => {
     expect(screen.queryByText('Offline Olive')).not.toBeInTheDocument();
   });
 
-  it('keeps Others expanded during search even when no Others contacts match', async () => {
+  it('hides the Others header during search when no Others contacts match', async () => {
     const user = userEvent.setup();
     renderList([matrixContact, offlineMatrixContact]);
 
     await user.type(screen.getByPlaceholderText('Search users...'), 'vanilla');
 
-    expect(screen.getByRole('button', { name: 'Others' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByRole('button', { name: 'Others' })).not.toBeInTheDocument();
     expect(screen.getByText('Vanilla Val')).toBeInTheDocument();
     expect(screen.queryByText('Offline Olive')).not.toBeInTheDocument();
   });

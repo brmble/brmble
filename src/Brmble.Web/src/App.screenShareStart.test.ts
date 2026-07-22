@@ -722,7 +722,7 @@ describe('active share discovery', () => {
     await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
   });
 
-  it('cleans up viewers before a channel selection and lets cleared watches reopen Messages', async () => {
+  it('keeps viewers connected during channel selection and lets cleared watches reopen Messages', async () => {
     const view = render(React.createElement(App));
 
     act(() => {
@@ -744,12 +744,11 @@ describe('active share discovery', () => {
     act(() => view.getByTestId('sidebar-select-channel-2').click());
     await waitFor(() => expect(getActiveShareRequests()).toHaveLength(2));
 
-    expect(disconnectViewer.mock.calls.length).toBeGreaterThanOrEqual(cleanupCallsBeforeChannelSelection + 1);
-    const cleanupOrder = vi.mocked(disconnectViewer).mock.invocationCallOrder[cleanupCallsBeforeChannelSelection];
+    expect(disconnectViewer.mock.calls.length).toBe(cleanupCallsBeforeChannelSelection);
     const channelTwoDiscoveryCall = vi.mocked(bridge.send).mock.calls
       .map(([type, payload], index) => ({ type, payload, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
       .find(call => call.type === 'livekit.checkActiveShare' && (call.payload as { roomName?: string }).roomName === 'channel-2');
-    expect(cleanupOrder).toBeLessThan(channelTwoDiscoveryCall!.order);
+    expect(channelTwoDiscoveryCall).toBeDefined();
 
     screenShareState.pendingViewerShares = [];
     screenShareState.remoteWatchCount = 0;

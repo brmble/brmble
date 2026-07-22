@@ -7,25 +7,26 @@ import {
 } from './workspaceState';
 
 describe('workspace state machine', () => {
-  it('creates the Messages-first empty-DM workspace', () => {
+  it('creates the channel-first workspace', () => {
     const state = createWorkspaceState();
 
     expect(state).toEqual({
       messagesPanelExpanded: true,
-      foreground: { kind: 'dm', contactId: '' },
-      previousContent: { kind: 'dm', contactId: '' },
+      foreground: { kind: 'channel' },
+      previousContent: { messagesPanelExpanded: true },
       remoteWatchCount: 0,
     });
     expect(isMessagesPanelExpanded(state)).toBe(true);
     expect(getForegroundConversation(state)).toBe(state.foreground);
   });
 
-  it('closes once when the first remote watch starts and reopens when the final one ends', () => {
+  it('closes once when the first remote watch starts and restores the previous visibility when the final one ends', () => {
     let state = createWorkspaceState();
+    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
     state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
     expect(state.messagesPanelExpanded).toBe(false);
     state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
-    expect(state.messagesPanelExpanded).toBe(true);
+    expect(state.messagesPanelExpanded).toBe(false);
   });
 
   it('changes only Messages-panel visibility when remote watching starts or ends', () => {
@@ -35,11 +36,11 @@ describe('workspace state machine', () => {
     state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
     expect(state.messagesPanelExpanded).toBe(false);
     expect(state.foreground).toBe(foreground);
-    expect(state.previousContent).toBe(previousContent);
+    expect(state.previousContent).toEqual(previousContent);
     state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
     expect(state.messagesPanelExpanded).toBe(true);
     expect(state.foreground).toBe(foreground);
-    expect(state.previousContent).toBe(previousContent);
+    expect(state.previousContent).toEqual(previousContent);
   });
 
   it('keeps a manually reopened panel open until the watch set becomes empty', () => {
@@ -79,15 +80,15 @@ describe('workspace state machine', () => {
     expect(state.messagesPanelExpanded).toBe(true);
   });
 
-  it('resets a reconnecting session to the Messages-first workspace without clearing retained DM data', () => {
+  it('resets a reconnecting session to the channel-first workspace without clearing retained panel data', () => {
     let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
     const previousContent = state.previousContent;
     state = workspaceReducer(state, { type: 'SELECT_CHANNEL' });
     state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 2 });
     state = workspaceReducer(state, { type: 'CONNECTION_WORKSPACE_READY' });
     expect(state).toMatchObject({ messagesPanelExpanded: true, remoteWatchCount: 0 });
-    expect(state.foreground).toEqual({ kind: 'dm', contactId: '' });
-    expect(state.previousContent).toBe(previousContent);
+    expect(state.foreground).toEqual({ kind: 'channel' });
+    expect(state.previousContent).toEqual(previousContent);
   });
 
   it('falls back to the channel while watching when the selected DM is invalidated', () => {
@@ -112,6 +113,13 @@ describe('workspace state machine', () => {
 
     expect(state).toBe(channelState);
     expect(state.foreground).toEqual({ kind: 'channel' });
+  });
+
+  it('updates previous panel visibility before switching into a remote watch', () => {
+    let state = workspaceReducer(createWorkspaceState(), { type: 'TOGGLE_MESSAGES_PANEL' });
+    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
+
+    expect(state.previousContent).toEqual({ messagesPanelExpanded: false });
   });
 
   it('preserves previous content when opening or toggling the Messages panel', () => {

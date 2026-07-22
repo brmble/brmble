@@ -1227,7 +1227,7 @@ function App() {
     ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
       ?? (dmStore.selectedContact?.id === foregroundDmContactId ? dmStore.selectedContact : null)
     : null;
-  const foregroundDmMessages = foregroundDmContact?.id === dmStore.selectedContact?.id
+  const foregroundDmMessages = foregroundDmContact != null && foregroundDmContact.id === dmStore.selectedContact?.id
     ? dmStore.messages
     : [];
   const selectedDmIsMumble = foregroundDmContact?.isEphemeral === true;
@@ -2961,7 +2961,6 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectChannel = (channelId: number) => {
     const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
     if (selection) {
-      void disconnectViewerRef.current?.();
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
@@ -2974,7 +2973,6 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectServer = () => {
-    void disconnectViewerRef.current?.();
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
     dispatchWorkspace({ type: 'SELECT_CHANNEL' });
@@ -3891,13 +3889,12 @@ const handleConnect = (serverData: SavedServer) => {
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
   // Check for active screen shares when switching channels.
-  // Depends ONLY on currentChannelId: the other collaborators (disconnectViewer,
-  // notifQueue, requestActiveShareDiscovery) are accessed via refs so their
+  // Depends ONLY on currentChannelId: the other collaborators (notifQueue and
+  // requestActiveShareDiscovery) are accessed via refs so their
   // identity churn — notably notifQueue changing on every register/unregister —
   // does not re-run this effect and wipe a freshly shown screen-share
   // notification.
   useEffect(() => {
-    disconnectViewerRef.current?.();
     setScreenShareNotification(null);
     notifQueueRef.current.unregister('screen-share');
     requestActiveShareDiscoveryRef.current?.(currentChannelId);
