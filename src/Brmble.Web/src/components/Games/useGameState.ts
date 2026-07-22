@@ -55,8 +55,10 @@ export interface GameState {
   penalty: boolean;
   /** Challenger-facing result of the last outgoing invite; null when none. */
   inviteOutcome: InviteOutcome | null;
+  /** True after Accept is pressed until the match starts (or the invite ends). */
+  accepting: boolean;
   clearInviteOutcome: () => void;
-  invite: (targetUserId: number) => void;
+  invite: (targetSessionId: number) => void;
   acceptInvite: () => void;
   declineInvite: () => void;
   roll: () => void;
@@ -93,6 +95,7 @@ export function useGameState(myUserId: number): GameState {
   const [turnWindowMs, setTurnWindowMs] = useState<number>(DEFAULT_TURN_MS);
   const [penalty, setPenalty] = useState<boolean>(false);
   const [inviteOutcome, setInviteOutcome] = useState<InviteOutcome | null>(null);
+  const [accepting, setAccepting] = useState<boolean>(false);
   const outgoingInviteRef = useRef<{ targetSession: number } | null>(null);
 
   // Refs so bridge handlers (registered once) can read current values.
@@ -104,6 +107,8 @@ export function useGameState(myUserId: number): GameState {
   incomingInviteRef.current = incomingInvite;
   const viewRef = useRef<DeathrollView | null>(view);
   viewRef.current = view;
+  const acceptingRef = useRef(accepting);
+  acceptingRef.current = accepting;
 
   useEffect(() => {
     const handleInvited = (data: unknown) => {
@@ -124,6 +129,7 @@ export function useGameState(myUserId: number): GameState {
       setPenalty(false);
       setTurnDeadline(Date.now() + windowMs);
       outgoingInviteRef.current = null;
+      setAccepting(false);
     };
 
     const handleStateUpdated = (data: unknown) => {
@@ -141,11 +147,16 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleEnded = (data: unknown) => {
-      const d = data as { matchId?: number; abandoned?: boolean; reason?: string };
-      const currentView = viewRef.current;
-      let winnerId: number | undefined;
-      if (currentView?.loserId != null) {
-        winnerId = currentView.players.find(p => p !== currentView.loserId);
+      const d = data as { matchId?: number; abandoned?: boolean; reason?: string; winnerId?: number };
+      // Prefer the server-supplied winnerId (authoritative, and correct even for
+      // forfeits where the local view has no loserId). Fall back to deriving it
+      // from the local view for older servers that omit it.
+      let winnerId: number | undefined = d.winnerId;
+      if (winnerId == null) {
+        const currentView = viewRef.current;
+        if (currentView?.loserId != null) {
+          winnerId = currentView.players.find(p => p !== currentView.loserId);
+        }
       }
       setEnded({
         matchId: d.matchId ?? activeMatchRef.current?.matchId ?? 0,
@@ -157,6 +168,7 @@ export function useGameState(myUserId: number): GameState {
       setView(null);
       setTurnDeadline(null);
       setPenalty(false);
+      setAccepting(false);
     };
 
     const resolveOutgoing = (kind: InviteOutcomeKind) => {
@@ -173,6 +185,7 @@ export function useGameState(myUserId: number): GameState {
       setActiveMatch(null);
       setTurnDeadline(null);
       setPenalty(false);
+      setAccepting(false);
     };
 
     const handleDeclined = () => resolveOutgoing('declined');
@@ -184,13 +197,17 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleError = (data: unknown) => {
-      const d = data as { error?: string };
+      const d = data as { error?: string; reason?: string };
       const msg = d.error || 'A game error occurred.';
+      // Accept could not complete (e.g. invite already gone) — re-enable the button.
+      setAccepting(false);
       // In the WebView client, a rejected invite (e.g. a blocked target) comes
       // back as a game.error rather than a rejected invite() promise. If we have
-      // a pending outgoing invite and this is the blocked message, surface it as
-      // the friendly "blocked" outcome instead of a raw error.
-      if (outgoingInviteRef.current && /isn't accepting challenges/i.test(msg)) {
+      // a pending outgoing invite and the server flagged it as blocked, surface it
+      // as the friendly "blocked" outcome instead of a raw error. Prefer the
+      // structured reason code; fall back to matching the message for old servers.
+      const isBlocked = d.reason === 'blocked' || /isn't accepting challenges/i.test(msg);
+      if (outgoingInviteRef.current && isBlocked) {
         setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current.targetSession });
         outgoingInviteRef.current = null;
         return;
@@ -219,7 +236,7 @@ export function useGameState(myUserId: number): GameState {
     };
   }, []);
 
-  const invite = useCallback((targetUserId: number) => {
+  const invite = useCallback((targetSessionId: number) => {
     // Block starting a new duel while one is already in progress or pending, so a
     // user can't stack challenges (the server enforces this authoritatively too).
     if (activeMatchRef.current) {
@@ -234,9 +251,9 @@ export function useGameState(myUserId: number): GameState {
       setLastError('Respond to your pending challenge first.');
       return;
     }
-    outgoingInviteRef.current = { targetSession: targetUserId };
+    outgoingInviteRef.current = { targetSession: targetSessionId };
     setInviteOutcome(null);
-    gamesApi.invite(targetUserId, 'deathroll').catch(e => {
+    gamesApi.invite(targetSessionId, 'deathroll').catch(e => {
       // A blocked target comes back as a rejected invite; surface it as an outcome.
       const msg = e instanceof Error ? e.message : 'Failed to send invite.';
       if (/isn't accepting challenges/i.test(msg)) {
@@ -252,7 +269,12 @@ export function useGameState(myUserId: number): GameState {
   const acceptInvite = useCallback(() => {
     const inv = incomingInviteRef.current;
     if (!inv) return;
+    // Guard against a double-click sending two accepts before game.started clears
+    // the invite. accepting is reset on started/declined/expired/error.
+    if (acceptingRef.current) return;
+    setAccepting(true);
     gamesApi.respond(inv.matchId, true).catch(e => {
+      setAccepting(false);
       setLastError(e instanceof Error ? e.message : 'Failed to accept invite.');
     });
   }, []);
@@ -260,6 +282,7 @@ export function useGameState(myUserId: number): GameState {
   const declineInvite = useCallback(() => {
     const inv = incomingInviteRef.current;
     setIncomingInvite(null);
+    setAccepting(false);
     if (!inv) return;
     gamesApi.respond(inv.matchId, false).catch(e => {
       setLastError(e instanceof Error ? e.message : 'Failed to decline invite.');
@@ -296,6 +319,7 @@ export function useGameState(myUserId: number): GameState {
     turnWindowMs,
     penalty,
     inviteOutcome,
+    accepting,
     clearInviteOutcome,
     invite,
     acceptInvite,

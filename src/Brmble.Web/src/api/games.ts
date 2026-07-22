@@ -24,16 +24,16 @@ async function unwrap(response: Response): Promise<void> {
   throw new Error(response.statusText || `Request failed (${response.status}).`);
 }
 
-export async function invite(targetUserId: number, gameType: string): Promise<void> {
+export async function invite(targetSessionId: number, gameType: string): Promise<void> {
   if (isWebViewBridgeAvailable()) {
-    bridge.send('game.invite', { targetUserId, gameType });
+    bridge.send('game.invite', { targetSessionId, gameType });
     return;
   }
 
   const response = await fetch('/games/invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ targetUserId, gameType }),
+    body: JSON.stringify({ targetSessionId, gameType }),
   });
   return unwrap(response);
 }

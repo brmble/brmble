@@ -45,6 +45,10 @@ public interface IGameEngine
     // Game-specific per-player stats for persistence (metadata_json[gameType]).
     // Returns null when the game has none. Default: none.
     object? ParticipantStats(object state, long userId) => null;
+
+    // Current ceiling/upper-bound for games that have one (e.g. Deathroll), used
+    // for feed lines. Returns null when the game has no such concept. Default: none.
+    int? CurrentCeiling(object state) => null;
 }
 
 public sealed class InvalidGameActionException : Exception

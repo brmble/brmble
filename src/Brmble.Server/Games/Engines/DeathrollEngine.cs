@@ -140,6 +140,8 @@ public sealed class DeathrollEngine : IGameEngine
         };
     }
 
+    public int? CurrentCeiling(object state) => ((State)state).Ceiling;
+
     public object? MatchSummary(object state)
     {
         var s = (State)state;

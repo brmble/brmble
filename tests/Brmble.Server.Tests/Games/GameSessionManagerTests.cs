@@ -195,7 +195,7 @@ public class GameSessionManagerTests
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-        await mgr.ForfeitAsync(invite.MatchId, userId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
+        await mgr.ForfeitAsync(invite.MatchId, sessionId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
 
         using var conn = db.CreateConnection();
         var matchMeta = await conn.QuerySingleAsync<string>(
@@ -224,7 +224,7 @@ public class GameSessionManagerTests
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
 
         // A third party must not be able to end someone else's live match.
-        await mgr.ForfeitAsync(invite.MatchId, userId: 99, reason: "grief");
+        await mgr.ForfeitAsync(invite.MatchId, sessionId: 99, reason: "grief");
 
         Assert.IsTrue(mgr.IsMatchLive(invite.MatchId), "non-participant forfeit must not end the match");
         Assert.IsFalse(SentType(pub.Sent, "game.ended"));
@@ -264,7 +264,7 @@ public class GameSessionManagerTests
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         // Simulate a disconnect/channel-change while the invite is still pending.
-        await mgr.ForfeitAsync(invite.MatchId, userId: 10, reason: "disconnect");
+        await mgr.ForfeitAsync(invite.MatchId, sessionId: 10, reason: "disconnect");
 
         Assert.IsTrue(SentType(pub.Sent, "game.expired"), "pending invite should be cancelled as expired");
         Assert.IsFalse(SentType(pub.Sent, "game.ended"));

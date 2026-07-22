@@ -4417,6 +4417,7 @@ const handleConnect = (serverData: SavedServer) => {
               <button
                 className="btn btn-sm btn-primary"
                 onClick={() => gameState.acceptInvite()}
+                disabled={gameState.accepting}
               >
                 Accept
               </button>

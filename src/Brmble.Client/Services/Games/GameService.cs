@@ -173,7 +173,11 @@ internal sealed class GameService : IService
             var result = await _postJsonAsync(cert, new Uri(baseUri, path), body);
             if (!result.Success)
             {
-                SendError(path, result.Error ?? $"Request failed (HTTP {result.StatusCode})", result.StatusCode);
+                // The server encodes a stable machine-readable "reason" code in the
+                // error body (e.g. {"error":"…","reason":"blocked"}). Surface it so the
+                // UI can branch on a code instead of pattern-matching the message text.
+                var (message, reason) = ParseErrorBody(result.Error, result.StatusCode);
+                SendError(path, message, result.StatusCode, reason);
             }
         }
         catch (Exception ex)
@@ -182,9 +186,33 @@ internal sealed class GameService : IService
         }
     }
 
-    private void SendError(string path, string? error, int statusCode = 0)
+    // Extracts a human-readable message and optional structured reason code from a
+    // (possibly JSON) error body. Falls back to the raw text if it isn't JSON.
+    private static (string message, string? reason) ParseErrorBody(string? errorBody, int statusCode)
     {
-        _bridge?.Send("game.error", new { path, error, statusCode });
+        var fallback = errorBody ?? $"Request failed (HTTP {statusCode})";
+        if (string.IsNullOrWhiteSpace(errorBody)) return (fallback, null);
+        try
+        {
+            using var doc = JsonDocument.Parse(errorBody);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (fallback, null);
+            var message = doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
+                ? e.GetString() ?? fallback
+                : fallback;
+            var reason = doc.RootElement.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String
+                ? r.GetString()
+                : null;
+            return (message, reason);
+        }
+        catch (JsonException)
+        {
+            return (fallback, null);
+        }
+    }
+
+    private void SendError(string path, string? error, int statusCode = 0, string? reason = null)
+    {
+        _bridge?.Send("game.error", new { path, error, statusCode, reason });
         _bridge?.NotifyUiThread();
     }
 }

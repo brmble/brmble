@@ -222,7 +222,7 @@ public sealed class GameSessionManager
         _matches.TryRemove(matchId, out _);
     }
 
-    public async Task ActionAsync(long matchId, long userId, IReadOnlyDictionary<string, object?> action)
+    public async Task ActionAsync(long matchId, long sessionId, IReadOnlyDictionary<string, object?> action)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
 
@@ -234,13 +234,13 @@ public sealed class GameSessionManager
             if (match.Status != "live") return;
             try
             {
-                events = match.Engine.ApplyAction(match.State, userId, action, _rng);
+                events = match.Engine.ApplyAction(match.State, sessionId, action, _rng);
             }
             catch (InvalidGameActionException ex)
             {
-                var rejectRoute = match.SessionToUser.TryGetValue(userId, out var rejectUserId)
+                var rejectRoute = match.SessionToUser.TryGetValue(sessionId, out var rejectUserId)
                     ? new HashSet<long> { rejectUserId }
-                    : new HashSet<long> { userId };
+                    : new HashSet<long> { sessionId };
                 _ = _publisher.PublishToUsersAsync(
                     rejectRoute,
                     new { type = "game.actionRejected", matchId, reason = ex.Message });
@@ -358,12 +358,16 @@ public sealed class GameSessionManager
 
         await _repository.SaveCompletedMatchAsync(completed);
 
-        await _publisher.PublishToUsersAsync(
-            RouteSet(match),
-            new { type = "game.ended", matchId = match.MatchId });
-
         var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
         var loser = outcome.Participants.FirstOrDefault(p => p.Placement == 2);
+
+        // winner.UserId is still a Mumble session id here (translation to db ids
+        // happens in persistedParticipants above), which is what the client compares
+        // against its own session id — so emit it directly as winnerId.
+        await _publisher.PublishToUsersAsync(
+            RouteSet(match),
+            new { type = "game.ended", matchId = match.MatchId, winnerId = winner?.UserId });
+
         var feedText = winner is not null && loser is not null
             ? $"💀 {NameOf(match, loser.UserId)} rolled {loser.Score ?? 1} — {NameOf(match, winner.UserId)} wins!"
             : $"💀 {GameName(match.GameType)} over.";
@@ -373,7 +377,7 @@ public sealed class GameSessionManager
         _matches.TryRemove(match.MatchId, out _);
     }
 
-    public async Task ForfeitAsync(long matchId, long userId, string reason)
+    public async Task ForfeitAsync(long matchId, long sessionId, string reason)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
 
@@ -381,7 +385,7 @@ public sealed class GameSessionManager
         // sequential counter and /games/forfeit only proves a valid session, so
         // without this any authenticated user could end any live match (and get
         // persisted as a bogus loser via the SessionToUser fallback below).
-        if (!match.SessionToUser.ContainsKey(userId)) return;
+        if (!match.SessionToUser.ContainsKey(sessionId)) return;
 
         // A pending (not-yet-accepted) invite has no result to persist. Cancel it
         // outright so a disconnect/channel-change while an invite is in flight
@@ -399,15 +403,15 @@ public sealed class GameSessionManager
             DisposeTimers(match);
         }
 
-        var otherId = match.Players[0] == userId ? match.Players[1] : match.Players[0];
+        var otherId = match.Players[0] == sessionId ? match.Players[1] : match.Players[0];
         var winnerDbId = match.SessionToUser.TryGetValue(otherId, out var wId) ? wId : otherId;
-        var loserDbId = match.SessionToUser.TryGetValue(userId, out var lId) ? lId : userId;
+        var loserDbId = match.SessionToUser.TryGetValue(sessionId, out var lId) ? lId : sessionId;
         var participants = new[]
         {
             new CompletedParticipant(winnerDbId, Placement: 1, Score: null, Result: "win",
                 MetadataJson: BuildParticipantMetadata(match, otherId)),
             new CompletedParticipant(loserDbId, Placement: 2, Score: null, Result: "abandoned",
-                MetadataJson: BuildParticipantMetadata(match, userId)),
+                MetadataJson: BuildParticipantMetadata(match, sessionId)),
         };
         var completed = new CompletedMatch(
             GameType: match.GameType,
@@ -424,10 +428,10 @@ public sealed class GameSessionManager
 
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
-            new { type = "game.ended", matchId, abandoned = true, reason });
+            new { type = "game.ended", matchId, abandoned = true, reason, winnerId = otherId });
 
         await PublishFeedAsync(match,
-            $"🏳️ {NameOf(match, userId)} forfeited — {NameOf(match, otherId)} wins!");
+            $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");
 
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
@@ -490,10 +494,7 @@ public sealed class GameSessionManager
         => string.IsNullOrEmpty(gameType) ? gameType : char.ToUpperInvariant(gameType[0]) + gameType[1..];
 
     private static int CeilingOf(LiveMatch match)
-    {
-        dynamic view = match.Engine.PublicView(match.State, match.Players[0]);
-        return (int)view.ceiling;
-    }
+        => match.Engine.CurrentCeiling(match.State) ?? 0;
 
     public bool TryGetActiveMatch(long userId, out long matchId)
         => _userToMatch.TryGetValue(userId, out matchId);

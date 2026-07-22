@@ -6,7 +6,7 @@ namespace Brmble.Server.Games;
 
 public static class GameEndpoints
 {
-    public record InviteDto(long TargetUserId, string GameType);
+    public record InviteDto(long TargetSessionId, string GameType);
     public record RespondDto(long MatchId, bool Accept);
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
@@ -22,9 +22,17 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
                 return Results.BadRequest(new { error = "You must be connected to Brmble to start a game." });
-            // dto.TargetUserId is a Mumble session id supplied by the web client.
-            var r = await mgr.InviteAsync(session, dto.TargetUserId, dto.GameType);
-            return r.Success ? Results.Ok(new { matchId = r.MatchId }) : Results.BadRequest(new { error = r.Error });
+            // dto.TargetSessionId is a Mumble session id supplied by the web client.
+            var r = await mgr.InviteAsync(session, dto.TargetSessionId, dto.GameType);
+            if (r.Success) return Results.Ok(new { matchId = r.MatchId });
+            // Emit a stable machine-readable reason code alongside the human text so
+            // the client can branch without regex-matching the message string.
+            var reason = r.Reason switch
+            {
+                InviteRejectReason.Blocked => "blocked",
+                _ => (string?)null,
+            };
+            return Results.BadRequest(new { error = r.Error, reason });
         });
 
         app.MapPost("/games/respond", async (RespondDto dto, HttpContext ctx,
