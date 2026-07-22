@@ -13,6 +13,7 @@ function makeOptions(overrides: Partial<DMStoreOptions> = {}): DMStoreOptions {
     sendMatrixDM: vi.fn().mockResolvedValue(undefined),
     fetchDMHistory: vi.fn().mockResolvedValue(undefined),
     sendMumbleDM: vi.fn(),
+    isSelectedConversationForeground: () => false,
     users: [{ name: 'me', session: 1 }] as DMStoreOptions['users'],
     username: 'me',
     ...overrides,
@@ -21,6 +22,41 @@ function makeOptions(overrides: Partial<DMStoreOptions> = {}): DMStoreOptions {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('useDMStore presentation separation', () => {
+  it('selects a contact without exposing presentation mode', () => {
+    const { result } = renderHook(() =>
+      useDMStore(makeOptions({
+        matrixDmRoomMap: new Map([['@val:example.com', '!val:example.com']]),
+      }))
+    );
+
+    act(() => result.current.selectContact('@val:example.com'));
+
+    expect(result.current.selectedContact?.id).toBe('@val:example.com');
+    expect('appMode' in result.current).toBe(false);
+  });
+
+  it('increments unread when App reports the selected conversation is not foreground', () => {
+    const { result, rerender } = renderHook(
+      ({ isSelectedConversationForeground }) => useDMStore(makeOptions({
+        isSelectedConversationForeground: () => isSelectedConversationForeground,
+      })),
+      { initialProps: { isSelectedConversationForeground: true } },
+    );
+
+    act(() => result.current.startMumbleDM('cert-val', 1, 'Val'));
+    act(() => result.current.receiveMumbleDM('cert-val', 1, 'Val', 'read while foreground'));
+    expect(result.current.contacts.find(contact => contact.id === 'cert-val')?.unreadCount).toBe(0);
+
+    rerender({ isSelectedConversationForeground: false });
+
+    act(() => result.current.receiveMumbleDM('cert-val', 1, 'Val', 'unread while background'));
+
+    expect(result.current.selectedContact?.id).toBe('cert-val');
+    expect(result.current.contacts.find(contact => contact.id === 'cert-val')?.unreadCount).toBe(1);
+  });
 });
 
 describe('useDMStore mumbleMessages cap', () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
@@ -68,6 +68,7 @@ import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
+import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -831,6 +832,7 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
 
 
 function App() {
+  const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
   // --- Notification queue (max 3 visible, priority-based) ---
   const notifQueue = useNotificationQueue();
   // Stable ref to the notification queue so effects that must only run on
@@ -1229,6 +1231,7 @@ function App() {
     ? currentChannelId
     : undefined;
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
+  const selectedDmContactIdRef = useRef<string | null>(null);
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -1239,29 +1242,52 @@ function App() {
     sendMatrixDM: matrixClient.sendDMMessage,
     fetchDMHistory: matrixClient.fetchDMHistory,
     brmbleUsers: brmbleDMUsers,
+    isSelectedConversationForeground: () =>
+      workspace.foreground.kind === 'dm' &&
+      workspace.foreground.contactId === selectedDmContactIdRef.current,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
       bridge.send('voice.sendPrivateMessage', { message: linkifyForMumble(text), targetSession });
     },
   });
+  selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
-  const selectedDmIsMumble = dmStore.selectedContact?.isEphemeral === true;
-  const activeDmMatrixContactId = dmStore.appMode === 'dm' && !selectedDmIsMumble
-    ? (dmStore.selectedContact?.id ?? null)
+  const showDmConversation = workspace.foreground.kind === 'dm';
+  const showChannelConversation = !showDmConversation;
+  const isDmMode = showDmConversation;
+  const messagesPanelExpanded = connected && workspace.messagesPanelExpanded;
+  const foregroundDmContactId = workspace.foreground.kind === 'dm'
+    ? workspace.foreground.contactId
+    : null;
+  const foregroundDmContact = foregroundDmContactId
+    ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
+      ?? (dmStore.selectedContact?.id === foregroundDmContactId ? dmStore.selectedContact : null)
+    : null;
+  const foregroundDmMessages = foregroundDmContact != null && foregroundDmContact.id === dmStore.selectedContact?.id
+    ? dmStore.messages
+    : [];
+  const selectedDmIsMumble = foregroundDmContact?.isEphemeral === true;
+  const activeDmMatrixContactId = foregroundDmContactId && !selectedDmIsMumble
+    ? foregroundDmContactId
     : null;
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(dmStore.appMode === 'dm' ? null : permittedActiveMatrixChannelId);
-  }, [dmStore.appMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
+    matrixClient.setActiveChannel(isDmMode ? null : permittedActiveMatrixChannelId);
+  }, [isDmMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
   }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
 
+  const toggleMessagesPanel = useCallback(() => {
+    setShowGame(false);
+    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
+  }, []);
+
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (dmStore.appMode === 'dm') {
+    if (isDmMode) {
       return activeDmMatrixContactId && matrixClient?.dmRoomMap
         ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
         : null;
@@ -1271,7 +1297,7 @@ function App() {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [dmStore.appMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [isDmMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
@@ -1331,6 +1357,7 @@ function App() {
   const currentChannelNameRef = useRef(currentChannelName);
   currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
+  const previousWorkspaceConnectionStatusRef = useRef(connectionStatus);
   const overlayConnectedAtRef = useRef<number | null>(null);
   const previousCurrentChannelIdRef = useRef(currentChannelId);
   const unreadCountRef = useRef(unreadCount);
@@ -2428,15 +2455,9 @@ function App() {
     };
 
     const onToggleDmScreen = () => {
-      if (connectionStatusRef.current !== 'connected') {
-        dmStoreRef.current.clearSelection();
-        return;
+      if (connectionStatusRef.current === 'connected') {
+        toggleMessagesPanel();
       }
-      // Clear selection when toggling FROM dm TO channels
-      if (dmStoreRef.current.appModeRef.current === 'dm') {
-        dmStoreRef.current.clearSelection();
-      }
-      dmStoreRef.current.toggleMode();
     };
 
     const onToggleScreenShare = () => {
@@ -2993,19 +3014,14 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const selection = getChannelSelectionOutcome(channelId, channels, dmStore.appMode);
+    const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
     if (selection) {
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
       setShowGame(false);
 
-      if (selection.shouldExitDmMode) {
-        dmStore.toggleMode();
-      }
-      if (selection.shouldClearDmSelection) {
-        dmStore.clearSelection();
-      }
+      dispatchWorkspace({ type: 'SELECT_CHANNEL' });
 
       if (!selection.canOpenChat) return;
     }
@@ -3014,11 +3030,7 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectServer = () => {
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
-    // Close DM mode if open and clear selection (mirrors handleSelectChannel)
-    if (dmStore.appMode === 'dm') {
-      dmStore.toggleMode();
-    }
-    dmStore.clearSelection();
+    dispatchWorkspace({ type: 'SELECT_CHANNEL' });
   };
 
   const handleSendMessage = async (content: string, image?: File) => {
@@ -3279,15 +3291,6 @@ const handleConnect = (serverData: SavedServer) => {
     bridge.send('window.quit');
   }, []);
 
-  const toggleDMMode = () => {
-    setShowGame(false);
-    // Clear selection when toggling FROM dm TO channels
-    if (dmStore.appMode === 'dm') {
-      dmStore.clearSelection();
-    }
-    dmStore.toggleMode();
-  };
-
   // Push DM badge state to native side whenever unread count changes
   useEffect(() => {
     updateBadge(totalDmUnreadCount, hasPendingInvite);
@@ -3326,14 +3329,17 @@ const handleConnect = (serverData: SavedServer) => {
     if (user?.isBrmbleClient && user.matrixUserId) {
       // Brmble client → Matrix DM (persistent)
       dmStore.startDM(user.matrixUserId, userName, user.avatarUrl);
+      dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
     } else if (user?.certHash) {
       // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
       // Check for existing ephemeral contact first
       const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
       if (existingMumbleContact) {
         dmStore.selectContact(existingMumbleContact.id);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
       } else {
         dmStore.startMumbleDM(user.certHash, user.session, userName);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
       }
     } else {
       console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3350,12 +3356,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (user) {
       if (user.isBrmbleClient && user.matrixUserId) {
         dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
       } else if (user.certHash) {
         const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
         if (existingMumbleContact) {
           dmStore.selectContact(existingMumbleContact.id);
+          dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
         } else {
           dmStore.startMumbleDM(user.certHash, user.session, sender);
+          dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
         }
       } else {
         console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3364,6 +3373,7 @@ const handleConnect = (serverData: SavedServer) => {
       // Fallback: try starting DM by matrixUserId directly for users not in the users list
       if (senderMatrixUserId) {
         dmStore.startDM(senderMatrixUserId, sender, undefined);
+        dispatchWorkspace({ type: 'SELECT_DM', contactId: senderMatrixUserId });
       } else {
         console.warn('[DM] Cannot start DM: user not found');
       }
@@ -3564,7 +3574,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, remoteWatchCount, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -3572,6 +3582,24 @@ const handleConnect = (serverData: SavedServer) => {
   stopSharingRef.current = stopSharing;
   disconnectViewerRef.current = disconnectViewer;
   handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
+
+  const hasPendingViewerShares = pendingViewerShares.length > 0;
+  const screenShareViewerProps = {
+    watchingShares,
+    focusedShare,
+    remoteVideoEls,
+    roomQuality,
+    shareQualities,
+    viewerQualities,
+    onFocusShare: setFocusedShare,
+    onCloseShare: (share: ShareInfo) => disconnectViewer(share.userId),
+    onViewerQualityChange: setViewerQuality,
+    screenShareViewerMode: screenShareSettings.viewerMode,
+  };
+
+  useEffect(() => {
+    dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
+  }, [remoteWatchCount]);
 
   const handleLiveCompanionChange = useCallback((nextCompanion: CompanionId, previousCompanion: CompanionId) => {
     const selfUser = usersRef.current.find(user => user.self);
@@ -3829,13 +3857,13 @@ const handleConnect = (serverData: SavedServer) => {
       watchingShareCount: watchingShares.length,
       screenShareError,
       isLocalShareStartPending,
-      isViewerConnectPending,
+      isViewerConnectPending: isViewerConnectPending || hasPendingViewerShares,
     });
 
     if (nextStatus) {
       updateStatus('livekit', nextStatus);
     }
-  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, updateStatus]);
+  }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, hasPendingViewerShares, updateStatus]);
 
   const selfVoiceChannelId = users.find(u => u.self)?.channelId;
   const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
@@ -3924,18 +3952,26 @@ const handleConnect = (serverData: SavedServer) => {
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
   // Check for active screen shares when switching channels.
-  // Depends ONLY on currentChannelId: the other collaborators (disconnectViewer,
-  // notifQueue, requestActiveShareDiscovery) are accessed via refs so their
+  // Depends ONLY on currentChannelId: the other collaborators (notifQueue and
+  // requestActiveShareDiscovery) are accessed via refs so their
   // identity churn — notably notifQueue changing on every register/unregister —
   // does not re-run this effect and wipe a freshly shown screen-share
   // notification.
   useEffect(() => {
-    disconnectViewerRef.current?.();
     setScreenShareNotification(null);
     notifQueueRef.current.unregister('screen-share');
     requestActiveShareDiscoveryRef.current?.(currentChannelId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChannelId]);
+
+  useEffect(() => {
+    const previousConnectionStatus = previousWorkspaceConnectionStatusRef.current;
+    previousWorkspaceConnectionStatusRef.current = connectionStatus;
+
+    if (connectionStatus === 'connected' && previousConnectionStatus !== 'connected') {
+      dispatchWorkspace({ type: 'CONNECTION_WORKSPACE_READY' });
+    }
+  }, [connectionStatus]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -4087,13 +4123,13 @@ const handleConnect = (serverData: SavedServer) => {
 
   // Same pattern for DM switches
   useEffect(() => {
-    const selectedId = dmStore.selectedContact?.id ?? null;
+    const selectedId = activeDmMatrixContactId;
     const dmChanged = selectedId !== prevDMUserIdRef.current;
     if (dmChanged) {
       prevDMUserIdRef.current = selectedId;
     }
 
-    if (!selectedId || !dmStore.selectedContact) {
+    if (!selectedId || !foregroundDmContact) {
       if (dmChanged) setDmDividerTs(null);
       return;
     }
@@ -4137,7 +4173,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [dmStore.selectedContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
+  }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
@@ -4146,8 +4182,8 @@ const handleConnect = (serverData: SavedServer) => {
       <ErrorBoundary label="Header">
       <Header
         username={username}
-        onToggleDM={connected ? toggleDMMode : undefined}
-        dmActive={dmStore.appMode === 'dm'}
+        onToggleDM={connected ? toggleMessagesPanel : undefined}
+        dmActive={messagesPanelExpanded}
         unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
         onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
@@ -4176,7 +4212,7 @@ const handleConnect = (serverData: SavedServer) => {
       />
       </ErrorBoundary>
       
-      <div className="app-body">
+      <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
         <ErrorBoundary label="Sidebar">
         <Sidebar
           channels={channels}
@@ -4215,7 +4251,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
         </ErrorBoundary>
         
-        <main className="main-content">
+        <main className={`main-content workspace-conversation ${messagesPanelExpanded ? 'workspace-conversation--with-panel' : ''}`}>
           {connectionStatus === 'idle' ? (
             certExists === true ? (
               <ServerList onConnect={handleServerConnect} connectDisabled={brokenCertInfo != null && !brokenCertInfo.hasHealthyFallback} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
@@ -4233,8 +4269,8 @@ const handleConnect = (serverData: SavedServer) => {
             showGame ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
-              <div className={`content-slider ${dmStore.appMode === 'dm' ? 'dm-active' : ''}`}>
-                <div className="content-slide">
+              <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
+                <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
                    <ChatPanel
                     channelId={currentChannelId || undefined}
@@ -4246,16 +4282,7 @@ const handleConnect = (serverData: SavedServer) => {
                     matrixClient={matrixClient.client}
                     matrixRoomId={channelMatrixRoomId}
                     readMarkerTs={channelDividerTs}
-                    watchingShares={watchingShares}
-                    focusedShare={focusedShare}
-                    remoteVideoEls={remoteVideoEls}
-                     roomQuality={roomQuality}
-                     shareQualities={shareQualities}
-                     viewerQualities={viewerQualities}
-                     onFocusShare={setFocusedShare}
-                     onCloseShare={(share) => disconnectViewer(share.userId)}
-                     onViewerQualityChange={setViewerQuality}
-                     screenShareViewerMode={screenShareSettings.viewerMode}
+                    {...(showChannelConversation ? screenShareViewerProps : {})}
                     users={users}
                     disabled={!canSendActiveChannelChat}
                     topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
@@ -4263,36 +4290,37 @@ const handleConnect = (serverData: SavedServer) => {
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={matrixCredentials?.userId}
                     onToggleReaction={handleToggleChannelReaction}
-                     typingIndicatorText={dmStore.appMode === 'dm' ? undefined : matrixClient.activeTypingText}
+                     typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
                      typingTargetId={activeChannelId ?? undefined}
                      onTypingStart={matrixClient.startTyping}
                      onTypingStop={matrixClient.stopTyping}
                   />
                   </ErrorBoundary>
                 </div>
-                <div className="content-slide">
+                <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
                   <ErrorBoundary label="ChatPanel:DM">
                    <ChatPanel
-                    channelId={dmStore.selectedContact ? `dm-${dmStore.selectedContact.id}` : undefined}
-                    channelName={dmStore.selectedContact?.displayName ?? ''}
-                    messages={dmStore.messages}
+                    channelId={foregroundDmContact ? `dm-${foregroundDmContact.id}` : undefined}
+                    channelName={foregroundDmContact?.displayName ?? ''}
+                    messages={foregroundDmMessages}
                     currentUsername={username}
                     onSendMessage={dmStore.sendMessage}
                     isDM={true}
-                    matrixClient={selectedDmIsMumble ? null : matrixClient.client}
-                    matrixRoomId={selectedDmIsMumble ? null : dmMatrixRoomId}
-                    readMarkerTs={selectedDmIsMumble ? null : dmDividerTs}
+                    matrixClient={foregroundDmContact && !selectedDmIsMumble ? matrixClient.client : null}
+                    matrixRoomId={foregroundDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null}
+                    readMarkerTs={foregroundDmContact && !selectedDmIsMumble ? dmDividerTs : null}
+                    {...(showDmConversation ? screenShareViewerProps : {})}
                     users={users}
-                    disabled={dmStore.selectedContact?.isEphemeral === true && dmStore.selectedContact?.mumbleSessionId == null}
+                    disabled={foregroundDmContact?.isEphemeral === true && foregroundDmContact.mumbleSessionId == null}
                     topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={selectedDmIsMumble ? undefined : matrixCredentials?.userId}
-                    onToggleReaction={selectedDmIsMumble ? undefined : handleToggleDmReaction}
-                    typingIndicatorText={!selectedDmIsMumble && dmStore.appMode === 'dm' ? matrixClient.activeTypingText : undefined}
-                    typingTargetId={!selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
-                    onTypingStart={!selectedDmIsMumble ? matrixClient.startTyping : undefined}
-                    onTypingStop={!selectedDmIsMumble ? matrixClient.stopTyping : undefined}
+                    currentUserMatrixId={foregroundDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined}
+                    onToggleReaction={foregroundDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined}
+                    typingIndicatorText={foregroundDmContact && !selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
+                    typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
+                    onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
+                    onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
                   />
                   </ErrorBoundary>
                 </div>
@@ -4310,13 +4338,24 @@ const handleConnect = (serverData: SavedServer) => {
           )}
         </main>
 
-        <DMContactList
-          contacts={dmContactsWithUnreads}
-          selectedUserId={dmStore.selectedContact?.id ?? null}
-          onSelectContact={(id: string) => dmStore.selectContact(id)}
-          onCloseConversation={dmStore.closeDM}
-          visible={dmStore.appMode === 'dm'}
-        />
+        {connected && (
+          <DMContactList
+            contacts={dmContactsWithUnreads}
+            selectedUserId={dmStore.selectedContact?.id ?? null}
+            onSelectContact={(id: string) => {
+              dmStore.selectContact(id);
+              dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
+            }}
+            onCloseConversation={(id: string) => {
+              dmStore.closeDM(id);
+              if (dmStore.selectedContact?.id === id) {
+                dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
+              }
+            }}
+            onToggleVisibility={toggleMessagesPanel}
+            visible={messagesPanelExpanded}
+          />
+        )}
       </div>
 
       {showOnboarding && (

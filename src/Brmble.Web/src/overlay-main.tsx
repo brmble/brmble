@@ -10,6 +10,7 @@ import './themes/aperol-spritz.css';
 import './themes/midori-sour.css';
 import './themes/lemon-drop.css';
 import './themes/retro-terminal.css';
+import './themes/windows-2000-theme.css';
 import { applyTheme } from './themes/theme-loader';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OverlayApp } from './components/CompanionOverlay/OverlayApp';

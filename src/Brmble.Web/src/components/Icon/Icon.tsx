@@ -291,6 +291,12 @@ const iconPaths: Record<string, IconDef> = {
   'chevron-down': {
     paths: <polyline points="6 9 12 15 18 9" />,
   },
+  'chevron-left': {
+    paths: <polyline points="18 6 12 12 18 18" />,
+  },
+  'chevron-right': {
+    paths: <polyline points="6 6 12 12 6 18" />,
+  },
 
   /* ── info / info-filled ──────────────────────────────── */
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -12,11 +12,17 @@ interface DMContactListProps {
   selectedUserId: string | null;
   onSelectContact: (id: string, displayName: string) => void;
   onCloseConversation: (id: string) => void;
+  onToggleVisibility: () => void;
   visible: boolean;
 }
 
-export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, visible }: DMContactListProps) {
+export function DMContactList({ contacts, selectedUserId, onSelectContact, onCloseConversation, onToggleVisibility, visible }: DMContactListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [othersExpanded, setOthersExpanded] = useState(() =>
+    localStorage.getItem('dm-others-expanded') === 'true'
+  );
+  const contentRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -34,11 +40,41 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
     onlineSessionId?: number;
   } | null>(null);
 
+  useEffect(() => {
+    if (!visible) setContextMenu(null);
+  }, [visible]);
+
+  useLayoutEffect(() => {
+    if (!visible && contentRef.current?.contains(document.activeElement)) {
+      toggleRef.current?.focus();
+    }
+  }, [visible]);
+
   const filtered = contacts.filter(c =>
     c.displayName.toLowerCase().includes(searchQuery.toLowerCase())
   );
   const messageContacts = filtered.filter(c => !c.isEphemeral);
   const mumbleContacts = filtered.filter(c => c.isEphemeral);
+  const conversationContacts = messageContacts.filter(c => c.lastMessageTime != null);
+  const otherContacts = messageContacts.filter(c => c.lastMessageTime == null);
+  const hasOtherContacts = contacts.some(c => !c.isEphemeral && c.lastMessageTime == null);
+  const isSearchActive = searchQuery.length > 0;
+  const showOtherContacts = othersExpanded || isSearchActive;
+
+  const handleToggleVisibility = () => {
+    if (visible && contentRef.current?.contains(document.activeElement)) {
+      toggleRef.current?.focus();
+    }
+    onToggleVisibility();
+  };
+
+  const handleToggleOthers = () => {
+    setOthersExpanded((current) => {
+      const next = !current;
+      localStorage.setItem('dm-others-expanded', String(next));
+      return next;
+    });
+  };
 
   const formatTime = (ts?: number) => {
     if (!ts) return '';
@@ -55,9 +91,19 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
 
   return (
     <div className={`dm-contact-list ${visible ? 'visible' : ''}`}>
-      <div className="dm-contact-list-header">
+      <div className={`dm-contact-list-header ${visible ? '' : 'collapsed'}`}>
+        <button
+          type="button"
+          ref={toggleRef}
+          className="dm-contact-list-toggle"
+          onClick={handleToggleVisibility}
+          aria-label={visible ? 'Collapse Messages panel' : 'Expand Messages panel'}
+        >
+          <Icon name={visible ? 'chevron-right' : 'chevron-left'} size={18} />
+        </button>
         <h3 className="heading-section">Messages</h3>
       </div>
+      <div ref={contentRef} className="dm-contact-list-content" aria-hidden={!visible} inert={!visible}>
 
       <div className="dm-contact-search">
         <Icon name="search" size={14} />
@@ -77,14 +123,40 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
           </p>
         )}
 
-        {messageContacts.length > 0 && (
+        {conversationContacts.length > 0 && (
           <div className="dm-contact-section">
-            {messageContacts.map(contact => (
+            {conversationContacts.map(contact => (
               <ContactEntry
                 key={contact.id}
                 contact={contact}
                 selected={selectedUserId === contact.id}
                 formatTime={formatTime}
+                showUnread={visible}
+                onSelectContact={onSelectContact}
+                onOpenContextMenu={setContextMenu}
+              />
+            ))}
+          </div>
+        )}
+
+        {hasOtherContacts && otherContacts.length > 0 && (
+          <div className="dm-contact-section">
+            <button
+              type="button"
+              className="dm-contact-section-toggle"
+              onClick={handleToggleOthers}
+              aria-expanded={showOtherContacts}
+            >
+              <Icon name={showOtherContacts ? 'chevron-down' : 'chevron-right'} size={14} />
+              <span>Others</span>
+            </button>
+            {showOtherContacts && otherContacts.map(contact => (
+              <ContactEntry
+                key={contact.id}
+                contact={contact}
+                selected={selectedUserId === contact.id}
+                formatTime={formatTime}
+                showUnread={visible}
                 onSelectContact={onSelectContact}
                 onOpenContextMenu={setContextMenu}
               />
@@ -104,6 +176,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
                   contact={contact}
                   selected={selectedUserId === contact.id}
                   formatTime={formatTime}
+                  showUnread={visible}
                   onSelectContact={onSelectContact}
                   onOpenContextMenu={setContextMenu}
                 />
@@ -111,6 +184,7 @@ export function DMContactList({ contacts, selectedUserId, onSelectContact, onClo
             )}
           </div>
         )}
+      </div>
       </div>
 
       {contextMenu && (
@@ -189,6 +263,7 @@ interface ContactEntryProps {
   contact: DMContact;
   selected: boolean;
   formatTime: (ts?: number) => string;
+  showUnread: boolean;
   onSelectContact: (id: string, displayName: string) => void;
   onOpenContextMenu: (menu: {
     x: number;
@@ -201,7 +276,7 @@ interface ContactEntryProps {
   }) => void;
 }
 
-function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenContextMenu }: ContactEntryProps) {
+function ContactEntry({ contact, selected, formatTime, showUnread, onSelectContact, onOpenContextMenu }: ContactEntryProps) {
   return (
     <button
       className={`dm-contact-entry ${selected ? 'active' : ''} ${contact.isEphemeral && contact.mumbleSessionId == null ? 'offline' : ''}`}
@@ -238,7 +313,7 @@ function ContactEntry({ contact, selected, formatTime, onSelectContact, onOpenCo
           <span className="dm-contact-preview">{contact.lastMessage}</span>
         )}
       </div>
-      {contact.unreadCount > 0 && (
+      {showUnread && contact.unreadCount > 0 && (
         <span className="dm-contact-unread">{contact.unreadCount}</span>
       )}
     </button>

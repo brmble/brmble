@@ -77,6 +77,8 @@ const mockValues = vi.hoisted(() => {
     activeShares: [],
     watchingShare: null,
     watchingShares: [],
+    pendingViewerShares: [],
+    remoteWatchCount: 0,
     isViewerConnectPending: false,
     focusedShare: null,
     setFocusedShare: vi.fn(),
