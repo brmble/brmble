@@ -84,7 +84,7 @@ public sealed class RpsEngine : IGameEngine
     public bool IsUsersTurn(object state, long userId)
     {
         var s = (State)state;
-        if (s.WinnerId is not null) return false;
+        if (s.WinnerId is not null || s.Drawn) return false;
         var idx = IndexOf(s, userId);
         return idx >= 0 && s.Picks[idx] is null;
     }
@@ -92,7 +92,7 @@ public sealed class RpsEngine : IGameEngine
     public IReadOnlyList<GameEvent> ApplyAction(object state, long userId, IReadOnlyDictionary<string, object?> action, IRandomSource rng)
     {
         var s = (State)state;
-        if (s.WinnerId is not null) throw new InvalidGameActionException("Game already finished.");
+        if (s.WinnerId is not null || s.Drawn) throw new InvalidGameActionException("Game already finished.");
         var idx = IndexOf(s, userId);
         if (idx < 0) throw new InvalidGameActionException("You are not in this match.");
         if (s.Picks[idx] is not null) throw new InvalidGameActionException("You already picked this round.");
@@ -111,7 +111,7 @@ public sealed class RpsEngine : IGameEngine
     public IReadOnlyList<GameEvent> ApplyTimeoutPenalty(object state, IRandomSource rng)
     {
         var s = (State)state;
-        if (s.WinnerId is not null) return Array.Empty<GameEvent>();
+        if (s.WinnerId is not null || s.Drawn) return Array.Empty<GameEvent>();
         // Non-committers auto-lose the round. If both failed to pick it's a draw and
         // the round replays; otherwise the committer takes the round.
         return ResolveRound(s, timeout: true);
@@ -236,7 +236,7 @@ public sealed class RpsEngine : IGameEngine
             targetWins = s.TargetWins,
             roundNumber = s.RoundNumber,
             roundWins = s.RoundWins,
-            finished = s.WinnerId is not null,
+            finished = s.WinnerId is not null || s.Drawn,
             winnerId = s.WinnerId,
             // Reveal only the requesting player's own current pick; the opponent's is
             // hidden (boolean only) until the round resolves.

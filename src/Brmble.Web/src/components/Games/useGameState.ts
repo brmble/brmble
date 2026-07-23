@@ -75,6 +75,9 @@ export interface OutgoingInvite {
   targetSession: number;
   gameType: string;
   inviteMs?: number;
+  // Set when the user requested a cancel before the server's matchId arrived; the
+  // pending UI stays visible (as "canceling") until game.invitePending lets us forfeit.
+  canceling?: boolean;
 }
 
 export interface EndedMatch {
@@ -162,6 +165,11 @@ export function useGameState(myUserId: number): GameState {
   // "opponent didn't respond". This flag suppresses that outcome exactly once.
   const selfCanceledRef = useRef(false);
 
+  // Set when the user requests a cancel before the server has confirmed the invite
+  // (no matchId yet). Once game.invitePending arrives we immediately forfeit that
+  // matchId so the server actually tears the pending invite down.
+  const pendingCancelRef = useRef(false);
+
   // Refs so bridge handlers (registered once) can read current values.
   const myUserIdRef = useRef(myUserId);
   myUserIdRef.current = myUserId;
@@ -201,6 +209,25 @@ export function useGameState(myUserId: number): GameState {
       const d = data as { matchId?: number; gameType?: string; target?: number; inviteMs?: number };
       if (d.matchId == null) return;
       const existing = outgoingInviteRef.current;
+      // The user asked to cancel before this confirmation arrived. Now that we have
+      // a matchId, actually forfeit it server-side. Keep the pending ("canceling")
+      // UI until the resulting game.expired clears it.
+      if (pendingCancelRef.current) {
+        pendingCancelRef.current = false;
+        selfCanceledRef.current = true;
+        setOutgoing({
+          matchId: d.matchId,
+          targetSession: d.target ?? existing?.targetSession ?? 0,
+          gameType: d.gameType ?? existing?.gameType ?? 'deathroll',
+          inviteMs: d.inviteMs,
+          canceling: true,
+        });
+        gamesApi.forfeit(d.matchId).catch(e => {
+          selfCanceledRef.current = false;
+          setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
+        });
+        return;
+      }
       setOutgoing({
         matchId: d.matchId,
         targetSession: d.target ?? existing?.targetSession ?? 0,
@@ -395,14 +422,18 @@ export function useGameState(myUserId: number): GameState {
     const out = outgoingInviteRef.current;
     if (!out) return;
     if (out.matchId == null) {
-      // The pending confirmation hasn't arrived yet; just drop the local state.
-      setOutgoing(null);
+      // The server hasn't confirmed the invite yet, so we don't know what to
+      // forfeit. Keep the pending UI (as "canceling") and defer the actual
+      // server-side cancel until game.invitePending delivers the matchId, rather
+      // than clearing locally while the server still holds a pending invite.
+      pendingCancelRef.current = true;
+      setOutgoing({ ...out, canceling: true });
       return;
     }
     // Mark this as a self-cancel so the resulting server `game.expired` isn't shown
-    // as "opponent didn't respond", and clear the pending UI optimistically.
+    // as "opponent didn't respond", and keep the pending UI as "canceling" until it.
     selfCanceledRef.current = true;
-    setOutgoing(null);
+    setOutgoing({ ...out, canceling: true });
     gamesApi.forfeit(out.matchId).catch(e => {
       selfCanceledRef.current = false;
       setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
@@ -462,6 +493,7 @@ export function useGameState(myUserId: number): GameState {
   // would produce spurious errors when actions can no longer reach the server.
   const reset = useCallback(() => {
     selfCanceledRef.current = false;
+    pendingCancelRef.current = false;
     setIncomingInvite(null);
     setActiveMatch(null);
     setView(null);

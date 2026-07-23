@@ -4535,12 +4535,15 @@ const handleConnect = (serverData: SavedServer) => {
             duration={null}
             countdownMs={gameState.outgoingInvite.inviteMs ?? 30000}
             visible={!!gameState.outgoingInvite}
-            title="Waiting for opponent"
-            detail={`${resolveGamePlayerName(gameState.outgoingInvite.targetSession)} was challenged to ${gameDisplayName(gameState.outgoingInvite.gameType)}.`}
+            title={gameState.outgoingInvite.canceling ? 'Canceling challenge' : 'Waiting for opponent'}
+            detail={gameState.outgoingInvite.canceling
+              ? `Canceling your ${gameDisplayName(gameState.outgoingInvite.gameType)} challenge to ${resolveGamePlayerName(gameState.outgoingInvite.targetSession)}\u2026`
+              : `${resolveGamePlayerName(gameState.outgoingInvite.targetSession)} was challenged to ${gameDisplayName(gameState.outgoingInvite.gameType)}.`}
             actions={
               <button
                 className="btn btn-sm btn-danger"
                 onClick={() => gameState.cancelInvite()}
+                disabled={gameState.outgoingInvite.canceling}
               >
                 Cancel
               </button>
