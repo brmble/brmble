@@ -159,6 +159,11 @@ public sealed class GameSessionManager
 
         match.InviteTimer = new Timer(_ => OnInviteExpired(matchId), null, InviteTimeout, Timeout.InfiniteTimeSpan);
 
+        // Mark the channel busy as soon as the invite is pending (not just when it goes
+        // live): the server already treats a pending duel as busy for enforcement, so the
+        // channel-tree badge should reflect that too.
+        await PublishDuelStateAsync(match, active: true);
+
         return new InviteResult(true, matchId, null);
     }
 
@@ -235,6 +240,8 @@ public sealed class GameSessionManager
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
             new { type = eventType, matchId });
+        // The pending invite made the channel busy; clear the badge now that it's gone.
+        await PublishDuelStateAsync(match, active: false);
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
         _matches.TryRemove(matchId, out _);
     }
@@ -516,8 +523,9 @@ public sealed class GameSessionManager
         }
     }
 
-    // Signals the whole channel that a live duel started/ended so clients can show
-    // a "duel in progress" indicator. Only fired for actually-live matches.
+    // Signals the whole channel that a duel is pending/live or has ended so clients can
+    // show a "duel in progress" indicator. Fired when an invite is created (pending),
+    // when it goes live, and when it ends (declined/expired/completed/abandoned).
     private Task PublishDuelStateAsync(LiveMatch match, bool active)
         => _publisher.PublishToChannelAsync(match.ChannelId, new
         {

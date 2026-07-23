@@ -52,6 +52,12 @@ public class GameSessionManagerTests
             .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
             .ToList();
 
+    // The `active` flag of every game.duelState published to a channel, in order.
+    private static List<bool> DuelStates(IEnumerable<(string kind, object msg)> sent) =>
+        sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.duelState")
+            .Select(s => (bool)(s.msg.GetType().GetProperty("active")?.GetValue(s.msg) ?? false))
+            .ToList();
+
     [TestMethod]
     public async Task Invite_NotifiesInviter_WithPendingEvent()
     {
@@ -97,6 +103,57 @@ public class GameSessionManagerTests
 
         Assert.IsTrue(SentType(pub.Sent, "game.expired"));
         Assert.IsFalse(SentType(pub.Sent, "game.declined"));
+    }
+
+    [TestMethod]
+    public async Task Invite_MarksChannelBusy_WithActiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        await mgr.InviteAsync(10, 20, "deathroll");
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.Count > 0, "invite should publish a duelState");
+        Assert.IsTrue(states[0], "a pending invite should mark the channel busy (active: true)");
+    }
+
+    [TestMethod]
+    public async Task Decline_ClearsChannelBusy_WithInactiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.Count >= 2, "invite then decline should publish two duelStates");
+        Assert.IsTrue(states.First(), "invite marks the channel busy");
+        Assert.IsFalse(states.Last(), "decline clears the channel-busy badge (active: false)");
+    }
+
+    [TestMethod]
+    public async Task InviteExpiry_ClearsChannelBusy_WithInactiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.ExpireInviteForTestAsync(invite.MatchId);
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.First(), "invite marks the channel busy");
+        Assert.IsFalse(states.Last(), "expiry clears the channel-busy badge (active: false)");
     }
 
     [TestMethod]
