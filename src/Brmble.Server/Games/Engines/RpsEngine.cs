@@ -238,7 +238,7 @@ public sealed class RpsEngine : IGameEngine
     public string? StartFeedLine(object state, Func<long, string> nameOf)
     {
         var s = (State)state;
-        return $"⚔️ {nameOf(s.Players[0])} vs {nameOf(s.Players[1])} — Rock Paper Scissors (best of {s.BestOf}) started";
+        return $"✊✋✌️ {nameOf(s.Players[0])} vs {nameOf(s.Players[1])} — Rock Paper Scissors (best of {s.BestOf}) started";
     }
 
     public string? EventFeedLine(GameEvent e, Func<long, string> nameOf)
