@@ -12,7 +12,7 @@
 
 .user-info-card {
   padding: var(--space-lg) var(--space-xl) var(--space-lg);
-  width: 340px;
+  width: 380px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;

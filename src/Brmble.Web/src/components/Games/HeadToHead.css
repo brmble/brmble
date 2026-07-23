@@ -86,10 +86,13 @@
   font-family: var(--font-body);
   font-weight: 600;
   color: var(--text-primary);
+  min-width: 0;
 }
 
 .head-to-head-breakdown-record {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
