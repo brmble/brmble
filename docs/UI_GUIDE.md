@@ -200,8 +200,18 @@ Rules:
    (`myPick` set) and show a "waiting for opponent" hint. Keep the opponent's choice
    hidden (`opponentPicked` boolean only) until the round resolves (`lastRound`), then
    reveal both picks and the round outcome. Show running round wins against
-   `targetWins` / `bestOf`.
-6. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
+   `targetWins` / `bestOf`. Pick buttons use `btn-secondary` at rest and `btn-primary`
+   when selected (plus `aria-pressed`), each with its own choice icon (`rps-rock`,
+   `rps-paper`, `rps-scissors`) so the options read as distinct, clickable controls.
+6. **Reveal suspense (simultaneous-commit games):** a resolved round arrives instantly
+   from the server (and, on the deciding round, `game.ended` immediately after — which
+   nulls the view). Don't reveal the result raw. Freeze the pre-resolution board, run a
+   short token-styled `3…2…1` countdown in the status area, then reveal the updated
+   score, `lastRound`, and — only after the countdown — the end result banner. Gate this
+   with local state (the raw `view` prop is the source of truth; a `display` copy lags
+   during the reveal). Key the modal on the match id in App so this reveal state resets
+   between matches.
+7. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
 ### Minigame Invite Pattern
@@ -908,7 +918,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
-| **Games** | `swords`, `game-deathroll`, `game-rps` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`) |
+| **Games** | `swords`, `game-deathroll`, `game-rps`, `rps-rock`, `rps-paper`, `rps-scissors` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`); `rps-*` are the RPS choice-button icons (object metaphors) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 

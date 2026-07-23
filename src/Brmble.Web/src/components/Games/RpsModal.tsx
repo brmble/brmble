@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../Icon/Icon';
+import type { IconName } from '../Icon/Icon';
 import type { RpsView, EndedMatch, GameView } from './useGameState';
 import { isRpsView } from './useGameState';
 import { HeadToHead } from './HeadToHead';
@@ -19,11 +20,14 @@ interface RpsModalProps {
 }
 
 /** The three RPS choices, in canonical order (matches the server engine). */
-const PICKS: { id: string; label: string; icon: 'game-rps' }[] = [
-  { id: 'rock', label: 'Rock', icon: 'game-rps' },
-  { id: 'paper', label: 'Paper', icon: 'game-rps' },
-  { id: 'scissors', label: 'Scissors', icon: 'game-rps' },
+const PICKS: { id: string; label: string; icon: IconName }[] = [
+  { id: 'rock', label: 'Rock', icon: 'rps-rock' },
+  { id: 'paper', label: 'Paper', icon: 'rps-paper' },
+  { id: 'scissors', label: 'Scissors', icon: 'rps-scissors' },
 ];
+
+/** Seconds of anticipation shown before a resolved round is revealed. */
+const REVEAL_SECONDS = 3;
 
 function pickLabel(pick: string): string {
   return pick.charAt(0).toUpperCase() + pick.slice(1);
@@ -42,15 +46,63 @@ export function RpsModal({
   onClose,
 }: RpsModalProps) {
   const [now, setNow] = useState(() => Date.now());
-  // This modal only understands the RPS view shape; ignore any other.
-  const view: RpsView | null = rawView && isRpsView(rawView) ? rawView : null;
+  const incoming: RpsView | null = rawView && isRpsView(rawView) ? rawView : null;
 
-  // Drive the countdown while a live round is in progress.
+  // Reveal suspense: when a round resolves, the server sends the updated view (and,
+  // on the final round, `game.ended` right after — which nulls the view). We hold the
+  // pre-resolution board frozen, run a short 3…2…1 countdown, then reveal the result.
+  // `display` is the gated view actually rendered; `incoming` is the raw latest.
+  const [display, setDisplay] = useState<RpsView | null>(incoming);
+  const [revealCount, setRevealCount] = useState<number | null>(null);
+  const shownRoundRef = useRef(0);
+  const initedRef = useRef(false);
+  const pendingRef = useRef<RpsView | null>(null);
+
   useEffect(() => {
-    if (ended || turnDeadline == null) return;
+    if (!incoming) return; // ignore the null the server sends on game.ended
+    if (!initedRef.current) {
+      // First view for this match: adopt it without suspense (covers joining mid-game).
+      initedRef.current = true;
+      shownRoundRef.current = incoming.lastRound?.roundNumber ?? 0;
+      setDisplay(incoming);
+      return;
+    }
+    const last = incoming.lastRound;
+    if (last && last.roundNumber > shownRoundRef.current) {
+      // A round just resolved — freeze the old board and start the reveal countdown.
+      pendingRef.current = incoming;
+      setRevealCount(REVEAL_SECONDS);
+    } else {
+      setDisplay(incoming);
+    }
+  }, [incoming]);
+
+  // Ticks the reveal countdown; on reaching 0 it commits the pending resolved view.
+  useEffect(() => {
+    if (revealCount == null) return;
+    if (revealCount <= 0) {
+      const pv = pendingRef.current;
+      if (pv) {
+        shownRoundRef.current = pv.lastRound?.roundNumber ?? shownRoundRef.current;
+        setDisplay(pv);
+        pendingRef.current = null;
+      }
+      setRevealCount(null);
+      return;
+    }
+    const id = window.setTimeout(() => setRevealCount((c) => (c == null ? null : c - 1)), 1000);
+    return () => window.clearTimeout(id);
+  }, [revealCount]);
+
+  const revealing = revealCount != null;
+  const view = display;
+
+  // Drive the turn countdown while a live round is in progress (not during reveal).
+  useEffect(() => {
+    if (ended || revealing || turnDeadline == null) return;
     const id = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(id);
-  }, [ended, turnDeadline]);
+  }, [ended, revealing, turnDeadline]);
 
   const remainingMs = turnDeadline != null ? Math.max(0, turnDeadline - now) : 0;
   const remainingSec = Math.ceil(remainingMs / 1000);
@@ -62,7 +114,9 @@ export function RpsModal({
   const opponentId = players.find((p) => p !== myUserId) ?? null;
 
   const hasPicked = !!view?.myPick;
-  const canPick = !!view && !view.finished && !ended && !hasPicked;
+  const canPick = !!view && !view.finished && !ended && !hasPicked && !revealing;
+  // Hold the end result banner until the final round's reveal has finished.
+  const showResult = !!ended && !revealing;
 
   const roundWinsFor = (userId: number): number => {
     if (!view) return 0;
@@ -71,6 +125,8 @@ export function RpsModal({
   };
 
   const renderLastRound = () => {
+    // Suppress the previous round's summary while a new one is being revealed.
+    if (revealing) return null;
     const last = view?.lastRound;
     if (!last) return null;
     const myPick = myIndex === 0 ? last.pick0 : last.pick1;
@@ -95,7 +151,7 @@ export function RpsModal({
   };
 
   const renderResult = () => {
-    if (!ended) return null;
+    if (!showResult) return null;
     let message: string;
     if (ended.abandoned) {
       message = ended.reason ? `Match abandoned: ${ended.reason}` : 'The match was abandoned.';
@@ -141,22 +197,29 @@ export function RpsModal({
           </div>
         )}
 
-        {view && !ended && (
+        {view && !showResult && (
           <div className={styles.status}>
             <span className={styles.statusLabel}>Round {view.roundNumber}</span>
-            <span className={styles.statusHint}>
-              {hasPicked
-                ? view.opponentPicked
-                  ? 'Revealing…'
-                  : `Waiting for ${opponentId != null ? resolveName(opponentId) : 'opponent'}…`
-                : 'Make your pick'}
-            </span>
+            {revealing ? (
+              <div className={styles.reveal} aria-live="assertive">
+                <span className={styles.revealCount}>{revealCount}</span>
+                <span className={styles.revealHint}>Revealing…</span>
+              </div>
+            ) : (
+              <span className={styles.statusHint}>
+                {hasPicked
+                  ? view.opponentPicked
+                    ? 'Revealing…'
+                    : `Waiting for ${opponentId != null ? resolveName(opponentId) : 'opponent'}…`
+                  : 'Make your pick'}
+              </span>
+            )}
           </div>
         )}
 
         {renderLastRound()}
 
-        {view && !ended && !view.finished && (
+        {view && !showResult && !view.finished && !revealing && (
           <div className={styles.countdown} aria-hidden="true">
             <div className={styles.countdownTrack}>
               <div
@@ -170,18 +233,19 @@ export function RpsModal({
           </div>
         )}
 
-        {view && !ended && (
+        {view && !showResult && (
           <div className={styles.picks}>
             {PICKS.map((p) => {
               const selected = view.myPick === p.id;
               return (
                 <button
                   key={p.id}
-                  className={`btn ${selected ? 'btn-primary' : ''} ${styles.pick} ${selected ? styles.pickSelected : ''}`}
+                  className={`btn ${selected ? 'btn-primary' : 'btn-secondary'} ${styles.pick} ${selected ? styles.pickSelected : ''}`}
                   onClick={() => onPick(p.id)}
                   disabled={!canPick}
+                  aria-pressed={selected}
                 >
-                  <Icon name={p.icon} size={24} />
+                  <Icon name={p.icon} size={28} />
                   <span className={styles.pickLabel}>{p.label}</span>
                 </button>
               );
@@ -199,7 +263,7 @@ export function RpsModal({
         )}
 
         <div className={styles.footer}>
-          {ended ? (
+          {showResult ? (
             <button className="btn btn-primary" onClick={onClose}>Close</button>
           ) : (
             <button className="btn btn-danger" onClick={onForfeit}>Forfeit</button>

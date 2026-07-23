@@ -4477,6 +4477,7 @@ const handleConnect = (serverData: SavedServer) => {
       {(gameState.activeMatch || gameState.ended) && (
         (gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
           <RpsModal
+            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
             view={gameState.view}
             ended={gameState.ended}
             myUserId={selfSession}

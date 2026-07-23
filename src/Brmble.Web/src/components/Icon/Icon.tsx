@@ -530,6 +530,37 @@ const iconPaths: Record<string, IconDef> = {
       </>
     ),
   },
+
+  /* rps choice icons — object metaphors, drawn in the shared stroke style */
+  'rps-rock': {
+    paths: (
+      <>
+        <path d="M5 13.5 8 8l4-1 5 2 2 4.5-2 3.5-6 1.5-5-1.5z" />
+        <path d="m8 8 2 3 3-1 3 2" />
+      </>
+    ),
+  },
+  'rps-paper': {
+    paths: (
+      <>
+        <path d="M6 3h8l4 4v14H6z" />
+        <path d="M14 3v4h4" />
+        <path d="M9 12h6" />
+        <path d="M9 16h6" />
+      </>
+    ),
+  },
+  'rps-scissors': {
+    paths: (
+      <>
+        <circle cx="6" cy="6" r="3" />
+        <path d="M8.12 8.12 12 12" />
+        <path d="M20 4 8.12 15.88" />
+        <circle cx="6" cy="18" r="3" />
+        <path d="M14.8 14.8 20 20" />
+      </>
+    ),
+  },
 };
 
 // ── Exported type for autocompletion ──
