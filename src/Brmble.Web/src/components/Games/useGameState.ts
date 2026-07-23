@@ -223,17 +223,24 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleStateUpdated = (data: unknown) => {
-      const d = data as { matchId?: number; views?: unknown; turnMs?: number; penalty?: boolean };
+      const d = data as { matchId?: number; views?: unknown; turnMs?: number; turnStarted?: boolean; penalty?: boolean };
       // Ignore late/stray updates from a match that is no longer the active one
       // (e.g. a rapid rematch) so they can't corrupt the board or reset the timer.
       const active = activeMatchRef.current;
       if (d.matchId != null && active && d.matchId !== active.matchId) return;
       const nextView = pickMyView(d.views, myUserIdRef.current);
       if (nextView) setView(nextView);
-      const windowMs = d.turnMs ?? DEFAULT_TURN_MS;
-      setTurnWindowMs(windowMs);
       setPenalty(d.penalty ?? false);
-      setTurnDeadline(Date.now() + windowMs);
+      // Only (re)arm the countdown when the server actually started a new commit
+      // window. In simultaneous games (RPS) the first player's pick emits a state
+      // update WITHOUT restarting the shared window, so we must keep the running
+      // deadline instead of resetting it to a fresh 15s. Default true for other
+      // game types / older servers that omit the flag.
+      if (d.turnStarted ?? true) {
+        const windowMs = d.turnMs ?? DEFAULT_TURN_MS;
+        setTurnWindowMs(windowMs);
+        setTurnDeadline(Date.now() + windowMs);
+      }
     };
 
     const handleEnded = (data: unknown) => {

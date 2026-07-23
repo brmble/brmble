@@ -66,6 +66,14 @@ public class GameSessionManagerTests
             .Select(s => (bool)(s.msg.GetType().GetProperty("active")?.GetValue(s.msg) ?? false))
             .ToList();
 
+    // The `turnStarted` flag of the most recent game.stateUpdated, or null if none.
+    private static bool? LastTurnStarted(IEnumerable<(string kind, object msg)> sent)
+    {
+        var upd = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.stateUpdated");
+        if (upd.msg is null) return null;
+        return upd.msg.GetType().GetProperty("turnStarted")?.GetValue(upd.msg) as bool?;
+    }
+
     [TestMethod]
     public async Task Invite_NotifiesInviter_WithPendingEvent()
     {
@@ -421,6 +429,31 @@ public class GameSessionManagerTests
         using var conn = db.CreateConnection();
         var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
         Assert.AreEqual(0, matches, "a cancelled pending invite must not be persisted");
+    }
+
+    [TestMethod]
+    public async Task Rps_FirstPickDoesNotRestartSharedWindow()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // First player commits — the shared 15s window must NOT restart, so the
+        // opponent keeps their remaining time instead of getting a fresh 15s.
+        await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.AreEqual(false, LastTurnStarted(pub.Sent),
+            "first pick in a simultaneous round must not restart the commit window");
+
+        // Second player commits — the round resolves and the next window opens.
+        await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        Assert.AreEqual(true, LastTurnStarted(pub.Sent),
+            "resolving the round starts a fresh commit window");
     }
 
     [TestMethod]

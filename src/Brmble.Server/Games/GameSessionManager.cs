@@ -263,6 +263,10 @@ public sealed class GameSessionManager
         IReadOnlyList<GameEvent> events;
         bool finished;
         object[] views;
+        // Whether this action (re)started the shared commit window. Simultaneous games
+        // (RPS) keep one 15s window for the whole round, so the first player's pick must
+        // NOT restart the timer for the opponent — only a resolved round does.
+        bool turnStarted = false;
         lock (match.Lock)
         {
             if (match.Status != "live") return;
@@ -285,7 +289,11 @@ public sealed class GameSessionManager
             // Alternating games advance the turn every action, so the timer always
             // restarts. Simultaneous games keep one commit window per round: only
             // restart when a round actually resolved (both players committed).
-            else if (ShouldRestartTurnTimer(match, events)) StartTurnTimer(match, TurnTimeout);
+            else if (ShouldRestartTurnTimer(match, events))
+            {
+                StartTurnTimer(match, TurnTimeout);
+                turnStarted = true;
+            }
             // Capture the snapshot inside the lock so a concurrent mutation can't
             // cause an inconsistent view to be broadcast.
             views = match.Players
@@ -301,6 +309,7 @@ public sealed class GameSessionManager
                 matchId,
                 gameType = match.GameType,
                 turnMs = (int)TurnTimeout.TotalMilliseconds,
+                turnStarted,
                 penalty = false,
                 views,
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
@@ -360,6 +369,7 @@ public sealed class GameSessionManager
                 matchId,
                 gameType = match.GameType,
                 turnMs = (int)(simultaneous ? TurnTimeout : PenaltyTimeout).TotalMilliseconds,
+                turnStarted = !finished,
                 penalty = !simultaneous,
                 views,
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
