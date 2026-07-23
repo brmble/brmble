@@ -1867,6 +1867,12 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      // Clear any in-flight game state (pending invite notification, active match,
+      // errors) so a dropped/kicked connection doesn't leave a stale challenge that
+      // would produce a spurious "Not connected" error when Accept can no longer
+      // reach the server. The server tears the match down on its side.
+      gameStateRef.current.reset();
+      setDuelChannelIds(new Set());
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);

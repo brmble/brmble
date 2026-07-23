@@ -149,6 +149,10 @@ export function useGameState(myUserId: number): GameState {
   const [outgoingInvite, setOutgoingInvite] = useState<OutgoingInvite | null>(null);
   const [accepting, setAccepting] = useState<boolean>(false);
   const outgoingInviteRef = useRef<OutgoingInvite | null>(null);
+  // Set when the local user cancels their own pending invite. The server responds
+  // to our forfeit with a `game.expired`, which would otherwise be misreported as
+  // "opponent didn't respond". This flag suppresses that outcome exactly once.
+  const selfCanceledRef = useRef(false);
 
   // Refs so bridge handlers (registered once) can read current values.
   const myUserIdRef = useRef(myUserId);
@@ -264,7 +268,21 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleDeclined = () => resolveOutgoing('declined');
-    const handleExpired = () => resolveOutgoing('expired');
+    const handleExpired = () => {
+      // A self-initiated cancel produces a server `game.expired`; don't surface it as
+      // an "opponent didn't respond" outcome — just clear the (already-cleared) state.
+      if (selfCanceledRef.current) {
+        selfCanceledRef.current = false;
+        setIncomingInvite(null);
+        setOutgoing(null);
+        setActiveMatch(null);
+        setTurnDeadline(null);
+        setPenalty(false);
+        setAccepting(false);
+        return;
+      }
+      resolveOutgoing('expired');
+    };
 
     const handleActionRejected = (data: unknown) => {
       const d = data as { reason?: string };
@@ -358,7 +376,12 @@ export function useGameState(myUserId: number): GameState {
       setOutgoing(null);
       return;
     }
+    // Mark this as a self-cancel so the resulting server `game.expired` isn't shown
+    // as "opponent didn't respond", and clear the pending UI optimistically.
+    selfCanceledRef.current = true;
+    setOutgoing(null);
     gamesApi.forfeit(out.matchId).catch(e => {
+      selfCanceledRef.current = false;
       setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
     });
   }, [setOutgoing]);
@@ -415,6 +438,7 @@ export function useGameState(myUserId: number): GameState {
   // invite notification, active modal, errors) rather than leaving stale state that
   // would produce spurious errors when actions can no longer reach the server.
   const reset = useCallback(() => {
+    selfCanceledRef.current = false;
     setIncomingInvite(null);
     setActiveMatch(null);
     setView(null);
