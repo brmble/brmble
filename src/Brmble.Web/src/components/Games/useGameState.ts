@@ -5,6 +5,10 @@ import * as gamesApi from '../../api/games';
 /** Fallback turn window in ms if the server omits `turnMs` (normal turn). */
 const DEFAULT_TURN_MS = 15000;
 
+// Game types this client build knows how to render. Invites for anything else are
+// auto-declined so an outdated peer can't open the wrong modal. Forward-compat only.
+const SUPPORTED_GAMES = ['deathroll', 'rps'];
+
 /** Per-player Deathroll view (engine PublicView, camelCase). */
 export interface DeathrollView {
   players: number[];
@@ -177,7 +181,14 @@ export function useGameState(myUserId: number): GameState {
     const handleInvited = (data: unknown) => {
       const d = data as { matchId?: number; gameType?: string; from?: number; inviteMs?: number };
       if (d.matchId == null || d.from == null) return;
-      setIncomingInvite({ matchId: d.matchId, gameType: d.gameType ?? 'deathroll', from: d.from, inviteMs: d.inviteMs });
+      const gameType = d.gameType ?? 'deathroll';
+      if (!SUPPORTED_GAMES.includes(gameType)) {
+        // This client build doesn't know this game — decline instead of opening the
+        // wrong modal. (Old clients that predate this check can't reach here.)
+        gamesApi.respond(d.matchId, false).catch(() => {});
+        return;
+      }
+      setIncomingInvite({ matchId: d.matchId, gameType, from: d.from, inviteMs: d.inviteMs });
     };
 
     // Challenger side: the server confirms our outgoing invite and supplies its
