@@ -253,13 +253,23 @@ public sealed class RpsEngine : IGameEngine
         var wins0 = e.Data["wins0"];
         var wins1 = e.Data["wins1"];
         if (tie)
-            return $"✊ Round {round}: {nameOf(p0)} and {nameOf(p1)} both picked {pick0} — tie, replay";
+            return $"{Glyph(pick0)} Round {round}: {nameOf(p0)} and {nameOf(p1)} both picked {pick0} — tie, replay";
         var winnerId = Convert.ToInt64(e.Data["winnerId"]);
         var loserId = winnerId == p0 ? p1 : p0;
         var winnerPick = winnerId == p0 ? pick0 : pick1;
         var loserPick = winnerId == p0 ? pick1 : pick0;
-        return $"✊ Round {round}: {nameOf(winnerId)}'s {winnerPick} beats {nameOf(loserId)}'s {loserPick} ({wins0}–{wins1})";
+        return $"{Glyph(winnerPick)} Round {round}: {nameOf(winnerId)}'s {winnerPick} beats {nameOf(loserId)}'s {loserPick} ({wins0}–{wins1})";
     }
+
+    /// <summary>Feed glyph for a throw ("rock"/"paper"/"scissors"), matching the
+    /// ✊✋✌️ set used in the start line. Falls back to the fist for unknown values.</summary>
+    private static string Glyph(object? pick) => pick?.ToString() switch
+    {
+        "rock" => "✊",
+        "paper" => "✋",
+        "scissors" => "✌️",
+        _ => "✊",
+    };
 
     public string? EndFeedLine(object state, Func<long, string> nameOf)
     {
