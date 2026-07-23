@@ -27,6 +27,8 @@ public sealed class RpsEngine : IGameEngine
         public int RoundNumber = 1;          // decisive-round counter (ties don't advance it)
         public readonly Throw?[] Picks = new Throw?[2];
         public long? WinnerId;
+        public int ConsecutiveDoubleTimeouts;   // back-to-back rounds where both idle
+        public bool Drawn;                        // match ended in a mutual-AFK draw
         public LastRound? Last;
         // Per-player throw tallies keyed by session id for flavour stats.
         public readonly Dictionary<long, int[]> Throws = new();
@@ -119,30 +121,37 @@ public sealed class RpsEngine : IGameEngine
 
         if (p0 is null && p1 is null)
         {
-            // Both idle on timeout: draw, replay the same round number.
+            // Both idle on timeout: draw, replay the same round number. After two
+            // consecutive idle rounds, end the whole match as a draw (anti-grief).
             roundWinner = null;
             tie = true;
+            s.ConsecutiveDoubleTimeouts++;
+            if (s.ConsecutiveDoubleTimeouts >= 2) s.Drawn = true;
         }
         else if (p0 is null)
         {
             roundWinner = s.Players[1];
             tie = false;
+            s.ConsecutiveDoubleTimeouts = 0;
         }
         else if (p1 is null)
         {
             roundWinner = s.Players[0];
             tie = false;
+            s.ConsecutiveDoubleTimeouts = 0;
         }
         else if (p0 == p1)
         {
             roundWinner = null;
             tie = true;
+            s.ConsecutiveDoubleTimeouts = 0;
         }
         else
         {
             var zeroBeatsOne = Beats(p0.Value, p1.Value);
             roundWinner = zeroBeatsOne ? s.Players[0] : s.Players[1];
             tie = false;
+            s.ConsecutiveDoubleTimeouts = 0;
         }
 
         // Use a neutral placeholder for reveal when a player timed out without a pick.
@@ -191,6 +200,14 @@ public sealed class RpsEngine : IGameEngine
     public GameOutcome GetOutcome(object state)
     {
         var s = (State)state;
+        if (s.Drawn)
+        {
+            return new GameOutcome.Finished(new[]
+            {
+                new CompletedParticipant(s.Players[0], Placement: 1, Score: s.RoundWins[0], Result: "draw"),
+                new CompletedParticipant(s.Players[1], Placement: 1, Score: s.RoundWins[1], Result: "draw"),
+            });
+        }
         if (s.WinnerId is null) return new GameOutcome.InProgress();
         var winnerId = s.WinnerId.Value;
         var loserId = s.Players[0] == winnerId ? s.Players[1] : s.Players[0];
@@ -274,6 +291,8 @@ public sealed class RpsEngine : IGameEngine
     public string? EndFeedLine(object state, Func<long, string> nameOf)
     {
         var s = (State)state;
+        if (s.Drawn)
+            return $"✊✋✌️ {nameOf(s.Players[0])} vs {nameOf(s.Players[1])} — Rock Paper Scissors ended in a draw (both idle)";
         if (s.WinnerId is null) return null;
         var winner = s.WinnerId.Value;
         var wIdx = IndexOf(s, winner);
