@@ -34,7 +34,9 @@ public sealed class RpsEngine : IGameEngine
         public readonly Dictionary<long, int[]> Throws = new();
     }
 
-    private sealed record LastRound(int RoundNumber, Throw P0, Throw P1, long? WinnerId, bool Tie);
+    // P0/P1 are null when that player timed out without picking, so the client can
+    // show "None" rather than a misleading default throw.
+    private sealed record LastRound(int RoundNumber, Throw? P0, Throw? P1, long? WinnerId, bool Tie);
 
     public object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng, IReadOnlyDictionary<string, object?>? options)
     {
@@ -154,11 +156,10 @@ public sealed class RpsEngine : IGameEngine
             s.ConsecutiveDoubleTimeouts = 0;
         }
 
-        // Use a neutral placeholder for reveal when a player timed out without a pick.
-        var reveal0 = p0 ?? Throw.Rock;
-        var reveal1 = p1 ?? Throw.Rock;
+        // Preserve nulls for players who timed out without a pick so the reveal shows
+        // "None" instead of a misleading throw.
         var recordedRound = s.RoundNumber;
-        s.Last = new LastRound(recordedRound, reveal0, reveal1, roundWinner, tie);
+        s.Last = new LastRound(recordedRound, p0, p1, roundWinner, tie);
 
         var events = new List<GameEvent>();
         if (!tie && roundWinner is not null)
@@ -241,9 +242,9 @@ public sealed class RpsEngine : IGameEngine
             {
                 roundNumber = s.Last.RoundNumber,
                 p0 = s.Players[0],
-                pick0 = s.Last.P0.ToString().ToLowerInvariant(),
+                pick0 = s.Last.P0?.ToString().ToLowerInvariant() ?? "none",
                 p1 = s.Players[1],
-                pick1 = s.Last.P1.ToString().ToLowerInvariant(),
+                pick1 = s.Last.P1?.ToString().ToLowerInvariant() ?? "none",
                 winnerId = s.Last.WinnerId,
                 tie = s.Last.Tie,
             },
@@ -270,7 +271,12 @@ public sealed class RpsEngine : IGameEngine
         var wins0 = e.Data["wins0"];
         var wins1 = e.Data["wins1"];
         if (tie)
+        {
+            var bothIdle = pick0?.ToString() == "none" && pick1?.ToString() == "none";
+            if (bothIdle)
+                return $"✊✋✌️ Round {round}: {nameOf(p0)} and {nameOf(p1)} both idled — tie, replay";
             return $"{Glyph(pick0)} Round {round}: {nameOf(p0)} and {nameOf(p1)} both picked {pick0} — tie, replay";
+        }
         var winnerId = Convert.ToInt64(e.Data["winnerId"]);
         var loserId = winnerId == p0 ? p1 : p0;
         var winnerPick = winnerId == p0 ? pick0 : pick1;

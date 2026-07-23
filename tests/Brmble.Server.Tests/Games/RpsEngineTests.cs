@@ -221,6 +221,31 @@ public class RpsEngineTests
         StringAssert.Contains(line, "draw");
     }
 
+    [TestMethod]
+    public void IdlePlayersRevealAsNoneNotADefaultThrow()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+        engine.ApplyTimeoutPenalty(state, Rng); // both idle
+        var view = engine.PublicView(state, 10);
+        var last = GetProp(view, "lastRound")!;
+        Assert.AreEqual("none", GetProp(last, "pick0"));
+        Assert.AreEqual("none", GetProp(last, "pick1"));
+    }
+
+    [TestMethod]
+    public void BothIdleTieFeedLineSaysIdledNotPickedNone()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+        var ev = engine.ApplyTimeoutPenalty(state, Rng);
+        var result = ev.Single(e => e.Kind == "roundResult");
+        var line = engine.EventFeedLine(result, id => $"user{id}");
+        Assert.IsNotNull(line);
+        StringAssert.Contains(line, "idled");
+        Assert.IsFalse(line!.Contains("picked none"));
+    }
+
     private static object? GetProp(object o, string name)
         => o.GetType().GetProperty(name)!.GetValue(o);
     private static int GetInt(object o, string name)

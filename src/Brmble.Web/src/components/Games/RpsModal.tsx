@@ -30,6 +30,7 @@ const PICKS: { id: string; label: string; icon: IconName }[] = [
 const REVEAL_SECONDS = 3;
 
 function pickLabel(pick: string): string {
+  if (pick === 'none') return 'None';
   return pick.charAt(0).toUpperCase() + pick.slice(1);
 }
 
