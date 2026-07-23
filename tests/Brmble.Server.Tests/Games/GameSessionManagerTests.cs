@@ -52,6 +52,14 @@ public class GameSessionManagerTests
             .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
             .ToList();
 
+    // The `draw` flag of a game.ended message, or null if none was sent.
+    private static bool? EndedDraw(IEnumerable<(string kind, object msg)> sent)
+    {
+        var ended = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.ended");
+        if (ended.msg is null) return null;
+        return ended.msg.GetType().GetProperty("draw")?.GetValue(ended.msg) as bool?;
+    }
+
     // The `active` flag of every game.duelState published to a channel, in order.
     private static List<bool> DuelStates(IEnumerable<(string kind, object msg)> sent) =>
         sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.duelState")
@@ -413,5 +421,34 @@ public class GameSessionManagerTests
         using var conn = db.CreateConnection();
         var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
         Assert.AreEqual(0, matches, "a cancelled pending invite must not be persisted");
+    }
+
+    [TestMethod]
+    public async Task Rps_BothIdleTwice_EndsAsDraw_PersistsAndFlags()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var repo = GameTestHelpers.NewRepo();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // Both players go AFK for two consecutive rounds.
+        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
+        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
+
+        Assert.IsTrue(SentType(pub.Sent, "game.ended"), "match should end");
+        Assert.AreEqual(true, EndedDraw(pub.Sent), "game.ended should carry draw: true");
+
+        var s10 = await repo.GetUserStatsAsync(10, "rps");
+        var s20 = await repo.GetUserStatsAsync(20, "rps");
+        Assert.AreEqual(1, s10.Draws, "player 10 records a draw");
+        Assert.AreEqual(1, s20.Draws, "player 20 records a draw");
+        Assert.AreEqual(0, s10.Wins);
+        Assert.AreEqual(0, s20.Wins);
     }
 }
