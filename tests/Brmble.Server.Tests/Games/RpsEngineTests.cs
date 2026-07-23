@@ -175,6 +175,52 @@ public class RpsEngineTests
         Assert.AreEqual("bo3", engine.MatchFormat(state));
     }
 
+    [TestMethod]
+    public void TwoConsecutiveBothIdleTimeoutsEndsInDraw()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+
+        engine.ApplyTimeoutPenalty(state, Rng); // 1st both-idle: replay
+        Assert.IsInstanceOfType(engine.GetOutcome(state), typeof(GameOutcome.InProgress));
+
+        engine.ApplyTimeoutPenalty(state, Rng); // 2nd consecutive both-idle: draw
+        var raw = engine.GetOutcome(state);
+        Assert.IsInstanceOfType(raw, typeof(GameOutcome.Finished));
+        var outcome = (GameOutcome.Finished)raw;
+        Assert.IsTrue(outcome.Participants.All(p => p.Result == "draw"));
+        Assert.AreEqual(2, outcome.Participants.Count);
+    }
+
+    [TestMethod]
+    public void APickBetweenIdleTimeoutsResetsTheDrawStreak()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+
+        engine.ApplyTimeoutPenalty(state, Rng); // 1st both-idle
+
+        // A decisive round happens (10 beats 20) — resets the streak.
+        engine.ApplyAction(state, 10, Pick("rock"), Rng);
+        engine.ApplyAction(state, 20, Pick("scissors"), Rng);
+
+        engine.ApplyTimeoutPenalty(state, Rng); // both-idle again, but streak was reset
+        Assert.IsInstanceOfType(engine.GetOutcome(state), typeof(GameOutcome.InProgress),
+            "a pick between idle rounds must reset the streak so no premature draw");
+    }
+
+    [TestMethod]
+    public void DrawEmitsEndFeedLine()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+        engine.ApplyTimeoutPenalty(state, Rng);
+        engine.ApplyTimeoutPenalty(state, Rng);
+        var line = engine.EndFeedLine(state, id => $"user{id}");
+        Assert.IsNotNull(line);
+        StringAssert.Contains(line, "draw");
+    }
+
     private static object? GetProp(object o, string name)
         => o.GetType().GetProperty(name)!.GetValue(o);
     private static int GetInt(object o, string name)
