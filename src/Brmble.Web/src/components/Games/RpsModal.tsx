@@ -55,7 +55,7 @@ export function RpsModal({
   // `display` is the gated view actually rendered; `incoming` is the raw latest.
   const [display, setDisplay] = useState<RpsView | null>(incoming);
   const [revealCount, setRevealCount] = useState<number | null>(null);
-  const shownRoundRef = useRef(0);
+  const shownSeqRef = useRef(0);
   const initedRef = useRef(false);
   const pendingRef = useRef<RpsView | null>(null);
 
@@ -64,13 +64,15 @@ export function RpsModal({
     if (!initedRef.current) {
       // First view for this match: adopt it without suspense (covers joining mid-game).
       initedRef.current = true;
-      shownRoundRef.current = incoming.lastRound?.roundNumber ?? 0;
+      shownSeqRef.current = incoming.lastRound?.seq ?? 0;
       setDisplay(incoming);
       return;
     }
     const last = incoming.lastRound;
-    if (last && last.roundNumber > shownRoundRef.current) {
+    if (last && last.seq > shownSeqRef.current) {
       // A round just resolved — freeze the old board and start the reveal countdown.
+      // Key off `seq` (increments on every resolution incl. ties) so a tie/draw round
+      // still triggers the 3-2-1 reveal for the following round.
       pendingRef.current = incoming;
       setRevealCount(REVEAL_SECONDS);
     } else {
@@ -84,7 +86,7 @@ export function RpsModal({
     if (revealCount <= 0) {
       const pv = pendingRef.current;
       if (pv) {
-        shownRoundRef.current = pv.lastRound?.roundNumber ?? shownRoundRef.current;
+        shownSeqRef.current = pv.lastRound?.seq ?? shownSeqRef.current;
         setDisplay(pv);
         pendingRef.current = null;
       }

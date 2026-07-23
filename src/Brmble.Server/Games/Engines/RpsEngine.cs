@@ -25,6 +25,7 @@ public sealed class RpsEngine : IGameEngine
         public int TargetWins;
         public readonly int[] RoundWins = new int[2];
         public int RoundNumber = 1;          // decisive-round counter (ties don't advance it)
+        public int ResolvedCount;            // total rounds resolved incl. ties (reveal sequence)
         public readonly Throw?[] Picks = new Throw?[2];
         public long? WinnerId;
         public int ConsecutiveDoubleTimeouts;   // back-to-back rounds where both idle
@@ -35,8 +36,10 @@ public sealed class RpsEngine : IGameEngine
     }
 
     // P0/P1 are null when that player timed out without picking, so the client can
-    // show "None" rather than a misleading default throw.
-    private sealed record LastRound(int RoundNumber, Throw? P0, Throw? P1, long? WinnerId, bool Tie);
+    // show "None" rather than a misleading default throw. Seq is a monotonic counter
+    // over every resolution (ties included) so the client can reliably detect a new
+    // round to reveal even when the decisive RoundNumber didn't advance (a tie).
+    private sealed record LastRound(int RoundNumber, int Seq, Throw? P0, Throw? P1, long? WinnerId, bool Tie);
 
     public object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng, IReadOnlyDictionary<string, object?>? options)
     {
@@ -159,7 +162,8 @@ public sealed class RpsEngine : IGameEngine
         // Preserve nulls for players who timed out without a pick so the reveal shows
         // "None" instead of a misleading throw.
         var recordedRound = s.RoundNumber;
-        s.Last = new LastRound(recordedRound, p0, p1, roundWinner, tie);
+        s.ResolvedCount++;
+        s.Last = new LastRound(recordedRound, s.ResolvedCount, p0, p1, roundWinner, tie);
 
         var events = new List<GameEvent>();
         if (!tie && roundWinner is not null)
@@ -241,6 +245,7 @@ public sealed class RpsEngine : IGameEngine
             lastRound = s.Last is null ? null : new
             {
                 roundNumber = s.Last.RoundNumber,
+                seq = s.Last.Seq,
                 p0 = s.Players[0],
                 pick0 = s.Last.P0?.ToString().ToLowerInvariant() ?? "none",
                 p1 = s.Players[1],

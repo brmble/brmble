@@ -22,6 +22,9 @@ export interface DeathrollView {
 /** Resolved result of the most recent RPS round (both picks revealed). */
 export interface RpsLastRound {
   roundNumber: number;
+  /** Monotonic sequence over every resolution (ties included) — used to detect a
+   *  new round to reveal even when the decisive roundNumber didn't advance. */
+  seq: number;
   p0: number;
   pick0: string;
   p1: number;

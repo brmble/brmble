@@ -246,6 +246,28 @@ public class RpsEngineTests
         Assert.IsFalse(line!.Contains("picked none"));
     }
 
+    [TestMethod]
+    public void ResolutionSeqAdvancesOnEveryRoundIncludingTies()
+    {
+        var engine = new RpsEngine();
+        var state = NewState();
+
+        // First resolution is a tie — the decisive RoundNumber stays at 1.
+        engine.ApplyAction(state, 10, Pick("rock"), Rng);
+        engine.ApplyAction(state, 20, Pick("rock"), Rng);
+        var tieLast = GetProp(engine.PublicView(state, 10), "lastRound")!;
+        Assert.AreEqual(1, GetProp(tieLast, "roundNumber"));
+        Assert.AreEqual(1, GetProp(tieLast, "seq"));
+
+        // Next resolution reuses roundNumber 1 (ties don't advance it) but seq must
+        // advance to 2 so the client still reveals the round after a tie/draw.
+        engine.ApplyAction(state, 10, Pick("rock"), Rng);
+        engine.ApplyAction(state, 20, Pick("scissors"), Rng);
+        var winLast = GetProp(engine.PublicView(state, 10), "lastRound")!;
+        Assert.AreEqual(1, GetProp(winLast, "roundNumber"));
+        Assert.AreEqual(2, GetProp(winLast, "seq"));
+    }
+
     private static object? GetProp(object o, string name)
         => o.GetType().GetProperty(name)!.GetValue(o);
     private static int GetInt(object o, string name)
