@@ -76,6 +76,7 @@ export interface EndedMatch {
   abandoned?: boolean;
   reason?: string;
   winnerId?: number;
+  draw?: boolean;
 }
 
 export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked';
@@ -225,12 +226,12 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleEnded = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; abandoned?: boolean; reason?: string; winnerId?: number };
+      const d = data as { matchId?: number; gameType?: string; abandoned?: boolean; reason?: string; winnerId?: number; draw?: boolean };
       // Prefer the server-supplied winnerId (authoritative, and correct even for
       // forfeits where the local view has no loserId). Fall back to deriving it
       // from the local view for older servers that omit it.
       let winnerId: number | undefined = d.winnerId;
-      if (winnerId == null) {
+      if (winnerId == null && !d.draw) {
         const currentView = viewRef.current;
         if (currentView && !isRpsView(currentView) && currentView.loserId != null) {
           winnerId = currentView.players.find(p => p !== currentView.loserId);
@@ -242,6 +243,7 @@ export function useGameState(myUserId: number): GameState {
         abandoned: d.abandoned,
         reason: d.reason,
         winnerId,
+        draw: d.draw,
       });
       setActiveMatch(null);
       setView(null);

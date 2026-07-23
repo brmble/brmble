@@ -155,6 +155,8 @@ export function RpsModal({
     let message: string;
     if (ended.abandoned) {
       message = ended.reason ? `Match abandoned: ${ended.reason}` : 'The match was abandoned.';
+    } else if (ended.draw) {
+      message = 'Draw — both players idle.';
     } else if (ended.winnerId != null) {
       message = ended.winnerId === myUserId ? 'You win!' : `${resolveName(ended.winnerId)} wins!`;
     } else {
