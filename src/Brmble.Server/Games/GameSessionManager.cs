@@ -180,6 +180,16 @@ public sealed class GameSessionManager
     // Test hook: simulate the 30s invite timer firing.
     internal Task ExpireInviteForTestAsync(long matchId) => EndPendingAsync(matchId, "game.expired");
 
+    // Test-only: synchronously drive a turn-timeout for the current turn generation,
+    // mirroring what the real TurnTimer callback does. Lets tests exercise AFK paths
+    // without waiting on wall-clock timers.
+    internal Task FireTurnTimeoutForTestAsync(long matchId)
+    {
+        if (!_matches.TryGetValue(matchId, out var match)) return Task.CompletedTask;
+        var generation = Interlocked.Read(ref match.TurnGeneration);
+        return HandleTurnTimeoutAsync(matchId, generation);
+    }
+
     public async Task RespondAsync(long matchId, long targetSession, bool accept)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
@@ -379,11 +389,15 @@ public sealed class GameSessionManager
                 return p with { UserId = dbId, MetadataJson = meta };
             })
             .ToArray();
+        // A match with no single winner (all participants "draw") is a real draw:
+        // persist Outcome "draw" and emit no winnerId.
+        var isDraw = outcome.Participants.All(p => p.Result == "draw");
+
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
             Format: match.Engine.MatchFormat(match.State),
-            Outcome: "decided",
+            Outcome: isDraw ? "draw" : "decided",
             AbandonReason: null,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
@@ -392,14 +406,14 @@ public sealed class GameSessionManager
 
         await _repository.SaveCompletedMatchAsync(completed);
 
-        var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
+        var winner = isDraw ? null : outcome.Participants.FirstOrDefault(p => p.Placement == 1);
 
         // winner.UserId is still a Mumble session id here (translation to db ids
         // happens in persistedParticipants above), which is what the client compares
         // against its own session id — so emit it directly as winnerId.
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
-            new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId });
+            new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId, draw = isDraw });
 
         await PublishDuelStateAsync(match, active: false);
 
