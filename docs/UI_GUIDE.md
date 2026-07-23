@@ -167,16 +167,22 @@ Rules:
 
 ### Minigame Modal Pattern
 
-Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`
+Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,
+`components/Games/RpsModal.tsx`, `RpsModal.module.css`
 
-Real-time minigame modals (e.g. Deathroll) reuse the shared modal shell — global
-`div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
+Real-time minigame modals (e.g. Deathroll, Rock Paper Scissors) reuse the shared modal shell —
+global `div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
 `h2.heading-title.modal-title` — and add game-specific content styling via a colocated
 CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
 
+Each game gets its **own** modal component (Deathroll and RPS do not share a body). The
+`view` prop is the generic `GameView` union from `useGameState`; each modal narrows it to its
+own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
+modal to render from `activeMatch?.gameType ?? ended?.gameType`.
+
 Rules:
 1. Reuse the shared modal shell classes above; only game-board content (player rows,
-   stat tiles, countdown bar, result banner) lives in the CSS module.
+   stat tiles, countdown bar, pick buttons, result banner) lives in the CSS module.
 2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
    `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
 3. Turn countdowns render as a token-styled shrinking bar plus a seconds label; drive
@@ -189,6 +195,14 @@ Rules:
 4. Action buttons use the shared `.btn` classes (`btn-primary` for the main action,
    `btn-danger` for forfeit). Disable the primary action when it is not the local
    player's turn.
+5. **Simultaneous-commit games (RPS):** both players act at once, so there is no "your
+   turn" gate — instead disable the pick buttons once the local player has committed
+   (`myPick` set) and show a "waiting for opponent" hint. Keep the opponent's choice
+   hidden (`opponentPicked` boolean only) until the round resolves (`lastRound`), then
+   reveal both picks and the round outcome. Show running round wins against
+   `targetWins` / `bestOf`.
+6. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
+   result, scoped to the current opponent.
 
 ### Minigame Invite Pattern
 
@@ -213,10 +227,42 @@ needs a visible countdown without client-side dismissal.
 The per-user "Challenge to a duel" entry point is a `ContextMenu` item on the user row
 (same menu as Direct Message / User Info), shown only when the target `isBrmbleClient` and
 shares the local user's voice channel. It is a submenu of game types: **Deathroll** challenges
-immediately; **Rock Paper Scissors** opens a further "Best of 3 / 5 / 7" submenu whose options
-are disabled ("coming soon") until an RPS engine exists server-side. The menu is assembled by
-the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused by
-both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
+immediately; **Rock Paper Scissors** opens a further "Best of 3 / 5 / 7" submenu, each option
+inviting with that best-of length (`invite(session, 'rps', { bestOf })`). The menu is assembled
+by the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused
+by both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
+
+#### Challenger pending-invite notification
+
+While an outgoing challenge is awaiting an answer, the challenger sees a single `info`
+notification under the queue id `game-pending` (driven by `useGameState.outgoingInvite`), with a
+`btn-danger` **Cancel** action that withdraws the challenge (`cancelInvite`). Like the incoming
+invite it uses `duration={null}` + `countdownMs` (the server owns the window) — never a
+client-side timer. `×`/Cancel both cancel. The matchId needed to cancel arrives from the
+server's `game.invitePending` event (the fire-and-forget WebView invite can't return it).
+
+#### One duel per channel + duel badge
+
+The server allows only one live duel per channel and rejects a second with the reason
+`channelBusy` (surfaced to the challenger via the standard `game-error` notification). Channels
+with a live duel show a swords badge (`<Icon name="swords">`, `--accent-primary`) on the channel
+row, sourced from the server's channel-scoped `game.duelState` events (`{ channelId, active }`).
+App maintains the `Set<number>` of busy channels and threads it as `duelChannelIds` through
+`Sidebar` → `ChannelTree` (cleared on voice disconnect). Keep the badge inside the channel-row
+header next to the access-lock icon; do not invent a new row-status container.
+
+#### Head-to-head record
+
+Reference: `components/Games/HeadToHead.tsx`, `HeadToHead.css`
+
+The `<HeadToHead opponentSession opponentName>` component shows the local user's lifetime record
+versus one opponent (all games), with a per-game breakdown, fetched via `getHeadToHead` (server
+resolves the local identity from the client certificate). It reuses the stat-tile / ratio visual
+language of `GameStats` (tokens only) and renders loading / empty / error inline states. It
+appears in two places: (1) below the result inside the active game modal, scoped to the current
+opponent; (2) as a second **"Head-to-head"** tab in `UserInfoDialog` (shown only for other
+users, not self). The dialog's tab bar uses `.user-info-tab` buttons styled like the
+`GameStats` window toggle — active tab uses `--accent-primary`.
 
 #### Challenger invite-outcome notifications
 

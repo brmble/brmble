@@ -112,6 +112,13 @@
   filter: drop-shadow(0 0 var(--glow-sm) var(--accent-danger));
 }
 
+.channel-duel-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-primary);
+  margin-left: var(--space-2xs);
+}
+
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);

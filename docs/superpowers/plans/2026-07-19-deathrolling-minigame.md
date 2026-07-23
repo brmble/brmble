@@ -12,6 +12,8 @@
 
 **Scope:** Deathrolling only (build-order phases 1–5). RPS (phase 6) is a follow-up plan once the `IGameEngine` abstraction is proven.
 
+> **Implementation status (2026-07-23):** Deathrolling shipped. The `IGameEngine` abstraction is proven and RPS (phase 6) has now been implemented on branch `feature/rps-minigame-and-stats` — server `RpsEngine`, best-of 3/5/7 matches, per-channel one-duel enforcement (`channelBusy`), pending-invite UI + cancel, disconnect state cleanup, channel-tree duel badge, and head-to-head record panels (in-modal + `UserInfoDialog` tab). Streaks/leaderboards remain deferred.
+
 ---
 
 ## File Structure

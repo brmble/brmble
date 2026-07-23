@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import bridge from '../../bridge';
 import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
+import { HeadToHead } from '../Games/HeadToHead';
 import { parseUserComment } from '../../utils/parseUserComment';
 import './UserInfoDialog.css';
 
@@ -33,8 +34,16 @@ export function UserInfoDialog({
   const [localMuted, setLocalMuted] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
   const [commentDraft, setCommentDraft] = useState(comment || '');
+  // Head-to-head is only meaningful against another player, so the tab bar is only
+  // shown for other users; self view stays single-pane.
+  const [activeTab, setActiveTab] = useState<'info' | 'head-to-head'>('info');
   const parsedComment = parseUserComment(comment);
   const displayComment = parsedComment.text || 'No comment set';
+
+  // Reset to the info tab whenever the dialog opens for a (possibly different) user.
+  useEffect(() => {
+    if (isOpen) setActiveTab('info');
+  }, [isOpen, session]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -163,7 +172,36 @@ export function UserInfoDialog({
           </div>
         </div>
 
-        <div className="user-info-content">
+        {!isSelf && (
+          <div className="user-info-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'info'}
+              className={`user-info-tab ${activeTab === 'info' ? 'active' : ''}`}
+              onClick={() => setActiveTab('info')}
+            >
+              Info
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'head-to-head'}
+              className={`user-info-tab ${activeTab === 'head-to-head' ? 'active' : ''}`}
+              onClick={() => setActiveTab('head-to-head')}
+            >
+              Head-to-head
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'head-to-head' ? (
+          <div className="user-info-head-to-head">
+            <HeadToHead opponentSession={session} opponentName={userName} />
+          </div>
+        ) : (
+          <>
+            <div className="user-info-content">
           {!isSelf && onStartDM && (
             <button
               className="btn btn-primary user-info-dm-btn"
@@ -230,6 +268,8 @@ export function UserInfoDialog({
             </div>
           )}
         </div>
+          </>
+        )}
 
         <div className="user-info-actions">
           {editingComment && (

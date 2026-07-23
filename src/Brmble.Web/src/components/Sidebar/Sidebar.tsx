@@ -40,6 +40,8 @@ interface SidebarProps {
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
   onChallengeDeathroll?: (session: number) => void;
+  onChallengeRps?: (session: number, bestOf: number) => void;
+  duelChannelIds?: Set<number>;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -76,6 +78,8 @@ export function Sidebar({
   onDisconnect,
   onStartDM,
   onChallengeDeathroll,
+  onChallengeRps,
+  duelChannelIds,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -443,6 +447,8 @@ export function Sidebar({
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
           onChallengeDeathroll={onChallengeDeathroll}
+          onChallengeRps={onChallengeRps}
+          duelChannelIds={duelChannelIds}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}
@@ -471,14 +477,14 @@ export function Sidebar({
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             ...(() => {
-              if (contextMenu.isSelf || !onChallengeDeathroll) return [];
+              if (contextMenu.isSelf || !onChallengeDeathroll || !onChallengeRps) return [];
               const target = users.find(u => u.session === parseInt(contextMenu.userId));
               const selfChannelId = users.find(u => u.self)?.channelId;
               const eligible = !!target?.isBrmbleClient
                 && target.channelId != null
                 && target.channelId === selfChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps)];
             })(),
             {
               type: 'item' as const,

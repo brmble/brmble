@@ -13,6 +13,30 @@ export interface GameSettings {
   challengesBlocked: boolean;
 }
 
+/** Per-game head-to-head record from the requesting user's perspective. */
+export interface HeadToHeadGame {
+  gameType: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  gamesPlayed: number;
+}
+
+/** Lifetime head-to-head totals vs one opponent, plus a per-game breakdown. */
+export interface HeadToHeadStats {
+  wins: number;
+  losses: number;
+  draws: number;
+  gamesPlayed: number;
+  winRatio: number;
+  games: HeadToHeadGame[];
+}
+
+/** Optional per-game invite options (e.g. RPS best-of length). */
+export interface InviteOptions {
+  bestOf?: number;
+}
+
 function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
@@ -60,16 +84,21 @@ async function unwrap(response: Response): Promise<void> {
   throw await toGameApiError(response);
 }
 
-export async function invite(targetSessionId: number, gameType: string): Promise<void> {
+export async function invite(
+  targetSessionId: number,
+  gameType: string,
+  options?: InviteOptions,
+): Promise<void> {
+  const payload = options ? { targetSessionId, gameType, options } : { targetSessionId, gameType };
   if (isWebViewBridgeAvailable()) {
-    bridge.send('game.invite', { targetSessionId, gameType });
+    bridge.send('game.invite', payload);
     return;
   }
 
   const response = await fetch('/games/invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ targetSessionId, gameType }),
+    body: JSON.stringify(payload),
   });
   return unwrap(response);
 }
@@ -227,4 +256,21 @@ export async function setGameSettings(settings: GameSettings): Promise<GameSetti
     throw await toGameApiError(response);
   }
   return response.json() as Promise<GameSettings>;
+}
+
+/**
+ * Lifetime head-to-head record vs the given opponent (identified by live Mumble
+ * session id), from the requesting user's perspective. Returns an all-zero record
+ * when the players have never met.
+ */
+export async function getHeadToHead(opponentSession: number): Promise<HeadToHeadStats> {
+  if (isWebViewBridgeAvailable()) {
+    return bridgeRequest<HeadToHeadStats>({ action: 'head-to-head', opponentSession });
+  }
+
+  const response = await fetch(`/games/head-to-head/${encodeURIComponent(opponentSession)}`);
+  if (!response.ok) {
+    throw await toGameApiError(response);
+  }
+  return response.json() as Promise<HeadToHeadStats>;
 }

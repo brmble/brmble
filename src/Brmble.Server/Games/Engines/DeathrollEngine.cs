@@ -142,6 +142,29 @@ public sealed class DeathrollEngine : IGameEngine
 
     public int? CurrentCeiling(object state) => ((State)state).Ceiling;
 
+    public string? StartFeedLine(object state, Func<long, string> nameOf)
+    {
+        var s = (State)state;
+        return $"⚔️ {nameOf(s.Players[0])} vs {nameOf(s.Players[1])} — Deathroll started (ceiling {s.StartingCeiling})";
+    }
+
+    public string? EventFeedLine(GameEvent e, Func<long, string> nameOf) => e.Kind switch
+    {
+        "roll" => $"🎲 {nameOf(Convert.ToInt64(e.Data["userId"]))} rolled {e.Data["value"]} (1–{e.Data["ceiling"]})",
+        "penalty" when e.Data.ContainsKey("userId") =>
+            $"🎲 {nameOf(Convert.ToInt64(e.Data["userId"]))} ran out of time — ceiling drops to {e.Data["ceiling"]}",
+        _ => null,
+    };
+
+    public string? EndFeedLine(object state, Func<long, string> nameOf)
+    {
+        var s = (State)state;
+        if (s.LoserId is null) return null;
+        var loser = s.LoserId.Value;
+        var winner = s.Players[0] == loser ? s.Players[1] : s.Players[0];
+        return $"💀 {nameOf(loser)} rolled {s.LastRoll ?? 1} — {nameOf(winner)} wins!";
+    }
+
     public object? MatchSummary(object state)
     {
         var s = (State)state;

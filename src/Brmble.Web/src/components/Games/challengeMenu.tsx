@@ -6,9 +6,8 @@ import { Icon } from '../Icon/Icon';
  *
  * The entry is a submenu of game types:
  *   - Deathroll — challenges immediately (no rounds/best-of).
- *   - Rock Paper Scissors — a further submenu of "Best of N" rounds. RPS is not yet
- *     implemented server-side, so its options are disabled ("coming soon"). When the
- *     server gains an RPS engine, wire the onClick handlers to invite('rps', { bestOf }).
+ *   - Rock Paper Scissors — a further submenu of "Best of N" rounds, each of which
+ *     invites with the chosen best-of length.
  *
  * Eligibility (same channel, Brmble client, not self) is decided by the caller; this
  * helper only assembles the menu item.
@@ -16,12 +15,12 @@ import { Icon } from '../Icon/Icon';
 export function buildChallengeMenuItem(
   session: number,
   onChallengeDeathroll: (session: number) => void,
+  onChallengeRps: (session: number, bestOf: number) => void,
 ): ContextMenuItem {
   const rpsBestOf = (n: number): ContextMenuItem => ({
     type: 'item',
     label: `Best of ${n}`,
-    disabled: true, // RPS not implemented yet
-    onClick: () => {},
+    onClick: () => onChallengeRps(session, n),
   });
 
   return {

@@ -40,7 +40,7 @@ public class GameSessionManagerTests
 {
     private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
     {
-        var engines = new IGameEngine[] { new DeathrollEngine() };
+        var engines = new IGameEngine[] { new DeathrollEngine(), new RpsEngine() };
         return new GameSessionManager(engines, new HalvingRandom(), presence, pub, repo);
     }
 
@@ -51,6 +51,21 @@ public class GameSessionManagerTests
         sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.feed")
             .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
             .ToList();
+
+    [TestMethod]
+    public async Task Invite_NotifiesInviter_WithPendingEvent()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        await mgr.InviteAsync(10, 20, "deathroll");
+
+        Assert.IsTrue(SentType(pub.Sent, "game.invited"), "target should be invited");
+        Assert.IsTrue(SentType(pub.Sent, "game.invitePending"), "inviter should get a pending event");
+    }
 
     [TestMethod]
     public async Task ExplicitDecline_EmitsGameDeclined()
@@ -260,6 +275,63 @@ public class GameSessionManagerTests
         // The invite is still pending, so the real target can accept it.
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
         Assert.IsTrue(mgr.IsMatchLive(invite.MatchId));
+    }
+
+    [TestMethod]
+    public async Task Rps_SimultaneousMatch_PlaysToCompletion_PersistsAndFeeds()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var repo = GameTestHelpers.NewRepo();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        Assert.IsTrue(invite.Success);
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // Both players commit each round; session 10 (rock) always beats 20 (scissors),
+        // so 10 takes the best-of-3 in two decisive rounds.
+        for (var round = 0; round < 2 && mgr.IsMatchLive(invite.MatchId); round++)
+        {
+            await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsFalse(mgr.IsMatchLive(invite.MatchId), "match should be decided after two rounds");
+
+        var feed = FeedTexts(pub.Sent);
+        Assert.IsTrue(feed.Any(t => t.Contains("started")), "expected a start feed line");
+        Assert.IsTrue(feed.Any(t => t.StartsWith("✊")), "expected round feed lines");
+        Assert.AreEqual(1, feed.Count(t => t.StartsWith("🏆")), "expected one terminal feed line");
+
+        var s10 = await repo.GetUserStatsAsync(10, "rps");
+        var s20 = await repo.GetUserStatsAsync(20, "rps");
+        Assert.AreEqual(1, s10.GamesPlayed);
+        Assert.AreEqual(1, s20.GamesPlayed);
+        Assert.AreEqual(1, s10.Wins);
+        Assert.AreEqual(0, s20.Wins);
+    }
+
+    [TestMethod]
+    public async Task Invite_RejectsSecondDuelInSameChannel_WithChannelBusyReason()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        presence.Users[30] = (1, true, 30);
+        presence.Users[40] = (1, true, 40);
+        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
+
+        // A pending invite already occupies the channel's single duel slot.
+        var first = await mgr.InviteAsync(10, 20, "deathroll");
+        Assert.IsTrue(first.Success);
+
+        var second = await mgr.InviteAsync(30, 40, "deathroll");
+        Assert.IsFalse(second.Success);
+        Assert.AreEqual(InviteRejectReason.ChannelBusy, second.Reason);
     }
 
     [TestMethod]

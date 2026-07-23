@@ -15,6 +15,40 @@ export interface DeathrollView {
   loserId: number | null;
 }
 
+/** Resolved result of the most recent RPS round (both picks revealed). */
+export interface RpsLastRound {
+  roundNumber: number;
+  p0: number;
+  pick0: string;
+  p1: number;
+  pick1: string;
+  winnerId: number | null;
+  tie: boolean;
+}
+
+/** Per-player RPS view (engine PublicView, camelCase). The opponent's current pick
+ * is hidden (`opponentPicked` boolean only) until the round resolves. */
+export interface RpsView {
+  players: number[];
+  bestOf: number;
+  targetWins: number;
+  roundNumber: number;
+  roundWins: number[];
+  finished: boolean;
+  winnerId: number | null;
+  myPick: string | null;
+  opponentPicked: boolean;
+  lastRound: RpsLastRound | null;
+}
+
+/** Any game's per-player view. Modals narrow this to their own game's shape. */
+export type GameView = DeathrollView | RpsView;
+
+/** Narrows a {@link GameView} to the RPS shape (by a distinctive RPS-only field). */
+export function isRpsView(view: GameView | null): view is RpsView {
+  return !!view && 'roundWins' in view;
+}
+
 export interface IncomingInvite {
   matchId: number;
   gameType: string;
@@ -28,8 +62,17 @@ export interface ActiveMatch {
   gameType: string;
 }
 
+/** Challenger-facing pending outgoing invite (waiting for the opponent to answer). */
+export interface OutgoingInvite {
+  matchId: number | null;
+  targetSession: number;
+  gameType: string;
+  inviteMs?: number;
+}
+
 export interface EndedMatch {
   matchId: number;
+  gameType: string;
   abandoned?: boolean;
   reason?: string;
   winnerId?: number;
@@ -45,7 +88,7 @@ export interface InviteOutcome {
 export interface GameState {
   incomingInvite: IncomingInvite | null;
   activeMatch: ActiveMatch | null;
-  view: DeathrollView | null;
+  view: GameView | null;
   ended: EndedMatch | null;
   lastError: string | null;
   turnDeadline: number | null;
@@ -55,24 +98,32 @@ export interface GameState {
   penalty: boolean;
   /** Challenger-facing result of the last outgoing invite; null when none. */
   inviteOutcome: InviteOutcome | null;
+  /** Challenger-facing pending outgoing invite; null when none is in flight. */
+  outgoingInvite: OutgoingInvite | null;
   /** True after Accept is pressed until the match starts (or the invite ends). */
   accepting: boolean;
   clearInviteOutcome: () => void;
-  invite: (targetSessionId: number) => void;
+  invite: (targetSessionId: number, gameType?: string, options?: gamesApi.InviteOptions) => void;
+  cancelInvite: () => void;
   acceptInvite: () => void;
   declineInvite: () => void;
+  /** Sends a raw game action for the active match (generic across games). */
+  sendAction: (action: Record<string, unknown>) => void;
+  /** Deathroll convenience wrapper around {@link sendAction}. */
   roll: () => void;
   forfeit: () => void;
   dismissEnded: () => void;
   clearError: () => void;
+  /** Clears all game state (e.g. on voice disconnect) without server calls. */
+  reset: () => void;
 }
 
 interface ViewEntry {
   userId: number;
-  view: DeathrollView;
+  view: GameView;
 }
 
-function pickMyView(views: unknown, myUserId: number): DeathrollView | null {
+function pickMyView(views: unknown, myUserId: number): GameView | null {
   if (!Array.isArray(views)) return null;
   const entry = (views as ViewEntry[]).find(v => v.userId === myUserId);
   return entry?.view ?? null;
@@ -88,15 +139,16 @@ function pickMyView(views: unknown, myUserId: number): DeathrollView | null {
 export function useGameState(myUserId: number): GameState {
   const [incomingInvite, setIncomingInvite] = useState<IncomingInvite | null>(null);
   const [activeMatch, setActiveMatch] = useState<ActiveMatch | null>(null);
-  const [view, setView] = useState<DeathrollView | null>(null);
+  const [view, setView] = useState<GameView | null>(null);
   const [ended, setEnded] = useState<EndedMatch | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [turnDeadline, setTurnDeadline] = useState<number | null>(null);
   const [turnWindowMs, setTurnWindowMs] = useState<number>(DEFAULT_TURN_MS);
   const [penalty, setPenalty] = useState<boolean>(false);
   const [inviteOutcome, setInviteOutcome] = useState<InviteOutcome | null>(null);
+  const [outgoingInvite, setOutgoingInvite] = useState<OutgoingInvite | null>(null);
   const [accepting, setAccepting] = useState<boolean>(false);
-  const outgoingInviteRef = useRef<{ targetSession: number } | null>(null);
+  const outgoingInviteRef = useRef<OutgoingInvite | null>(null);
 
   // Refs so bridge handlers (registered once) can read current values.
   const myUserIdRef = useRef(myUserId);
@@ -105,16 +157,37 @@ export function useGameState(myUserId: number): GameState {
   activeMatchRef.current = activeMatch;
   const incomingInviteRef = useRef<IncomingInvite | null>(incomingInvite);
   incomingInviteRef.current = incomingInvite;
-  const viewRef = useRef<DeathrollView | null>(view);
+  const viewRef = useRef<GameView | null>(view);
   viewRef.current = view;
   const acceptingRef = useRef(accepting);
   acceptingRef.current = accepting;
+
+  // Keeps both the reactive state and the handler-facing ref in sync.
+  const setOutgoing = useCallback((next: OutgoingInvite | null) => {
+    outgoingInviteRef.current = next;
+    setOutgoingInvite(next);
+  }, []);
 
   useEffect(() => {
     const handleInvited = (data: unknown) => {
       const d = data as { matchId?: number; gameType?: string; from?: number; inviteMs?: number };
       if (d.matchId == null || d.from == null) return;
       setIncomingInvite({ matchId: d.matchId, gameType: d.gameType ?? 'deathroll', from: d.from, inviteMs: d.inviteMs });
+    };
+
+    // Challenger side: the server confirms our outgoing invite and supplies its
+    // matchId (which the fire-and-forget WebView invite couldn't return). Fill in
+    // the pending-invite state so the "waiting for opponent" UI and cancel work.
+    const handleInvitePending = (data: unknown) => {
+      const d = data as { matchId?: number; gameType?: string; target?: number; inviteMs?: number };
+      if (d.matchId == null) return;
+      const existing = outgoingInviteRef.current;
+      setOutgoing({
+        matchId: d.matchId,
+        targetSession: d.target ?? existing?.targetSession ?? 0,
+        gameType: d.gameType ?? existing?.gameType ?? 'deathroll',
+        inviteMs: d.inviteMs,
+      });
     };
 
     const handleStarted = (data: unknown) => {
@@ -129,6 +202,7 @@ export function useGameState(myUserId: number): GameState {
       setPenalty(false);
       setTurnDeadline(Date.now() + windowMs);
       outgoingInviteRef.current = null;
+      setOutgoingInvite(null);
       setAccepting(false);
     };
 
@@ -147,19 +221,20 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleEnded = (data: unknown) => {
-      const d = data as { matchId?: number; abandoned?: boolean; reason?: string; winnerId?: number };
+      const d = data as { matchId?: number; gameType?: string; abandoned?: boolean; reason?: string; winnerId?: number };
       // Prefer the server-supplied winnerId (authoritative, and correct even for
       // forfeits where the local view has no loserId). Fall back to deriving it
       // from the local view for older servers that omit it.
       let winnerId: number | undefined = d.winnerId;
       if (winnerId == null) {
         const currentView = viewRef.current;
-        if (currentView?.loserId != null) {
+        if (currentView && !isRpsView(currentView) && currentView.loserId != null) {
           winnerId = currentView.players.find(p => p !== currentView.loserId);
         }
       }
       setEnded({
         matchId: d.matchId ?? activeMatchRef.current?.matchId ?? 0,
+        gameType: d.gameType ?? activeMatchRef.current?.gameType ?? 'deathroll',
         abandoned: d.abandoned,
         reason: d.reason,
         winnerId,
@@ -180,7 +255,7 @@ export function useGameState(myUserId: number): GameState {
       // Challenger side: we had an outgoing invite -> show the outcome.
       if (out) {
         setInviteOutcome({ kind, targetSession: out.targetSession });
-        outgoingInviteRef.current = null;
+        setOutgoing(null);
       }
       setActiveMatch(null);
       setTurnDeadline(null);
@@ -209,13 +284,14 @@ export function useGameState(myUserId: number): GameState {
       const isBlocked = d.reason === 'blocked' || /isn't accepting challenges/i.test(msg);
       if (outgoingInviteRef.current && isBlocked) {
         setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current.targetSession });
-        outgoingInviteRef.current = null;
+        setOutgoing(null);
         return;
       }
       setLastError(msg);
     };
 
     bridge.on('game.invited', handleInvited);
+    bridge.on('game.invitePending', handleInvitePending);
     bridge.on('game.started', handleStarted);
     bridge.on('game.stateUpdated', handleStateUpdated);
     bridge.on('game.ended', handleEnded);
@@ -226,6 +302,7 @@ export function useGameState(myUserId: number): GameState {
 
     return () => {
       bridge.off('game.invited', handleInvited);
+      bridge.off('game.invitePending', handleInvitePending);
       bridge.off('game.started', handleStarted);
       bridge.off('game.stateUpdated', handleStateUpdated);
       bridge.off('game.ended', handleEnded);
@@ -236,7 +313,7 @@ export function useGameState(myUserId: number): GameState {
     };
   }, []);
 
-  const invite = useCallback((targetSessionId: number) => {
+  const invite = useCallback((targetSessionId: number, gameType: string = 'deathroll', options?: gamesApi.InviteOptions) => {
     // Block starting a new duel while one is already in progress or pending, so a
     // user can't stack challenges (the server enforces this authoritatively too).
     if (activeMatchRef.current) {
@@ -251,9 +328,10 @@ export function useGameState(myUserId: number): GameState {
       setLastError('Respond to your pending challenge first.');
       return;
     }
-    outgoingInviteRef.current = { targetSession: targetSessionId };
+    // Optimistic pending state; the server's game.invitePending fills in the matchId.
+    setOutgoing({ matchId: null, targetSession: targetSessionId, gameType });
     setInviteOutcome(null);
-    gamesApi.invite(targetSessionId, 'deathroll').catch(e => {
+    gamesApi.invite(targetSessionId, gameType, options).catch(e => {
       // A blocked target comes back as a rejected invite; surface it as an outcome.
       // Prefer the server's structured reason code (GameApiError.reason); fall back
       // to matching the message text for older servers.
@@ -261,13 +339,29 @@ export function useGameState(myUserId: number): GameState {
       const reason = e instanceof gamesApi.GameApiError ? e.reason : undefined;
       if (reason === 'blocked' || /isn't accepting challenges/i.test(msg)) {
         setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current?.targetSession ?? null });
-        outgoingInviteRef.current = null;
+        setOutgoing(null);
       } else {
         setLastError(msg);
-        outgoingInviteRef.current = null;
+        setOutgoing(null);
       }
     });
-  }, []);
+  }, [setOutgoing]);
+
+  // Cancels a pending outgoing invite. Forfeiting a still-pending match cancels it
+  // server-side (emitting game.expired), which clears our outgoing state via the
+  // existing handler. Requires the matchId from game.invitePending.
+  const cancelInvite = useCallback(() => {
+    const out = outgoingInviteRef.current;
+    if (!out) return;
+    if (out.matchId == null) {
+      // The pending confirmation hasn't arrived yet; just drop the local state.
+      setOutgoing(null);
+      return;
+    }
+    gamesApi.forfeit(out.matchId).catch(e => {
+      setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
+    });
+  }, [setOutgoing]);
 
   const acceptInvite = useCallback(() => {
     const inv = incomingInviteRef.current;
@@ -292,13 +386,17 @@ export function useGameState(myUserId: number): GameState {
     });
   }, []);
 
-  const roll = useCallback(() => {
+  const sendAction = useCallback((action: Record<string, unknown>) => {
     const match = activeMatchRef.current;
     if (!match) return;
-    gamesApi.sendAction(match.matchId, { roll: true }).catch(e => {
-      setLastError(e instanceof Error ? e.message : 'Failed to roll.');
+    gamesApi.sendAction(match.matchId, action).catch(e => {
+      setLastError(e instanceof Error ? e.message : 'Failed to send action.');
     });
   }, []);
+
+  const roll = useCallback(() => {
+    sendAction({ roll: true });
+  }, [sendAction]);
 
   const forfeit = useCallback(() => {
     const match = activeMatchRef.current;
@@ -312,6 +410,23 @@ export function useGameState(myUserId: number): GameState {
   const clearError = useCallback(() => setLastError(null), []);
   const clearInviteOutcome = useCallback(() => setInviteOutcome(null), []);
 
+  // Wipes all local game state without any server calls. Used on voice disconnect:
+  // the server tears matches down on its side, so we just clear the UI (pending
+  // invite notification, active modal, errors) rather than leaving stale state that
+  // would produce spurious errors when actions can no longer reach the server.
+  const reset = useCallback(() => {
+    setIncomingInvite(null);
+    setActiveMatch(null);
+    setView(null);
+    setEnded(null);
+    setLastError(null);
+    setTurnDeadline(null);
+    setPenalty(false);
+    setInviteOutcome(null);
+    setAccepting(false);
+    setOutgoing(null);
+  }, [setOutgoing]);
+
   return {
     incomingInvite,
     activeMatch,
@@ -322,14 +437,18 @@ export function useGameState(myUserId: number): GameState {
     turnWindowMs,
     penalty,
     inviteOutcome,
+    outgoingInvite,
     accepting,
     clearInviteOutcome,
     invite,
+    cancelInvite,
     acceptInvite,
     declineInvite,
+    sendAction,
     roll,
     forfeit,
     dismissEnded,
     clearError,
+    reset,
   };
 }

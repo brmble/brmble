@@ -25,7 +25,7 @@ public interface IGamePresence
     Task<bool> AreChallengesBlockedAsync(long sessionId);
 }
 
-public enum InviteRejectReason { None, Blocked }
+public enum InviteRejectReason { None, Blocked, ChannelBusy }
 
 public record InviteResult(bool Success, long MatchId, string? Error, InviteRejectReason Reason = InviteRejectReason.None);
 
@@ -81,7 +81,8 @@ public sealed class GameSessionManager
         public readonly object Lock = new();
     }
 
-    public async Task<InviteResult> InviteAsync(long inviterSession, long targetSession, string gameType)
+    public async Task<InviteResult> InviteAsync(long inviterSession, long targetSession, string gameType,
+        IReadOnlyDictionary<string, object?>? options = null)
     {
         if (inviterSession == targetSession)
             return new InviteResult(false, 0, "You cannot invite yourself.");
@@ -101,6 +102,11 @@ public sealed class GameSessionManager
         if (inviterChannel != targetChannel)
             return new InviteResult(false, 0, "You must be in the same channel to start a game.");
 
+        // One duel per channel: the spectator feed posts to the whole channel, so a
+        // second concurrent (or even pending) duel would interleave confusingly.
+        if (_matches.Values.Any(m => m.ChannelId == inviterChannel && m.Status != "done"))
+            return new InviteResult(false, 0, "A duel is already in progress in this channel.", InviteRejectReason.ChannelBusy);
+
         if (_userToMatch.ContainsKey(inviterSession))
             return new InviteResult(false, 0, "You already have an active game.");
 
@@ -114,7 +120,7 @@ public sealed class GameSessionManager
             MatchId = matchId,
             GameType = gameType,
             Engine = engine,
-            State = engine.InitialState(players, _rng),
+            State = engine.InitialState(players, _rng, options),
             Players = new[] { inviterSession, targetSession },
             SessionToUser = new Dictionary<long, long>
             {
@@ -142,6 +148,14 @@ public sealed class GameSessionManager
         await _publisher.PublishToUsersAsync(
             new HashSet<long> { targetUserId },
             new { type = "game.invited", matchId, gameType, from = inviterSession, inviteMs = (int)InviteTimeout.TotalMilliseconds });
+
+        // Tell the challenger their invite is pending so they can show a "waiting for
+        // opponent" notification and cancel it. The WebView client posts invites
+        // fire-and-forget (no response body), so this event is how it learns the
+        // matchId of its own outgoing invite.
+        await _publisher.PublishToUsersAsync(
+            new HashSet<long> { inviterUserId },
+            new { type = "game.invitePending", matchId, gameType, target = targetSession, inviteMs = (int)InviteTimeout.TotalMilliseconds });
 
         match.InviteTimer = new Timer(_ => OnInviteExpired(matchId), null, InviteTimeout, Timeout.InfiniteTimeSpan);
 
@@ -187,13 +201,15 @@ public sealed class GameSessionManager
                     type = "game.started",
                     matchId,
                     gameType = match.GameType,
-                    firstTurn = CurrentPlayer(match),
+                    firstTurn = IsSimultaneous(match) ? (long?)null : CurrentPlayer(match),
                     turnMs = (int)TurnTimeout.TotalMilliseconds,
                     penalty = false,
                     views,
                 });
-            await PublishFeedAsync(match,
-                $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started (ceiling {CeilingOf(match)})");
+            await PublishDuelStateAsync(match, active: true);
+            var startLine = match.Engine.StartFeedLine(match.State, sid => NameOf(match, sid))
+                ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
+            await PublishFeedAsync(match, startLine);
             StartTurnTimer(match, TurnTimeout);
         }
         else
@@ -248,8 +264,11 @@ public sealed class GameSessionManager
                 return;
             }
             finished = match.Engine.GetOutcome(match.State) is GameOutcome.Finished;
-            if (!finished) StartTurnTimer(match, TurnTimeout);
-            else DisposeTimers(match);
+            if (finished) DisposeTimers(match);
+            // Alternating games advance the turn every action, so the timer always
+            // restarts. Simultaneous games keep one commit window per round: only
+            // restart when a round actually resolved (both players committed).
+            else if (ShouldRestartTurnTimer(match, events)) StartTurnTimer(match, TurnTimeout);
             // Capture the snapshot inside the lock so a concurrent mutation can't
             // cause an inconsistent view to be broadcast.
             views = match.Players
@@ -294,6 +313,7 @@ public sealed class GameSessionManager
 
         IReadOnlyList<GameEvent> events;
         bool finished;
+        bool simultaneous;
         object[] views;
         lock (match.Lock)
         {
@@ -302,9 +322,13 @@ public sealed class GameSessionManager
             // this timeout firing and acquiring the lock. Don't penalise the new
             // current player for the previous player's inaction.
             if (Interlocked.Read(ref match.TurnGeneration) != generation) return;
+            simultaneous = IsSimultaneous(match);
             events = match.Engine.ApplyTimeoutPenalty(match.State, _rng);
             finished = match.Engine.GetOutcome(match.State) is GameOutcome.Finished;
-            if (!finished) StartTurnTimer(match, PenaltyTimeout);
+            // Alternating (Deathroll): escalate with a shorter 5s penalty window.
+            // Simultaneous (RPS): the round just resolved by timeout — the next round
+            // gets a full commit window.
+            if (!finished) StartTurnTimer(match, simultaneous ? TurnTimeout : PenaltyTimeout);
             else DisposeTimers(match);
             views = match.Players
                 .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
@@ -318,8 +342,8 @@ public sealed class GameSessionManager
                 type = "game.stateUpdated",
                 matchId,
                 gameType = match.GameType,
-                turnMs = (int)PenaltyTimeout.TotalMilliseconds,
-                penalty = true,
+                turnMs = (int)(simultaneous ? TurnTimeout : PenaltyTimeout).TotalMilliseconds,
+                penalty = !simultaneous,
                 views,
                 events = events.Select(e => new { e.Kind, e.Data }).ToArray(),
             });
@@ -351,7 +375,7 @@ public sealed class GameSessionManager
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
-            Format: "1v1",
+            Format: match.Engine.MatchFormat(match.State),
             Outcome: "decided",
             AbandonReason: null,
             StartedAt: match.StartedAt,
@@ -362,7 +386,6 @@ public sealed class GameSessionManager
         await _repository.SaveCompletedMatchAsync(completed);
 
         var winner = outcome.Participants.FirstOrDefault(p => p.Placement == 1);
-        var loser = outcome.Participants.FirstOrDefault(p => p.Placement == 2);
 
         // winner.UserId is still a Mumble session id here (translation to db ids
         // happens in persistedParticipants above), which is what the client compares
@@ -371,9 +394,12 @@ public sealed class GameSessionManager
             RouteSet(match),
             new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId });
 
-        var feedText = winner is not null && loser is not null
-            ? $"💀 {NameOf(match, loser.UserId)} rolled {loser.Score ?? 1} — {NameOf(match, winner.UserId)} wins!"
-            : $"💀 {GameName(match.GameType)} over.";
+        await PublishDuelStateAsync(match, active: false);
+
+        var feedText = match.Engine.EndFeedLine(match.State, sid => NameOf(match, sid))
+            ?? (winner is not null
+                ? $"🏆 {NameOf(match, winner.UserId)} wins!"
+                : $"{GameName(match.GameType)} over.");
         await PublishFeedAsync(match, feedText);
 
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
@@ -419,7 +445,7 @@ public sealed class GameSessionManager
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
-            Format: "1v1",
+            Format: match.Engine.MatchFormat(match.State),
             Outcome: "abandoned",
             AbandonReason: reason,
             StartedAt: match.StartedAt,
@@ -432,6 +458,8 @@ public sealed class GameSessionManager
         await _publisher.PublishToUsersAsync(
             RouteSet(match),
             new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
+
+        await PublishDuelStateAsync(match, active: false);
 
         await PublishFeedAsync(match,
             $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");
@@ -476,28 +504,41 @@ public sealed class GameSessionManager
             text,
         });
 
-    // Turns non-terminal engine events (rolls, timeout penalties) into feed lines.
-    // Terminal loss/forfeit lines are emitted by CompleteMatchAsync/ForfeitAsync.
+    // Turns non-terminal engine events (rolls, RPS rounds, timeout penalties) into
+    // feed lines using the engine's own wording. Terminal loss/forfeit lines are
+    // emitted by CompleteMatchAsync/ForfeitAsync.
     private async Task BroadcastRollFeedAsync(LiveMatch match, IReadOnlyList<GameEvent> events)
     {
         foreach (var e in events)
         {
-            string? text = e.Kind switch
-            {
-                "roll" => $"🎲 {NameOf(match, Convert.ToInt64(e.Data["userId"]))} rolled {e.Data["value"]} (1–{e.Data["ceiling"]})",
-                "penalty" when e.Data.ContainsKey("userId") =>
-                    $"🎲 {NameOf(match, Convert.ToInt64(e.Data["userId"]))} ran out of time — ceiling drops to {e.Data["ceiling"]}",
-                _ => null,
-            };
+            var text = match.Engine.EventFeedLine(e, sid => NameOf(match, sid));
             if (text is not null) await PublishFeedAsync(match, text);
         }
     }
 
+    // Signals the whole channel that a live duel started/ended so clients can show
+    // a "duel in progress" indicator. Only fired for actually-live matches.
+    private Task PublishDuelStateAsync(LiveMatch match, bool active)
+        => _publisher.PublishToChannelAsync(match.ChannelId, new
+        {
+            type = "game.duelState",
+            channelId = match.ChannelId,
+            gameType = match.GameType,
+            matchId = match.MatchId,
+            active,
+        });
+
+    private static bool IsSimultaneous(LiveMatch match)
+        => match.Engine.InteractionModel == InteractionModel.SimultaneousCommit;
+
+    // Whether an applied action should restart the turn timer. Alternating games
+    // advance the turn every action; simultaneous games keep one commit window per
+    // round and only restart when a round resolves (signalled by a roundResult event).
+    private static bool ShouldRestartTurnTimer(LiveMatch match, IReadOnlyList<GameEvent> events)
+        => !IsSimultaneous(match) || events.Any(e => e.Kind == "roundResult");
+
     private static string GameName(string gameType)
         => string.IsNullOrEmpty(gameType) ? gameType : char.ToUpperInvariant(gameType[0]) + gameType[1..];
-
-    private static int CeilingOf(LiveMatch match)
-        => match.Engine.CurrentCeiling(match.State) ?? 0;
 
     public bool TryGetActiveMatch(long userId, out long matchId)
         => _userToMatch.TryGetValue(userId, out matchId);

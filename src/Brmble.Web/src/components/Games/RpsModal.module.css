@@ -14,17 +14,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--space-2xs);
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-surface);
   border: var(--glass-border);
   border-radius: var(--radius-md);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.playerActive {
-  background: var(--bg-surface-active);
-  border-color: var(--accent-primary);
 }
 
 .playerName {
@@ -33,53 +28,60 @@
   color: var(--text-primary);
 }
 
-.playerTurn {
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.playerScore {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
   color: var(--accent-primary);
 }
 
-.board {
-  display: flex;
-  gap: var(--space-md);
-  margin-top: var(--space-lg);
-}
-
-.stat {
-  flex: 1;
+.status {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2xs);
-  padding: var(--space-md);
-  background: var(--bg-surface);
-  border: var(--glass-border);
-  border-radius: var(--radius-md);
+  margin-top: var(--space-lg);
 }
 
-.statLabel {
+.statusLabel {
   font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
-.statValue {
+.statusHint {
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+}
+
+.lastRound {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.lastRoundLabel {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.lastRoundPicks {
   font-family: var(--font-mono);
-  font-size: var(--text-2xl);
+  font-size: var(--text-lg);
   color: var(--text-primary);
 }
 
-.statCeiling {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xl);
-  color: var(--accent-primary);
-}
-
-/* Escalation: ceiling shrinks under timeout penalties — signal urgency. */
-.statCeilingPenalty {
-  color: var(--accent-danger);
+.lastRoundOutcome {
+  font-family: var(--font-body);
+  color: var(--text-secondary);
 }
 
 .countdown {
@@ -104,7 +106,6 @@
   transition: width var(--transition-fast) linear;
 }
 
-/* Escalation (5s penalty turns): draw attention with the danger token. */
 .countdownBarPenalty {
   background: var(--accent-danger);
 }
@@ -119,6 +120,30 @@
 
 .countdownLabelPenalty {
   color: var(--accent-danger-text);
+}
+
+.picks {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-md) var(--space-sm);
+}
+
+.pickSelected {
+  border-color: var(--accent-primary);
+}
+
+.pickLabel {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
 }
 
 .result {

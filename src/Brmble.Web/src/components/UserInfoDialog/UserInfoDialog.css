@@ -25,6 +25,37 @@
   margin-bottom: var(--space-lg);
 }
 
+.user-info-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-lg);
+}
+
+.user-info-tab {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.user-info-tab:hover {
+  background: var(--bg-hover);
+}
+
+.user-info-tab.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.user-info-head-to-head {
+  margin-bottom: var(--space-lg);
+}
+
 .user-info-avatar {
   display: flex;
   align-items: center;

@@ -121,6 +121,21 @@ internal sealed class GameService : IService
                     SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
                     break;
                 }
+                case "head-to-head":
+                {
+                    var opponentSession = data.TryGetProperty("opponentSession", out var oppEl)
+                        && oppEl.ValueKind == JsonValueKind.Number
+                        ? oppEl.GetInt64()
+                        : (long?)null;
+                    if (opponentSession is null)
+                    {
+                        SendResponse(requestId, false, null, 0, "Missing opponentSession for head-to-head request");
+                        return;
+                    }
+                    var result = await _getAsync(cert, new Uri(baseUri, $"games/head-to-head/{opponentSession}"));
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
                 default:
                     SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
                     break;
