@@ -82,3 +82,13 @@ Only the requested paint files, `Database.cs`, paint tests, the authorized `Prog
 - GREEN: `dotnet test tests\\Brmble.Server.Tests\\Brmble.Server.Tests.csproj --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests" --no-restore`: passed, 24/24.
 - `dotnet test Brmble.slnx --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests"`: passed, 24/24 selected server tests. Unrelated solution test assemblies report no filter matches; the pre-existing `CS0108` warning remains.
 - `git diff --check`: passed.
+
+## Expiry Cleanup Race Fix (2026-07-24)
+
+- When expiry persistence completes after activity resumes, the expiry path now removes the pending cleanup row before cancelling the expiry transition. Active sessions therefore do not retain a stale durable cleanup record.
+- Strengthened `Expire_DoesNotWinWhenActivityResumesDuringCleanupPersistence` to assert that no pending cleanup record remains.
+
+## Expiry Cleanup Race Fix Verification
+
+- `dotnet test Brmble.slnx --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests"`: passed, 24/24 selected server tests. Unrelated solution test assemblies report no filter matches; the pre-existing `CS0108` warning remains.
+- `git diff --check`: passed.

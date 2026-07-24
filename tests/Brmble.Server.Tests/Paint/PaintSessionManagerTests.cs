@@ -156,6 +156,7 @@ public sealed class PaintSessionManagerTests
         var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
         Assert.AreEqual(PaintSessionStatus.Active, snapshot.Status);
         Assert.IsFalse(fixture.Publisher.SentTypes.Contains(PaintEventNames.SessionExpired));
+        Assert.AreEqual(0, (await fixture.Cleanup.GetPendingAsync()).Count);
     }
 
     [TestMethod]

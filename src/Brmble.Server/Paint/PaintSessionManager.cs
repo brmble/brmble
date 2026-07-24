@@ -265,13 +265,23 @@ public sealed class PaintSessionManager(
                 await cleanupRepository.RecordPendingAsync(session.SessionId, roomId, cancellationToken);
 
                 long revision, generation;
-                Task publish;
+                var publish = Task.CompletedTask;
+                var expiryCancelled = false;
                 lock (session.Lock)
                 {
-                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.ActivityVersion != activityVersion || session.LastActivity + SessionTimeout > _utcNow()) continue;
-                    session.Status = PaintSessionStatus.Expired; session.Revision++; revision = session.Revision; generation = session.Generation;
-                    publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
-                        new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, revision, generation }));
+                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.ActivityVersion != activityVersion || session.LastActivity + SessionTimeout > _utcNow())
+                        expiryCancelled = true;
+                    else
+                    {
+                        session.Status = PaintSessionStatus.Expired; session.Revision++; revision = session.Revision; generation = session.Generation;
+                        publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                            new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, revision, generation }));
+                    }
+                }
+                if (expiryCancelled)
+                {
+                    await cleanupRepository.DeletePendingAsync(session.SessionId, roomId, cancellationToken);
+                    continue;
                 }
                 await publish;
             }

@@ -16,6 +16,15 @@ public class PaintRoomCleanupRepository(Database database)
             """, new { SessionId = sessionId.ToString(), MatrixRoomId = matrixRoomId, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
     }
 
+    public virtual async Task DeletePendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
+    {
+        using var connection = database.CreateConnection();
+        await connection.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM paint_room_cleanup
+            WHERE session_id = @SessionId AND matrix_room_id = @MatrixRoomId AND status = 'pending'
+            """, new { SessionId = sessionId.ToString(), MatrixRoomId = matrixRoomId }, cancellationToken: cancellationToken));
+    }
+
     public async Task MarkSucceededAsync(long id, CancellationToken cancellationToken = default)
     {
         using var connection = database.CreateConnection();
