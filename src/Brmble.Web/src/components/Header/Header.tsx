@@ -1,4 +1,5 @@
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
 import { UserPanel } from '../UserPanel/UserPanel';
 import { BrmbleLogo } from './BrmbleLogo';
 import bridge from '../../bridge';
@@ -48,9 +49,13 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
 
       <div className="header-right">
         {onStartPaint && (
-          <button type="button" className="header-paint-button" onClick={onStartPaint} disabled={!canStartPaint} title={activePaintSessionId ? 'A collaborative paint session is active' : 'Start collaborative paint'}>
-            Paint
-          </button>
+          <Tooltip content={activePaintSessionId ? 'A collaborative paint session is active' : 'Start collaborative paint'} position="bottom" align="end">
+            <span className="tooltip-wrapper">
+              <button type="button" className="header-paint-button" onClick={onStartPaint} disabled={!canStartPaint}>
+                Paint
+              </button>
+            </span>
+          </Tooltip>
         )}
         <UserPanel
           username={username}
