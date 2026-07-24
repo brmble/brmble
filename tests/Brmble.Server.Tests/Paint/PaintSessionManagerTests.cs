@@ -87,6 +87,28 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task NonHost_CannotActBeforeJoiningAndActivatesAfterSuccessfulJoin()
+    {
+        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
+        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
+
+        var beforeJoin = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.IsTrue(beforeJoin.Participants.Single(participant => participant.UserId == fixture.HostUserId).Active);
+        Assert.IsFalse(beforeJoin.Participants.Single(participant => participant.UserId == fixture.BobUserId).Active);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.CommitBobAsync());
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.Manager.PreviewAsync(fixture.SessionId, fixture.BobUserId,
+            new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
+                [new PaintPoint(0.1, 0.2, null)])));
+
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+        var joined = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+
+        Assert.IsTrue(joined.Participant.Active);
+        var commit = await fixture.CommitBobAsync();
+        Assert.AreEqual(fixture.BobUserId, commit.Stroke.AuthorUserId);
+    }
+
+    [TestMethod]
     public async Task End_WritesCleanupThenAttemptsRoomDeletion()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();

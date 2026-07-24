@@ -57,7 +57,8 @@ public sealed class PaintSessionManager(
         {
             if (!presence.TryGetParticipant(userId, out var participant) || participant.ChannelId != host.ChannelId)
                 throw new PaintAuthorizationException("Selected users must be connected to the host channel.");
-            participants[userId] = new PaintParticipant(userId, participant.MumbleSessionId, participant.MatrixUserId, true, userId == hostUserId);
+            participants[userId] = new PaintParticipant(userId, participant.MumbleSessionId, participant.MatrixUserId,
+                Selected: true, Active: userId == hostUserId);
         }
 
         var roomId = await matrixPaintService.CreatePaintRoomAsync($"Paint {host.ChannelId}", participants.Values.Select(p => p.MatrixUserId).ToArray(), cancellationToken);
