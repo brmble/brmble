@@ -142,6 +142,19 @@ public class Database
             CREATE INDEX IF NOT EXISTS ix_gmp_match_id ON game_match_participants(match_id);
             """);
 
+        conn.Execute("""
+            CREATE TABLE IF NOT EXISTS paint_room_cleanup (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                matrix_room_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """);
+
         // Migrate existing deployments: add matrix_access_token if the column is missing
         var hasMatrixToken = conn.ExecuteScalar<int>(
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
