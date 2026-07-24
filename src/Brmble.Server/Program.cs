@@ -112,6 +112,7 @@ app.MapDmEndpoints();
 app.MapAclAdminEndpoints();
 app.MapChannelRequestEndpoints();
 app.MapGameEndpoints();
+app.MapPaintEndpoints();
 app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();

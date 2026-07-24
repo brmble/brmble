@@ -2,16 +2,24 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Brmble.Server.Paint;
 
 namespace Brmble.Server.Events;
 
 public class BrmbleEventBus : IBrmbleEventBus
 {
     private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
+    private readonly ConcurrentDictionary<int, PaintChannelDelivery> _paintChannelDeliveries = new();
     private readonly ILogger<BrmbleEventBus> _logger;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ISessionMappingService _sessionMapping;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    private sealed class PaintChannelDelivery
+    {
+        public object Gate { get; } = new();
+        public Task Tail { get; set; } = Task.CompletedTask;
+    }
 
     public BrmbleEventBus(
         ILogger<BrmbleEventBus> logger,
@@ -60,6 +68,18 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public async Task BroadcastToChannelAsync(int channelId, object message)
     {
+        var eventType = message.GetType().GetProperty("type")?.GetValue(message) as string;
+        if (eventType is not null && eventType != PaintEventNames.PreviewUpdated && PaintEventNames.BroadcastEvents.Contains(eventType))
+        {
+            await BroadcastPaintPermanentToChannelAsync(channelId, message);
+            return;
+        }
+
+        await BroadcastToChannelUnorderedAsync(channelId, message);
+    }
+
+    private async Task BroadcastToChannelUnorderedAsync(int channelId, object message)
+    {
         var sessions = _channelMembership.GetSessionsInChannel(channelId);
         var userIds = new HashSet<long>();
         var snapshot = _sessionMapping.GetSnapshot();
@@ -95,6 +115,24 @@ public class BrmbleEventBus : IBrmbleEventBus
         });
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Paint mutations change durable canvas state, so clients must observe them in
+    /// channel order. A slow socket is removed by the normal send timeout rather
+    /// than allowing a later mutation to overtake a queued one.
+    /// </summary>
+    private Task BroadcastPaintPermanentToChannelAsync(int channelId, object message)
+    {
+        var delivery = _paintChannelDeliveries.GetOrAdd(channelId, _ => new PaintChannelDelivery());
+        lock (delivery.Gate)
+        {
+            delivery.Tail = delivery.Tail
+                .ContinueWith(_ => BroadcastToChannelUnorderedAsync(channelId, message), CancellationToken.None,
+                    TaskContinuationOptions.None, TaskScheduler.Default)
+                .Unwrap();
+            return delivery.Tail;
+        }
     }
 
     public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync()
