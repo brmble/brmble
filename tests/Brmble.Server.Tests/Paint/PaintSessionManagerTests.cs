@@ -123,6 +123,23 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task EndAndExpire_PersistCleanupBeforePublishingStateChange()
+    {
+        var endedFixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        endedFixture.Publisher.BeforePermanentPublish = async () =>
+            Assert.AreEqual(1, (await endedFixture.Cleanup.GetPendingAsync()).Count);
+
+        await endedFixture.Manager.EndAsync(endedFixture.SessionId, endedFixture.HostUserId);
+
+        var expiredFixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        expiredFixture.Now = expiredFixture.Now.AddMinutes(30);
+        expiredFixture.Publisher.BeforePermanentPublish = async () =>
+            Assert.AreEqual(1, (await expiredFixture.Cleanup.GetPendingAsync()).Count);
+
+        await expiredFixture.Manager.ExpireInactiveForTestAsync();
+    }
+
+    [TestMethod]
     public async Task Preview_BackpressureMaySkipPreviewButNeverPreventsCommit()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
@@ -247,6 +264,7 @@ public sealed class PaintSessionManagerTests
         public void BlockNextPermanentEvent() => _blockNextPermanentEvent = true;
         public Task WaitUntilBlockedAsync() => _blocked.Task;
         public void ReleaseBlockedEvent() => _release.TrySetResult();
+        public Func<Task>? BeforePermanentPublish { get; set; }
 
         public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => PublishAsync(message);
         public Task PublishToChannelAsync(int channelId, object message) => PublishAsync(message);
@@ -256,6 +274,7 @@ public sealed class PaintSessionManagerTests
             var type = ReadType(message);
             if (!string.Equals(type, PaintEventNames.PreviewUpdated, StringComparison.Ordinal))
             {
+                if (BeforePermanentPublish is not null) await BeforePermanentPublish();
                 if (_blockNextPermanentEvent)
                 {
                     _blockNextPermanentEvent = false;

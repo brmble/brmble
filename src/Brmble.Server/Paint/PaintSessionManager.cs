@@ -201,15 +201,17 @@ public sealed class PaintSessionManager(
 
     public async Task<PaintSessionEndedResult> EndAsync(Guid sessionId, long userId, CancellationToken cancellationToken = default)
     {
-        var session = GetSession(sessionId); long revision, generation; string roomId; Task publish;
+        var session = GetSession(sessionId); long revision, generation; string roomId;
         lock (session.Lock)
         {
             RequireHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation; roomId = session.MatrixRoomId;
-            publish = EnqueuePermanentPublish(session, async () =>
-            {
-                await cleanupRepository.RecordPendingAsync(sessionId, roomId, cancellationToken);
-                await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionEnded, sessionId, revision, generation });
-            });
+        }
+        await cleanupRepository.RecordPendingAsync(sessionId, roomId, cancellationToken);
+        Task publish;
+        lock (session.Lock)
+        {
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.SessionEnded, sessionId, revision, generation }));
         }
         await publish;
         await TryCleanupAsync(roomId, cancellationToken);
@@ -233,18 +235,18 @@ public sealed class PaintSessionManager(
     {
         foreach (var session in _sessions.Values)
         {
-            string? roomId = null; long revision = 0; long generation = 0; Task? publish = null;
+            string? roomId = null; long revision = 0; long generation = 0;
             lock (session.Lock)
             {
                 if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.LastActivity + SessionTimeout > _utcNow()) continue;
                 session.Status = PaintSessionStatus.Expired; session.Revision++; roomId = session.MatrixRoomId; revision = session.Revision; generation = session.Generation;
-                var sessionId = session.SessionId;
-                var eventRoomId = roomId;
-                publish = EnqueuePermanentPublish(session, async () =>
-                {
-                    await cleanupRepository.RecordPendingAsync(sessionId, eventRoomId, cancellationToken);
-                    await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionExpired, sessionId, revision, generation });
-                });
+            }
+            await cleanupRepository.RecordPendingAsync(session.SessionId, roomId!, cancellationToken);
+            Task publish;
+            lock (session.Lock)
+            {
+                publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                    new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, revision, generation }));
             }
             await publish;
         }
