@@ -52,6 +52,8 @@ interface ChatPanelProps {
   typingTargetId?: string;
   onTypingStart?: (targetId: string) => void | Promise<void>;
   onTypingStop?: (targetId: string) => void | Promise<void>;
+  currentUserId?: number;
+  onJoinPaint?: (sessionId: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -59,7 +61,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, onJoinPaint }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -999,6 +1001,8 @@ const [replyState, setReplyState] = useState<{
                     currentUserMatrixId={currentUserMatrixId}
                     onToggleReaction={(messageId, emoji, isReacted) => onToggleReaction?.(channelId || '', messageId, emoji, isReacted)}
                     edited={item.message.edited}
+                    currentUserId={currentUserId}
+                    onJoinPaint={onJoinPaint}
                   />
                 </Fragment>
                 );

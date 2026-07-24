@@ -19,6 +19,7 @@ describe('PaintSessionSetupModal', () => {
       channelId={5}
       channelRoomId="!channel:server"
       candidates={[{ userId: 2, name: 'Bob' }]}
+      hostUserId={7}
       paintApi={paintApi}
       matrixClient={matrixClient}
       onAttachSource={attachSource}
@@ -32,6 +33,9 @@ describe('PaintSessionSetupModal', () => {
     expect(matrixClient.joinRoom).toHaveBeenCalledWith('!paint:server');
     expect(matrixClient.sendMessage).toHaveBeenCalledWith('!paint:server', expect.objectContaining({ msgtype: 'm.image' }));
     expect(attachSource).toHaveBeenCalledWith('session-1', '$source');
-    expect(matrixClient.sendMessage).toHaveBeenCalledWith('!channel:server', expect.objectContaining({ 'com.brmble.paint': expect.objectContaining({ sessionId: 'session-1' }) }));
+    expect(matrixClient.sendMessage).toHaveBeenCalledWith('!channel:server', expect.objectContaining({
+      body: expect.stringContaining('[brmble-paint]'),
+      'com.brmble.paint': expect.objectContaining({ sessionId: 'session-1', hostUserId: 7 }),
+    }));
   });
 });

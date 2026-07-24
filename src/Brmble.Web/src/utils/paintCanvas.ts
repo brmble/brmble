@@ -1,4 +1,4 @@
-import type { PaintSource, PaintStroke } from '../types/paint';
+import type { PaintSource, PaintStroke, PaintStrokeInput } from '../types/paint';
 
 export function normalizeCanvasPoint(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
   const clamp = (value: number) => Math.min(1, Math.max(0, value));
@@ -8,7 +8,7 @@ export function normalizeCanvasPoint(clientX: number, clientY: number, rect: DOM
   };
 }
 
-export function applyPaintStrokeToContext(ctx: CanvasRenderingContext2D, width: number, height: number, stroke: PaintStroke): void {
+export function applyPaintStrokeToContext(ctx: CanvasRenderingContext2D, width: number, height: number, stroke: PaintStrokeInput | PaintStroke): void {
   const first = stroke.points[0];
   if (!first) return;
   ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';

@@ -20,6 +20,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
 import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
+import { PaintSessionView } from './components/Paint/PaintSessionView';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -4277,6 +4278,7 @@ const handleConnect = (serverData: SavedServer) => {
           channelId={paintChannelId}
           channelRoomId={paintChannelRoomId}
           candidates={paintCandidates}
+          hostUserId={selfSession}
           paintApi={paintApi}
           matrixClient={matrixClient.client}
           onAttachSource={paintApi.attachSource}
@@ -4344,7 +4346,15 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            showGame ? (
+            activePaintSessionId ? (
+              <PaintSessionView
+                sessionId={activePaintSessionId}
+                currentUserId={selfSession}
+                matrixClient={matrixClient.client}
+                channelRoomMap={matrixCredentials?.roomMap}
+                onClose={() => setActivePaintSessionId(null)}
+              />
+            ) : showGame ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
@@ -4372,6 +4382,8 @@ const handleConnect = (serverData: SavedServer) => {
                      typingTargetId={activeChannelId ?? undefined}
                      onTypingStart={matrixClient.startTyping}
                      onTypingStop={matrixClient.stopTyping}
+                     currentUserId={selfSession}
+                     onJoinPaint={(sessionId) => { void paintApi.join(sessionId).then(() => setActivePaintSessionId(sessionId)); }}
                   />
                   </ErrorBoundary>
                 </div>

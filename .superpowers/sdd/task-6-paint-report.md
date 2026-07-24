@@ -27,3 +27,15 @@ The current Task 5 `paintApi.createSession` mutation returns `void`, although th
 - RED: `npm.cmd run test -- src/api/paint.test.ts` failed as expected before the API change: browser create resolved to `undefined` and the bridge mutation had no `requestId`.
 - `npm.cmd run test -- src/api/paint.test.ts src/components/Paint` passed: 4 files, 16 tests, 0 failures. Vitest printed the pre-existing jsdom canvas `getContext` not-implemented notices from `PaintEditor` tests.
 - `npm.cmd run type-check` passed with exit code 0.
+
+## Final wiring pass
+
+- Added the app-level paint session view, backed by `usePaintSession`, for both newly created sessions and invitation-card joins. It forwards live previews to the editor and saves the composed PNG to the session's original Matrix channel.
+- Serialized the invitation metadata into the message body consumed by persistent chat history, retained structured Matrix metadata, and supplied the actual host session ID.
+- The invitation card now resolves status from the live session snapshot before exposing a join action. The editor redraws committed strokes and live previews after asynchronous source initialization, including updates received while the image is loading.
+- Focused regressions cover the invitation parser/setup metadata, current card status, and source-load redraw with previews.
+
+## Final verification
+
+- `npm.cmd run test -- src/utils/parseMessageMedia.test.ts src/components/Paint/PaintSessionSetupModal.test.tsx src/components/Paint/PaintSessionCard.test.tsx src/components/Paint/PaintEditor.test.tsx src/hooks/usePaintSession.test.tsx` passed: 5 files, 35 tests, 0 failures.
+- `npm.cmd run type-check` passed with exit code 0.
