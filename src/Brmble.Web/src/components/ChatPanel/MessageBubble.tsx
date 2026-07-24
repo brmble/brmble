@@ -9,6 +9,8 @@ import { ImageLightbox } from './ImageLightbox';
 import { LinkPreview } from './LinkPreview';
 import Avatar from '../Avatar/Avatar';
 import { Tooltip } from '../Tooltip/Tooltip';
+import { parsePaintInvitation } from '../../utils/parseMessageMedia';
+import { PaintSessionCard } from '../Paint/PaintSessionCard';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -46,6 +48,8 @@ interface MessageBubbleProps {
   currentUserMatrixId?: string;
   onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
   edited?: boolean;
+  currentUserId?: number;
+  onJoinPaint?: (sessionId: string) => void;
 }
 
 /** Highlight search matches within a plain-text string, returning React nodes. */
@@ -149,7 +153,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, currentUserId, onJoinPaint, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -196,6 +200,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
   }
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
+  const paintInvitation = parsePaintInvitation(content);
   const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
   const canJumpToReply = Boolean(hasReplyPreview && replyToEventId && onReplyClick);
   const replyPreviewLabel = `Jump to replied message from ${replyToSender ?? 'unknown sender'}: ${replyToContent ?? 'empty message'}`;
@@ -251,6 +256,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
           )
         )}
         {content && (
+          paintInvitation ? <PaintSessionCard session={paintInvitation} canJoin={currentUserId === paintInvitation.hostUserId || paintInvitation.participantUserIds.includes(currentUserId ?? -1)} onJoin={() => onJoinPaint?.(paintInvitation.sessionId)} /> :
           html ? (
             <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (

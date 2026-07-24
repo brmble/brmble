@@ -1,0 +1,1 @@
+.paint-session-card { display:grid; gap:6px; max-width:320px; padding:12px; border:1px solid var(--accent-primary); border-radius:10px; background:var(--bg-secondary); }.paint-session-card button { width:max-content; }
