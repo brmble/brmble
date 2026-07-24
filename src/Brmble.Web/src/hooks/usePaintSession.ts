@@ -34,9 +34,11 @@ export function usePaintSession(sessionId: string) {
   const [snapshot, setSnapshot] = useState<PaintSessionSnapshot | null>(null);
   const [previews, setPreviews] = useState<PaintPreview[]>([]);
   const snapshotRef = useRef<PaintSessionSnapshot | null>(null);
+  const unavailableSessionIdRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await paintApi.getSnapshot(sessionId);
+    if (unavailableSessionIdRef.current === sessionId) return;
     snapshotRef.current = next;
     setSnapshot(next);
     setPreviews([]);
@@ -88,7 +90,7 @@ export function usePaintSession(sessionId: string) {
       }),
       'paint.sourceAttached': data => {
         const event = data as PaintPermanentEvent & { source: PaintSessionSnapshot['source'] };
-        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: 'active', source: event.source }));
+        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: 'active', sourceEventId: event.source?.sourceEventId ?? current.sourceEventId, source: event.source }));
       },
       'paint.participantJoined': data => {
         const event = data as PaintPermanentEvent & { participant: PaintParticipant };
@@ -109,6 +111,7 @@ export function usePaintSession(sessionId: string) {
       'paint.sessionUnavailable': data => {
         const event = data as PaintPermanentEvent;
         if (!isCurrentSession(event)) return;
+        unavailableSessionIdRef.current = sessionId;
         const next = snapshotRef.current
           ? { ...snapshotRef.current, revision: event.revision, generation: event.generation, status: 'unavailable' as const }
           : unavailableSnapshot(sessionId, event);

@@ -126,6 +126,7 @@ describe('usePaintSession', () => {
     expect(harness.result.current.snapshot).toMatchObject({
       status: 'active',
       revision: 1,
+      sourceEventId: 'source-1',
       source: { sourceEventId: 'source-1' },
     });
   });
@@ -169,6 +170,29 @@ describe('usePaintSession', () => {
       revision: 0,
       generation: 0,
     }));
+
+    expect(hook.result.current.snapshot).toMatchObject({
+      sessionId,
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    });
+  });
+
+  it('does not restore a snapshot that resolves after an unavailable event', async () => {
+    let resolveSnapshot: (snapshot: ReturnType<typeof initialSnapshot>) => void = () => {};
+    vi.mocked(paintApi.paintApi.getSnapshot).mockImplementationOnce(() => new Promise(resolve => {
+      resolveSnapshot = resolve;
+    }));
+    const hook = renderHook(() => usePaintSession(sessionId));
+
+    act(() => handlers.get('paint.sessionUnavailable')?.({
+      sessionId,
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    }));
+    await act(async () => { resolveSnapshot(initialSnapshot({ status: 'active' })); });
 
     expect(hook.result.current.snapshot).toMatchObject({
       sessionId,
