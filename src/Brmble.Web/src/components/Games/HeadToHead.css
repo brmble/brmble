@@ -1,0 +1,98 @@
+.head-to-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.head-to-head-message {
+  padding: var(--space-md);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.head-to-head-error {
+  color: var(--accent-danger);
+}
+
+.head-to-head-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm);
+}
+
+.head-to-head-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-md) var(--space-sm);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.head-to-head-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+}
+
+.head-to-head-label {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.head-to-head-ratio {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.head-to-head-ratio-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--accent-primary);
+}
+
+.head-to-head-ratio-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.head-to-head-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.head-to-head-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.head-to-head-breakdown-game {
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.head-to-head-breakdown-record {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

@@ -8,6 +8,7 @@ public static class GamesExtensions
     {
         services.AddSingleton<IRandomSource, CryptoRandomSource>();
         services.AddSingleton<IGameEngine, DeathrollEngine>();
+        services.AddSingleton<IGameEngine, RpsEngine>();
         services.AddSingleton<GameRepository>();
         services.AddSingleton<GameStatsService>();
         services.AddSingleton<IGamePresence, SessionMappingGamePresence>();

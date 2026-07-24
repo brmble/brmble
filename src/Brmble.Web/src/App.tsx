@@ -39,6 +39,7 @@ import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
+import { RpsModal } from './components/Games/RpsModal';
 import { useGameState } from './components/Games/useGameState';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -941,6 +942,10 @@ function App() {
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
+  // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
+  // latest game actions without being in their dependency arrays.
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
   const resolveGamePlayerName = useCallback(
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
     [],
@@ -974,6 +979,30 @@ function App() {
     if (gameState.lastError) notifQueueRef.current.register('game-error', 'error');
     else notifQueueRef.current.unregister('game-error');
   }, [gameState.lastError]);
+  useEffect(() => {
+    if (gameState.outgoingInvite) notifQueueRef.current.register('game-pending', 'info', 2);
+    else notifQueueRef.current.unregister('game-pending');
+  }, [gameState.outgoingInvite]);
+  // Channels with a live duel — drives the swords badge on channel rows. Sourced
+  // from the server's channel-scoped `game.duelState` events (active true/false).
+  const [duelChannelIds, setDuelChannelIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const handleDuelState = (data: unknown) => {
+      const d = data as { channelId?: number; active?: boolean };
+      if (d.channelId == null) return;
+      setDuelChannelIds(prev => {
+        const has = prev.has(d.channelId!);
+        if (d.active && has) return prev;
+        if (!d.active && !has) return prev;
+        const next = new Set(prev);
+        if (d.active) next.add(d.channelId!);
+        else next.delete(d.channelId!);
+        return next;
+      });
+    };
+    bridge.on('game.duelState', handleDuelState);
+    return () => bridge.off('game.duelState', handleDuelState);
+  }, []);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
   const hasMatrixCredentialsForSessionRef = useRef(false);
@@ -1838,6 +1867,12 @@ function App() {
       setSelfCanRejoin(false);
       setSelfSession(0);
       setSpeakingUsers(new Map());
+      // Clear any in-flight game state (pending invite notification, active match,
+      // errors) so a dropped/kicked connection doesn't leave a stale challenge that
+      // would produce a spurious "Not connected" error when Accept can no longer
+      // reach the server. The server tears the match down on its side.
+      gameStateRef.current.reset();
+      setDuelChannelIds(new Set());
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);
@@ -3232,7 +3267,13 @@ const handleConnect = (serverData: SavedServer) => {
         setSelfLeftVoice(false);
         setSelfCanRejoin(false);
         setSelfSession(0);
-        setSpeakingUsers(new Map());
+      setSpeakingUsers(new Map());
+      // Clear any in-flight game state (pending invite, active match, errors) so a
+      // disconnect doesn't leave a stale challenge notification or produce spurious
+      // errors when actions can no longer reach the server. The server tears the
+      // match down on its side, so this is purely a local UI reset.
+      gameStateRef.current.reset();
+      setDuelChannelIds(new Set());
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setBrmbleDMUsers([]);
@@ -4232,6 +4273,8 @@ const handleConnect = (serverData: SavedServer) => {
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
           onChallengeDeathroll={(session) => gameState.invite(session)}
+          onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
+          duelChannelIds={duelChannelIds}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -4432,18 +4475,34 @@ const handleConnect = (serverData: SavedServer) => {
       />
 
       {(gameState.activeMatch || gameState.ended) && (
-        <DeathrollModal
-          view={gameState.view}
-          ended={gameState.ended}
-          myUserId={selfSession}
-          turnDeadline={gameState.turnDeadline}
-          turnWindowMs={gameState.turnWindowMs}
-          penalty={gameState.penalty}
-          resolveName={resolveGamePlayerName}
-          onRoll={gameState.roll}
-          onForfeit={confirmForfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-        />
+        (gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
+          <RpsModal
+            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onPick={(pick) => gameState.sendAction({ pick })}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          />
+        ) : (
+          <DeathrollModal
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onRoll={gameState.roll}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          />
+        )
       )}
 
       <div className="notification-stack">
@@ -4454,8 +4513,8 @@ const handleConnect = (serverData: SavedServer) => {
             duration={null}
             countdownMs={gameState.incomingInvite.inviteMs ?? 30000}
             visible={!!gameState.incomingInvite}
-            title="Deathroll challenge"
-            detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to Deathroll.`}
+            title={`${gameDisplayName(gameState.incomingInvite.gameType)} challenge`}
+            detail={`${resolveGamePlayerName(gameState.incomingInvite.from)} challenged you to ${gameDisplayName(gameState.incomingInvite.gameType)}.`}
             actions={
               <button
                 className="btn btn-sm btn-primary"
@@ -4469,11 +4528,35 @@ const handleConnect = (serverData: SavedServer) => {
             onExited={() => notifQueue.unregister('game-invite')}
           />
         )}
+        {gameState.outgoingInvite && notifQueue.isVisible('game-pending') && (
+          <Notification
+            status="info"
+            position="top-right"
+            duration={null}
+            countdownMs={gameState.outgoingInvite.inviteMs ?? 30000}
+            visible={!!gameState.outgoingInvite}
+            title={gameState.outgoingInvite.canceling ? 'Canceling challenge' : 'Waiting for opponent'}
+            detail={gameState.outgoingInvite.canceling
+              ? `Canceling your ${gameDisplayName(gameState.outgoingInvite.gameType)} challenge to ${resolveGamePlayerName(gameState.outgoingInvite.targetSession)}\u2026`
+              : `${resolveGamePlayerName(gameState.outgoingInvite.targetSession)} was challenged to ${gameDisplayName(gameState.outgoingInvite.gameType)}.`}
+            actions={
+              <button
+                className="btn btn-sm btn-danger"
+                onClick={() => gameState.cancelInvite()}
+                disabled={gameState.outgoingInvite.canceling}
+              >
+                Cancel
+              </button>
+            }
+            onDismiss={() => gameState.cancelInvite()}
+            onExited={() => notifQueue.unregister('game-pending')}
+          />
+        )}
         {gameState.inviteOutcome && notifQueue.isVisible('game-outcome') && (() => {
           const o = gameState.inviteOutcome;
           const name = o.targetSession != null ? resolveGamePlayerName(o.targetSession) : 'The player';
           const copy = o.kind === 'declined'
-            ? { title: 'Challenge declined', detail: `${name} declined your Deathroll challenge.` }
+            ? { title: 'Challenge declined', detail: `${name} declined your challenge.` }
             : o.kind === 'expired'
               ? { title: 'No response', detail: `${name} didn't respond to your challenge.` }
               : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };

@@ -40,7 +40,7 @@ public class GameSessionManagerTests
 {
     private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
     {
-        var engines = new IGameEngine[] { new DeathrollEngine() };
+        var engines = new IGameEngine[] { new DeathrollEngine(), new RpsEngine() };
         return new GameSessionManager(engines, new HalvingRandom(), presence, pub, repo);
     }
 
@@ -51,6 +51,43 @@ public class GameSessionManagerTests
         sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.feed")
             .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
             .ToList();
+
+    // The `draw` flag of a game.ended message, or null if none was sent.
+    private static bool? EndedDraw(IEnumerable<(string kind, object msg)> sent)
+    {
+        var ended = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.ended");
+        if (ended.msg is null) return null;
+        return ended.msg.GetType().GetProperty("draw")?.GetValue(ended.msg) as bool?;
+    }
+
+    // The `active` flag of every game.duelState published to a channel, in order.
+    private static List<bool> DuelStates(IEnumerable<(string kind, object msg)> sent) =>
+        sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.duelState")
+            .Select(s => (bool)(s.msg.GetType().GetProperty("active")?.GetValue(s.msg) ?? false))
+            .ToList();
+
+    // The `turnStarted` flag of the most recent game.stateUpdated, or null if none.
+    private static bool? LastTurnStarted(IEnumerable<(string kind, object msg)> sent)
+    {
+        var upd = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.stateUpdated");
+        if (upd.msg is null) return null;
+        return upd.msg.GetType().GetProperty("turnStarted")?.GetValue(upd.msg) as bool?;
+    }
+
+    [TestMethod]
+    public async Task Invite_NotifiesInviter_WithPendingEvent()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        await mgr.InviteAsync(10, 20, "deathroll");
+
+        Assert.IsTrue(SentType(pub.Sent, "game.invited"), "target should be invited");
+        Assert.IsTrue(SentType(pub.Sent, "game.invitePending"), "inviter should get a pending event");
+    }
 
     [TestMethod]
     public async Task ExplicitDecline_EmitsGameDeclined()
@@ -82,6 +119,57 @@ public class GameSessionManagerTests
 
         Assert.IsTrue(SentType(pub.Sent, "game.expired"));
         Assert.IsFalse(SentType(pub.Sent, "game.declined"));
+    }
+
+    [TestMethod]
+    public async Task Invite_MarksChannelBusy_WithActiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        await mgr.InviteAsync(10, 20, "deathroll");
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.Count > 0, "invite should publish a duelState");
+        Assert.IsTrue(states[0], "a pending invite should mark the channel busy (active: true)");
+    }
+
+    [TestMethod]
+    public async Task Decline_ClearsChannelBusy_WithInactiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.Count >= 2, "invite then decline should publish two duelStates");
+        Assert.IsTrue(states.First(), "invite marks the channel busy");
+        Assert.IsFalse(states.Last(), "decline clears the channel-busy badge (active: false)");
+    }
+
+    [TestMethod]
+    public async Task InviteExpiry_ClearsChannelBusy_WithInactiveDuelState()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "deathroll");
+        await mgr.ExpireInviteForTestAsync(invite.MatchId);
+
+        var states = DuelStates(pub.Sent);
+        Assert.IsTrue(states.First(), "invite marks the channel busy");
+        Assert.IsFalse(states.Last(), "expiry clears the channel-busy badge (active: false)");
     }
 
     [TestMethod]
@@ -263,6 +351,63 @@ public class GameSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Rps_SimultaneousMatch_PlaysToCompletion_PersistsAndFeeds()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var repo = GameTestHelpers.NewRepo();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        Assert.IsTrue(invite.Success);
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // Both players commit each round; session 10 (rock) always beats 20 (scissors),
+        // so 10 takes the best-of-3 in two decisive rounds.
+        for (var round = 0; round < 2 && mgr.IsMatchLive(invite.MatchId); round++)
+        {
+            await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsFalse(mgr.IsMatchLive(invite.MatchId), "match should be decided after two rounds");
+
+        var feed = FeedTexts(pub.Sent);
+        Assert.IsTrue(feed.Any(t => t.Contains("started")), "expected a start feed line");
+        Assert.IsTrue(feed.Any(t => t.StartsWith("✊")), "expected round feed lines");
+        Assert.AreEqual(1, feed.Count(t => t.StartsWith("🏆")), "expected one terminal feed line");
+
+        var s10 = await repo.GetUserStatsAsync(10, "rps");
+        var s20 = await repo.GetUserStatsAsync(20, "rps");
+        Assert.AreEqual(1, s10.GamesPlayed);
+        Assert.AreEqual(1, s20.GamesPlayed);
+        Assert.AreEqual(1, s10.Wins);
+        Assert.AreEqual(0, s20.Wins);
+    }
+
+    [TestMethod]
+    public async Task Invite_RejectsSecondDuelInSameChannel_WithChannelBusyReason()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        presence.Users[30] = (1, true, 30);
+        presence.Users[40] = (1, true, 40);
+        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
+
+        // A pending invite already occupies the channel's single duel slot.
+        var first = await mgr.InviteAsync(10, 20, "deathroll");
+        Assert.IsTrue(first.Success);
+
+        var second = await mgr.InviteAsync(30, 40, "deathroll");
+        Assert.IsFalse(second.Success);
+        Assert.AreEqual(InviteRejectReason.ChannelBusy, second.Reason);
+    }
+
+    [TestMethod]
     public async Task Forfeit_PendingInvite_CancelsWithoutPersisting()
     {
         var presence = new FakePresence();
@@ -284,5 +429,59 @@ public class GameSessionManagerTests
         using var conn = db.CreateConnection();
         var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
         Assert.AreEqual(0, matches, "a cancelled pending invite must not be persisted");
+    }
+
+    [TestMethod]
+    public async Task Rps_FirstPickDoesNotRestartSharedWindow()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // First player commits — the shared 15s window must NOT restart, so the
+        // opponent keeps their remaining time instead of getting a fresh 15s.
+        await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.AreEqual(false, LastTurnStarted(pub.Sent),
+            "first pick in a simultaneous round must not restart the commit window");
+
+        // Second player commits — the round resolves and the next window opens.
+        await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        Assert.AreEqual(true, LastTurnStarted(pub.Sent),
+            "resolving the round starts a fresh commit window");
+    }
+
+    [TestMethod]
+    public async Task Rps_BothIdleTwice_EndsAsDraw_PersistsAndFlags()
+    {
+        var presence = new FakePresence();
+        presence.Users[10] = (1, true, 10);
+        presence.Users[20] = (1, true, 20);
+        var repo = GameTestHelpers.NewRepo();
+        var pub = new FakePublisher();
+        var mgr = NewManager(presence, pub, repo);
+
+        var invite = await mgr.InviteAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 3 });
+        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+
+        // Both players go AFK for two consecutive rounds.
+        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
+        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
+
+        Assert.IsTrue(SentType(pub.Sent, "game.ended"), "match should end");
+        Assert.AreEqual(true, EndedDraw(pub.Sent), "game.ended should carry draw: true");
+
+        var s10 = await repo.GetUserStatsAsync(10, "rps");
+        var s20 = await repo.GetUserStatsAsync(20, "rps");
+        Assert.AreEqual(1, s10.Draws, "player 10 records a draw");
+        Assert.AreEqual(1, s20.Draws, "player 20 records a draw");
+        Assert.AreEqual(0, s10.Wins);
+        Assert.AreEqual(0, s20.Wins);
     }
 }

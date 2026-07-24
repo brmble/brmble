@@ -57,6 +57,9 @@ interface ChannelTreeProps {
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
   onChallengeDeathroll?: (session: number) => void;
+  onChallengeRps?: (session: number, bestOf: number) => void;
+  /** Channels with an active/pending duel — shows a swords badge on the row. */
+  duelChannelIds?: Set<number>;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -88,7 +91,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -383,6 +386,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
               </span>
             </Tooltip>
           )}
+          {duelChannelIds?.has(channel.id) && (
+            <Tooltip content="Duel in progress">
+              <span className="channel-duel-icon" aria-label="Duel in progress">
+                <Icon name="swords" size={12} stroke="var(--accent-primary)" />
+              </span>
+            </Tooltip>
+          )}
         </div>
         
         {isExpanded && (
@@ -608,13 +618,13 @@ onClick: () => {
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             ...(() => {
-              if (contextMenu.isSelf || !onChallengeDeathroll) return [];
+              if (contextMenu.isSelf || !onChallengeDeathroll || !onChallengeRps) return [];
               const target = users.find(u => u.session === parseInt(contextMenu.userId));
               const eligible = !!target?.isBrmbleClient
                 && contextMenu.channelId != null
                 && contextMenu.channelId === currentChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll)];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps)];
             })(),
             {
               type: 'item' as const,

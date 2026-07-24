@@ -22,7 +22,13 @@ public interface IGameEngine
     InteractionModel InteractionModel { get; }
 
     // Creates the initial opaque state for a match with the given ordered players.
-    object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng);
+    // `options` carries optional match parameters supplied with the invite (e.g. RPS
+    // best-of-N). Engines that need no options ignore it. Default overload keeps
+    // existing engines/tests source-compatible.
+    object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng)
+        => InitialState(players, rng, null);
+    object InitialState(IReadOnlyList<GamePlayer> players, IRandomSource rng, IReadOnlyDictionary<string, object?>? options)
+        => InitialState(players, rng);
 
     // Returns true if it is this user's turn (alternating games).
     bool IsUsersTurn(object state, long userId);
@@ -49,6 +55,25 @@ public interface IGameEngine
     // Current ceiling/upper-bound for games that have one (e.g. Deathroll), used
     // for feed lines. Returns null when the game has no such concept. Default: none.
     int? CurrentCeiling(object state) => null;
+
+    // --- Engine-driven spectator feed lines ---------------------------------
+    // These let each engine own its feed wording so GameSessionManager stays
+    // game-neutral. `nameOf` resolves a session id to a display name. Returning
+    // null falls back to the manager's generic line.
+
+    // Line broadcast when the match starts (after accept). Default: none.
+    string? StartFeedLine(object state, Func<long, string> nameOf) => null;
+
+    // Line for a non-terminal in-play event (a roll, a resolved RPS round, a
+    // timeout penalty). Returning null suppresses a feed line for that event.
+    string? EventFeedLine(GameEvent e, Func<long, string> nameOf) => null;
+
+    // Line broadcast when the match ends normally (decided). Default: none.
+    string? EndFeedLine(object state, Func<long, string> nameOf) => null;
+
+    // Persisted match format tag (game_matches.format), e.g. "1v1" or "bo3".
+    // Default: "1v1".
+    string MatchFormat(object state) => "1v1";
 }
 
 public sealed class InvalidGameActionException : Exception

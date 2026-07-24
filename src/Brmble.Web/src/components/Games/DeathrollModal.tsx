@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../Icon/Icon';
-import type { DeathrollView, EndedMatch } from './useGameState';
+import type { DeathrollView, EndedMatch, GameView } from './useGameState';
+import { isRpsView } from './useGameState';
+import { HeadToHead } from './HeadToHead';
 import styles from './DeathrollModal.module.css';
 
 interface DeathrollModalProps {
-  view: DeathrollView | null;
+  view: GameView | null;
   ended: EndedMatch | null;
   myUserId: number;
   turnDeadline: number | null;
@@ -17,7 +19,7 @@ interface DeathrollModalProps {
 }
 
 export function DeathrollModal({
-  view,
+  view: rawView,
   ended,
   myUserId,
   turnDeadline,
@@ -29,6 +31,8 @@ export function DeathrollModal({
   onClose,
 }: DeathrollModalProps) {
   const [now, setNow] = useState(() => Date.now());
+  // This modal only understands the Deathroll view shape; ignore any other.
+  const view: DeathrollView | null = rawView && !isRpsView(rawView) ? rawView : null;
 
   // Drive the countdown while a live turn is in progress.
   useEffect(() => {
@@ -46,6 +50,7 @@ export function DeathrollModal({
   const canRoll = isMyTurn && !ended;
 
   const players = view?.players ?? [];
+  const opponentId = players.find((p) => p !== myUserId) ?? null;
 
   const renderResult = () => {
     if (!ended) return null;
@@ -128,6 +133,13 @@ export function DeathrollModal({
         )}
 
         {renderResult()}
+
+        {opponentId != null && (
+          <div className={styles.headToHead}>
+            <span className={styles.headToHeadTitle}>Head-to-head</span>
+            <HeadToHead opponentSession={opponentId} opponentName={resolveName(opponentId)} />
+          </div>
+        )}
 
         <div className={styles.footer}>
           {ended ? (
