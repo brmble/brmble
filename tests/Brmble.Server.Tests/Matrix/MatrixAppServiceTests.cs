@@ -48,6 +48,22 @@ public class MatrixAppServiceTests
             });
     }
 
+    private MatrixAppService CreateServiceReturning(string body, HttpStatusCode status = HttpStatusCode.OK)
+    {
+        SetupHttpResponse(status, body);
+        return _svc;
+    }
+
+    private string LastJsonBody()
+    {
+        var request = _capturedRequests.Last();
+        return request.Content is null
+            ? string.Empty
+            : request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+    }
+
+    private IReadOnlyList<HttpRequestMessage> SentRequests => _capturedRequests;
+
     [TestMethod]
     public async Task SendMessage_SendsPutWithCorrectPath()
     {
@@ -206,5 +222,21 @@ public class MatrixAppServiceTests
         StringAssert.Contains(req.RequestUri!.AbsolutePath, "avatar_url");
         var body = await req.Content!.ReadAsStringAsync();
         StringAssert.Contains(body, "mxc://server/abc123");
+    }
+
+    [TestMethod]
+    public async Task CreatePaintRoom_UsesInviteOnlyStateAndDoesNotJoinUsers()
+    {
+        var svc = CreateServiceReturning("""{"room_id":"!paint:server"}""");
+
+        var roomId = await svc.CreatePaintRoom("Paint in General", ["@alice:server", "@bob:server"]);
+
+        Assert.AreEqual("!paint:server", roomId);
+        var body = LastJsonBody();
+        StringAssert.Contains(body, @"""preset"":""private_chat""");
+        StringAssert.Contains(body, @"""invite"":[""@alice:server"",""@bob:server""]");
+        StringAssert.Contains(body, @"""join_rule"":""invite""");
+        StringAssert.Contains(body, @"""history_visibility"":""invited""");
+        Assert.IsFalse(SentRequests.Any(r => r.RequestUri!.AbsolutePath.Contains("/join/")));
     }
 }
