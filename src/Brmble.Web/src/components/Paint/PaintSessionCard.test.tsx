@@ -3,10 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { PaintSessionCard } from './PaintSessionCard';
 
 describe('PaintSessionCard', () => {
-  it('shows join action only for accessible active paint session cards', () => {
-    render(<PaintSessionCard session={{ sessionId: 'session-1', status: 'active', hostUserId: 1, participantUserIds: [2], channelId: 5 }} canJoin onJoin={vi.fn()} getSnapshot={() => new Promise(() => {})} />);
+  it('does not show join until the live snapshot confirms an active session', async () => {
+    let resolveSnapshot!: (snapshot: { status: 'active' }) => void;
+    const getSnapshot = vi.fn(() => new Promise<{ status: 'active' }>(resolve => { resolveSnapshot = resolve; }));
+    render(<PaintSessionCard session={{ sessionId: 'session-1', status: 'active', hostUserId: 1, participantUserIds: [2], channelId: 5 }} canJoin onJoin={vi.fn()} getSnapshot={getSnapshot} />);
 
-    expect(screen.getByRole('button', { name: /join/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /join/i })).toBeNull();
+    resolveSnapshot({ status: 'active' });
+    expect(await screen.findByRole('button', { name: /join/i })).toBeEnabled();
   });
 
   it('uses the current session status instead of stale invitation metadata', async () => {

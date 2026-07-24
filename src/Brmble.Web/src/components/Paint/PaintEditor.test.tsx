@@ -10,7 +10,7 @@ const activeSnapshot: PaintSessionSnapshot = {
 };
 
 describe('PaintEditor', () => {
-  it('commits one normalized stroke for a pointer action', () => {
+  it('reuses one correlation ID for every preview and commit in a pointer gesture', () => {
     const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
 
@@ -18,10 +18,14 @@ describe('PaintEditor', () => {
     vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
     fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
     fireEvent.pointerMove(canvas, { clientX: 60, clientY: 60, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
 
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
     expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
     expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ generation: 0, tool: 'pen', points: expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]) }));
+    const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
+    expect([...new Set(correlationIds)]).toHaveLength(1);
   });
 
   it('hides host-only actions from participants', () => {
