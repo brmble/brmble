@@ -26,6 +26,30 @@ describe('PaintEditor', () => {
     expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ generation: 0, tool: 'pen', points: expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]) }));
     const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
     expect([...new Set(correlationIds)]).toHaveLength(1);
+    expect(correlationIds[0]).toEqual(expect.any(String));
+    expect(correlationIds[0]).not.toBe('');
+  });
+
+  it('ignores overlapping pointers so the active gesture keeps its correlation ID', () => {
+    const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 40, pointerId: 1 });
+    const activeCorrelationId = paintApi.sendPreview.mock.calls[0][1].correlationId;
+
+    fireEvent.pointerDown(canvas, { clientX: 70, clientY: 70, pointerId: 2 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 2 });
+    fireEvent.pointerUp(canvas, { clientX: 90, clientY: 90, pointerId: 2 });
+    fireEvent.pointerMove(canvas, { clientX: 60, clientY: 60, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
+    expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
+    const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
+    expect(correlationIds).toEqual([activeCorrelationId, activeCorrelationId, activeCorrelationId]);
   });
 
   it('hides host-only actions from participants', () => {
