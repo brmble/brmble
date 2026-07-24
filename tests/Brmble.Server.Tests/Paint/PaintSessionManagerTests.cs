@@ -173,6 +173,22 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Snapshot_MissingSessionPublishesUnavailableTerminalEventToRequester()
+    {
+        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
+        var missingSessionId = Guid.NewGuid();
+
+        await Assert.ThrowsExceptionAsync<PaintNotFoundException>(() =>
+            fixture.Manager.SnapshotAsync(missingSessionId, fixture.AliceUserId));
+
+        using var unavailable = fixture.Publisher.GetLastEvent(PaintEventNames.SessionUnavailable);
+        Assert.AreEqual(missingSessionId, unavailable.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.AreEqual("unavailable", unavailable.RootElement.GetProperty("status").GetString());
+        Assert.IsTrue(unavailable.RootElement.TryGetProperty("revision", out _));
+        Assert.IsTrue(unavailable.RootElement.TryGetProperty("generation", out _));
+    }
+
+    [TestMethod]
     public async Task End_WritesCleanupThenAttemptsRoomDeletion()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();

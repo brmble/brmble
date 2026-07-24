@@ -236,14 +236,25 @@ public sealed class PaintSessionManager(
         }
     }
 
-    public Task<PaintSessionSnapshot> SnapshotAsync(Guid sessionId, long userId)
+    public async Task<PaintSessionSnapshot> SnapshotAsync(Guid sessionId, long userId)
     {
-        var session = GetSession(sessionId);
+        if (!_sessions.TryGetValue(sessionId, out var session))
+        {
+            await publisher.PublishToUsersAsync(new HashSet<long> { userId }, new
+            {
+                type = PaintEventNames.SessionUnavailable,
+                sessionId,
+                status = PaintSessionStatus.Unavailable,
+                revision = 0L,
+                generation = 0L,
+            });
+            throw new PaintNotFoundException("Paint session was not found.");
+        }
         lock (session.Lock)
         {
             _ = GetParticipant(session, userId);
-            return Task.FromResult(new PaintSessionSnapshot(session.SessionId, session.ChannelId, session.MatrixRoomId, session.Source?.SourceEventId, session.HostUserId, session.Status, session.Generation, session.Revision, session.LastActivity + SessionTimeout, session.Source,
-                session.Participants.Values.ToArray(), session.Strokes.Where(s => s.Generation == session.Generation && s.Active).ToArray()));
+            return new PaintSessionSnapshot(session.SessionId, session.ChannelId, session.MatrixRoomId, session.Source?.SourceEventId, session.HostUserId, session.Status, session.Generation, session.Revision, session.LastActivity + SessionTimeout, session.Source,
+                session.Participants.Values.ToArray(), session.Strokes.Where(s => s.Generation == session.Generation && s.Active).ToArray());
         }
     }
 

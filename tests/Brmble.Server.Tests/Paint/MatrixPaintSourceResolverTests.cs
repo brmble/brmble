@@ -160,6 +160,21 @@ public sealed class MatrixPaintSourceResolverTests
         StringAssert.Contains(exception.Message, "source event");
     }
 
+    [DataTestMethod]
+    [DataRow("[]")]
+    [DataRow("\"invalid\"")]
+    public async Task ResolveAsync_RejectsNonObjectOptionalInfoWithPaintValidationError(string info)
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            RawEvent = $"{{\"room_id\":\"!paint:server\",\"sender\":\"@host:test\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://server/source\",\"info\":{info}}}}}",
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public string EventRoomId { get; init; } = "!paint:server";

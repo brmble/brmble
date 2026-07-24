@@ -87,7 +87,8 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
 
     private static string? TryGetNestedString(JsonElement element, string propertyName, string nestedPropertyName)
     {
-        if (!element.TryGetProperty(propertyName, out var child) || !child.TryGetProperty(nestedPropertyName, out var nested))
+        var child = GetOptionalObject(element, propertyName);
+        if (child is null || !child.Value.TryGetProperty(nestedPropertyName, out var nested) || nested.ValueKind != JsonValueKind.String)
         {
             return null;
         }
@@ -111,11 +112,20 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
 
     private static long? TryGetNestedInt64(JsonElement element, string propertyName, string nestedPropertyName)
     {
-        if (!element.TryGetProperty(propertyName, out var child) || !child.TryGetProperty(nestedPropertyName, out var nested))
+        var child = GetOptionalObject(element, propertyName);
+        if (child is null || !child.Value.TryGetProperty(nestedPropertyName, out var nested) || nested.ValueKind != JsonValueKind.Number)
         {
             return null;
         }
 
-        return nested.ValueKind == JsonValueKind.Number ? nested.GetInt64() : null;
+        return nested.TryGetInt64(out var value) ? value : null;
+    }
+
+    private static JsonElement? GetOptionalObject(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value)) return null;
+        if (value.ValueKind != JsonValueKind.Object)
+            throw new PaintValidationException($"source event {propertyName} must be an object.");
+        return value;
     }
 }
