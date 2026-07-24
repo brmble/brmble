@@ -9,6 +9,23 @@ namespace Brmble.Server.Tests.Paint;
 public sealed class PaintSessionManagerTests
 {
     [TestMethod]
+    public async Task CommitStroke_PublishesConcurrentPermanentEventsInRevisionOrder()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
+        fixture.Publisher.BlockNextPermanentEvent();
+
+        var firstCommit = fixture.CommitAliceAsync();
+        await fixture.Publisher.WaitUntilBlockedAsync();
+        var secondCommit = fixture.CommitBobAsync();
+
+        fixture.Publisher.ReleaseBlockedEvent();
+        var commits = await Task.WhenAll(firstCommit, secondCommit);
+
+        CollectionAssert.AreEqual(new[] { PaintEventNames.StrokeCommitted, PaintEventNames.StrokeCommitted }, fixture.Publisher.PermanentEventTypes.TakeLast(2).ToArray());
+        CollectionAssert.AreEqual(commits.Select(commit => commit.Revision).ToArray(), fixture.Publisher.PermanentRevisions.TakeLast(2).ToArray());
+    }
+
+    [TestMethod]
     public async Task CommitStroke_AssignsServerIdentitySequenceAndRevision()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
@@ -199,8 +216,39 @@ public sealed class PaintSessionManagerTests
     private sealed class FakePublisher : IPaintEventPublisher
     {
         public List<string> SentTypes { get; } = [];
-        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) { SentTypes.Add(ReadType(message)); return Task.CompletedTask; }
-        public Task PublishToChannelAsync(int channelId, object message) { SentTypes.Add(ReadType(message)); return Task.CompletedTask; }
+        public List<string> PermanentEventTypes { get; } = [];
+        public List<long> PermanentRevisions { get; } = [];
+        private readonly TaskCompletionSource _blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _blockNextPermanentEvent;
+
+        public void BlockNextPermanentEvent() => _blockNextPermanentEvent = true;
+        public Task WaitUntilBlockedAsync() => _blocked.Task;
+        public void ReleaseBlockedEvent() => _release.TrySetResult();
+
+        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => PublishAsync(message);
+        public Task PublishToChannelAsync(int channelId, object message) => PublishAsync(message);
+
+        private async Task PublishAsync(object message)
+        {
+            var type = ReadType(message);
+            if (!string.Equals(type, PaintEventNames.PreviewUpdated, StringComparison.Ordinal))
+            {
+                if (_blockNextPermanentEvent)
+                {
+                    _blockNextPermanentEvent = false;
+                    _blocked.TrySetResult();
+                    await _release.Task;
+                }
+
+                PermanentEventTypes.Add(type);
+                var revision = message.GetType().GetProperty("revision")?.GetValue(message);
+                if (revision is long value) PermanentRevisions.Add(value);
+            }
+
+            SentTypes.Add(type);
+        }
+
         private static string ReadType(object message) => message.GetType().GetProperty("type")?.GetValue(message)?.ToString() ?? string.Empty;
     }
 
@@ -212,7 +260,7 @@ public sealed class PaintSessionManagerTests
         public MatrixPaintRoomCleanupResult DeleteResult { get; set; } = new(true, "delete", null);
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult(RoomId);
         public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) { InvitedUsers.Add(matrixUserId); return Task.CompletedTask; }
-        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","type":"m.image","content":{"url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
+        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.image","content":{"url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
         public Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.FromResult(Memberships.GetValueOrDefault(matrixUserId));
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137 });
         public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken) => Task.FromResult(DeleteResult);

@@ -44,6 +44,7 @@ public sealed class PaintSessionManager(
         public readonly List<PaintStroke> Strokes = [];
         public readonly Dictionary<(long UserId, Guid CorrelationId), PaintStroke> IdempotentCommits = [];
         public readonly Dictionary<long, PaintStrokeInput> Previews = [];
+        public Task PermanentPublishTail = Task.CompletedTask;
         public readonly object Lock = new();
     }
 
@@ -69,17 +70,28 @@ public sealed class PaintSessionManager(
     {
         var session = GetSession(sessionId);
         string roomId;
-        lock (session.Lock) { RequireHost(session, userId); RequireOpen(session); roomId = session.MatrixRoomId; }
-        var source = await sourceResolver.ResolveAsync(roomId, sourceEventId, cancellationToken);
+        string hostMatrixUserId;
+        lock (session.Lock)
+        {
+            RequireHost(session, userId); RequireOpen(session);
+            roomId = session.MatrixRoomId;
+            hostMatrixUserId = GetParticipant(session, userId).MatrixUserId;
+        }
+        var source = await sourceResolver.ResolveAsync(roomId, hostMatrixUserId, sourceEventId, cancellationToken);
         long revision, generation;
+        Task publish;
         lock (session.Lock)
         {
             RequireHost(session, userId); RequireOpen(session);
             session.Source = source; session.Status = PaintSessionStatus.Active; session.Revision++; Touch(session);
             revision = session.Revision; generation = session.Generation;
+            var invitedUserIds = session.Participants.Keys.ToHashSet();
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.SourceAttached, sessionId, source, revision, generation }));
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(invitedUserIds,
+                new { type = PaintEventNames.Invited, sessionId, matrixRoomId = roomId }));
         }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SourceAttached, sessionId, source, revision, generation });
-        await publisher.PublishToUsersAsync(session.Participants.Keys.ToHashSet(), new { type = PaintEventNames.Invited, sessionId, matrixRoomId = roomId });
+        await publish;
         return new PaintSourceAttachedResult(source, revision, generation);
     }
 
@@ -96,31 +108,36 @@ public sealed class PaintSessionManager(
             throw new PaintAuthorizationException("Join the Matrix paint room before joining the canvas.");
         }
         long revision, generation;
+        Task publish;
         lock (session.Lock)
         {
             RequireOpen(session); participant = GetParticipant(session, userId) with { Active = true, MumbleSessionId = current.MumbleSessionId };
             session.Participants[userId] = participant; session.Previews.Remove(userId); session.Revision++; Touch(session);
             revision = session.Revision; generation = session.Generation;
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.ParticipantJoined, sessionId, participant, revision, generation }));
         }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.ParticipantJoined, sessionId, participant, revision, generation });
+        await publish;
         return new PaintParticipantChangeResult(participant, revision, generation);
     }
 
     public async Task<PaintParticipantChangeResult> LeaveAsync(Guid sessionId, long userId)
     {
-        var session = GetSession(sessionId); PaintParticipant participant; long revision, generation;
+        var session = GetSession(sessionId); PaintParticipant participant; long revision, generation; Task publish;
         lock (session.Lock)
         {
             participant = GetParticipant(session, userId) with { Active = false }; session.Participants[userId] = participant;
             session.Previews.Remove(userId); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.ParticipantLeft, sessionId, participant, revision, generation }));
         }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.ParticipantLeft, sessionId, participant, revision, generation });
+        await publish;
         return new PaintParticipantChangeResult(participant, revision, generation);
     }
 
     public async Task<PaintStrokeCommittedResult> CommitStrokeAsync(Guid sessionId, long userId, PaintStrokeInput input)
     {
-        var session = GetSession(sessionId); PaintStroke stroke; long revision, generation;
+        var session = GetSession(sessionId); PaintStroke stroke; long revision, generation; Task publish;
         lock (session.Lock)
         {
             RequireActive(session); var participant = RequireActiveParticipant(session, userId);
@@ -129,8 +146,10 @@ public sealed class PaintSessionManager(
             if (session.IdempotentCommits.TryGetValue((userId, valid.CorrelationId), out stroke!)) return new PaintStrokeCommittedResult(stroke, session.Revision, session.Generation);
             stroke = new PaintStroke(Guid.NewGuid(), valid.CorrelationId, userId, participant.MatrixUserId, ++session.NextSequence, session.Generation, valid.Tool, valid.Color, valid.Width, valid.Points, true);
             session.Strokes.Add(stroke); session.IdempotentCommits[(userId, valid.CorrelationId)] = stroke; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.StrokeCommitted, sessionId, stroke, revision, generation }));
         }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.StrokeCommitted, sessionId, stroke, revision, generation });
+        await publish;
         return new PaintStrokeCommittedResult(stroke, revision, generation);
     }
 
@@ -142,7 +161,7 @@ public sealed class PaintSessionManager(
             RequireActive(session); RequireActiveParticipant(session, userId);
             if (input.Generation != session.Generation) throw new PaintConflictException("Canvas generation is stale.");
             input = PaintValidation.ValidateStrokeInput(input); generation = session.Generation; Touch(session);
-            if (!rateLimiter.TryAcquire(userId, _utcNow())) return new PaintPreviewResult(false, generation);
+            if (!rateLimiter.TryAcquire(sessionId, userId, _utcNow())) return new PaintPreviewResult(false, generation);
             session.Previews[userId] = input;
         }
         await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.PreviewUpdated, sessionId, userId, input, generation });
@@ -151,7 +170,7 @@ public sealed class PaintSessionManager(
 
     public async Task<PaintStrokeUndoneResult> UndoAsync(Guid sessionId, long userId)
     {
-        var session = GetSession(sessionId); PaintStroke undone; long revision, generation;
+        var session = GetSession(sessionId); PaintStroke undone; long revision, generation; Task publish;
         lock (session.Lock)
         {
             RequireActive(session); RequireActiveParticipant(session, userId);
@@ -159,25 +178,39 @@ public sealed class PaintSessionManager(
                 ?? throw new PaintConflictException("No active stroke to undo.");
             undone = undone with { Active = false }; session.Strokes[session.Strokes.FindIndex(s => s.Id == undone.Id)] = undone;
             session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.StrokeUndone, sessionId, undoneStrokeId = undone.Id, revision, generation }));
         }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.StrokeUndone, sessionId, undoneStrokeId = undone.Id, revision, generation });
+        await publish;
         return new PaintStrokeUndoneResult(undone.Id, revision, generation);
     }
 
     public async Task<PaintCanvasClearedResult> ClearAsync(Guid sessionId, long userId)
     {
-        var session = GetSession(sessionId); long revision, generation;
-        lock (session.Lock) { RequireHost(session, userId); RequireActive(session); session.Generation++; session.Previews.Clear(); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation; }
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.CanvasCleared, sessionId, revision, generation });
+        var session = GetSession(sessionId); long revision, generation; Task publish;
+        lock (session.Lock)
+        {
+            RequireHost(session, userId); RequireActive(session); session.Generation++; session.Previews.Clear(); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+            publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                new { type = PaintEventNames.CanvasCleared, sessionId, revision, generation }));
+        }
+        await publish;
         return new PaintCanvasClearedResult(generation, revision);
     }
 
     public async Task<PaintSessionEndedResult> EndAsync(Guid sessionId, long userId, CancellationToken cancellationToken = default)
     {
-        var session = GetSession(sessionId); long revision, generation; string roomId;
-        lock (session.Lock) { RequireHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation; roomId = session.MatrixRoomId; }
-        await cleanupRepository.RecordPendingAsync(sessionId, roomId, cancellationToken);
-        await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionEnded, sessionId, revision, generation });
+        var session = GetSession(sessionId); long revision, generation; string roomId; Task publish;
+        lock (session.Lock)
+        {
+            RequireHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation; roomId = session.MatrixRoomId;
+            publish = EnqueuePermanentPublish(session, async () =>
+            {
+                await cleanupRepository.RecordPendingAsync(sessionId, roomId, cancellationToken);
+                await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionEnded, sessionId, revision, generation });
+            });
+        }
+        await publish;
         await TryCleanupAsync(roomId, cancellationToken);
         return new PaintSessionEndedResult(PaintSessionStatus.Ended, revision, generation);
     }
@@ -199,14 +232,20 @@ public sealed class PaintSessionManager(
     {
         foreach (var session in _sessions.Values)
         {
-            string? roomId = null; long revision = 0; long generation = 0;
+            string? roomId = null; long revision = 0; long generation = 0; Task? publish = null;
             lock (session.Lock)
             {
                 if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.LastActivity + SessionTimeout > _utcNow()) continue;
                 session.Status = PaintSessionStatus.Expired; session.Revision++; roomId = session.MatrixRoomId; revision = session.Revision; generation = session.Generation;
+                var sessionId = session.SessionId;
+                var eventRoomId = roomId;
+                publish = EnqueuePermanentPublish(session, async () =>
+                {
+                    await cleanupRepository.RecordPendingAsync(sessionId, eventRoomId, cancellationToken);
+                    await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionExpired, sessionId, revision, generation });
+                });
             }
-            await cleanupRepository.RecordPendingAsync(session.SessionId, roomId, cancellationToken);
-            await publisher.PublishToChannelAsync(session.ChannelId, new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, revision, generation });
+            await publish;
         }
     }
 
@@ -224,6 +263,26 @@ public sealed class PaintSessionManager(
         {
             await cleanupRepository.MarkFailedAsync(pending.Id, exception.Message, cancellationToken);
         }
+    }
+
+    private static Task EnqueuePermanentPublish(LivePaintSession session, Func<Task> publish)
+    {
+        session.PermanentPublishTail = PublishAfterAsync(session.PermanentPublishTail, publish);
+        return session.PermanentPublishTail;
+    }
+
+    private static async Task PublishAfterAsync(Task previous, Func<Task> publish)
+    {
+        try
+        {
+            await previous.ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed delivery must not prevent later permanent state from being published.
+        }
+
+        await publish().ConfigureAwait(false);
     }
 
     private LivePaintSession GetSession(Guid sessionId) => _sessions.TryGetValue(sessionId, out var session) ? session : throw new PaintNotFoundException("Paint session was not found.");

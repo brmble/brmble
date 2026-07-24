@@ -7,14 +7,17 @@ namespace Brmble.Server.Tests.Paint;
 public sealed class PaintRateLimiterTests
 {
     [TestMethod]
-    public void TryAcquire_AllowsTwentyPreviewsPerSecondPerUser()
+    public void TryAcquire_AllowsTwentyPreviewsPerSecondPerAuthorPerSession()
     {
         var limiter = new PaintRateLimiter();
         var now = new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
+        var firstSessionId = Guid.NewGuid();
+        var secondSessionId = Guid.NewGuid();
 
-        for (var i = 0; i < 20; i++) Assert.IsTrue(limiter.TryAcquire(1, now));
-        Assert.IsFalse(limiter.TryAcquire(1, now));
-        Assert.IsTrue(limiter.TryAcquire(2, now));
-        Assert.IsTrue(limiter.TryAcquire(1, now.AddSeconds(1)));
+        for (var i = 0; i < 20; i++) Assert.IsTrue(limiter.TryAcquire(firstSessionId, 1, now));
+        Assert.IsFalse(limiter.TryAcquire(firstSessionId, 1, now));
+        Assert.IsTrue(limiter.TryAcquire(firstSessionId, 2, now));
+        Assert.IsTrue(limiter.TryAcquire(secondSessionId, 1, now));
+        Assert.IsTrue(limiter.TryAcquire(firstSessionId, 1, now.AddSeconds(1)));
     }
 }

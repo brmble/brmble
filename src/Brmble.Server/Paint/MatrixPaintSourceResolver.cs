@@ -11,10 +11,10 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         "image/webp",
     };
 
-    public async Task<PaintSource> ResolveAsync(string matrixRoomId, string sourceEventId, CancellationToken cancellationToken)
+    public async Task<PaintSource> ResolveAsync(string matrixRoomId, string hostMatrixUserId, string sourceEventId, CancellationToken cancellationToken)
     {
         var roomEvent = await matrixPaintService.GetRoomEventAsync(matrixRoomId, sourceEventId, cancellationToken);
-        ValidateRoomEvent(matrixRoomId, roomEvent);
+        ValidateRoomEvent(matrixRoomId, hostMatrixUserId, roomEvent);
 
         var content = roomEvent.GetProperty("content");
         var mxcUrl = content.GetProperty("url").GetString();
@@ -57,7 +57,7 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
             sizeBytes);
     }
 
-    private static void ValidateRoomEvent(string matrixRoomId, JsonElement roomEvent)
+    private static void ValidateRoomEvent(string matrixRoomId, string hostMatrixUserId, JsonElement roomEvent)
     {
         var eventRoomId = roomEvent.GetProperty("room_id").GetString();
         if (!string.Equals(eventRoomId, matrixRoomId, StringComparison.Ordinal))
@@ -69,6 +69,12 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         if (!string.Equals(eventType, "m.image", StringComparison.Ordinal))
         {
             throw new PaintValidationException("source event must be an m.image event.");
+        }
+
+        var sender = roomEvent.GetProperty("sender").GetString();
+        if (!string.Equals(sender, hostMatrixUserId, StringComparison.Ordinal))
+        {
+            throw new PaintValidationException("source event must be uploaded by the host.");
         }
     }
 

@@ -20,13 +20,29 @@ public sealed class MatrixPaintSourceResolverTests
         };
         var resolver = new MatrixPaintSourceResolver(matrix);
 
-        var source = await resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None);
+        var source = await resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None);
 
         Assert.AreEqual("!paint:server", source.MatrixRoomId);
         Assert.AreEqual("$source", source.SourceEventId);
         Assert.AreEqual("image/png", source.MimeType);
         Assert.AreEqual(1, source.Width);
         Assert.AreEqual(1, source.Height);
+    }
+
+    [TestMethod]
+    public async Task ResolveAsync_RejectsImageUploadedByAnyoneOtherThanTheHost()
+    {
+        var service = new FakeMatrixPaintService
+        {
+            EventRoomId = "!paint:test",
+            Sender = "@other:test",
+            MediaBytes = ImageFixtures.Png1x1,
+            SizeBytes = ImageFixtures.Png1x1.Length,
+        };
+        var resolver = new MatrixPaintSourceResolver(service);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:test", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -43,7 +59,7 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -60,7 +76,7 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -78,7 +94,7 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -96,7 +112,7 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -113,7 +129,7 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     [TestMethod]
@@ -129,13 +145,14 @@ public sealed class MatrixPaintSourceResolverTests
         var resolver = new MatrixPaintSourceResolver(matrix);
 
         await Assert.ThrowsExceptionAsync<HttpRequestException>(() =>
-            resolver.ResolveAsync("!paint:server", "$source", CancellationToken.None));
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public string EventRoomId { get; init; } = "!paint:server";
         public string EventType { get; init; } = "m.image";
+        public string Sender { get; init; } = "@host:test";
         public string MxcUrl { get; init; } = "mxc://server/source";
         public string MimeType { get; init; } = "image/png";
         public byte[] MediaBytes { get; init; } = [];
@@ -153,6 +170,7 @@ public sealed class MatrixPaintSourceResolverTests
             var payload = JsonSerializer.SerializeToElement(new
             {
                 room_id = EventRoomId,
+                sender = Sender,
                 type = EventType,
                 content = new
                 {
