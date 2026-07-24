@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import bridge from '../bridge';
 import { paintApi } from '../api/paint';
-import type { PaintParticipant, PaintPermanentEvent, PaintPreview, PaintSessionSnapshot, PaintStroke, PaintStrokeCommittedEvent, PaintStrokeUndoneEvent } from '../types/paint';
+import type { PaintParticipant, PaintPermanentEvent, PaintPreview, PaintSessionSnapshot, PaintStroke, PaintStrokeCommittedEvent, PaintStrokeInput, PaintStrokeUndoneEvent } from '../types/paint';
 
 const EVENTS = ['paint.sourceAttached', 'paint.participantJoined', 'paint.participantLeft', 'paint.previewUpdated', 'paint.strokeCommitted', 'paint.strokeUndone', 'paint.canvasCleared', 'paint.sessionEnded', 'paint.sessionExpired', 'paint.sessionUnavailable', 'paint.roomCleanupFailed'] as const;
 
@@ -11,6 +11,23 @@ function previewKey(preview: Pick<PaintPreview, 'authorUserId' | 'correlationId'
 
 function sortStrokes(strokes: PaintStroke[]): PaintStroke[] {
   return [...strokes].sort((left, right) => left.sequence - right.sequence);
+}
+
+function unavailableSnapshot(sessionId: string, event: PaintPermanentEvent): PaintSessionSnapshot {
+  return {
+    sessionId,
+    channelId: 0,
+    hostUserId: 0,
+    matrixRoomId: '',
+    sourceEventId: null,
+    status: 'unavailable',
+    expiresAt: '',
+    source: null,
+    participants: [],
+    strokes: [],
+    generation: event.generation,
+    revision: event.revision,
+  };
 }
 
 export function usePaintSession(sessionId: string) {
@@ -47,7 +64,8 @@ export function usePaintSession(sessionId: string) {
     };
     const handlers: Record<string, (data: unknown) => void> = {
       'paint.previewUpdated': data => {
-        const preview = data as PaintPreview;
+        const event = data as Pick<PaintPreview, 'sessionId' | 'generation' | 'authorUserId' | 'authorMatrixUserId'> & { input: PaintStrokeInput };
+        const preview: PaintPreview = { ...event.input, sessionId: event.sessionId, generation: event.generation, authorUserId: event.authorUserId, authorMatrixUserId: event.authorMatrixUserId };
         if (!isCurrentSession(preview)) return;
         const current = snapshotRef.current;
         if (!current || preview.generation < current.generation) return;
@@ -70,7 +88,7 @@ export function usePaintSession(sessionId: string) {
       }),
       'paint.sourceAttached': data => {
         const event = data as PaintPermanentEvent & { source: PaintSessionSnapshot['source'] };
-        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, source: event.source }));
+        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: 'active', source: event.source }));
       },
       'paint.participantJoined': data => {
         const event = data as PaintPermanentEvent & { participant: PaintParticipant };
@@ -89,8 +107,14 @@ export function usePaintSession(sessionId: string) {
         acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: event.status }));
       },
       'paint.sessionUnavailable': data => {
-        const event = data as PaintPermanentEvent & { status: PaintSessionSnapshot['status'] };
-        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: event.status }));
+        const event = data as PaintPermanentEvent;
+        if (!isCurrentSession(event)) return;
+        const next = snapshotRef.current
+          ? { ...snapshotRef.current, revision: event.revision, generation: event.generation, status: 'unavailable' as const }
+          : unavailableSnapshot(sessionId, event);
+        snapshotRef.current = next;
+        setSnapshot(next);
+        setPreviews([]);
       },
       'paint.roomCleanupFailed': data => {
         const event = data as PaintPermanentEvent;

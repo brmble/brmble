@@ -92,7 +92,17 @@ describe('usePaintSession', () => {
     const harness = renderPaintSessionHook();
     await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
 
-    act(() => harness.emit('paint.previewUpdated', preview({ correlationId: 'corr-1', authorUserId: 1 })));
+    const previewInput = preview({ correlationId: 'corr-1', authorUserId: 1 });
+    act(() => harness.emit('paint.previewUpdated', {
+      sessionId,
+      generation: 0,
+      authorUserId: 1,
+      authorMatrixUserId: '@alice:server',
+      input: previewInput,
+    }));
+
+    expect(harness.result.current.previews).toEqual([previewInput]);
+
     act(() => harness.emit('paint.strokeCommitted', committed({
       revision: 1,
       stroke: { ...committed().stroke, correlationId: 'corr-1', id: 'server-1' },
@@ -100,6 +110,24 @@ describe('usePaintSession', () => {
 
     expect(harness.result.current.previews).toHaveLength(0);
     expect(harness.result.current.strokes.map(stroke => stroke.id)).toEqual(['server-1']);
+  });
+
+  it('activates the local session when a source is attached', async () => {
+    const harness = renderPaintSessionHook();
+    await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
+
+    act(() => harness.emit('paint.sourceAttached', {
+      sessionId,
+      revision: 1,
+      generation: 0,
+      source: { sourceEventId: 'source-1' },
+    }));
+
+    expect(harness.result.current.snapshot).toMatchObject({
+      status: 'active',
+      revision: 1,
+      source: { sourceEventId: 'source-1' },
+    });
   });
 
   it('requests a fresh snapshot when a permanent revision gap is detected', async () => {
@@ -129,5 +157,42 @@ describe('usePaintSession', () => {
     act(() => harness.emit('paint.strokeCommitted', committed({ revision: 6 })));
 
     await waitFor(() => expect(paintApi.paintApi.getSnapshot).toHaveBeenCalledTimes(2));
+  });
+
+  it('creates an unavailable terminal snapshot when no snapshot is available', async () => {
+    vi.mocked(paintApi.paintApi.getSnapshot).mockImplementation(() => new Promise(() => {}));
+    const hook = renderHook(() => usePaintSession(sessionId));
+
+    act(() => handlers.get('paint.sessionUnavailable')?.({
+      sessionId,
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    }));
+
+    expect(hook.result.current.snapshot).toMatchObject({
+      sessionId,
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    });
+  });
+
+  it('marks a stale snapshot unavailable without requiring its next revision', async () => {
+    const harness = renderPaintSessionHook(initialSnapshot({ revision: 5, generation: 2, status: 'active' }));
+    await waitFor(() => expect(harness.result.current.snapshot?.revision).toBe(5));
+
+    act(() => harness.emit('paint.sessionUnavailable', {
+      sessionId,
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    }));
+
+    expect(harness.result.current.snapshot).toMatchObject({
+      status: 'unavailable',
+      revision: 0,
+      generation: 0,
+    });
   });
 });
