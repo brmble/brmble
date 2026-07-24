@@ -86,6 +86,23 @@ public sealed class PaintEndpointsTests
         Assert.AreEqual(3, body.GetProperty("revision").GetInt64());
     }
 
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("{")]
+    public async Task Stroke_RejectsMalformedOrMissingBodyWithStableErrorShape(string body)
+    {
+        await using var app = await EndpointFixture.StartActiveAsync();
+        using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await app.Client.PostAsync($"/paint/sessions/{app.SessionId}/stroke", content);
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
+        Assert.IsNotNull(error);
+        Assert.AreEqual("INVALID_REQUEST", error.Code);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error.Error));
+    }
+
     private sealed record PaintErrorDto(string Code, string Error);
 
     private sealed class EndpointFixture : IAsyncDisposable

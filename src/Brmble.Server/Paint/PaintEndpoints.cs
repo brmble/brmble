@@ -1,6 +1,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Data;
+using System.Text.Json;
 
 namespace Brmble.Server.Paint;
 
@@ -14,9 +15,9 @@ public static class PaintEndpoints
 
     public static IEndpointRouteBuilder MapPaintEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/paint/sessions", async (CreatePaintSessionDto dto, HttpContext context, ICertificateHashExtractor certificates,
+        app.MapPost("/paint/sessions", async (HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, IPaintPresence presence, PaintSessionManager manager, CancellationToken cancellationToken) =>
-            await ExecuteAsync(async user =>
+            await ExecuteWithBodyAsync<CreatePaintSessionDto>(async (user, dto) =>
             {
                 if (!presence.TryGetParticipant(user.UserId, out var host) || host.ChannelId != dto.ChannelId)
                     throw new PaintAuthorizationException("Host must be connected to the requested channel.");
@@ -24,9 +25,9 @@ public static class PaintEndpoints
                 return Results.Ok(result);
             }, context, certificates, users));
 
-        app.MapPost("/paint/sessions/{id:guid}/source", async (Guid id, AttachPaintSourceDto dto, HttpContext context,
+        app.MapPost("/paint/sessions/{id:guid}/source", async (Guid id, HttpContext context,
             ICertificateHashExtractor certificates, UserRepository users, PaintSessionManager manager, CancellationToken cancellationToken) =>
-            await ExecuteAsync(async user =>
+            await ExecuteWithBodyAsync<AttachPaintSourceDto>(async (user, dto) =>
             {
                 if (string.IsNullOrWhiteSpace(dto.SourceEventId)) throw new PaintValidationException("sourceEventId is required.");
                 return Results.Ok(await manager.AttachSourceAsync(id, user.UserId, dto.SourceEventId, cancellationToken));
@@ -44,13 +45,13 @@ public static class PaintEndpoints
             UserRepository users, PaintSessionManager manager) =>
             await ExecuteAsync(async user => Results.Ok(await manager.LeaveAsync(id, user.UserId)), context, certificates, users));
 
-        app.MapPost("/paint/sessions/{id:guid}/stroke", async (Guid id, PaintStrokeDto dto, HttpContext context,
+        app.MapPost("/paint/sessions/{id:guid}/stroke", async (Guid id, HttpContext context,
             ICertificateHashExtractor certificates, UserRepository users, PaintSessionManager manager) =>
-            await ExecuteAsync(async user => Results.Created($"/paint/sessions/{id}", await manager.CommitStrokeAsync(id, user.UserId, ToStrokeInput(dto))), context, certificates, users));
+            await ExecuteWithBodyAsync<PaintStrokeDto>(async (user, dto) => Results.Created($"/paint/sessions/{id}", await manager.CommitStrokeAsync(id, user.UserId, ToStrokeInput(dto))), context, certificates, users));
 
-        app.MapPost("/paint/sessions/{id:guid}/preview", async (Guid id, PaintStrokeDto dto, HttpContext context,
+        app.MapPost("/paint/sessions/{id:guid}/preview", async (Guid id, HttpContext context,
             ICertificateHashExtractor certificates, UserRepository users, PaintSessionManager manager) =>
-            await ExecuteAsync(async user => Results.Accepted($"/paint/sessions/{id}", await manager.PreviewAsync(id, user.UserId, ToStrokeInput(dto))), context, certificates, users));
+            await ExecuteWithBodyAsync<PaintStrokeDto>(async (user, dto) => Results.Accepted($"/paint/sessions/{id}", await manager.PreviewAsync(id, user.UserId, ToStrokeInput(dto))), context, certificates, users));
 
         app.MapPost("/paint/sessions/{id:guid}/undo", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager) =>
@@ -83,6 +84,28 @@ public static class PaintEndpoints
         var user = await ResolveUserAsync(context, certificates, users);
         if (user is null) return Results.Unauthorized();
         try { return await action(user); }
+        catch (Exception exception) when (exception is PaintNotFoundException or PaintAuthorizationException or PaintConflictException or PaintValidationException)
+        {
+            return ToError(exception);
+        }
+    }
+
+    private static async Task<IResult> ExecuteWithBodyAsync<T>(Func<AuthenticatedChannelRequestUser, T, Task<IResult>> action,
+        HttpContext context, ICertificateHashExtractor certificates, UserRepository users)
+    {
+        var user = await ResolveUserAsync(context, certificates, users);
+        if (user is null) return Results.Unauthorized();
+        try
+        {
+            var body = await JsonSerializer.DeserializeAsync<T>(context.Request.Body,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web), context.RequestAborted);
+            if (body is null) throw new PaintValidationException("Request body is required.");
+            return await action(user, body);
+        }
+        catch (JsonException)
+        {
+            return ToError(new PaintValidationException("Request body must be valid JSON."));
+        }
         catch (Exception exception) when (exception is PaintNotFoundException or PaintAuthorizationException or PaintConflictException or PaintValidationException)
         {
             return ToError(exception);

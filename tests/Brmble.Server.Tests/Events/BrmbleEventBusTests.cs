@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using Brmble.Server.Events;
+using Brmble.Server.Paint;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -84,6 +85,28 @@ public class BrmbleEventBusTests
             It.IsAny<WebSocketMessageType>(),
             It.IsAny<bool>(),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task BroadcastToChannelAsync_PermanentPaintSendError_AbortsAndRemovesClient()
+    {
+        _channelMembership.Setup(c => c.GetSessionsInChannel(5)).Returns(new List<int> { 10 });
+        _sessionMapping.Setup(s => s.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 10, new SessionMapping("@user:test", "User", 1L, "bee") },
+        });
+
+        var failing = CreateMockWebSocket(WebSocketState.Open);
+        failing.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(), It.IsAny<WebSocketMessageType>(), true,
+            It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new WebSocketException("connection reset"));
+        _bus.AddClient(failing.Object, 1L);
+
+        await _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.StrokeCommitted });
+
+        failing.Verify(w => w.Abort(), Times.Once);
+        Assert.IsFalse(_bus.HasConnectedClient(1L));
     }
 
     [TestMethod]

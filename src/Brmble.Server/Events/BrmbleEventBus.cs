@@ -59,7 +59,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
+                RemoveClientAndAbort(ws);
             }
         });
 
@@ -110,7 +110,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
+                RemoveClientAndAbort(ws);
             }
         });
 
@@ -164,10 +164,17 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
+                RemoveClientAndAbort(ws);
             }
         });
 
         await Task.WhenAll(tasks);
+    }
+
+    private void RemoveClientAndAbort(WebSocket ws)
+    {
+        RemoveClient(ws);
+        try { ws.Abort(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to abort WebSocket client"); }
     }
 }
