@@ -46,7 +46,7 @@ internal sealed class PaintService : IService
     {
         var sessionId = data.TryGetProperty("sessionId", out var value) ? value.GetString() : null;
         return string.IsNullOrWhiteSpace(sessionId)
-            ? SendErrorAsync(action, "Missing sessionId")
+            ? Task.CompletedTask
             : PostAsync($"paint/sessions/{Uri.EscapeDataString(sessionId)}/{action}", data);
     }
 
@@ -68,8 +68,7 @@ internal sealed class PaintService : IService
     private async Task PostAsync(string path, JsonElement data)
     {
         var body = data.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? "{}" : data.GetRawText();
-        var result = await CallAsync(cert => _postAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path), body));
-        if (!result.Success) await SendErrorAsync(path, result.Error ?? $"Request failed (HTTP {result.StatusCode})", result.StatusCode);
+        _ = await CallAsync(cert => _postAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path), body));
     }
 
     private async Task<ChannelRequestBridgeHandler.TlsCallResult> CallAsync(Func<X509Certificate2, Task<ChannelRequestBridgeHandler.TlsCallResult>> call)
@@ -80,12 +79,6 @@ internal sealed class PaintService : IService
         if (certificate is null) return new(false, null, 0, "No client certificate");
         try { return await call(certificate); }
         catch (Exception ex) { return new(false, null, 0, ex.Message); }
-    }
-
-    private Task SendErrorAsync(string path, string error, int statusCode = 0)
-    {
-        SendResponse(null, false, null, statusCode, error);
-        return Task.CompletedTask;
     }
 
     private void SendResponse(int? requestId, bool success, string? body, int statusCode, string? error)

@@ -37,7 +37,7 @@ public sealed class PaintServiceTests
     }
 
     [TestMethod]
-    public async Task PaintMutationFailure_UsesCanonicalResponseEvent()
+    public async Task PaintMutationFailure_DoesNotEmitUncorrelatedResponse()
     {
         var bridge = NativeBridgeTestHarness.Create();
         using var key = RSA.Create(2048);
@@ -52,9 +52,6 @@ public sealed class PaintServiceTests
         await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.join", request.RootElement.Clone());
 
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
-        Assert.IsFalse(sent.Any(message => message.Type == "paint.error"));
-        var response = sent.Single(message => message.Type == "paint.response");
-        Assert.IsTrue(response.DataJson.Contains("\"success\":false", StringComparison.Ordinal));
-        Assert.IsTrue(response.DataJson.Contains("\"statusCode\":403", StringComparison.Ordinal));
+        Assert.IsFalse(sent.Any(message => message.Type == "paint.response"));
     }
 }

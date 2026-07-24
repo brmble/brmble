@@ -82,7 +82,7 @@ public static class PaintEndpoints
         HttpContext context, ICertificateHashExtractor certificates, UserRepository users)
     {
         var user = await ResolveUserAsync(context, certificates, users);
-        if (user is null) return Results.Unauthorized();
+        if (user is null) return Unauthenticated();
         try { return await action(user); }
         catch (Exception exception) when (exception is PaintNotFoundException or PaintAuthorizationException or PaintConflictException or PaintValidationException)
         {
@@ -94,7 +94,7 @@ public static class PaintEndpoints
         HttpContext context, ICertificateHashExtractor certificates, UserRepository users)
     {
         var user = await ResolveUserAsync(context, certificates, users);
-        if (user is null) return Results.Unauthorized();
+        if (user is null) return Unauthenticated();
         try
         {
             var body = await JsonSerializer.DeserializeAsync<T>(context.Request.Body,
@@ -122,7 +122,11 @@ public static class PaintEndpoints
                 => (StatusCodes.Status403Forbidden, "MATRIX_MEMBERSHIP_REQUIRED"),
             PaintAuthorizationException authorization when authorization.Message.Contains("Only the host", StringComparison.OrdinalIgnoreCase)
                 => (StatusCodes.Status403Forbidden, "HOST_REQUIRED"),
-            PaintAuthorizationException => (StatusCodes.Status403Forbidden, "PARTICIPANT_REQUIRED"),
+            PaintAuthorizationException authorization when authorization.Message.Contains("paint channel", StringComparison.OrdinalIgnoreCase)
+                || authorization.Message.Contains("not selected", StringComparison.OrdinalIgnoreCase)
+                || authorization.Message.Contains("not joined", StringComparison.OrdinalIgnoreCase)
+                => (StatusCodes.Status403Forbidden, "PARTICIPANT_REQUIRED"),
+            PaintAuthorizationException => (StatusCodes.Status403Forbidden, "PAINT_FORBIDDEN"),
             PaintConflictException conflict when conflict.Message.Contains("stale", StringComparison.OrdinalIgnoreCase)
                 => (StatusCodes.Status409Conflict, "STALE_GENERATION"),
             PaintConflictException conflict when conflict.Message.Contains("No active stroke", StringComparison.OrdinalIgnoreCase)
@@ -134,6 +138,10 @@ public static class PaintEndpoints
         };
         return Results.Json(new { code, error = exception.Message }, statusCode: status);
     }
+
+    private static IResult Unauthenticated()
+        => Results.Json(new { code = "UNAUTHENTICATED", error = "Authentication is required." },
+            statusCode: StatusCodes.Status401Unauthorized);
 
     private static async Task<AuthenticatedChannelRequestUser?> ResolveUserAsync(HttpContext context,
         ICertificateHashExtractor certificates, UserRepository users)

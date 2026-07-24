@@ -71,6 +71,35 @@ public sealed class PaintEndpointsTests
     }
 
     [TestMethod]
+    public async Task Snapshot_RejectsUnauthenticatedRequestWithStableErrorShape()
+    {
+        await using var app = await EndpointFixture.StartAsync();
+        app.SetCertificateHash(null);
+
+        var response = await app.Client.GetAsync($"/paint/sessions/{app.SessionId}");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
+        Assert.IsNotNull(body);
+        Assert.AreEqual("UNAUTHENTICATED", body.Code);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body.Error));
+    }
+
+    [TestMethod]
+    public async Task Create_MapsGenericAuthorizationFailureToPaintForbidden()
+    {
+        await using var app = await EndpointFixture.StartAsync();
+
+        var response = await app.Client.PostAsJsonAsync("/paint/sessions", new { channelId = 10 });
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
+        Assert.IsNotNull(body);
+        Assert.AreEqual("PAINT_FORBIDDEN", body.Code);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body.Error));
+    }
+
+    [TestMethod]
     public async Task Stroke_ReturnsCreatedStrokeAndRevision()
     {
         await using var app = await EndpointFixture.StartActiveAsync();
@@ -111,13 +140,16 @@ public sealed class PaintEndpointsTests
         private readonly Database _database;
         private readonly TestPresence _presence;
         private readonly TestMatrix _matrix;
+        private readonly TestCertificate _certificate;
         public HttpClient Client { get; }
         public Guid SessionId { get; private set; }
 
-        private EndpointFixture(WebApplication app, Database database, TestPresence presence, TestMatrix matrix)
+        private EndpointFixture(WebApplication app, Database database, TestPresence presence, TestMatrix matrix, TestCertificate certificate)
         {
-            _app = app; _database = database; _presence = presence; _matrix = matrix; Client = app.GetTestClient();
+            _app = app; _database = database; _presence = presence; _matrix = matrix; _certificate = certificate; Client = app.GetTestClient();
         }
+
+        public void SetCertificateHash(string? hash) => _certificate.Hash = hash;
 
         public static async Task<EndpointFixture> StartAsync()
         {
@@ -125,12 +157,13 @@ public sealed class PaintEndpointsTests
             database.Initialize();
             var presence = new TestPresence();
             var matrix = new TestMatrix();
+            var certificate = new TestCertificate();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(database);
             builder.Services.Configure<MatrixSettings>(x => x.ServerDomain = "test");
             builder.Services.AddSingleton<UserRepository>();
-            builder.Services.AddSingleton<ICertificateHashExtractor, TestCertificate>();
+            builder.Services.AddSingleton<ICertificateHashExtractor>(certificate);
             builder.Services.AddSingleton<IPaintPresence>(presence);
             builder.Services.AddSingleton<IMatrixPaintService>(matrix);
             builder.Services.AddSingleton<IPaintEventPublisher, TestPublisher>();
@@ -139,7 +172,7 @@ public sealed class PaintEndpointsTests
             builder.Services.AddSingleton<PaintRoomCleanupRepository>();
             builder.Services.AddSingleton<PaintSessionManager>();
             var app = builder.Build(); app.MapPaintEndpoints(); await app.StartAsync();
-            var fixture = new EndpointFixture(app, database, presence, matrix);
+            var fixture = new EndpointFixture(app, database, presence, matrix, certificate);
             var user = await app.Services.GetRequiredService<UserRepository>().Insert("bob-cert", "bob");
             presence.Participants[user.Id] = new(user.Id, 9, 101, user.MatrixUserId);
             fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(user.Id, [])).SessionId;
@@ -166,7 +199,8 @@ public sealed class PaintEndpointsTests
 
     private sealed class TestCertificate : ICertificateHashExtractor
     {
-        public string? GetCertHash(HttpContext context) => "bob-cert";
+        public string? Hash { get; set; } = "bob-cert";
+        public string? GetCertHash(HttpContext context) => Hash;
     }
 
     private sealed class TestPresence : IPaintPresence
