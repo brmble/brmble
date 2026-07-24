@@ -140,6 +140,50 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task End_WhenCleanupPersistenceFails_RemainsRetryableWithoutCleanupRecord()
+    {
+        var cleanup = new FailingCleanupRepository();
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId));
+
+        var afterFailure = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(PaintSessionStatus.Active, afterFailure.Status);
+        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
+
+        cleanup.ShouldFail = false;
+        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "delete", "unavailable");
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+
+        var afterRetry = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(PaintSessionStatus.Ended, afterRetry.Status);
+        Assert.AreEqual(1, (await cleanup.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task Expire_WhenCleanupPersistenceFails_RemainsRetryableWithoutCleanupRecord()
+    {
+        var cleanup = new FailingCleanupRepository();
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
+        fixture.Now = fixture.Now.AddMinutes(30);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            fixture.Manager.ExpireInactiveForTestAsync());
+
+        var afterFailure = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(PaintSessionStatus.Active, afterFailure.Status);
+        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
+
+        cleanup.ShouldFail = false;
+        await fixture.Manager.ExpireInactiveForTestAsync();
+
+        var afterRetry = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(PaintSessionStatus.Expired, afterRetry.Status);
+        Assert.AreEqual(1, (await cleanup.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
     public async Task Preview_BackpressureMaySkipPreviewButNeverPreventsCommit()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
@@ -188,26 +232,26 @@ public sealed class PaintSessionManagerTests
         public Guid SessionId { get; set; }
         public DateTimeOffset Now { get; set; } = new(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
 
-        public static async Task<PaintSessionFixture> PendingWithTwoParticipantsAsync()
+        public static async Task<PaintSessionFixture> PendingWithTwoParticipantsAsync(PaintRoomCleanupRepository? cleanup = null)
         {
-            var fixture = New();
+            var fixture = New(cleanup);
             var create = await fixture.Manager.CreateAsync(1, [2, 3]);
             fixture.SessionId = create.SessionId;
             return fixture;
         }
 
-        public static async Task<PaintSessionFixture> ActiveWithParticipantAsync()
+        public static async Task<PaintSessionFixture> ActiveWithParticipantAsync(PaintRoomCleanupRepository? cleanup = null)
         {
-            var fixture = await PendingWithTwoParticipantsAsync();
+            var fixture = await PendingWithTwoParticipantsAsync(cleanup);
             await fixture.Manager.AttachSourceAsync(fixture.SessionId, 1, "$source");
             fixture.Matrix.Memberships["@alice:test"] = "join";
             await fixture.Manager.JoinAsync(fixture.SessionId, 2);
             return fixture;
         }
 
-        public static async Task<PaintSessionFixture> ActiveWithTwoParticipantsAsync()
+        public static async Task<PaintSessionFixture> ActiveWithTwoParticipantsAsync(PaintRoomCleanupRepository? cleanup = null)
         {
-            var fixture = await ActiveWithParticipantAsync();
+            var fixture = await ActiveWithParticipantAsync(cleanup);
             fixture.Matrix.Memberships["@alice:test"] = "join";
             fixture.Matrix.Memberships["@bob:test"] = "join";
             await fixture.Manager.JoinAsync(fixture.SessionId, 2);
@@ -222,7 +266,7 @@ public sealed class PaintSessionManagerTests
             new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
                 [new PaintPoint(0.1, 0.2, null)]));
 
-        private static PaintSessionFixture New()
+        private static PaintSessionFixture New(PaintRoomCleanupRepository? cleanup = null)
         {
             var presence = new FakePresence();
             presence.Participants[1] = new(1, 9, 101, "@host:test");
@@ -237,11 +281,33 @@ public sealed class PaintSessionManagerTests
             {
                 Matrix = matrix,
                 Publisher = publisher,
-                Cleanup = new PaintRoomCleanupRepository(database),
+                Cleanup = cleanup ?? new PaintRoomCleanupRepository(database),
             };
             fixture.Manager = new PaintSessionManager(presence, publisher, matrix, new MatrixPaintSourceResolver(matrix), fixture.Cleanup,
                 new PaintRateLimiter(), () => fixture.Now);
             return fixture;
+        }
+    }
+
+    private sealed class FailingCleanupRepository : PaintRoomCleanupRepository
+    {
+        public FailingCleanupRepository()
+            : this(new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-failing-{Guid.NewGuid():N}.db")}"))
+        {
+        }
+
+        private FailingCleanupRepository(Database database)
+            : base(database)
+        {
+            database.Initialize();
+        }
+
+        public bool ShouldFail { get; set; } = true;
+
+        public override Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
+        {
+            if (ShouldFail) throw new InvalidOperationException("cleanup persistence unavailable");
+            return base.RecordPendingAsync(sessionId, matrixRoomId, cancellationToken);
         }
     }
 

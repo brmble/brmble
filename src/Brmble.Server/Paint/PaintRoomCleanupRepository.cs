@@ -5,9 +5,9 @@ namespace Brmble.Server.Paint;
 
 public sealed record PaintRoomCleanupRecord(long Id, Guid SessionId, string MatrixRoomId, string Status, int Attempts, string? LastError, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
-public sealed class PaintRoomCleanupRepository(Database database)
+public class PaintRoomCleanupRepository(Database database)
 {
-    public async Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
+    public virtual async Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
     {
         using var connection = database.CreateConnection();
         await connection.ExecuteAsync(new CommandDefinition("""

@@ -21,6 +21,16 @@
 - `dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj`: passed, 397/397.
 - `git diff --check`: passed.
 
+## Durability Blocker Fix (2026-07-24)
+
+- Added a per-session terminal transition gate so `EndAsync` and inactivity expiry serialize their terminal operation, persist the cleanup row first, and only then mark the session ended/expired and publish the state change. Cleanup persistence failures therefore leave the session open and retryable.
+- Added regressions proving failed end and expiry persistence leave the session active with no pending cleanup row, and that a later retry can persist cleanup and complete the terminal transition.
+
+## Durability Blocker Verification
+
+- `dotnet test Brmble.slnx --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests"`: passed, 22/22 selected server tests. Unrelated solution test assemblies report no filter matches; the pre-existing `CS0108` warning remains.
+- `git diff --check`: passed.
+
 ## Scope
 
 Only the requested paint files, `Database.cs`, paint tests, the authorized `Program.cs` DI/hosted-service wiring, and this report are included. Existing unrelated workspace changes were left untouched.
