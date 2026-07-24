@@ -84,8 +84,7 @@ internal sealed class PaintService : IService
 
     private Task SendErrorAsync(string path, string error, int statusCode = 0)
     {
-        _bridge?.Send("paint.error", new { path, error, statusCode });
-        _bridge?.NotifyUiThread();
+        SendResponse(null, false, null, statusCode, error);
         return Task.CompletedTask;
     }
 

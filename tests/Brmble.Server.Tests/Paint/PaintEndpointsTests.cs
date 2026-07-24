@@ -4,7 +4,12 @@ using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Paint;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
+using Brmble.Server.Matrix;
+using Brmble.Server.Events;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -51,6 +56,126 @@ public sealed class PaintEndpointsTests
             "/paint/sessions/{id:guid}/preview", "/paint/sessions/{id:guid}/undo", "/paint/sessions/{id:guid}/clear",
             "/paint/sessions/{id:guid}/end",
         }, endpoints.ToArray());
+    }
+
+    [TestMethod]
+    public async Task Join_RejectsUserWithoutMatrixMembership()
+    {
+        await using var app = await EndpointFixture.StartAsync();
+        var response = await app.Client.PostAsJsonAsync($"/paint/sessions/{app.SessionId}/join", new { });
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
+        Assert.IsNotNull(body);
+        Assert.AreEqual("MATRIX_MEMBERSHIP_REQUIRED", body.Code);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body.Error));
+    }
+
+    [TestMethod]
+    public async Task Stroke_ReturnsCreatedStrokeAndRevision()
+    {
+        await using var app = await EndpointFixture.StartActiveAsync();
+        var response = await app.Client.PostAsJsonAsync($"/paint/sessions/{app.SessionId}/stroke", new
+        {
+            correlationId = Guid.Parse("11111111-1111-1111-1111-111111111111"), generation = 0,
+            tool = "pen", color = "#EF4444", width = 6,
+            points = new[] { new { x = 0.1, y = 0.2, pressure = 0.5 } },
+        });
+        Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.IsTrue(body.TryGetProperty("stroke", out _));
+        Assert.AreEqual(3, body.GetProperty("revision").GetInt64());
+    }
+
+    private sealed record PaintErrorDto(string Code, string Error);
+
+    private sealed class EndpointFixture : IAsyncDisposable
+    {
+        private readonly WebApplication _app;
+        private readonly Database _database;
+        private readonly TestPresence _presence;
+        private readonly TestMatrix _matrix;
+        public HttpClient Client { get; }
+        public Guid SessionId { get; private set; }
+
+        private EndpointFixture(WebApplication app, Database database, TestPresence presence, TestMatrix matrix)
+        {
+            _app = app; _database = database; _presence = presence; _matrix = matrix; Client = app.GetTestClient();
+        }
+
+        public static async Task<EndpointFixture> StartAsync()
+        {
+            var database = new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"paint-endpoints-{Guid.NewGuid():N}.db")}");
+            database.Initialize();
+            var presence = new TestPresence();
+            var matrix = new TestMatrix();
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+            builder.WebHost.UseTestServer();
+            builder.Services.AddSingleton(database);
+            builder.Services.Configure<MatrixSettings>(x => x.ServerDomain = "test");
+            builder.Services.AddSingleton<UserRepository>();
+            builder.Services.AddSingleton<ICertificateHashExtractor, TestCertificate>();
+            builder.Services.AddSingleton<IPaintPresence>(presence);
+            builder.Services.AddSingleton<IMatrixPaintService>(matrix);
+            builder.Services.AddSingleton<IPaintEventPublisher, TestPublisher>();
+            builder.Services.AddSingleton<MatrixPaintSourceResolver>();
+            builder.Services.AddSingleton<PaintRateLimiter>();
+            builder.Services.AddSingleton<PaintRoomCleanupRepository>();
+            builder.Services.AddSingleton<PaintSessionManager>();
+            var app = builder.Build(); app.MapPaintEndpoints(); await app.StartAsync();
+            var fixture = new EndpointFixture(app, database, presence, matrix);
+            var user = await app.Services.GetRequiredService<UserRepository>().Insert("bob-cert", "bob");
+            presence.Participants[user.Id] = new(user.Id, 9, 101, user.MatrixUserId);
+            fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(user.Id, [])).SessionId;
+            return fixture;
+        }
+
+        public static async Task<EndpointFixture> StartActiveAsync()
+        {
+            var fixture = await StartAsync();
+            var users = fixture._app.Services.GetRequiredService<UserRepository>();
+            var user = await users.GetByCertHash("bob-cert");
+            var manager = fixture._app.Services.GetRequiredService<PaintSessionManager>();
+            await manager.AttachSourceAsync(fixture.SessionId, user!.Id, "$source");
+            fixture._matrix.Memberships[user.MatrixUserId] = "join";
+            await manager.JoinAsync(fixture.SessionId, user.Id);
+            return fixture;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Client.Dispose(); await _app.StopAsync(); await _app.DisposeAsync();
+        }
+    }
+
+    private sealed class TestCertificate : ICertificateHashExtractor
+    {
+        public string? GetCertHash(HttpContext context) => "bob-cert";
+    }
+
+    private sealed class TestPresence : IPaintPresence
+    {
+        public Dictionary<long, PaintPresenceParticipant> Participants { get; } = [];
+        public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant) => Participants.TryGetValue(userId, out participant!);
+        public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(x => x.ChannelId == channelId).ToArray();
+    }
+
+    private sealed class TestPublisher : IPaintEventPublisher
+    {
+        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => Task.CompletedTask;
+        public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
+    }
+
+    private sealed class TestMatrix : IMatrixPaintService
+    {
+        private static readonly byte[] ValidPng = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        public Dictionary<string, string?> Memberships { get; } = [];
+        public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> ids, CancellationToken token) => Task.FromResult("!paint:test");
+        public Task InvitePaintUserAsync(string roomId, string id, CancellationToken token) => Task.CompletedTask;
+        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken token) => Task.FromResult(JsonDocument.Parse($"{{\"room_id\":\"!paint:test\",\"sender\":\"@1:test\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://test/image\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{ValidPng.Length}}}}}}}").RootElement.Clone());
+        public Task<string?> GetMembershipAsync(string roomId, string id, CancellationToken token) => Task.FromResult(Memberships.GetValueOrDefault(id));
+        public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken token) => Task.FromResult(ValidPng);
+        public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken token) => Task.FromResult(new MatrixPaintRoomCleanupResult(true, "delete", null));
     }
 
     private sealed class TestPaintPresence : IPaintPresence
