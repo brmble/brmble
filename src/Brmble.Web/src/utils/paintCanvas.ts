@@ -28,13 +28,16 @@ export function drawPaintStroke(canvas: HTMLCanvasElement, stroke: PaintStroke):
 }
 
 export interface MatrixMediaClient {
-  mxcUrlToHttp(url: string): string | null;
+  getAccessToken(): string | null;
+  mxcUrlToHttp(url: string, width?: number, height?: number, resizeMethod?: string, allowDirectLinks?: boolean, allowRedirects?: boolean, useAuthentication?: boolean): string | null;
 }
 
 export async function loadPaintSourceImage(client: MatrixMediaClient, source: PaintSource): Promise<HTMLImageElement> {
-  const url = client.mxcUrlToHttp(source.mxcUrl);
+  const accessToken = client.getAccessToken();
+  if (!accessToken) throw new Error('Unable to authenticate Matrix source download.');
+  const url = client.mxcUrlToHttp(source.mxcUrl, undefined, undefined, undefined, false, true, true);
   if (!url) throw new Error('Unable to resolve Matrix source URL.');
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!response.ok) throw new Error('Unable to download Matrix source image.');
   const objectUrl = URL.createObjectURL(await response.blob());
   try {

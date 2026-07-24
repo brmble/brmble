@@ -25,7 +25,11 @@ export function usePaintSession(sessionId: string) {
     setPreviews([]);
   }, [sessionId]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  const refreshInBackground = useCallback(() => {
+    void refresh().catch(() => {});
+  }, [refresh]);
+
+  useEffect(() => { refreshInBackground(); }, [refreshInBackground]);
 
   useEffect(() => {
     const isCurrentSession = (event: { sessionId?: string }) => event.sessionId === sessionId;
@@ -34,7 +38,7 @@ export function usePaintSession(sessionId: string) {
       const current = snapshotRef.current;
       if (!current || event.generation < current.generation) return;
       if (event.revision !== current.revision + 1) {
-        if (event.revision > current.revision + 1) void refresh();
+        if (event.revision > current.revision + 1) refreshInBackground();
         return;
       }
       const next = apply(current);
@@ -95,7 +99,7 @@ export function usePaintSession(sessionId: string) {
     };
     for (const event of EVENTS) bridge.on(event, handlers[event]);
     return () => { for (const event of EVENTS) bridge.off(event, handlers[event]); };
-  }, [refresh, sessionId]);
+  }, [refreshInBackground, sessionId]);
 
   return { snapshot, strokes: snapshot?.strokes ?? [], previews, refresh };
 }

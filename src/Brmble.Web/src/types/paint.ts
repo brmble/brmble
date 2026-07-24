@@ -24,27 +24,33 @@ export interface PaintStroke extends PaintStrokeInput {
 }
 
 export interface PaintSource {
-  eventId: string;
+  matrixRoomId: string;
+  sourceEventId: string;
   mxcUrl: string;
   mimeType: string;
   width: number;
   height: number;
+  sizeBytes: number;
 }
 
 export interface PaintParticipant {
   userId: number;
+  mumbleSessionId: number;
   matrixUserId: string;
-  displayName?: string;
+  selected: boolean;
+  active: boolean;
 }
 
-export type PaintSessionStatus = 'active' | 'ended' | 'expired' | 'unavailable';
+export type PaintSessionStatus = 'pendingSource' | 'active' | 'ended' | 'expired' | 'unavailable';
 
 export interface PaintSessionSnapshot {
-  id: string;
+  sessionId: string;
   channelId: number;
   hostUserId: number;
   matrixRoomId: string;
+  sourceEventId: string | null;
   status: PaintSessionStatus;
+  expiresAt: string;
   source: PaintSource | null;
   participants: PaintParticipant[];
   strokes: PaintStroke[];

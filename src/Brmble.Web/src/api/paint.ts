@@ -47,21 +47,20 @@ function bridgeRequest<T>(payload: Record<string, unknown>): Promise<T> {
   });
 }
 
-async function request<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
-  if (isWebViewBridgeAvailable()) return bridgeRequest<T>({ action, ...payload });
-  const response = await fetch(`/paint/${action}`, {
+async function post<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(response.statusText || 'Request failed.');
   return response.json() as Promise<T>;
 }
 
-function mutate(event: string, payload: Record<string, unknown>): Promise<void> {
+async function mutate(event: string, path: string, payload: Record<string, unknown>): Promise<void> {
   if (isWebViewBridgeAvailable()) {
     bridge.send(event, payload);
-    return Promise.resolve();
+    return;
   }
-  return request<void>(event.replace('paint.', ''), payload);
+  await post<unknown>(path, payload);
 }
 
 function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
@@ -76,14 +75,19 @@ function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
 }
 
 export const paintApi = {
-  createSession: (input: { channelId: number; participantUserIds: number[] }) => mutate('paint.create', input),
-  attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', { sessionId, sourceEventId }),
-  join: (sessionId: string) => mutate('paint.join', { sessionId }),
-  leave: (sessionId: string) => mutate('paint.leave', { sessionId }),
-  commitStroke: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.commitStroke', { sessionId, ...normalizedStroke(stroke) }),
-  sendPreview: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.sendPreview', { sessionId, ...normalizedStroke(stroke) }),
-  undo: (sessionId: string) => mutate('paint.undo', { sessionId }),
-  clear: (sessionId: string) => mutate('paint.clear', { sessionId }),
-  end: (sessionId: string) => mutate('paint.end', { sessionId }),
-  getSnapshot: (sessionId: string) => request<PaintSessionSnapshot>('snapshot', { sessionId }),
+  createSession: (input: { channelId: number; participantUserIds: number[] }) => mutate('paint.create', '/paint/sessions', input),
+  attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', `/paint/sessions/${encodeURIComponent(sessionId)}/source`, { sessionId, sourceEventId }),
+  join: (sessionId: string) => mutate('paint.join', `/paint/sessions/${encodeURIComponent(sessionId)}/join`, { sessionId }),
+  leave: (sessionId: string) => mutate('paint.leave', `/paint/sessions/${encodeURIComponent(sessionId)}/leave`, { sessionId }),
+  commitStroke: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.commitStroke', `/paint/sessions/${encodeURIComponent(sessionId)}/stroke`, { sessionId, ...normalizedStroke(stroke) }),
+  sendPreview: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.sendPreview', `/paint/sessions/${encodeURIComponent(sessionId)}/preview`, { sessionId, ...normalizedStroke(stroke) }),
+  undo: (sessionId: string) => mutate('paint.undo', `/paint/sessions/${encodeURIComponent(sessionId)}/undo`, { sessionId }),
+  clear: (sessionId: string) => mutate('paint.clear', `/paint/sessions/${encodeURIComponent(sessionId)}/clear`, { sessionId }),
+  end: (sessionId: string) => mutate('paint.end', `/paint/sessions/${encodeURIComponent(sessionId)}/end`, { sessionId }),
+  async getSnapshot(sessionId: string): Promise<PaintSessionSnapshot> {
+    if (isWebViewBridgeAvailable()) return bridgeRequest<PaintSessionSnapshot>({ action: 'snapshot', sessionId });
+    const response = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
+    if (!response.ok) throw new Error(response.statusText || 'Request failed.');
+    return response.json() as Promise<PaintSessionSnapshot>;
+  },
 };

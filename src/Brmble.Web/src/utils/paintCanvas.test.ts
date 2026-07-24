@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { normalizeCanvasPoint, applyPaintStrokeToContext } from './paintCanvas';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { normalizeCanvasPoint, applyPaintStrokeToContext, loadPaintSourceImage } from './paintCanvas';
 
 describe('paintCanvas', () => {
   it('normalizes pointer coordinates into clamped unit canvas space', () => {
@@ -38,4 +38,43 @@ describe('paintCanvas', () => {
 
     expect(operations).toContain('destination-out');
   });
+
+  it('downloads source media through the authenticated Matrix media route', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(new Blob(['image'])) });
+    const createObjectUrl = vi.fn().mockReturnValue('blob:paint-source');
+    const revokeObjectUrl = vi.fn();
+    const decode = vi.fn().mockResolvedValue(undefined);
+    const mxcUrlToHttp = vi.fn().mockReturnValue('https://matrix.example/media');
+    const OriginalImage = globalThis.Image;
+
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('Image', class {
+      set src(_value: string) {}
+      decode = decode;
+    });
+    vi.stubGlobal('URL', { ...URL, createObjectURL: createObjectUrl, revokeObjectURL: revokeObjectUrl });
+
+    await loadPaintSourceImage({
+      getAccessToken: () => 'matrix-token',
+      mxcUrlToHttp,
+    }, {
+      matrixRoomId: '!paint:example',
+      sourceEventId: '$source',
+      mxcUrl: 'mxc://example/source',
+      mimeType: 'image/png',
+      width: 640,
+      height: 480,
+      sizeBytes: 123,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://matrix.example/media', {
+      headers: { Authorization: 'Bearer matrix-token' },
+    });
+    expect(mxcUrlToHttp).toHaveBeenCalledWith('mxc://example/source', undefined, undefined, undefined, false, true, true);
+    expect(decode).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:paint-source');
+    vi.stubGlobal('Image', OriginalImage);
+  });
 });
+
+afterEach(() => vi.unstubAllGlobals());

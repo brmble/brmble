@@ -17,11 +17,13 @@ const handlers = new Map<string, (data: unknown) => void>();
 
 function initialSnapshot(overrides: Record<string, unknown> = {}) {
   return {
-    id: sessionId,
+    sessionId,
     channelId: 7,
     hostUserId: 1,
     matrixRoomId: '!paint:server',
-    status: 'active' as const,
+    sourceEventId: null,
+    status: 'pendingSource' as const,
+    expiresAt: '2026-07-24T12:00:00.000Z',
     source: null,
     participants: [],
     strokes: [],
@@ -117,5 +119,15 @@ describe('usePaintSession', () => {
     act(() => harness.emit('paint.previewUpdated', preview({ generation: 0, correlationId: 'old' })));
 
     expect(harness.result.current.previews).toHaveLength(0);
+  });
+
+  it('contains a failed automatic snapshot refresh after a revision gap', async () => {
+    const harness = renderPaintSessionHook(initialSnapshot({ revision: 4 }));
+    await waitFor(() => expect(harness.result.current.snapshot?.revision).toBe(4));
+    vi.mocked(paintApi.paintApi.getSnapshot).mockRejectedValueOnce(new Error('network unavailable'));
+
+    act(() => harness.emit('paint.strokeCommitted', committed({ revision: 6 })));
+
+    await waitFor(() => expect(paintApi.paintApi.getSnapshot).toHaveBeenCalledTimes(2));
   });
 });
