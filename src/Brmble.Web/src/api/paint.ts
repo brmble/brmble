@@ -4,6 +4,12 @@ import type { PaintSessionSnapshot, PaintStrokeInput } from '../types/paint';
 const BRIDGE_REQUEST_TIMEOUT_MS = 15_000;
 let nextRequestId = 1;
 
+export interface CreatedPaintSession {
+  sessionId: string;
+  matrixRoomId: string;
+  channelId: number;
+}
+
 interface BridgeResponse {
   requestId?: number;
   success?: boolean;
@@ -16,7 +22,7 @@ function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
 
-function bridgeRequest<T>(payload: Record<string, unknown>): Promise<T> {
+function bridgeRequest<T>(event: string, payload: Record<string, unknown>): Promise<T> {
   const requestId = nextRequestId++;
   return new Promise<T>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -43,7 +49,7 @@ function bridgeRequest<T>(payload: Record<string, unknown>): Promise<T> {
       cleanup();
       reject(new Error('Request timed out.'));
     }, BRIDGE_REQUEST_TIMEOUT_MS);
-    bridge.send('paint.request', { ...payload, requestId });
+    bridge.send(event, { ...payload, requestId });
   });
 }
 
@@ -75,7 +81,13 @@ function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
 }
 
 export const paintApi = {
-  createSession: (input: { channelId: number; participantUserIds: number[] }) => mutate('paint.create', '/paint/sessions', input),
+  async createSession(input: { channelId: number; participantUserIds: number[] }): Promise<CreatedPaintSession> {
+    const created = isWebViewBridgeAvailable()
+      ? await bridgeRequest<Omit<CreatedPaintSession, 'channelId'>>('paint.create', input)
+      : await post<Omit<CreatedPaintSession, 'channelId'>>('/paint/sessions', input);
+
+    return { ...created, channelId: input.channelId };
+  },
   attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', `/paint/sessions/${encodeURIComponent(sessionId)}/source`, { sessionId, sourceEventId }),
   join: (sessionId: string) => mutate('paint.join', `/paint/sessions/${encodeURIComponent(sessionId)}/join`, { sessionId }),
   leave: (sessionId: string) => mutate('paint.leave', `/paint/sessions/${encodeURIComponent(sessionId)}/leave`, { sessionId }),
@@ -85,7 +97,7 @@ export const paintApi = {
   clear: (sessionId: string) => mutate('paint.clear', `/paint/sessions/${encodeURIComponent(sessionId)}/clear`, { sessionId }),
   end: (sessionId: string) => mutate('paint.end', `/paint/sessions/${encodeURIComponent(sessionId)}/end`, { sessionId }),
   async getSnapshot(sessionId: string): Promise<PaintSessionSnapshot> {
-    if (isWebViewBridgeAvailable()) return bridgeRequest<PaintSessionSnapshot>({ action: 'snapshot', sessionId });
+    if (isWebViewBridgeAvailable()) return bridgeRequest<PaintSessionSnapshot>('paint.request', { action: 'snapshot', sessionId });
     const response = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
     if (!response.ok) throw new Error(response.statusText || 'Request failed.');
     return response.json() as Promise<PaintSessionSnapshot>;

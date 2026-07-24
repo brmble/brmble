@@ -15,3 +15,15 @@
 ## Scope note
 
 The current Task 5 `paintApi.createSession` mutation returns `void`, although the Task 6 setup flow requires the correlated created session ID and Matrix paint-room ID to continue. The setup component accepts that canonical result as an injected dependency, but it is not wired into `App.tsx` because changing the Task 5 API bridge is outside the requested Task 6 write scope. The editor/card are similarly available for application integration once the API exposes the correlated create result.
+
+## Integration follow-up notes
+
+- `paintApi.createSession` now awaits and returns the correlated create response for both browser fetch and WebView bridge transports. It preserves the requested `channelId` alongside the server-returned `sessionId` and `matrixRoomId`, giving the setup flow the canonical fields it needs.
+- `App.tsx` now exposes a guarded Paint action in the header for the current voice channel. It opens the existing setup modal with channel participants and Matrix room context, attaches the uploaded source through `paintApi`, then retains the created session ID for the app-level paint flow.
+- The setup modal now uses the Matrix SDK client contract directly and sends the Matrix invitation using SDK message-type constants.
+
+## Follow-up verification
+
+- RED: `npm.cmd run test -- src/api/paint.test.ts` failed as expected before the API change: browser create resolved to `undefined` and the bridge mutation had no `requestId`.
+- `npm.cmd run test -- src/api/paint.test.ts src/components/Paint` passed: 4 files, 16 tests, 0 failures. Vitest printed the pre-existing jsdom canvas `getContext` not-implemented notices from `PaintEditor` tests.
+- `npm.cmd run type-check` passed with exit code 0.

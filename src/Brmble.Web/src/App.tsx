@@ -19,6 +19,7 @@ import { useCompanionOverlayPublisher } from './hooks/useCompanionOverlayPublish
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
+import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -70,6 +71,7 @@ import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
+import { paintApi } from './api/paint';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1063,6 +1065,8 @@ function App() {
   const [requestChannelOpen, setRequestChannelOpen] = useState(false);
   const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
+  const [showPaintSetup, setShowPaintSetup] = useState(false);
+  const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
   const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
@@ -4220,6 +4224,15 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
+  const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
+  const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
+  const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
+  const paintCandidates = paintChannelId === null
+    ? []
+    : users
+      .filter(user => user.channelId === paintChannelId && !user.self)
+      .map(user => ({ userId: user.session, name: user.name }));
+
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
       <WindowResizeHandles />
@@ -4254,8 +4267,26 @@ const handleConnect = (serverData: SavedServer) => {
         deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
         isMaximized={isMaximized}
+        onStartPaint={() => setShowPaintSetup(true)}
+        canStartPaint={canStartPaint}
+        activePaintSessionId={activePaintSessionId}
       />
       </ErrorBoundary>
+      {showPaintSetup && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client && (
+        <PaintSessionSetupModal
+          channelId={paintChannelId}
+          channelRoomId={paintChannelRoomId}
+          candidates={paintCandidates}
+          paintApi={paintApi}
+          matrixClient={matrixClient.client}
+          onAttachSource={paintApi.attachSource}
+          onComplete={(sessionId) => {
+            setActivePaintSessionId(sessionId);
+            setShowPaintSetup(false);
+          }}
+          onClose={() => setShowPaintSetup(false)}
+        />
+      )}
       
       <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
         <ErrorBoundary label="Sidebar">

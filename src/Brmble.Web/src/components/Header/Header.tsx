@@ -33,9 +33,12 @@ interface HeaderProps {
   muteOnCooldown?: boolean;
   deafOnCooldown?: boolean;
   isMaximized?: boolean;
+  onStartPaint?: () => void;
+  canStartPaint?: boolean;
+  activePaintSessionId?: string | null;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, isMaximized }: HeaderProps) {
+export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, isMaximized, onStartPaint, canStartPaint, activePaintSessionId }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -44,6 +47,11 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
       </div>
 
       <div className="header-right">
+        {onStartPaint && (
+          <button type="button" className="header-paint-button" onClick={onStartPaint} disabled={!canStartPaint} title={activePaintSessionId ? 'A collaborative paint session is active' : 'Start collaborative paint'}>
+            Paint
+          </button>
+        )}
         <UserPanel
           username={username}
           onToggleDM={onToggleDM}

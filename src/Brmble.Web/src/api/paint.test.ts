@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import bridge from '../bridge';
 import { paintApi } from './paint';
 
 const sessionId = 'session-1';
@@ -28,5 +29,40 @@ describe('paintApi browser fallback', () => {
     await invoke();
 
     expect(fetchMock).toHaveBeenCalledWith(path, expect.objectContaining({ method }));
+  });
+
+  it('returns the created paint session from the browser fallback', async () => {
+    const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }));
+
+    await expect(paintApi.createSession({ channelId: 7, participantUserIds: [2] })).resolves.toEqual({ ...response, channelId: 7 });
+  });
+});
+
+describe('paintApi WebView bridge', () => {
+  it('returns the correlated created paint session response', async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: { webview: { postMessage } },
+    });
+
+    const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
+    const result = paintApi.createSession({ channelId: 7, participantUserIds: [2] });
+    const request = postMessage.mock.calls[0][0];
+
+    expect(request).toEqual(expect.objectContaining({
+      type: 'paint.create',
+      data: expect.objectContaining({ channelId: 7, participantUserIds: [2], requestId: expect.any(Number) }),
+    }));
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId, success: true, body: JSON.stringify(response) },
+      },
+    });
+
+    await expect(result).resolves.toEqual({ ...response, channelId: 7 });
   });
 });
