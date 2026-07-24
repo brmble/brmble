@@ -45,9 +45,9 @@ internal sealed class PaintService : IService
     private Task PostSessionAsync(JsonElement data, string action)
     {
         var sessionId = data.TryGetProperty("sessionId", out var value) ? value.GetString() : null;
-        return string.IsNullOrWhiteSpace(sessionId)
-            ? Task.CompletedTask
-            : PostAsync($"paint/sessions/{Uri.EscapeDataString(sessionId)}/{action}", data);
+        if (!string.IsNullOrWhiteSpace(sessionId)) return PostAsync($"paint/sessions/{Uri.EscapeDataString(sessionId)}/{action}", data);
+        SendMutationResponse(data, new(false, null, 0, "Missing sessionId"));
+        return Task.CompletedTask;
     }
 
     private async Task HandleRequestAsync(JsonElement data)
@@ -68,7 +68,8 @@ internal sealed class PaintService : IService
     private async Task PostAsync(string path, JsonElement data)
     {
         var body = data.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? "{}" : data.GetRawText();
-        _ = await CallAsync(cert => _postAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path), body));
+        var result = await CallAsync(cert => _postAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path), body));
+        SendMutationResponse(data, result);
     }
 
     private async Task<ChannelRequestBridgeHandler.TlsCallResult> CallAsync(Func<X509Certificate2, Task<ChannelRequestBridgeHandler.TlsCallResult>> call)
@@ -85,5 +86,11 @@ internal sealed class PaintService : IService
     {
         _bridge?.Send("paint.response", new { requestId, success, body, statusCode, error });
         _bridge?.NotifyUiThread();
+    }
+
+    private void SendMutationResponse(JsonElement data, ChannelRequestBridgeHandler.TlsCallResult result)
+    {
+        if (!data.TryGetProperty("requestId", out var value) || value.ValueKind != JsonValueKind.Number) return;
+        SendResponse(value.GetInt32(), result.Success, result.Body, result.StatusCode, result.Error);
     }
 }

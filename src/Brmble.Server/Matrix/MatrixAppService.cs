@@ -343,8 +343,8 @@ public class MatrixAppService : IMatrixAppService
     public async Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken)
     {
         var uri = new Uri(mxcUrl);
-        var path = uri.AbsolutePath.Trim('/');
-        var url = $"{_homeserverUrl}/_matrix/media/v3/download/{path}";
+        var mediaId = uri.AbsolutePath.Trim('/');
+        var url = $"{_homeserverUrl}/_matrix/media/v3/download/{Uri.EscapeDataString(uri.Host)}/{mediaId}";
         var client = _httpClientFactory.CreateClient();
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);

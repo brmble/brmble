@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Brmble.Server.Data;
 using Brmble.Server.Paint;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -106,6 +107,69 @@ public sealed class PaintSessionManagerTests
         Assert.IsTrue(joined.Participant.Active);
         var commit = await fixture.CommitBobAsync();
         Assert.AreEqual(fixture.BobUserId, commit.Stroke.AuthorUserId);
+    }
+
+    [TestMethod]
+    public async Task AttachSource_RejectsReplacingTheActiveSource()
+    {
+        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
+        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$replacement"));
+
+        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual("$source", snapshot.SourceEventId);
+    }
+
+    [TestMethod]
+    public async Task AttachSource_PublishesCompleteInvitationPayload()
+    {
+        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
+
+        var result = await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
+
+        using var invitation = fixture.Publisher.GetLastEvent(PaintEventNames.Invited);
+        Assert.AreEqual(fixture.SessionId, invitation.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.AreEqual(9, invitation.RootElement.GetProperty("channelId").GetInt32());
+        Assert.AreEqual(fixture.HostUserId, invitation.RootElement.GetProperty("hostUserId").GetInt64());
+        Assert.AreEqual(fixture.Matrix.RoomId, invitation.RootElement.GetProperty("matrixRoomId").GetString());
+        Assert.AreEqual(3, invitation.RootElement.GetProperty("participants").GetArrayLength());
+        Assert.AreEqual(result.Source.SourceEventId, invitation.RootElement.GetProperty("source").GetProperty("sourceEventId").GetString());
+    }
+
+    [TestMethod]
+    public async Task Preview_PublishesCanonicalAuthorFields()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        var input = new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
+            [new PaintPoint(0.1, 0.2, null)]);
+
+        await fixture.Manager.PreviewAsync(fixture.SessionId, fixture.AliceUserId, input);
+
+        using var preview = fixture.Publisher.GetLastEvent(PaintEventNames.PreviewUpdated);
+        Assert.AreEqual(fixture.AliceUserId, preview.RootElement.GetProperty("authorUserId").GetInt64());
+        Assert.AreEqual(fixture.AliceMatrixUserId, preview.RootElement.GetProperty("authorMatrixUserId").GetString());
+        Assert.AreEqual(input.CorrelationId, preview.RootElement.GetProperty("input").GetProperty("correlationId").GetGuid());
+        Assert.IsFalse(preview.RootElement.TryGetProperty("revision", out _));
+    }
+
+    [TestMethod]
+    public async Task End_PublishesTerminalStatusAndCleanupFailureDetails()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "best-effort-leave", "ROOM_DELETE_UNSUPPORTED");
+
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+
+        using var ended = fixture.Publisher.GetLastEvent(PaintEventNames.SessionEnded);
+        Assert.AreEqual("ended", ended.RootElement.GetProperty("status").GetString());
+        using var cleanup = fixture.Publisher.GetLastEvent(PaintEventNames.RoomCleanupFailed);
+        Assert.AreEqual(fixture.Matrix.RoomId, cleanup.RootElement.GetProperty("matrixRoomId").GetString());
+        Assert.AreEqual("best-effort-leave", cleanup.RootElement.GetProperty("mode").GetString());
+        Assert.AreEqual("ROOM_DELETE_UNSUPPORTED", cleanup.RootElement.GetProperty("error").GetString());
+        Assert.IsTrue(cleanup.RootElement.TryGetProperty("revision", out _));
+        Assert.IsTrue(cleanup.RootElement.TryGetProperty("generation", out _));
     }
 
     [TestMethod]
@@ -356,6 +420,7 @@ public sealed class PaintSessionManagerTests
 
     private sealed class FakePublisher : IPaintEventPublisher
     {
+        private readonly List<string> _events = [];
         public List<string> SentTypes { get; } = [];
         public List<string> PermanentEventTypes { get; } = [];
         public List<long> PermanentRevisions { get; } = [];
@@ -373,6 +438,11 @@ public sealed class PaintSessionManagerTests
 
         private async Task PublishAsync(object message)
         {
+            _events.Add(JsonSerializer.Serialize(message, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+            }));
             var type = ReadType(message);
             if (!string.Equals(type, PaintEventNames.PreviewUpdated, StringComparison.Ordinal))
             {
@@ -393,6 +463,9 @@ public sealed class PaintSessionManagerTests
         }
 
         private static string ReadType(object message) => message.GetType().GetProperty("type")?.GetValue(message)?.ToString() ?? string.Empty;
+
+        public JsonDocument GetLastEvent(string type) => JsonDocument.Parse(_events.Last(json =>
+            JsonDocument.Parse(json).RootElement.GetProperty("type").GetString() == type));
     }
 
     private sealed class FakeMatrixPaintService : IMatrixPaintService
@@ -434,5 +507,6 @@ public sealed class PaintSessionManagerTests
             await _releaseRecordPending.Task;
             await base.RecordPendingAsync(sessionId, matrixRoomId, cancellationToken);
         }
+
     }
 }

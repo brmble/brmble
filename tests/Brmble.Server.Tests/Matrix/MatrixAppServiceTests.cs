@@ -239,4 +239,15 @@ public class MatrixAppServiceTests
         StringAssert.Contains(body, @"""history_visibility"":""invited""");
         Assert.IsFalse(SentRequests.Any(r => r.RequestUri!.AbsolutePath.Contains("/join/")));
     }
+
+    [TestMethod]
+    public async Task DownloadMedia_PreservesMxcServerAndMediaIdInDownloadPath()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "media");
+
+        await _svc.DownloadMedia("mxc://media.example.org/abc123", CancellationToken.None);
+
+        var request = _capturedRequests.Single();
+        Assert.AreEqual("/_matrix/media/v3/download/media.example.org/abc123", request.RequestUri!.AbsolutePath);
+    }
 }

@@ -110,6 +110,37 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task BroadcastToChannelAsync_PreviewWaitsForPermanentPaintSendOnSameSocket()
+    {
+        _channelMembership.Setup(c => c.GetSessionsInChannel(5)).Returns(new List<int> { 10 });
+        _sessionMapping.Setup(s => s.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            { 10, new SessionMapping("@user:test", "User", 1L, "bee") },
+        });
+        var releaseFirstSend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sendsInProgress = 0;
+        var concurrentSend = false;
+        var socket = CreateMockWebSocket(WebSocketState.Open);
+        socket.Setup(w => w.SendAsync(It.IsAny<ArraySegment<byte>>(), WebSocketMessageType.Text, true, It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                if (Interlocked.Increment(ref sendsInProgress) > 1) concurrentSend = true;
+                try { await releaseFirstSend.Task; }
+                finally { Interlocked.Decrement(ref sendsInProgress); }
+            });
+        _bus.AddClient(socket.Object, 1L);
+
+        var permanent = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.StrokeCommitted });
+        await Task.Yield();
+        var preview = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.PreviewUpdated });
+        await Task.Yield();
+        releaseFirstSend.SetResult();
+        await Task.WhenAll(permanent, preview);
+
+        Assert.IsFalse(concurrentSend);
+    }
+
+    [TestMethod]
     public async Task BroadcastAsync_NoClientsDoesNotThrow()
     {
         await _bus.BroadcastAsync(new { type = "test" });

@@ -148,6 +148,18 @@ public sealed class MatrixPaintSourceResolverTests
             resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
     }
 
+    [TestMethod]
+    public async Task ResolveAsync_RejectsMalformedMatrixEventWithPaintValidationError()
+    {
+        var matrix = new FakeMatrixPaintService { RawEvent = "{\"room_id\":\"!paint:server\"}" };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        var exception = await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+
+        StringAssert.Contains(exception.Message, "source event");
+    }
+
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public string EventRoomId { get; init; } = "!paint:server";
@@ -159,6 +171,7 @@ public sealed class MatrixPaintSourceResolverTests
         public byte[] MediaBytes { get; init; } = [];
         public long SizeBytes { get; init; }
         public Exception? DownloadException { get; init; }
+        public string? RawEvent { get; init; }
 
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken)
             => throw new NotSupportedException();
@@ -168,6 +181,11 @@ public sealed class MatrixPaintSourceResolverTests
 
         public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken)
         {
+            if (RawEvent is not null)
+            {
+                return Task.FromResult(JsonDocument.Parse(RawEvent).RootElement.Clone());
+            }
+
             var payload = JsonSerializer.SerializeToElement(new
             {
                 room_id = EventRoomId,

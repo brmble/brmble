@@ -16,8 +16,8 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         var roomEvent = await matrixPaintService.GetRoomEventAsync(matrixRoomId, sourceEventId, cancellationToken);
         ValidateRoomEvent(matrixRoomId, hostMatrixUserId, roomEvent);
 
-        var content = roomEvent.GetProperty("content");
-        var mxcUrl = content.GetProperty("url").GetString();
+        var content = GetRequiredObject(roomEvent, "content");
+        var mxcUrl = GetRequiredString(content, "url");
         if (string.IsNullOrWhiteSpace(mxcUrl))
         {
             throw new PaintValidationException("source event is missing media url.");
@@ -59,26 +59,26 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
 
     private static void ValidateRoomEvent(string matrixRoomId, string hostMatrixUserId, JsonElement roomEvent)
     {
-        var eventRoomId = roomEvent.GetProperty("room_id").GetString();
+        var eventRoomId = GetRequiredString(roomEvent, "room_id");
         if (!string.Equals(eventRoomId, matrixRoomId, StringComparison.Ordinal))
         {
             throw new PaintValidationException("source event must belong to the paint room.");
         }
 
-        var eventType = roomEvent.GetProperty("type").GetString();
+        var eventType = GetRequiredString(roomEvent, "type");
         if (!string.Equals(eventType, "m.room.message", StringComparison.Ordinal))
         {
             throw new PaintValidationException("source event must be an m.room.message event.");
         }
 
-        var content = roomEvent.GetProperty("content");
-        var messageType = content.GetProperty("msgtype").GetString();
+        var content = GetRequiredObject(roomEvent, "content");
+        var messageType = GetRequiredString(content, "msgtype");
         if (!string.Equals(messageType, "m.image", StringComparison.Ordinal))
         {
             throw new PaintValidationException("source event content must be an m.image message.");
         }
 
-        var sender = roomEvent.GetProperty("sender").GetString();
+        var sender = GetRequiredString(roomEvent, "sender");
         if (!string.Equals(sender, hostMatrixUserId, StringComparison.Ordinal))
         {
             throw new PaintValidationException("source event must be uploaded by the host.");
@@ -93,6 +93,20 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         }
 
         return nested.GetString();
+    }
+
+    private static JsonElement GetRequiredObject(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Object)
+            throw new PaintValidationException($"source event is missing {propertyName}.");
+        return value;
+    }
+
+    private static string GetRequiredString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
+            throw new PaintValidationException($"source event is missing {propertyName}.");
+        return value.GetString()!;
     }
 
     private static long? TryGetNestedInt64(JsonElement element, string propertyName, string nestedPropertyName)

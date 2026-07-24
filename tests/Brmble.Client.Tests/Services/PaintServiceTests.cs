@@ -37,7 +37,30 @@ public sealed class PaintServiceTests
     }
 
     [TestMethod]
-    public async Task PaintMutationFailure_DoesNotEmitUncorrelatedResponse()
+    public async Task PaintCreate_ReturnsCorrelatedSessionResult()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var key = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest("CN=paint-test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        var service = new PaintService(bridge, () => certificate, () => "https://api.example.com",
+            (_, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, null, 200, null)),
+            (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true,
+                "{\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"matrixRoomId\":\"!paint:test\"}", 200, null)));
+        service.RegisterHandlers(bridge);
+
+        using var request = JsonDocument.Parse("{ \"channelId\": 9, \"requestId\": 11 }");
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.create", request.RootElement.Clone());
+
+        var response = NativeBridgeTestHarness.DrainMessages(bridge).Single(message => message.Type == "paint.response");
+        StringAssert.Contains(response.DataJson, "\"requestId\":11");
+        StringAssert.Contains(response.DataJson, "\"success\":true");
+        StringAssert.Contains(response.DataJson, "sessionId");
+        StringAssert.Contains(response.DataJson, "matrixRoomId");
+    }
+
+    [TestMethod]
+    public async Task PaintMutationFailure_ReturnsCorrelatedFailure()
     {
         var bridge = NativeBridgeTestHarness.Create();
         using var key = RSA.Create(2048);
@@ -48,10 +71,14 @@ public sealed class PaintServiceTests
             (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(false, null, 403, "forbidden")));
         service.RegisterHandlers(bridge);
 
-        using var request = JsonDocument.Parse("{ \"sessionId\": \"11111111-1111-1111-1111-111111111111\" }");
+        using var request = JsonDocument.Parse("{ \"sessionId\": \"11111111-1111-1111-1111-111111111111\", \"requestId\": 12 }");
         await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.join", request.RootElement.Clone());
 
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
-        Assert.IsFalse(sent.Any(message => message.Type == "paint.response"));
+        var response = sent.Single(message => message.Type == "paint.response");
+        StringAssert.Contains(response.DataJson, "\"requestId\":12");
+        StringAssert.Contains(response.DataJson, "\"success\":false");
+        StringAssert.Contains(response.DataJson, "\"statusCode\":403");
+        StringAssert.Contains(response.DataJson, "forbidden");
     }
 }
