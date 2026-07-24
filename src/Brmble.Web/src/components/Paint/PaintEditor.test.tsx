@@ -52,6 +52,23 @@ describe('PaintEditor', () => {
     expect(correlationIds).toEqual([activeCorrelationId, activeCorrelationId, activeCorrelationId]);
   });
 
+  it('cleans up a cancelled gesture so a later gesture can commit', () => {
+    const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 40, pointerId: 1 });
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+    fireEvent.pointerDown(canvas, { clientX: 60, clientY: 60, pointerId: 2 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 2 });
+    fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 2 });
+
+    expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ points: [{ x: 0.6, y: 0.6 }, { x: 0.8, y: 0.8 }] }));
+  });
+
   it('hides host-only actions from participants', () => {
     render(<PaintEditor sessionId="session-1" paintApi={{ commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() }} snapshot={activeSnapshot} currentUserId={2} />);
 
