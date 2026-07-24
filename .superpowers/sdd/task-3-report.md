@@ -68,3 +68,17 @@ Only the requested paint files, `Database.cs`, paint tests, the authorized `Prog
 
 - `dotnet test Brmble.slnx --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests"`: passed, 20/20 selected server tests. Unrelated solution test assemblies report no filter matches; the pre-existing `CS0108` warning remains.
 - `git diff --check`: passed.
+
+## Task 3 Blocker Fix (2026-07-24)
+
+- Updated `MatrixPaintSourceResolver` to validate the real Matrix image-message shape: `type = "m.room.message"` with `content.msgtype = "m.image"`, while retaining room, host sender, media URL, MIME, and image dimension validation.
+- Added an activity version and revalidated it after cleanup persistence so renewed activity during expiry cleanup cancels the expiry transition instead of allowing the terminal state to win.
+- Made `LeaveAsync` require an open session, preventing revision, activity, preview, and publication mutations after ended or expired transitions.
+- Added regressions for real Matrix image messages, activity during expiry cleanup persistence, and terminal leave behavior.
+
+## Task 3 Blocker Fix Verification
+
+- RED: `dotnet test tests\\Brmble.Server.Tests\\Brmble.Server.Tests.csproj --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests" --no-restore`: failed for the expected old Matrix event-shape validation and the new expiry/terminal-leave regressions.
+- GREEN: `dotnet test tests\\Brmble.Server.Tests\\Brmble.Server.Tests.csproj --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests" --no-restore`: passed, 24/24.
+- `dotnet test Brmble.slnx --filter "PaintSessionManagerTests|PaintRateLimiterTests|PaintRoomCleanupRepositoryTests|MatrixPaintSourceResolverTests"`: passed, 24/24 selected server tests. Unrelated solution test assemblies report no filter matches; the pre-existing `CS0108` warning remains.
+- `git diff --check`: passed.

@@ -66,9 +66,16 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         }
 
         var eventType = roomEvent.GetProperty("type").GetString();
-        if (!string.Equals(eventType, "m.image", StringComparison.Ordinal))
+        if (!string.Equals(eventType, "m.room.message", StringComparison.Ordinal))
         {
-            throw new PaintValidationException("source event must be an m.image event.");
+            throw new PaintValidationException("source event must be an m.room.message event.");
+        }
+
+        var content = roomEvent.GetProperty("content");
+        var messageType = content.GetProperty("msgtype").GetString();
+        if (!string.Equals(messageType, "m.image", StringComparison.Ordinal))
+        {
+            throw new PaintValidationException("source event content must be an m.image message.");
         }
 
         var sender = roomEvent.GetProperty("sender").GetString();

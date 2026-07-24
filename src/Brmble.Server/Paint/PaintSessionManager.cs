@@ -41,6 +41,7 @@ public sealed class PaintSessionManager(
         public long Revision;
         public long NextSequence;
         public DateTimeOffset LastActivity;
+        public long ActivityVersion;
         public readonly List<PaintStroke> Strokes = [];
         public readonly Dictionary<(long UserId, Guid CorrelationId), PaintStroke> IdempotentCommits = [];
         public readonly Dictionary<long, PaintStrokeInput> Previews = [];
@@ -128,6 +129,7 @@ public sealed class PaintSessionManager(
         var session = GetSession(sessionId); PaintParticipant participant; long revision, generation; Task publish;
         lock (session.Lock)
         {
+            RequireOpen(session);
             participant = GetParticipant(session, userId) with { Active = false }; session.Participants[userId] = participant;
             session.Previews.Remove(userId); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
             publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
@@ -253,10 +255,11 @@ public sealed class PaintSessionManager(
             try
             {
                 string roomId;
+                long activityVersion;
                 lock (session.Lock)
                 {
                     if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.LastActivity + SessionTimeout > _utcNow()) continue;
-                    roomId = session.MatrixRoomId;
+                    roomId = session.MatrixRoomId; activityVersion = session.ActivityVersion;
                 }
 
                 await cleanupRepository.RecordPendingAsync(session.SessionId, roomId, cancellationToken);
@@ -265,7 +268,7 @@ public sealed class PaintSessionManager(
                 Task publish;
                 lock (session.Lock)
                 {
-                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired) continue;
+                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.ActivityVersion != activityVersion || session.LastActivity + SessionTimeout > _utcNow()) continue;
                     session.Status = PaintSessionStatus.Expired; session.Revision++; revision = session.Revision; generation = session.Generation;
                     publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
                         new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, revision, generation }));
@@ -321,5 +324,5 @@ public sealed class PaintSessionManager(
     private static void RequireHost(LivePaintSession session, long userId) { if (session.HostUserId != userId) throw new PaintAuthorizationException("Only the host can perform this action."); }
     private static void RequireOpen(LivePaintSession session) { if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired) throw new PaintConflictException("Paint session is no longer open."); }
     private static void RequireActive(LivePaintSession session) { if (session.Status != PaintSessionStatus.Active) throw new PaintConflictException("Paint session is not active."); }
-    private void Touch(LivePaintSession session) => session.LastActivity = _utcNow();
+    private void Touch(LivePaintSession session) { session.LastActivity = _utcNow(); session.ActivityVersion++; }
 }

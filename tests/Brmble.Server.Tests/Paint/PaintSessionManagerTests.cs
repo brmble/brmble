@@ -140,6 +140,41 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Expire_DoesNotWinWhenActivityResumesDuringCleanupPersistence()
+    {
+        var cleanup = new BlockingCleanupRepository();
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
+        fixture.Now = fixture.Now.AddMinutes(30);
+
+        var expiration = fixture.Manager.ExpireInactiveForTestAsync();
+        await cleanup.WaitUntilRecordPendingAsync();
+
+        await fixture.CommitAliceAsync();
+        cleanup.ReleaseRecordPending();
+        await expiration;
+
+        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(PaintSessionStatus.Active, snapshot.Status);
+        Assert.IsFalse(fixture.Publisher.SentTypes.Contains(PaintEventNames.SessionExpired));
+    }
+
+    [TestMethod]
+    public async Task Leave_DoesNotMutateTerminalSession()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+        var ended = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        var eventCount = fixture.Publisher.PermanentEventTypes.Count;
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.LeaveAsync(fixture.SessionId, fixture.AliceUserId));
+
+        var afterLeave = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        Assert.AreEqual(ended.Revision, afterLeave.Revision);
+        Assert.AreEqual(eventCount, fixture.Publisher.PermanentEventTypes.Count);
+    }
+
+    [TestMethod]
     public async Task End_WhenCleanupPersistenceFails_RemainsRetryableWithoutCleanupRecord()
     {
         var cleanup = new FailingCleanupRepository();
@@ -367,9 +402,36 @@ public sealed class PaintSessionManagerTests
         public MatrixPaintRoomCleanupResult DeleteResult { get; set; } = new(true, "delete", null);
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult(RoomId);
         public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) { InvitedUsers.Add(matrixUserId); return Task.CompletedTask; }
-        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.image","content":{"url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
+        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.room.message","content":{"msgtype":"m.image","url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
         public Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.FromResult(Memberships.GetValueOrDefault(matrixUserId));
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137 });
         public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken) => Task.FromResult(DeleteResult);
+    }
+
+    private sealed class BlockingCleanupRepository : PaintRoomCleanupRepository
+    {
+        private readonly TaskCompletionSource _recordPendingEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseRecordPending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public BlockingCleanupRepository()
+            : this(new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-blocking-{Guid.NewGuid():N}.db")}"))
+        {
+        }
+
+        private BlockingCleanupRepository(Database database)
+            : base(database)
+        {
+            database.Initialize();
+        }
+
+        public Task WaitUntilRecordPendingAsync() => _recordPendingEntered.Task;
+        public void ReleaseRecordPending() => _releaseRecordPending.TrySetResult();
+
+        public override async Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
+        {
+            _recordPendingEntered.TrySetResult();
+            await _releaseRecordPending.Task;
+            await base.RecordPendingAsync(sessionId, matrixRoomId, cancellationToken);
+        }
     }
 }

@@ -13,7 +13,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!paint:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             MediaBytes = ImageFixtures.Png1x1,
             SizeBytes = ImageFixtures.Png1x1.Length,
@@ -51,7 +51,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!other:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             MediaBytes = ImageFixtures.Png1x1,
             SizeBytes = ImageFixtures.Png1x1.Length,
@@ -85,7 +85,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!paint:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             MimeType = "image/svg+xml",
             MediaBytes = """<svg xmlns="http://www.w3.org/2000/svg"></svg>"""u8.ToArray(),
@@ -103,7 +103,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!paint:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             MimeType = "image/gif",
             MediaBytes = ImageFixtures.Gif1x1,
@@ -121,7 +121,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!paint:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             MediaBytes = ImageFixtures.Png5000x1,
             SizeBytes = ImageFixtures.Png5000x1.Length,
@@ -138,7 +138,7 @@ public sealed class MatrixPaintSourceResolverTests
         var matrix = new FakeMatrixPaintService
         {
             EventRoomId = "!paint:server",
-            EventType = "m.image",
+            EventType = "m.room.message",
             MxcUrl = "mxc://server/source",
             DownloadException = new HttpRequestException("boom"),
         };
@@ -151,7 +151,8 @@ public sealed class MatrixPaintSourceResolverTests
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public string EventRoomId { get; init; } = "!paint:server";
-        public string EventType { get; init; } = "m.image";
+        public string EventType { get; init; } = "m.room.message";
+        public string MessageType { get; init; } = "m.image";
         public string Sender { get; init; } = "@host:test";
         public string MxcUrl { get; init; } = "mxc://server/source";
         public string MimeType { get; init; } = "image/png";
@@ -174,7 +175,7 @@ public sealed class MatrixPaintSourceResolverTests
                 type = EventType,
                 content = new
                 {
-                    msgtype = EventType,
+                    msgtype = MessageType,
                     body = "source",
                     url = MxcUrl,
                     info = new
