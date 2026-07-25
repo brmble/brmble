@@ -328,7 +328,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                         && channel.Active.ReservationId == commitment.Id
                         && PlayerFor(channel.Active, userId)?.SessionId == oldSessionId)
                     {
-                        if (!channel.ForfeitedUserIds.Contains(userId)) activeForfeitCandidate = channel.Active;
+                        activeForfeitCandidate = channel.Active;
                         break;
                     }
 
@@ -368,14 +368,30 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             && _runner.TryGetActiveMatch(userId, out var forfeit)
             && forfeit.ReservationId == activeForfeitCandidate.ReservationId)
         {
+            var token = new ActiveForfeitToken(activeForfeitCandidate.ReservationId, userId);
             var ownsForfeit = false;
             lock (_gate)
             {
                 if (_channels.TryGetValue(activeForfeitCandidate.ChannelId, out var channel)
                     && channel.Active?.ReservationId == activeForfeitCandidate.ReservationId)
-                    ownsForfeit = channel.ForfeitedUserIds.Add(userId);
+                    ownsForfeit = channel.ActiveForfeits.Add(token);
             }
-            if (ownsForfeit) await _runner.ForfeitAsync(forfeit.MatchId, userId, CancelReason(reason));
+            if (ownsForfeit)
+            {
+                try
+                {
+                    await _runner.ForfeitAsync(forfeit.MatchId, userId, CancelReason(reason));
+                }
+                catch
+                {
+                    lock (_gate)
+                    {
+                        if (_channels.TryGetValue(activeForfeitCandidate.ChannelId, out var channel))
+                            channel.ActiveForfeits.Remove(token);
+                    }
+                    throw;
+                }
+            }
         }
         foreach (var channelId in advanceChannels.Distinct())
             await AdvanceChannelAsync(channelId);
@@ -529,6 +545,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             }
             if (channel.Active?.ReservationId != completion.ReservationId) return;
             channel.Advancing = true;
+            channel.ActiveForfeits.RemoveWhere(x => x.ReservationId == channel.Active.ReservationId);
             ReleasePair(channel.Active);
             channel.Active = null;
             needsAdvancement = true;
@@ -810,8 +827,10 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         public long Generation;
         public long Revision;
         public long NextStartGeneration;
-        public HashSet<long> ForfeitedUserIds { get; } = [];
+        public HashSet<ActiveForfeitToken> ActiveForfeits { get; } = [];
     }
+
+    private sealed record ActiveForfeitToken(long ReservationId, long UserId);
 
     private sealed class StartToken(DuelReservation reservation, long generation)
     {

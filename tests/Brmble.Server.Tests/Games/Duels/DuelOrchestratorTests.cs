@@ -78,6 +78,10 @@ internal sealed class TestRouter : IDuelMatchRunnerRouter
     public Func<Task>? AfterCompletionDuringStart { get; set; }
     public Dictionary<long, ActiveMatchReference> ActiveMatches { get; } = [];
     public List<(long MatchId, long UserId, string Reason)> Forfeits { get; } = [];
+    public List<(long MatchId, long UserId, string Reason)> ForfeitAttempts { get; } = [];
+    public TaskCompletionSource? ForfeitBlock { get; set; }
+    public TaskCompletionSource ForfeitEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool FailNextForfeit { get; set; }
 
     public async Task<GameStartResult> StartAsync(DuelReservation reservation)
     {
@@ -103,10 +107,17 @@ internal sealed class TestRouter : IDuelMatchRunnerRouter
 
     public bool TryGetActiveMatch(long userId, out ActiveMatchReference match) =>
         ActiveMatches.TryGetValue(userId, out match!);
-    public Task ForfeitAsync(long matchId, long userId, string reason)
+    public async Task ForfeitAsync(long matchId, long userId, string reason)
     {
+        lock (ForfeitAttempts) ForfeitAttempts.Add((matchId, userId, reason));
+        ForfeitEntered.TrySetResult();
+        if (ForfeitBlock is not null) await ForfeitBlock.Task;
+        if (FailNextForfeit)
+        {
+            FailNextForfeit = false;
+            throw new InvalidOperationException("forfeit failed");
+        }
         Forfeits.Add((matchId, userId, reason));
-        return Task.CompletedTask;
     }
     public Task CompleteAsync(MatchCompletion completion) => MatchCompleted?.Invoke(completion) ?? Task.CompletedTask;
 }
@@ -699,6 +710,72 @@ public class DuelOrchestratorTests
         Assert.AreEqual(DuelRejectReason.AlreadyCommitted,
             (await sut.CreateChallengeAsync(10, 30, "test", null)).Reason);
         await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        Assert.AreEqual(1, router.Forfeits.Count);
+    }
+
+    [TestMethod]
+    public async Task ActiveForfeitDedupe_AllowsSameUserInLaterMatch()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var firstOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var first = await sut.RespondToOfferAsync(firstOffer.OfferId!.Value, 200, true);
+        router.ActiveMatches[100] = new(71, first.ReservationId!.Value, 1, "test-runner");
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await router.CompleteAsync(new MatchCompletion(71, first.ReservationId.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        var secondOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var second = await sut.RespondToOfferAsync(secondOffer.OfferId!.Value, 200, true);
+        router.ActiveMatches[100] = new(72, second.ReservationId!.Value, 1, "test-runner");
+
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+
+        CollectionAssert.AreEqual(
+            new[] { (71L, 100L, "disconnected"), (72L, 100L, "disconnected") },
+            router.Forfeits.ToArray());
+    }
+
+    [TestMethod]
+    public async Task FailedActiveForfeit_CanBeRetriedForSameReservation()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var active = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
+        router.FailNextForfeit = true;
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected));
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+
+        Assert.AreEqual(2, router.ForfeitAttempts.Count);
+        Assert.AreEqual(1, router.Forfeits.Count);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentActivePresenceLoss_StartsAtMostOneForfeitAndFailureAllowsRetry()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var active = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
+        router.ForfeitBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        router.FailNextForfeit = true;
+
+        var first = sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await router.ForfeitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var duplicate = sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await duplicate;
+        Assert.AreEqual(1, router.ForfeitAttempts.Count);
+        router.ForfeitBlock.SetResult();
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => first);
+        router.ForfeitBlock = null;
+
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+
+        Assert.AreEqual(2, router.ForfeitAttempts.Count);
         Assert.AreEqual(1, router.Forfeits.Count);
     }
 
