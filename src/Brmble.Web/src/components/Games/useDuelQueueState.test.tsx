@@ -84,9 +84,11 @@ describe('useDuelQueueState', () => {
     emit('voice.connected', { channelId });
   }
 
-  it('applies only newer revisions within a generation and keeps an empty replacement', () => {
+  it('applies only newer revisions within a generation and keeps an empty replacement', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     connect();
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 3, 3));
+    await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     emit('game.queueSnapshot', snapshot(2, 3, 3));
     emit('game.queueSnapshot', snapshot(2, 3, 4));
@@ -96,20 +98,24 @@ describe('useDuelQueueState', () => {
     expect(result.current.byChannel.get(2)?.queue).toEqual([]);
   });
 
-  it('accepts a higher generation with a lower revision and rejects a lower generation', () => {
+  it('accepts a higher generation with a lower revision and rejects a lower generation', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     connect();
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 5, 19));
+    await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 5, 20, queued));
     emit('game.queueSnapshot', snapshot(2, 6, 1));
     emit('game.queueSnapshot', snapshot(2, 5, 99, queued));
     expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 6, 1));
   });
 
-  it('ignores snapshots before connection and from unrelated channels', () => {
+  it('ignores snapshots before recovery and from unrelated channels', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     emit('game.queueSnapshot', snapshot(2, 1, 2, queued));
     expect(result.current.byChannel.size).toBe(0);
     connect(7);
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(7, 4, 0));
+    await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 1, 3, queued));
     emit('game.queueSnapshot', snapshot(7, 4, 1));
     expect([...result.current.byChannel.keys()]).toEqual([7]);
@@ -130,8 +136,13 @@ describe('useDuelQueueState', () => {
   it('allows a channel again after voice returns to it', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     connect();
+    api.getQueueSnapshot
+      .mockResolvedValueOnce(snapshot(7, 1, 0))
+      .mockResolvedValueOnce(snapshot(2, 2, 0));
     emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
+    await waitFor(() => expect(result.current.byChannel.has(7)).toBe(true));
     emit('voice.channelChanged', { previousChannelId: 7, channelId: 2 });
+    await waitFor(() => expect(result.current.byChannel.has(2)).toBe(true));
     emit('game.queueSnapshot', snapshot(2, 2, 1, queued));
     expect(result.current.byChannel.get(2)?.queue).toEqual(queued);
   });
@@ -160,6 +171,40 @@ describe('useDuelQueueState', () => {
     await act(async () => recovery.reject(new Error('offline')));
     await request;
     expect(result.current.byChannel.size).toBe(0);
+  });
+
+  it('ignores higher pushes while recovery is pending and after failure, then accepts pushes after retry', async () => {
+    const firstRecovery = deferred<DuelQueueSnapshot>();
+    const t1 = '2026-07-25T12:00:00Z';
+    const t2 = '2026-07-25T12:01:00Z';
+    const t3 = '2026-07-25T12:02:00Z';
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    api.getQueueSnapshot.mockReturnValueOnce(firstRecovery.promise);
+    const firstRequest = result.current.requestSnapshot();
+    emit('game.queueSnapshot', snapshot(2, 9, 9, queued, t1));
+    expect(result.current.byChannel.size).toBe(0);
+    await act(async () => firstRecovery.reject(new Error('offline')));
+    await firstRequest;
+    emit('game.queueSnapshot', snapshot(2, 10, 1, queued, t2));
+    expect(result.current.byChannel.size).toBe(0);
+
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0, [], t2));
+    await act(() => result.current.requestSnapshot());
+    emit('game.queueSnapshot', snapshot(2, 1, 1, queued, t3));
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 1, queued, t3));
+  });
+
+  it('ignores pushes for a moved-to channel until its automatic recovery completes', async () => {
+    const recovery = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
+    emit('game.queueSnapshot', snapshot(7, 20, 1, queued));
+    expect(result.current.byChannel.has(7)).toBe(false);
+    await act(async () => recovery.resolve(snapshot(7, 1, 0)));
+    expect(result.current.byChannel.get(7)).toEqual(snapshot(7, 1, 0));
   });
 
   it('rebases the same exact tuple from authenticated recovery after reconnect', async () => {
