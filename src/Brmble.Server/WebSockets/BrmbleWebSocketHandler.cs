@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
+using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.WebSockets;
 
@@ -51,6 +52,13 @@ public static class BrmbleWebSocketHandler
 
         try
         {
+            if (sessionMapping.TryGetSessionByUserId(user.Id, out var queueSessionId))
+                await SendQueueSnapshotAsync(
+                    ws,
+                    context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
+                    queueSessionId,
+                    context.RequestAborted);
+
             // Send initial snapshot
             var snapshot = sessionMapping.GetSnapshot()
                 .ToDictionary(
@@ -87,6 +95,17 @@ public static class BrmbleWebSocketHandler
             if (!eventBus.HasConnectedClient(user.Id))
                 activeSessions.Deactivate(hash);
         }
+    }
+
+    internal static async Task SendQueueSnapshotAsync(
+        WebSocket socket,
+        IDuelSnapshotProvider snapshots,
+        long sessionId,
+        CancellationToken cancellationToken)
+    {
+        var payload = DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId));
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, DuelWire.JsonOptions));
+        await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
     }
 
     internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new

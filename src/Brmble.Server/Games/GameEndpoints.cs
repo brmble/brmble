@@ -19,6 +19,17 @@ public static class GameEndpoints
 
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/games/queue", async (HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, IDuelSnapshotProvider snapshots,
+            ISessionMappingService sessions) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            return Results.Ok(DuelWire.ToSnapshot(await snapshots.GetSnapshotForSessionAsync(session)));
+        });
+
         app.MapPost("/games/invite", async (InviteDto dto, HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
             ISessionMappingService sessions) =>

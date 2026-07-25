@@ -1,8 +1,9 @@
 namespace Brmble.Server.Games.Duels;
 
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 
-public sealed class DuelOrchestrator : IDuelOrchestrator
+public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
@@ -13,6 +14,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private readonly IGamePresence _presence;
     private readonly IGameEventPublisher _publisher;
     private readonly IDuelMatchRunnerRouter _runner;
+    private readonly DuelDurationEstimator? _estimator;
     private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
     private readonly Dictionary<long, Offer> _offers = [];
@@ -21,6 +23,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
+    private readonly Dictionary<int, SemaphoreSlim> _snapshotLanes = [];
+    private readonly Dictionary<int, (long Generation, long Revision)> _lastPublishedSnapshots = [];
     private readonly Dictionary<long, CompletedDuelSource> _completedSources = [];
     private readonly LinkedList<CompletedDuelSource> _completedSourceOrder = [];
     private readonly Dictionary<long, LinkedListNode<CompletedDuelSource>> _completedSourceNodes = [];
@@ -34,11 +38,23 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         IGameEventPublisher publisher,
         IDuelMatchRunnerRouter runner,
         TimeProvider? timeProvider = null)
+        : this(catalog, presence, publisher, runner, null, timeProvider)
+    {
+    }
+
+    public DuelOrchestrator(
+        GameDefinitionCatalog catalog,
+        IGamePresence presence,
+        IGameEventPublisher publisher,
+        IDuelMatchRunnerRouter runner,
+        DuelDurationEstimator? estimator,
+        TimeProvider? timeProvider = null)
     {
         _catalog = catalog;
         _presence = presence;
         _publisher = publisher;
         _runner = runner;
+        _estimator = estimator;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _runner.MatchCompleted += OnMatchCompletedAsync;
     }
@@ -185,6 +201,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         await PublishOfferResponseBestEffortAsync(offer, accept);
 
         if (!accept) return Success(offerId, null);
+        await PublishSnapshotBestEffortAsync(offer.ChannelId);
         if (immediate is null) return Success(offerId, acceptedReservationId);
         return await StartAsync(offerId, immediate);
     }
@@ -235,7 +252,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             else if (pair.ReadyUserIds.Add(userId))
             {
                 changed = pair;
-                Bump(channelId, channel);
                 if (pair.ReadyUserIds.Count == 2)
                 {
                     if (!StillPresent(pair.Reservation.PlayerOne, channelId)
@@ -254,11 +270,17 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     Bump(channelId, channel);
                     start = new(channel.Starting);
                 }
+                else
+                {
+                    Bump(channelId, channel);
+                }
             }
         ReadyDecisionComplete:;
         }
 
         removed?.Timer?.Dispose();
+        if (changed is not null || removed is not null || start is not null)
+            await PublishSnapshotBestEffortAsync(channelId);
         if (response == ReadyResponse.Decline || removed is not null && start is null)
         {
             var reason = response == ReadyResponse.Decline ? "declined" : "disconnected";
@@ -330,36 +352,18 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         return Success(offer.Id, null);
     }
 
-    public Task<DuelQueueSnapshot> GetSnapshotForSessionAsync(long sessionId)
+    public async Task<DuelQueueSnapshot> GetSnapshotForSessionAsync(long sessionId)
     {
         if (!TryResolvePlayer(sessionId, out _, out var channelId))
-            return Task.FromResult(EmptySnapshot(0));
+            return EmptySnapshot(0, 0, 0, _timeProvider.GetUtcNow());
 
+        ChannelSnapshotInput input;
         lock (_gate)
         {
-            if (!_channels.TryGetValue(channelId, out var channel))
-            {
-                var clock = GetClock(channelId);
-                return Task.FromResult(EmptySnapshot(channelId, clock.Generation == 0 ? 1 : clock.Generation, clock.Revision));
-            }
-            var queue = channel.Queue.Select((reservation, index) => new QueuedDuelSnapshot(
-                reservation.ReservationId,
-                index + 1,
-                Players(reservation),
-                reservation.Configuration.GameType,
-                reservation.Configuration.Format,
-                reservation.Configuration.RulesetVersion,
-                new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, []))).ToArray();
-            var ready = channel.ReadyCheck is null ? null : new ReadyCheckSnapshot(
-                channel.ReadyCheck.Reservation.ReservationId,
-                channel.ReadyCheck.ExpiresAt,
-                Players(channel.ReadyCheck.Reservation, channel.ReadyCheck.ReadyUserIds),
-                channel.ReadyCheck.Reservation.Configuration.GameType,
-                channel.ReadyCheck.Reservation.Configuration.Format,
-                channel.ReadyCheck.Reservation.Configuration.RulesetVersion);
-            return Task.FromResult(new DuelQueueSnapshot(
-                1, channel.Generation, channel.Revision, channelId, _timeProvider.GetUtcNow(), 0, null, ready, queue));
+            GetClock(channelId);
+            input = CaptureSnapshotInput(channelId);
         }
+        return await BuildSnapshotAsync(input);
     }
 
     public async Task HandlePresenceLostAsync(long userId, long oldSessionId, DuelCancelReason reason)
@@ -367,6 +371,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         Offer[] canceled;
         List<DuelReservation> reservations = [];
         List<int> advanceChannels = [];
+        List<int> mutatedChannels = [];
         DuelReservation? activeForfeitCandidate = null;
         lock (_gate)
         {
@@ -389,6 +394,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                         channel.Starting = null;
                         channel.Advancing = true;
                         Bump(channelId, channel);
+                        mutatedChannels.Add(channelId);
                         advanceChannels.Add(channelId);
                         break;
                     }
@@ -411,6 +417,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                         ReleasePair(removedQueued);
                         reservations.Add(removedQueued);
                         Bump(channelId, channel);
+                        mutatedChannels.Add(channelId);
                         if (channel.Active is null && channel.Starting is null && channel.ReadyCheck is null) { channel.Advancing = true; advanceChannels.Add(channelId); }
                         break;
                     }
@@ -422,6 +429,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                         reservations.Add(removedReady.Reservation);
                         channel.Advancing = true;
                         Bump(channelId, channel);
+                        mutatedChannels.Add(channelId);
                         advanceChannels.Add(channelId);
                         break;
                     }
@@ -461,8 +469,12 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 }
             }
         }
+        foreach (var channelId in mutatedChannels.Distinct())
+            await PublishSnapshotBestEffortAsync(channelId);
         foreach (var channelId in advanceChannels.Distinct())
+        {
             await AdvanceChannelAsync(channelId);
+        }
     }
 
     public async Task HandleChannelRemovedAsync(int channelId)
@@ -499,6 +511,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             clock.Revision++;
         }
         timer?.Dispose();
+        await PublishSnapshotBestEffortAsync(channelId);
         foreach (var offer in offers) await PublishCancellationBestEffortAsync(offer, "channelRemoved");
         foreach (var reservation in reservations) await PublishReservationCancellationAsync(reservation, "channelRemoved");
         foreach (var item in forfeitCandidates)
@@ -532,6 +545,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         }
         if (precheckFailed)
         {
+            await PublishSnapshotBestEffortAsync(reservation.ChannelId);
             await PublishReservationCancellationAsync(reservation, decision.Token.CancellationReason ?? "disconnected");
             await AdvanceChannelAsync(reservation.ChannelId);
             return new(false, offerId, reservation.ReservationId,
@@ -570,6 +584,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 else
                 {
                     channel.Active = reservation;
+                    channel.ActiveMatchId = result.MatchId;
+                    channel.ActiveStartedAt = result.StartedAt ?? _timeProvider.GetUtcNow();
                     channel.Advancing = false;
                 }
                 Bump(reservation.ChannelId, channel);
@@ -583,6 +599,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             return new(false, offerId, reservation.ReservationId,
                 "The match completed during startup.", DuelRejectReason.NotPresent);
         }
+        await PublishSnapshotBestEffortAsync(reservation.ChannelId);
         if (result.Success) return Success(offerId, reservation.ReservationId);
 
         await PublishBestEffortAsync(ParticipantIds(reservation), new
@@ -624,6 +641,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             Bump(completion.ChannelId, channel);
         CompletionHandled:;
         }
+        await PublishSnapshotBestEffortAsync(completion.ChannelId);
         if (needsAdvancement) await AdvanceChannelAsync(completion.ChannelId);
     }
 
@@ -669,6 +687,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 }
             }
 
+            await PublishSnapshotBestEffortAsync(channelId);
             if (invalid is not null)
             {
                 await PublishReservationCancellationAsync(invalid, "disconnected");
@@ -693,6 +712,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             channel.Advancing = true;
             Bump(channelId, channel);
         }
+        await PublishSnapshotBestEffortAsync(channelId);
         await PublishReservationCancellationAsync(reservation, "expired");
         await AdvanceChannelAsync(channelId);
     }
@@ -914,6 +934,110 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         clock.Revision = channel.Revision;
     }
 
+    private ChannelSnapshotInput CaptureSnapshotInput(int channelId)
+    {
+        var now = _timeProvider.GetUtcNow();
+        if (!_channels.TryGetValue(channelId, out var channel))
+        {
+            if (!_channelClocks.TryGetValue(channelId, out var missingClock))
+                return new(channelId, 0, 0, now, null, null, []);
+            return new(channelId, missingClock.Generation, missingClock.Revision, now, null, null, []);
+        }
+
+        var active = channel.Active is null || channel.ActiveMatchId is null || channel.ActiveStartedAt is null
+            ? null
+            : new ActiveSnapshotInput(
+                channel.ActiveMatchId.Value,
+                channel.Active,
+                channel.Active.Configuration,
+                channel.ActiveStartedAt.Value);
+        var ready = channel.ReadyCheck is null
+            ? null
+            : new ReadySnapshotInput(channel.ReadyCheck.Reservation, channel.ReadyCheck.ExpiresAt)
+            {
+                ReadyUserIds = channel.ReadyCheck.ReadyUserIds.ToHashSet(),
+            };
+        return new(channelId, channel.Generation, channel.Revision, now, active, ready, channel.Queue.ToArray());
+    }
+
+    private async Task<DuelQueueSnapshot> BuildSnapshotAsync(ChannelSnapshotInput input)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var etas = _estimator is null
+            ? input.Queue.Select(_ => new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, [])).ToArray()
+            : await _estimator.BuildEtasAsync(input);
+        DurationEstimate? remaining = null;
+        if (input.Active is not null)
+        {
+            var elapsed = Math.Max(0, (long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds);
+            remaining = _estimator is null
+                ? DurationEstimate.Unknown(0)
+                : await _estimator.EstimateRemainingAsync(input.Active.Configuration, elapsed);
+        }
+        stopwatch.Stop();
+
+        var active = input.Active is null ? null : new ActiveDuelSnapshot(
+            input.Active.MatchId,
+            "live",
+            input.Active.StartedAt,
+            Players(input.Active.Reservation!),
+            input.Active.Configuration.GameType,
+            input.Active.Configuration.Format,
+            input.Active.Configuration.RulesetVersion,
+            remaining!);
+        var ready = input.ReadyCheck is null ? null : new ReadyCheckSnapshot(
+            input.ReadyCheck.Reservation.ReservationId,
+            input.ReadyCheck.ExpiresAt,
+            Players(input.ReadyCheck.Reservation, input.ReadyCheck.ReadyUserIds),
+            input.ReadyCheck.Reservation.Configuration.GameType,
+            input.ReadyCheck.Reservation.Configuration.Format,
+            input.ReadyCheck.Reservation.Configuration.RulesetVersion);
+        var queue = input.Queue.Select((reservation, index) => new QueuedDuelSnapshot(
+            reservation.ReservationId,
+            index + 1,
+            Players(reservation),
+            reservation.Configuration.GameType,
+            reservation.Configuration.Format,
+            reservation.Configuration.RulesetVersion,
+            etas[index])).ToArray();
+        return new(1, input.Generation, input.Revision, input.ChannelId, input.CalculatedAt,
+            Math.Max(0, stopwatch.ElapsedMilliseconds), active, ready, queue);
+    }
+
+    private async Task PublishSnapshotBestEffortAsync(int channelId)
+    {
+        SemaphoreSlim lane;
+        lock (_gate)
+        {
+            if (!_snapshotLanes.TryGetValue(channelId, out lane!))
+                _snapshotLanes[channelId] = lane = new(1, 1);
+        }
+        await lane.WaitAsync();
+        try
+        {
+            ChannelSnapshotInput input;
+            lock (_gate)
+            {
+                input = CaptureSnapshotInput(channelId);
+                if (_lastPublishedSnapshots.TryGetValue(channelId, out var last)
+                    && (input.Generation < last.Generation
+                        || input.Generation == last.Generation && input.Revision <= last.Revision))
+                    return;
+            }
+            var snapshot = await BuildSnapshotAsync(input);
+            await _publisher.PublishToChannelAsync(channelId, DuelWire.ToEvent(snapshot));
+            lock (_gate) _lastPublishedSnapshots[channelId] = (input.Generation, input.Revision);
+        }
+        catch
+        {
+            // Snapshot delivery is recoverable and must not block duel progression.
+        }
+        finally
+        {
+            lane.Release();
+        }
+    }
+
     private void RemoveOffer(Offer offer, string? terminalReason = null)
     {
         if (!_offers.Remove(offer.Id)) return;
@@ -1040,8 +1164,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         _ => "disconnected",
     };
 
-    private static DuelQueueSnapshot EmptySnapshot(int channelId, long generation = 1, long revision = 0) =>
-        new(1, generation, revision, channelId, DateTimeOffset.UtcNow, 0, null, null, []);
+    private static DuelQueueSnapshot EmptySnapshot(
+        int channelId, long generation, long revision, DateTimeOffset generatedAt) =>
+        new(1, generation, revision, channelId, generatedAt, 0, null, null, []);
 
     private sealed class Offer(
         long id,
@@ -1089,6 +1214,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private sealed class ChannelState
     {
         public DuelReservation? Active;
+        public long? ActiveMatchId;
+        public DateTimeOffset? ActiveStartedAt;
         public StartToken? Starting;
         public Queue<DuelReservation> Queue { get; } = [];
         public ReadyCheck? ReadyCheck { get; set; }

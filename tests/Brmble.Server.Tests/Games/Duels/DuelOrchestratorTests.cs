@@ -64,6 +64,7 @@ internal sealed class TestPresence : IGamePresence
 internal sealed class TestPublisher : IGameEventPublisher
 {
     public List<(IReadOnlySet<long> Users, object Message)> UserMessages { get; } = [];
+    public List<(int ChannelId, object Message)> ChannelMessages { get; } = [];
     public string? FailType { get; set; }
     public string? BlockType { get; set; }
     public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -80,7 +81,21 @@ internal sealed class TestPublisher : IGameEventPublisher
         if (BeforeReturn is { } callback)
             await callback(message);
     }
-    public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
+    public Task PublishToChannelAsync(int channelId, object message)
+    {
+        lock (ChannelMessages) ChannelMessages.Add((channelId, message));
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class TestDurationRepository : IDurationSampleRepository
+{
+    public Task<IReadOnlyList<DurationSample>> GetDurationSamplesAsync(
+        string gameType, string format, int rulesetVersion, long? elapsedGreaterThanMs) =>
+        Task.FromResult<IReadOnlyList<DurationSample>>(Enumerable.Range(1, 10)
+            .Select(i => new DurationSample(i, 60_000, "complete", DateTimeOffset.UtcNow))
+            .Where(x => elapsedGreaterThanMs is null || x.DurationMs > elapsedGreaterThanMs)
+            .ToArray());
 }
 
 internal sealed class TestRouter : IDuelMatchRunnerRouter
@@ -182,7 +197,8 @@ public class DuelOrchestratorTests
         var publisher = new TestPublisher();
         var router = new TestRouter();
         var catalog = new GameDefinitionCatalog([new TestDefinition()]);
-        return (new DuelOrchestrator(catalog, presence, publisher, router), presence, publisher, router);
+        return (new DuelOrchestrator(catalog, presence, publisher, router,
+            new DuelDurationEstimator(new TestDurationRepository())), presence, publisher, router);
     }
 
     private static (DuelOrchestrator Orchestrator, TestPresence Presence, TestPublisher Publisher, TestRouter Router) Create(TimeProvider timeProvider)
@@ -191,11 +207,90 @@ public class DuelOrchestratorTests
         var publisher = new TestPublisher();
         var router = new TestRouter();
         var catalog = new GameDefinitionCatalog([new TestDefinition()]);
-        return (new DuelOrchestrator(catalog, presence, publisher, router, timeProvider), presence, publisher, router);
+        return (new DuelOrchestrator(catalog, presence, publisher, router,
+            new DuelDurationEstimator(new TestDurationRepository()), timeProvider), presence, publisher, router);
     }
 
     private static void Add(TestPresence presence, long session, long user, int channel = 1) =>
         presence.Sessions[session] = (channel, true, user, $"user-{user}");
+
+    [TestMethod]
+    public async Task AcceptedAndCompletedMatch_PublishesCompleteMonotonicSnapshotsIncludingFinalEmpty()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+
+        var accepted = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        await router.CompleteAsync(new MatchCompletion(1, accepted.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo,
+            router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+
+        var snapshots = publisher.ChannelMessages.Select(x => x.Message)
+            .OfType<GameQueueSnapshotEvent>().ToArray();
+        Assert.IsTrue(snapshots.Length >= 2);
+        Assert.IsTrue(snapshots.Zip(snapshots.Skip(1)).All(x => x.First.Revision < x.Second.Revision));
+        Assert.IsNotNull(snapshots.First(x => x.Active is not null).Active);
+        Assert.AreEqual(1L, snapshots.First(x => x.Active is not null).Active!.MatchId);
+        Assert.AreEqual("live", snapshots.First(x => x.Active is not null).Active!.Status);
+        Assert.IsNull(snapshots[^1].Active);
+        Assert.IsNull(snapshots[^1].ReadyCheck);
+        Assert.AreEqual(0, snapshots[^1].Queue.Count);
+    }
+
+    [TestMethod]
+    public async Task QueueSnapshot_MapsOrderedPlayersEtasAndDoesNotPublishPrivateOffers()
+    {
+        var (sut, presence, publisher, _) = Create();
+        for (var i = 1; i <= 4; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        Assert.AreEqual(0, publisher.ChannelMessages.Count);
+        await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var queuedOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        await sut.RespondToOfferAsync(queuedOffer.OfferId!.Value, 400, true);
+
+        var snapshot = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.AreEqual(1, snapshot.Queue.Count);
+        Assert.AreEqual(1, snapshot.Queue[0].Position);
+        CollectionAssert.AreEqual(new long[] { 300, 400 }, snapshot.Queue[0].Players.Select(x => x.UserId).ToArray());
+        Assert.AreEqual(EstimateStatus.Known, snapshot.Queue[0].Eta.Status);
+        Assert.AreEqual(EstimateMethod.ConditionalRemaining, snapshot.Queue[0].Eta.Segments[0].Method);
+        Assert.IsNotNull(snapshot.Active);
+        Assert.AreEqual(EstimateStatus.Known, snapshot.Active.Remaining.Status);
+        Assert.IsTrue(snapshot.CalculationTimeMs >= 0);
+    }
+
+    [TestMethod]
+    public async Task ChannelRemoval_PublishesHigherGenerationEmptySnapshot()
+    {
+        var (sut, presence, publisher, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        var before = publisher.ChannelMessages.Select(x => x.Message).OfType<GameQueueSnapshotEvent>().Last();
+
+        await sut.HandleChannelRemovedAsync(1);
+
+        var removed = publisher.ChannelMessages.Select(x => x.Message).OfType<GameQueueSnapshotEvent>().Last();
+        Assert.IsTrue(removed.Generation > before.Generation);
+        Assert.IsTrue(removed.Revision > before.Revision);
+        Assert.IsNull(removed.Active);
+        Assert.AreEqual(0, removed.Queue.Count);
+    }
+
+    [TestMethod]
+    public async Task UnknownSession_ReturnsStableNeverSeenEmptySnapshot()
+    {
+        var (sut, _, _, _) = Create();
+
+        var snapshot = await sut.GetSnapshotForSessionAsync(999);
+
+        Assert.AreEqual(0, snapshot.ChannelId);
+        Assert.AreEqual(0L, snapshot.Generation);
+        Assert.AreEqual(0L, snapshot.Revision);
+        Assert.AreEqual(0, snapshot.Queue.Count);
+    }
 
     [TestMethod]
     public async Task ConcurrentChallengesAcrossSessionsOfSameUser_CommitExactlyOnce()

@@ -30,6 +30,9 @@ public sealed class DuelSerializationTests
         Assert.AreEqual(JsonDocument.Parse(eventBusJson).RootElement.ToString(),
             JsonDocument.Parse(directSocketJson).RootElement.ToString());
         StringAssert.Contains(directSocketJson, "\"type\":\"game.queueSnapshot\"");
+        StringAssert.Contains(directSocketJson, "\"players\":[{\"userId\":1,\"sessionId\":10");
+        StringAssert.Contains(directSocketJson, "\"remaining\":{\"status\":\"unknown\"");
+        StringAssert.Contains(directSocketJson, "\"segments\":[{\"gameType\":\"rps\"");
         Assert.IsFalse(directSocketJson.Contains("\"snapshot\""));
 
         var errorJson = JsonSerializer.Serialize(

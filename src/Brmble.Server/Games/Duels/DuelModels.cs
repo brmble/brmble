@@ -69,7 +69,7 @@ public interface IDuelMatchRunnerRouter
     Task ForfeitAsync(long matchId, long userId, string reason);
 }
 
-public interface IDuelOrchestrator
+public interface IDuelOrchestrator : IDuelSnapshotProvider
 {
     Task<DuelCommandResult> CreateChallengeAsync(
         long inviterSessionId,
@@ -80,9 +80,13 @@ public interface IDuelOrchestrator
     Task<DuelCommandResult> CancelOfferAsync(long offerId, long requesterUserId);
     Task<DuelCommandResult> RespondReadyAsync(long reservationId, long userId, ReadyResponse response);
     Task<DuelCommandResult> RequestRematchAsync(long sourceMatchId, long requesterUserId);
-    Task<DuelQueueSnapshot> GetSnapshotForSessionAsync(long sessionId);
     Task HandlePresenceLostAsync(long userId, long oldSessionId, DuelCancelReason reason);
     Task HandleChannelRemovedAsync(int channelId);
+}
+
+public interface IDuelSnapshotProvider
+{
+    Task<DuelQueueSnapshot> GetSnapshotForSessionAsync(long sessionId);
 }
 
 public sealed record DuelPlayerSnapshot(long UserId, long SessionId, string DisplayName, bool Ready = false);
@@ -145,8 +149,21 @@ public sealed record DuelQueueSnapshot(
     ReadyCheckSnapshot? ReadyCheck,
     IReadOnlyList<QueuedDuelSnapshot> Queue);
 
-public sealed record ActiveSnapshotInput(DuelConfiguration Configuration, DateTimeOffset StartedAt);
-public sealed record ReadySnapshotInput(DuelReservation Reservation, DateTimeOffset ExpiresAt);
+public sealed record ActiveSnapshotInput(
+    long MatchId,
+    DuelReservation? Reservation,
+    DuelConfiguration Configuration,
+    DateTimeOffset StartedAt)
+{
+    public ActiveSnapshotInput(DuelConfiguration configuration, DateTimeOffset startedAt)
+        : this(0, null, configuration, startedAt)
+    {
+    }
+}
+public sealed record ReadySnapshotInput(DuelReservation Reservation, DateTimeOffset ExpiresAt)
+{
+    public IReadOnlySet<long> ReadyUserIds { get; init; } = new HashSet<long>();
+}
 
 public sealed record ChannelSnapshotInput(
     int ChannelId,

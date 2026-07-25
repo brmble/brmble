@@ -58,6 +58,39 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
+    public async Task Queue_ReturnsCurrentSessionsWireSnapshot()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var provider = new Mock<IDuelSnapshotProvider>();
+        provider.Setup(x => x.GetSnapshotForSessionAsync(55)).ReturnsAsync(new DuelQueueSnapshot(
+            1, 2, 3, 7, DateTimeOffset.UtcNow, 0, null, null, []));
+        await using var factory = CreateFactory(orchestrator, snapshots: provider);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.GetAsync("/games/queue");
+        var json = await response.Content.ReadAsStringAsync();
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        StringAssert.Contains(json, "\"schemaVersion\":1");
+        StringAssert.Contains(json, "\"generation\":2");
+        provider.Verify(x => x.GetSnapshotForSessionAsync(55), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Queue_WithoutCurrentSession_ReturnsBadRequest()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.GetAsync("/games/queue");
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [TestMethod]
     public async Task Forfeit_PendingOfferOwner_CancelsWithoutRunnerForfeit()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
@@ -124,16 +157,20 @@ public class GameEndpointsTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         Mock<IDuelOrchestrator> orchestrator,
-        Mock<IDuelMatchRunnerRouter>? router = null)
+        Mock<IDuelMatchRunnerRouter>? router = null,
+        bool hasSession = true,
+        Mock<IDuelSnapshotProvider>? snapshots = null)
     {
         var factory = new BrmbleServerFactory();
         factory.SessionMappingMock
             .Setup(x => x.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
-            .Returns((long _, out int session) => { session = 55; return true; });
+            .Returns((long _, out int session) => { session = 55; return hasSession; });
         return factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<IDuelOrchestrator>();
             services.AddSingleton(orchestrator.Object);
+            services.RemoveAll<IDuelSnapshotProvider>();
+            services.AddSingleton<IDuelSnapshotProvider>(snapshots?.Object ?? orchestrator.Object);
             if (router is not null)
             {
                 services.RemoveAll<IDuelMatchRunnerRouter>();

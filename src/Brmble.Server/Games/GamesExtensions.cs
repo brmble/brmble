@@ -16,6 +16,8 @@ public static class GamesExtensions
         services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<RpsEngine>());
         services.AddSingleton<GameDefinitionCatalog>();
         services.AddSingleton<GameRepository>();
+        services.AddSingleton<IDurationSampleRepository>(sp => sp.GetRequiredService<GameRepository>());
+        services.AddSingleton<DuelDurationEstimator>();
         services.AddSingleton<CompletedMatchPersistenceQueue>();
         services.AddSingleton<ICompletedMatchSink>(sp => sp.GetRequiredService<CompletedMatchPersistenceQueue>());
         services.AddHostedService(sp => sp.GetRequiredService<CompletedMatchPersistenceQueue>());
@@ -28,6 +30,7 @@ public static class GamesExtensions
         services.AddSingleton<IDuelMatchRunnerRouter>(sp => sp.GetRequiredService<DuelMatchRunnerRouter>());
         services.AddSingleton<DuelOrchestrator>();
         services.AddSingleton<IDuelOrchestrator>(sp => sp.GetRequiredService<DuelOrchestrator>());
+        services.AddSingleton<IDuelSnapshotProvider>(sp => sp.GetRequiredService<DuelOrchestrator>());
         return services;
     }
 }
