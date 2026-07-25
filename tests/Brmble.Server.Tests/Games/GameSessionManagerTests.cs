@@ -26,6 +26,37 @@ file sealed class FakePublisher : IGameEventPublisher
     public Task PublishToChannelAsync(int c, object m) { Sent.Add(("channel", m)); return Task.CompletedTask; }
 }
 
+file sealed class BlockingFirstStartPublisher : IGameEventPublisher
+{
+    private readonly TaskCompletionSource _firstStartEntered =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _releaseFirstStart =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _blocked;
+
+    public List<(string kind, object msg)> Sent { get; } = [];
+    public Task FirstStartEntered => _firstStartEntered.Task;
+
+    public async Task PublishToUsersAsync(IReadOnlySet<long> users, object message)
+    {
+        lock (Sent) Sent.Add(("users", message));
+        var type = message.GetType().GetProperty("type")?.GetValue(message) as string;
+        if (type == "game.started" && Interlocked.Exchange(ref _blocked, 1) == 0)
+        {
+            _firstStartEntered.TrySetResult();
+            await _releaseFirstStart.Task;
+        }
+    }
+
+    public Task PublishToChannelAsync(int channelId, object message)
+    {
+        lock (Sent) Sent.Add(("channel", message));
+        return Task.CompletedTask;
+    }
+
+    public void ReleaseFirstStart() => _releaseFirstStart.TrySetResult();
+}
+
 // Deterministic RNG so the manager tests never depend on chance. Each roll returns
 // roughly half the current ceiling (never 1 until the ceiling itself is 1), so a
 // Deathroll match always lasts several non-terminal rolls and then ends
@@ -166,6 +197,50 @@ public class GameSessionManagerTests
         Assert.IsTrue(runner.TryGetActiveMatch(100, out _));
         Assert.AreEqual(0, sink.Matches.Count);
     }
+
+    [TestMethod]
+    public async Task CompletionDuringFirstStartPublication_StopsStartupAndReturnsFailure()
+    {
+        var publisher = new BlockingFirstStartPublisher();
+        var sink = new RecordingCompletedMatchSink();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new HalvingRandom(), new FakePresence(), publisher, sink);
+        var reservation = new DuelReservation(
+            94, 7,
+            new DuelPlayer(10, 100, "Alice"),
+            new DuelPlayer(20, 200, "Bob"),
+            new DuelConfiguration("rps", "bo3", 1,
+                new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+            DateTimeOffset.UtcNow, 4, null);
+        var completions = 0;
+        manager.MatchCompleted += _ => { Interlocked.Increment(ref completions); return Task.CompletedTask; };
+
+        var startTask = manager.StartAsync(reservation);
+        await publisher.FirstStartEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out var active));
+
+        await manager.ForfeitAsync(active.MatchId, 100, "disconnect");
+        publisher.ReleaseFirstStart();
+        var result = await startTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await manager.FireTurnTimeoutForTestAsync(active.MatchId);
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(1, completions);
+        Assert.IsFalse(manager.IsMatchLive(active.MatchId));
+        Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
+        Assert.IsFalse(manager.TryGetActiveMatch(200, out _));
+        Assert.AreEqual(1, sink.Matches.Count);
+        Assert.AreEqual(1, publisher.Sent.Count(message => MessageType(message.msg) == "game.started"));
+        Assert.AreEqual(1, publisher.Sent.Count(message => MessageType(message.msg) == "game.ended"));
+        Assert.AreEqual(0, publisher.Sent.Count(message =>
+            MessageType(message.msg) == "game.duelState"
+            && message.msg.GetType().GetProperty("active")?.GetValue(message.msg) is true));
+        Assert.AreEqual(0, publisher.Sent.Count(message => MessageType(message.msg) == "game.stateUpdated"));
+        Assert.IsFalse(FeedTexts(publisher.Sent).Any(text => text.Contains("started")));
+    }
+
+    private static string? MessageType(object message) =>
+        message.GetType().GetProperty("type")?.GetValue(message) as string;
 
     [TestMethod]
     public async Task Invite_NotifiesInviter_WithPendingEvent()

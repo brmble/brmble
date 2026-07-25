@@ -77,7 +77,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
         public required DuelPlayer PlayerOne;
         public required DuelPlayer PlayerTwo;
         public required DuelConfiguration Configuration;
-        public string Status = "pending"; // pending | live | done
+        public string Status = "pending"; // pending | starting | live | done
         public DateTimeOffset StartedAt;
         public Timer? InviteTimer;
         public Timer? TurnTimer;
@@ -123,7 +123,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
             PlayerOne = reservation.PlayerOne,
             PlayerTwo = reservation.PlayerTwo,
             Configuration = reservation.Configuration,
-            Status = "live",
+            Status = "starting",
             StartedAt = startedAt,
         };
 
@@ -155,11 +155,26 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 penalty = false,
                 views,
             });
+            if (!IsMatchStarting(match))
+                return StartInterrupted(matchId);
+
             await PublishDuelStateAsync(match, active: true);
+            if (!IsMatchStarting(match))
+                return StartInterrupted(matchId);
+
             var startLine = engine.StartFeedLine(match.State, sid => NameOf(match, sid))
                 ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
             await PublishFeedAsync(match, startLine);
-            StartTurnTimer(match, TurnTimeout);
+            if (!IsMatchStarting(match))
+                return StartInterrupted(matchId);
+
+            lock (match.Lock)
+            {
+                if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
+                    return StartInterrupted(matchId);
+                match.Status = "live";
+                StartTurnTimer(match, TurnTimeout);
+            }
             return new GameStartResult(true, matchId, startedAt, null);
         }
         catch (Exception ex)
@@ -593,7 +608,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
 
         lock (match.Lock)
         {
-            if (match.Status != "live") return;
+            if (match.Status is not ("starting" or "live")) return;
             match.Status = "done";
             DisposeTimers(match);
         }
@@ -640,6 +655,17 @@ public sealed class GameSessionManager : IDuelMatchRunner
 
     private static string NameOf(LiveMatch match, long sessionId)
         => match.SessionToName.TryGetValue(sessionId, out var name) ? name : $"user {sessionId}";
+
+    private bool IsMatchStarting(LiveMatch match)
+    {
+        lock (match.Lock)
+            return match.Status == "starting"
+                && _matches.TryGetValue(match.MatchId, out var current)
+                && ReferenceEquals(current, match);
+    }
+
+    private static GameStartResult StartInterrupted(long matchId) =>
+        new(false, matchId, null, "The match completed during startup.");
 
     private static string BuildMatchMetadata(LiveMatch match)
         => JsonSerializer.Serialize(new
