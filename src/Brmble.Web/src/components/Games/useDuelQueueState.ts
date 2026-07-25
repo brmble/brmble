@@ -42,6 +42,11 @@ export function useDuelQueueState(): DuelQueueState {
   const currentChannelIdRef = useRef<number | null>(null);
   const acceptingSnapshotsRef = useRef(false);
   const versionsRef = useRef(new Map<number, Pick<DuelQueueSnapshot, 'generation' | 'revision'>>());
+  const recoveryBaselinesRef = useRef(new Map<number, {
+    generatedAt: number;
+    generation: number;
+    revision: number;
+  }>());
 
   const applySnapshot = useCallback((snapshot: DuelQueueSnapshot) => {
     if (!acceptingSnapshotsRef.current
@@ -49,6 +54,10 @@ export function useDuelQueueState(): DuelQueueState {
       || snapshot.channelId !== currentChannelIdRef.current
       || snapshot.schemaVersion !== 1
       || deniedChannelIdsRef.current.has(snapshot.channelId)) return;
+    const generatedAt = Date.parse(snapshot.generatedAt);
+    if (!Number.isFinite(generatedAt)) return;
+    const recoveryBaseline = recoveryBaselinesRef.current.get(snapshot.channelId);
+    if (recoveryBaseline && generatedAt < recoveryBaseline.generatedAt) return;
     const version = versionsRef.current.get(snapshot.channelId);
     if (version && (snapshot.generation < version.generation
       || (snapshot.generation === version.generation && snapshot.revision <= version.revision))) return;
@@ -71,11 +80,18 @@ export function useDuelQueueState(): DuelQueueState {
       const snapshot = await gamesApi.getQueueSnapshot();
       if (!mountedRef.current || requestEpochRef.current !== epoch) return;
       if (snapshot.schemaVersion !== 1) return;
+      const generatedAt = Date.parse(snapshot.generatedAt);
+      if (!Number.isFinite(generatedAt)) return;
       if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
       if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
       currentChannelIdRef.current = snapshot.channelId;
       deniedChannelIdsRef.current.delete(snapshot.channelId);
       versionsRef.current.set(snapshot.channelId, {
+        generation: snapshot.generation,
+        revision: snapshot.revision,
+      });
+      recoveryBaselinesRef.current.set(snapshot.channelId, {
+        generatedAt,
         generation: snapshot.generation,
         revision: snapshot.revision,
       });
@@ -94,6 +110,7 @@ export function useDuelQueueState(): DuelQueueState {
       acceptingSnapshotsRef.current = true;
       currentChannelIdRef.current = channelId ?? null;
       deniedChannelIdsRef.current.clear();
+      if (channelId != null) recoveryBaselinesRef.current.delete(channelId);
     };
     const handleChannelChanged = (data: unknown) => {
       const d = data as { channelId?: number; previousChannelId?: number };
@@ -111,6 +128,7 @@ export function useDuelQueueState(): DuelQueueState {
       if (d.channelId != null) {
         currentChannelIdRef.current = d.channelId;
         deniedChannelIdsRef.current.delete(d.channelId);
+        recoveryBaselinesRef.current.delete(d.channelId);
       }
       void requestSnapshot();
     };
@@ -162,6 +180,7 @@ export function useDuelQueueState(): DuelQueueState {
     acceptingSnapshotsRef.current = false;
     currentChannelIdRef.current = null;
     deniedChannelIdsRef.current.clear();
+    recoveryBaselinesRef.current.clear();
     setByChannel(new Map());
     setIncomingRematch(null);
     setOutgoingRematch(null);

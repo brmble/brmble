@@ -48,13 +48,14 @@ function snapshot(
   generation: number,
   revision: number,
   queue: DuelQueueSnapshot['queue'] = [],
+  generatedAt = '2026-07-25T12:00:00Z',
 ): DuelQueueSnapshot {
   return {
     schemaVersion: 1,
     channelId,
     generation,
     revision,
-    generatedAt: '2026-07-25T12:00:00Z',
+    generatedAt,
     calculationTimeMs: 1,
     active: null,
     readyCheck: null,
@@ -185,6 +186,31 @@ describe('useDuelQueueState', () => {
     expect(result.current.byChannel.get(2)?.queue).toEqual([]);
     emit('game.queueSnapshot', snapshot(2, 1, 1, queued));
     expect(result.current.byChannel.get(2)?.queue).toEqual(queued);
+  });
+
+  it('rejects pre-recovery high tuples by timestamp after a lower-tuple rebase', async () => {
+    const t1 = '2026-07-25T12:00:00Z';
+    const t2 = '2026-07-25T12:01:00Z';
+    const t3 = '2026-07-25T12:02:00Z';
+    const { result } = renderHook(() => useDuelQueueState());
+    connect();
+    emit('game.queueSnapshot', snapshot(2, 8, 20, queued, t1));
+    act(() => result.current.reset());
+    connect();
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0, [], t2));
+    await act(() => result.current.requestSnapshot());
+
+    emit('game.queueSnapshot', snapshot(2, 8, 20, queued, t1));
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0, [], t2));
+    emit('game.queueSnapshot', snapshot(2, 1, 1, queued, t3));
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 1, queued, t3));
+  });
+
+  it('rejects push snapshots with malformed generatedAt', () => {
+    const { result } = renderHook(() => useDuelQueueState());
+    connect();
+    emit('game.queueSnapshot', snapshot(2, 1, 1, queued, 'not-a-date'));
+    expect(result.current.byChannel.size).toBe(0);
   });
 
   it('contains recovery errors', async () => {
