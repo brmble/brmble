@@ -18,8 +18,34 @@ public class BrmbleEventBus : IBrmbleEventBus
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        Converters =
+        {
+            new PaintStrokeWidthJsonConverter(),
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
+        },
     };
+
+    internal static string SerializeForWebSocketForTest(object message) =>
+        JsonSerializer.Serialize(message, JsonOptions);
+
+    private sealed class PaintStrokeWidthJsonConverter : JsonConverter<PaintStrokeWidth>
+    {
+        public override PaintStrokeWidth Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var value) || !Enum.IsDefined((PaintStrokeWidth)value))
+                throw new JsonException("Paint stroke width must be 3, 6, or 12.");
+
+            return (PaintStrokeWidth)value;
+        }
+
+        public override void Write(Utf8JsonWriter writer, PaintStrokeWidth value, JsonSerializerOptions options)
+        {
+            if (!Enum.IsDefined(value))
+                throw new JsonException($"Unsupported paint stroke width: {value}.");
+
+            writer.WriteNumberValue((int)value);
+        }
+    }
 
     private sealed class PaintChannelDelivery
     {
@@ -59,7 +85,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public async Task BroadcastAsync(object message)
     {
-        var json = JsonSerializer.Serialize(message, JsonOptions);
+        var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
         var tasks = _clients.Keys.Select(async ws =>
@@ -108,7 +134,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                 userIds.Add(mapping.UserId);
         }
 
-        var json = JsonSerializer.Serialize(message, JsonOptions);
+        var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
         var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
@@ -161,7 +187,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public async Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message)
     {
-        var json = JsonSerializer.Serialize(message, JsonOptions);
+        var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
         var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
