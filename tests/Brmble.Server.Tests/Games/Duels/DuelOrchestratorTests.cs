@@ -127,6 +127,7 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
         _now += by;
         foreach (var timer in _timers.ToArray()) timer.FireIfDue(_now);
     }
+    public void FireTimerEvenIfDisposed(int index) => _timers[index].FireEvenIfDisposed();
     private sealed class TestTimer(TestTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset due) : ITimer
     {
         private bool _disposed;
@@ -140,6 +141,7 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
             _disposed = true;
             callback(state);
         }
+        public void FireEvenIfDisposed() => callback(state);
     }
 }
 
@@ -411,6 +413,227 @@ public class DuelOrchestratorTests
         Assert.IsTrue((await sut.GetSnapshotForSessionAsync(30)).ReadyCheck?.Players.Single(x => x.UserId == 300).Ready);
         Assert.IsTrue((await sut.RespondReadyAsync(queued.ReservationId.Value, 400, ReadyResponse.Accept)).Success);
         Assert.AreEqual(2, router.Starts.Count);
+    }
+
+    [TestMethod]
+    public async Task FinalReadyAcceptance_RevalidatesBothPlayersAndPromotesNextWithoutStarting()
+    {
+        var (sut, presence, _, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var readyOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var nextOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var ready = await sut.RespondToOfferAsync(readyOffer.OfferId!.Value, 400, true);
+        var next = await sut.RespondToOfferAsync(nextOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        await sut.RespondReadyAsync(ready.ReservationId!.Value, 300, ReadyResponse.Accept);
+        presence.Sessions.Remove(30);
+
+        var result = await sut.RespondReadyAsync(ready.ReservationId.Value, 400, ReadyResponse.Accept);
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(1, router.Starts.Count);
+        Assert.AreEqual(next.ReservationId, (await sut.GetSnapshotForSessionAsync(50)).ReadyCheck?.ReservationId);
+        Add(presence, 30, 300);
+        Assert.IsTrue((await sut.CreateChallengeAsync(30, 40, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task DisconnectDuringFinalReadyPublication_PreventsRunnerStartAndAdvances()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var readyOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var nextOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var ready = await sut.RespondToOfferAsync(readyOffer.OfferId!.Value, 400, true);
+        var next = await sut.RespondToOfferAsync(nextOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        await sut.RespondReadyAsync(ready.ReservationId!.Value, 300, ReadyResponse.Accept);
+        publisher.BlockType = "game.readyCheck";
+
+        var finalAccept = sut.RespondReadyAsync(ready.ReservationId.Value, 400, ReadyResponse.Accept);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var cleanup = sut.HandlePresenceLostAsync(300, 30, DuelCancelReason.Disconnected);
+        await WaitUntilAsync(() => sut.GetSnapshotForSessionAsync(50).Result.ReadyCheck?.ReservationId == next.ReservationId);
+        publisher.Release.TrySetResult();
+        await cleanup;
+        var result = await finalAccept;
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(1, router.Starts.Count);
+        Assert.AreEqual(next.ReservationId, (await sut.GetSnapshotForSessionAsync(50)).ReadyCheck?.ReservationId);
+    }
+
+    [TestMethod]
+    public async Task PresenceChangeDuringFinalReadyPublication_PrecheckCancelsAndAdvances()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var readyOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var nextOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var ready = await sut.RespondToOfferAsync(readyOffer.OfferId!.Value, 400, true);
+        var next = await sut.RespondToOfferAsync(nextOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        await sut.RespondReadyAsync(ready.ReservationId!.Value, 300, ReadyResponse.Accept);
+        publisher.BlockType = "game.readyCheck";
+
+        var finalAccept = sut.RespondReadyAsync(ready.ReservationId.Value, 400, ReadyResponse.Accept);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        presence.Sessions.Remove(30);
+        publisher.Release.TrySetResult();
+        var result = await finalAccept;
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(1, router.Starts.Count);
+        Assert.AreEqual(next.ReservationId, (await sut.GetSnapshotForSessionAsync(50)).ReadyCheck?.ReservationId);
+    }
+
+    [TestMethod]
+    public async Task ChannelRemovalDuringRunnerStart_CompensatesSuccessfulStaleMatchOnce()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        router.StartBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+
+        var acceptance = sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        await WaitUntilAsync(() => router.Starts.Count == 1);
+        await sut.HandleChannelRemovedAsync(1);
+        router.StartBlock.SetResult();
+        var result = await acceptance;
+
+        Assert.IsFalse(result.Success);
+        CollectionAssert.AreEqual(new[] { (1L, 100L, "channelRemoved") }, router.Forfeits.ToArray());
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 20, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task OldCompletionAfterChannelRecreation_DoesNotMutateReplacementClockOrReadyCheck()
+    {
+        var (sut, presence, _, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var oldOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var old = await sut.RespondToOfferAsync(oldOffer.OfferId!.Value, 200, true);
+        await sut.HandleChannelRemovedAsync(1);
+        var replacementOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var queuedOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var replacement = await sut.RespondToOfferAsync(replacementOffer.OfferId!.Value, 400, true);
+        var queued = await sut.RespondToOfferAsync(queuedOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(2, replacement.ReservationId!.Value, 1,
+            router.Starts[^1].PlayerOne, router.Starts[^1].PlayerTwo, router.Starts[^1].Configuration, DateTimeOffset.UtcNow));
+        var before = await sut.GetSnapshotForSessionAsync(50);
+
+        await router.CompleteAsync(new MatchCompletion(1, old.ReservationId!.Value, 1,
+            new(10, 100, "user-100"), new(20, 200, "user-200"), router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        var after = await sut.GetSnapshotForSessionAsync(50);
+
+        Assert.AreEqual(queued.ReservationId, after.ReadyCheck?.ReservationId);
+        Assert.AreEqual(before.Generation, after.Generation);
+        Assert.AreEqual(before.Revision, after.Revision);
+    }
+
+    [TestMethod]
+    public async Task DuplicateReadyAcceptance_DoesNotChangeRevisionOrPublishAgain()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 4; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var readyOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var ready = await sut.RespondToOfferAsync(readyOffer.OfferId!.Value, 400, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        await sut.RespondReadyAsync(ready.ReservationId!.Value, 300, ReadyResponse.Accept);
+        var before = await sut.GetSnapshotForSessionAsync(30);
+        var events = publisher.UserMessages.Count(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.readyCheck");
+
+        var duplicate = await sut.RespondReadyAsync(ready.ReservationId.Value, 300, ReadyResponse.Accept);
+
+        Assert.IsTrue(duplicate.Success);
+        Assert.AreEqual(before.Revision, (await sut.GetSnapshotForSessionAsync(30)).Revision);
+        Assert.AreEqual(events, publisher.UserMessages.Count(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.readyCheck"));
+        await sut.RespondReadyAsync(ready.ReservationId.Value, 400, ReadyResponse.Accept);
+        Assert.AreEqual(2, router.Starts.Count);
+    }
+
+    [TestMethod]
+    public async Task DisposedOldReadyTimers_CannotMutateReplacementOrRemovedChannel()
+    {
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(clock);
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var firstOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var secondOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var first = await sut.RespondToOfferAsync(firstOffer.OfferId!.Value, 400, true);
+        var second = await sut.RespondToOfferAsync(secondOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, clock.GetUtcNow()));
+        await sut.RespondReadyAsync(first.ReservationId!.Value, 300, ReadyResponse.Decline);
+        var replacement = await sut.GetSnapshotForSessionAsync(50);
+
+        clock.FireTimerEvenIfDisposed(0);
+        await Task.Yield();
+        Assert.AreEqual(second.ReservationId, (await sut.GetSnapshotForSessionAsync(50)).ReadyCheck?.ReservationId);
+        await sut.HandleChannelRemovedAsync(1);
+        var removed = await sut.GetSnapshotForSessionAsync(50);
+        clock.FireTimerEvenIfDisposed(1);
+        await Task.Yield();
+        var afterStaleTimer = await sut.GetSnapshotForSessionAsync(50);
+        Assert.AreEqual(removed.Generation, afterStaleTimer.Generation);
+        Assert.AreEqual(removed.Revision, afterStaleTimer.Revision);
+    }
+
+    [TestMethod]
+    public async Task ReadyPublicationFailure_DoesNotBlockStartOrAdvancement()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 4; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var readyOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var ready = await sut.RespondToOfferAsync(readyOffer.OfferId!.Value, 400, true);
+        publisher.FailType = "game.readyCheck";
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+
+        await sut.RespondReadyAsync(ready.ReservationId!.Value, 300, ReadyResponse.Accept);
+        var result = await sut.RespondReadyAsync(ready.ReservationId.Value, 400, ReadyResponse.Accept);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(2, router.Starts.Count);
+    }
+
+    [TestMethod]
+    public async Task ReadyCancellationPublicationFailure_DoesNotBlockNextPromotion()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var declinedOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var nextOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        var declined = await sut.RespondToOfferAsync(declinedOffer.OfferId!.Value, 400, true);
+        var next = await sut.RespondToOfferAsync(nextOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        publisher.FailType = "game.commitmentCanceled";
+
+        var result = await sut.RespondReadyAsync(declined.ReservationId!.Value, 300, ReadyResponse.Decline);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(next.ReservationId, (await sut.GetSnapshotForSessionAsync(50)).ReadyCheck?.ReservationId);
     }
 
     [TestMethod]

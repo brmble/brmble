@@ -125,6 +125,63 @@ public class MumbleServerCallbackTests
     }
 
     [TestMethod]
+    public async Task DispatchUserDisconnected_OrchestratorFailureStillCleansUp()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.Disconnected))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        mapping.Verify(x => x.RemoveSession(42), Times.Once);
+        membership.Verify(x => x.Remove(42), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_OrchestratorFailureStillUpdatesMembership()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(x => x.TryGetChannel(42, out It.Ref<int>.IsAny)).Returns(true);
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.LeftChannel))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        membership.Verify(x => x.Update(42, 10), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchChannelRemoved_OrchestratorFailureStillCallsHandlers()
+    {
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>())).Returns(Task.CompletedTask);
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandleChannelRemovedAsync(10))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([handler.Object], orchestrator: orchestrator.Object);
+
+        await callback.DispatchChannelRemoved(new MumbleChannel(10, "General"));
+
+        handler.Verify(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>()), Times.Once);
+    }
+
+    [TestMethod]
     public async Task DispatchTextMessage_CallsAllHandlers()
     {
         var h1 = new Mock<IMumbleEventHandler>();

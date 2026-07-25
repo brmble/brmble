@@ -169,7 +169,9 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
             if (_duels is not null)
-                await _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected);
+                await TryNotifyDuelsAsync(
+                    () => _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected),
+                    "user disconnect", user.SessionId);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
         }
 
@@ -198,7 +200,9 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             || previousChannel != channelId;
         var snapshot = _sessionMapping.GetSnapshot();
         if (channelChanged && snapshot.TryGetValue(user.SessionId, out var mapped) && _duels is not null)
-            await _duels.HandlePresenceLostAsync(mapped.UserId, user.SessionId, DuelCancelReason.LeftChannel);
+            await TryNotifyDuelsAsync(
+                () => _duels.HandlePresenceLostAsync(mapped.UserId, user.SessionId, DuelCancelReason.LeftChannel),
+                "channel change", user.SessionId);
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
@@ -225,8 +229,21 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchChannelRemoved(MumbleChannel channel)
     {
-        if (_duels is not null) await _duels.HandleChannelRemovedAsync(channel.Id);
+        if (_duels is not null)
+            await TryNotifyDuelsAsync(() => _duels.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
+    }
+
+    private async Task TryNotifyDuelsAsync(Func<Task> notify, string operation, long id)
+    {
+        try
+        {
+            await notify();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Duel cleanup failed during {Operation} for {Id}", operation, id);
+        }
     }
 
     public Task DispatchChannelRenamed(MumbleChannel channel)
