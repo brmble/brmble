@@ -69,6 +69,7 @@ internal sealed class TestPublisher : IGameEventPublisher
     public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public object? BlockedMessage { get; private set; }
+    public Func<object, Task>? BeforeReturn { get; set; }
     public async Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
     {
         var type = message.GetType().GetProperty("type")?.GetValue(message) as string;
@@ -76,6 +77,8 @@ internal sealed class TestPublisher : IGameEventPublisher
         lock (UserMessages) UserMessages.Add((userIds, message));
         if (type == FailType)
             throw new InvalidOperationException("publication failed");
+        if (BeforeReturn is { } callback)
+            await callback(message);
     }
     public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
 }
@@ -1327,6 +1330,86 @@ public class DuelOrchestratorTests
         Assert.AreEqual(DuelRejectReason.StaleOffer,
             (await sut.RespondToOfferAsync(offerId, 200, true)).Reason);
         Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task RematchUnavailableBeforeAccept_CancelsPublishesAndReleasesBoth()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+        var rematch = await sut.RequestRematchAsync(91, 100);
+        presence.Sessions.Remove(20);
+
+        var response = await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true);
+
+        Assert.IsFalse(response.Success);
+        Assert.AreEqual(DuelRejectReason.NotPresent, response.Reason);
+        Assert.AreEqual(1, router.Starts.Count);
+        var relevant = publisher.UserMessages
+            .Where(x => MessageValue<long>(x.Message, "offerId") == rematch.OfferId)
+            .Select(x => x.Message).ToArray();
+        Assert.AreEqual("game.rematchCanceled", MessageValue<string>(relevant[^1], "type"));
+        Assert.AreEqual("notPresent", MessageValue<string>(relevant[^1], "reason"));
+        Assert.AreEqual(DuelRejectReason.StaleOffer,
+            (await sut.RespondToOfferAsync(rematch.OfferId.Value, 200, true)).Reason);
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
+    }
+
+    [DataTestMethod]
+    [DataRow("game.rematchPending", true)]
+    [DataRow("game.rematchPending", false)]
+    [DataRow("game.rematchOffered", true)]
+    [DataRow("game.rematchOffered", false)]
+    public async Task RematchSynchronousTransitionBeforePublicationReturns_FinalizesExactOutcome(
+        string publicationType, bool accept)
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        DuelCommandResult? transition = null;
+        publisher.BeforeReturn = async message =>
+        {
+            if (MessageValue<string>(message, "type") != publicationType) return;
+            transition = await sut.RespondToOfferAsync(MessageValue<long>(message, "offerId"), 200, accept);
+        };
+
+        var result = await sut.RequestRematchAsync(91, 100);
+        var relevant = publisher.UserMessages
+            .Where(x => x.Message.GetType().GetProperty("sourceMatchId") is not null
+                && MessageValue<long>(x.Message, "sourceMatchId") == 91)
+            .Select(x => x.Message).ToArray();
+
+        Assert.IsNotNull(transition);
+        Assert.AreEqual(accept, result.Success);
+        Assert.AreEqual(accept ? "game.rematchAccepted" : "game.rematchDeclined",
+            MessageValue<string>(relevant[^1], "type"));
+        Assert.AreEqual(accept ? transition.ReservationId : null,
+            MessageValue<long?>(relevant[^1], "reservationId"));
+    }
+
+    [TestMethod]
+    public async Task RematchResolvedOffer_DisposesTimerAndStaleCallbackIsNoOp()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, publisher, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91, time.GetUtcNow());
+        var timerIndex = time.TimerCount;
+        var rematch = await sut.RequestRematchAsync(91, 100);
+        await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, false);
+        var terminalCount = publisher.UserMessages.Count(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchDeclined");
+
+        time.Advance(TimeSpan.FromSeconds(30));
+        time.FireTimerEvenIfDisposed(timerIndex);
+        await Task.Delay(10);
+
+        Assert.AreEqual(terminalCount, publisher.UserMessages.Count(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchDeclined"));
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchExpired"
+            && MessageValue<long>(x.Message, "offerId") == rematch.OfferId));
     }
 
     [TestMethod]

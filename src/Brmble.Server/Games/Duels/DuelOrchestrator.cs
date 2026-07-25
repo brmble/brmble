@@ -124,6 +124,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         Offer offer;
         StartDecision? immediate = null;
         long? acceptedReservationId = null;
+        var unavailable = false;
         lock (_gate)
         {
             if (!_offers.TryGetValue(offerId, out offer!))
@@ -132,8 +133,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return Reject("Only the challenged player may respond.", DuelRejectReason.NotParticipant);
             if (!StillPresent(offer.Inviter, offer.ChannelId) || !StillPresent(offer.Target, offer.ChannelId))
             {
-                RemoveOffer(offer);
-                return Reject("A player is no longer available.", DuelRejectReason.NotPresent);
+                RemoveOffer(offer, "notPresent");
+                unavailable = true;
+                goto OfferDecisionComplete;
             }
 
             if (!accept)
@@ -172,8 +174,14 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 }
                 Bump(offer.ChannelId, channel);
             }
+        OfferDecisionComplete:;
         }
 
+        if (unavailable)
+        {
+            await PublishCancellationBestEffortAsync(offer, "notPresent");
+            return Reject("A player is no longer available.", DuelRejectReason.NotPresent);
+        }
         await PublishOfferResponseBestEffortAsync(offer, accept);
 
         if (!accept) return Success(offerId, null);
@@ -292,15 +300,16 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             _offers.Add(offerId, offer);
             _commitmentsByUserId.Add(requester.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
+            offer.Timer = _timeProvider.CreateTimer(
+                _ => _ = ExpireRematchOfferEffectAsync(offer.Id, offer.ExpiresAt),
+                null, OfferLifetime, Timeout.InfiniteTimeSpan);
         }
-
-        _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
 
         try
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
                 "game.rematchPending", offer, offer.Target.UserId));
-            var pendingTransition = await ReplayTerminalOutcomeIfTransitionedAsync(offer);
+            var pendingTransition = await FinalizeRematchPublicationStageAsync(offer);
             if (pendingTransition is not null) return pendingTransition;
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Target.UserId }, RematchMessage(
                 "game.rematchOffered", offer, offer.Target.UserId));
@@ -312,17 +321,12 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 if (OwnsOffer(offer))
                     RemoveOffer(offer, "deliveryFailed");
             }
-            return await ReplayTerminalOutcomeAsync(offer);
+            return await FinalizeRematchPublicationStageAsync(offer)
+                ?? Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
         }
 
-        var offeredTransition = await ReplayTerminalOutcomeIfTransitionedAsync(offer);
+        var offeredTransition = await FinalizeRematchPublicationStageAsync(offer);
         if (offeredTransition is not null) return offeredTransition;
-
-        lock (_gate)
-        {
-            offer.PublicationCompleted = true;
-            RemoveRematchOutcome(offer.Id, out _);
-        }
         return Success(offer.Id, null);
     }
 
@@ -708,6 +712,20 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         if (offer is not null) await PublishCancellationAsync(offer, "expired");
     }
 
+    private async Task ExpireRematchOfferEffectAsync(long offerId, DateTimeOffset expiresAt)
+    {
+        Offer? offer = null;
+        lock (_gate)
+        {
+            if (_offers.TryGetValue(offerId, out var current) && current.ExpiresAt == expiresAt)
+            {
+                offer = current;
+                RemoveOffer(current, "expired");
+            }
+        }
+        if (offer is not null) await PublishCancellationBestEffortAsync(offer, "expired");
+    }
+
     private Task PublishCancellationAsync(Offer offer, string reason) =>
         offer.SourceMatchId is null
             ? _publisher.PublishToUsersAsync(ParticipantIds(offer), new
@@ -771,24 +789,22 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         reason,
     };
 
-    private async Task<DuelCommandResult?> ReplayTerminalOutcomeIfTransitionedAsync(Offer offer)
+    private async Task<DuelCommandResult?> FinalizeRematchPublicationStageAsync(Offer offer)
     {
+        RematchTerminalOutcome? outcome = null;
         lock (_gate)
         {
-            if (OwnsOffer(offer)) return null;
+            if (offer.OutstandingPublicationStages > 0)
+                offer.OutstandingPublicationStages--;
+            if (_rematchOutcomes.TryGetValue(offer.Id, out outcome))
+            {
+                offer.OutstandingPublicationStages = 0;
+                RemoveRematchOutcome(offer.Id, out outcome);
+            }
+            else if (offer.OutstandingPublicationStages == 0)
+                RemoveRematchOutcome(offer.Id, out _);
         }
-        return await ReplayTerminalOutcomeAsync(offer);
-    }
-
-    private async Task<DuelCommandResult> ReplayTerminalOutcomeAsync(Offer offer)
-    {
-        RematchTerminalOutcome outcome;
-        lock (_gate)
-        {
-            if (!RemoveRematchOutcome(offer.Id, out outcome!))
-                return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
-        }
-
+        if (outcome is null) return null;
         await PublishBestEffortAsync(outcome.ParticipantIds, RematchTerminalMessage(outcome));
         return outcome.Kind == RematchTerminalKind.Accepted
             ? Success(outcome.OfferId, outcome.ReservationId)
@@ -901,6 +917,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private void RemoveOffer(Offer offer, string? terminalReason = null)
     {
         if (!_offers.Remove(offer.Id)) return;
+        offer.Timer?.Dispose();
         offer.TerminalReason = terminalReason;
         if (terminalReason is not null)
             RecordRematchOutcome(offer,
@@ -914,7 +931,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
 
     private void RecordRematchOutcome(Offer offer, RematchTerminalKind kind, string reason)
     {
-        if (offer.SourceMatchId is null || offer.PublicationCompleted) return;
+        if (offer.SourceMatchId is null || offer.OutstandingPublicationStages == 0) return;
         if (!_rematchOutcomes.ContainsKey(offer.Id))
             _rematchOutcomeOrder.Enqueue(offer.Id);
         _rematchOutcomes[offer.Id] = new(
@@ -1044,7 +1061,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         public long? SourceMatchId { get; } = sourceMatchId;
         public long? AcceptedReservationId { get; set; }
         public string? TerminalReason { get; set; }
-        public bool PublicationCompleted { get; set; }
+        public int OutstandingPublicationStages { get; set; } = sourceMatchId is null ? 0 : 2;
+        public ITimer? Timer { get; set; }
     }
 
     public sealed record CompletedDuelSource(
