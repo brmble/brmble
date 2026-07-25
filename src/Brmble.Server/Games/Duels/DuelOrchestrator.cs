@@ -295,21 +295,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
                 "game.rematchPending", offer, offer.Target.UserId));
-            string? pendingTerminalReason = null;
-            lock (_gate)
-            {
-                if (!OwnsOffer(offer))
-                {
-                    if (offer.AcceptedReservationId is not null)
-                        return OfferPublicationResult(offer);
-                    pendingTerminalReason = offer.TerminalReason ?? "stale";
-                }
-            }
-            if (pendingTerminalReason is not null)
-            {
-                await PublishCancellationBestEffortAsync(offer, pendingTerminalReason);
-                return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
-            }
+            var pendingTransition = await ReplayTerminalOutcomeIfTransitionedAsync(offer);
+            if (pendingTransition is not null) return pendingTransition;
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Target.UserId }, RematchMessage(
                 "game.rematchOffered", offer, offer.Target.UserId));
         }
@@ -338,28 +325,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             return Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
         }
 
-        string? terminalReason = null;
-        var acceptedReplay = false;
-        lock (_gate)
-        {
-            if (!OwnsOffer(offer))
-            {
-                if (offer.AcceptedReservationId is not null)
-                    acceptedReplay = true;
-                else
-                    terminalReason = offer.TerminalReason ?? "stale";
-            }
-        }
-        if (acceptedReplay)
-        {
-            await PublishAcceptedReplayBestEffortAsync(offer);
-            return Success(offer.Id, offer.AcceptedReservationId);
-        }
-        if (terminalReason is not null)
-        {
-            await PublishCancellationBestEffortAsync(offer, terminalReason);
-            return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
-        }
+        var offeredTransition = await ReplayTerminalOutcomeIfTransitionedAsync(offer);
+        if (offeredTransition is not null) return offeredTransition;
 
         _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
         return Success(offer.Id, null);
@@ -814,6 +781,27 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         PublishBestEffortAsync(ParticipantIds(offer), RematchMessage(
             "game.rematchAccepted", offer, offer.Target.UserId, "accepted"));
 
+    private async Task<DuelCommandResult?> ReplayTerminalOutcomeIfTransitionedAsync(Offer offer)
+    {
+        long? acceptedReservationId;
+        string? terminalReason;
+        lock (_gate)
+        {
+            if (OwnsOffer(offer)) return null;
+            acceptedReservationId = offer.AcceptedReservationId;
+            terminalReason = offer.TerminalReason ?? "stale";
+        }
+
+        if (acceptedReservationId is not null)
+        {
+            await PublishAcceptedReplayBestEffortAsync(offer);
+            return Success(offer.Id, acceptedReservationId);
+        }
+
+        await PublishCancellationBestEffortAsync(offer, terminalReason);
+        return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
+    }
+
     private void RetainCompletedSource(MatchCompletion completion)
     {
         PruneCompletedSources();
@@ -860,11 +848,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
 
     private bool OwnsOffer(Offer offer) =>
         _offers.TryGetValue(offer.Id, out var current) && ReferenceEquals(current, offer);
-
-    private static DuelCommandResult OfferPublicationResult(Offer offer) =>
-        offer.AcceptedReservationId is { } reservationId
-            ? Success(offer.Id, reservationId)
-            : Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
 
     private bool TryResolvePlayer(long sessionId, out DuelPlayer player, out int channelId)
     {

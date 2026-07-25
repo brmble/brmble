@@ -68,10 +68,11 @@ internal sealed class TestPublisher : IGameEventPublisher
     public string? BlockType { get; set; }
     public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public object? BlockedMessage { get; private set; }
     public async Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
     {
         var type = message.GetType().GetProperty("type")?.GetValue(message) as string;
-        if (type == BlockType) { Blocked.TrySetResult(); await Release.Task; }
+        if (type == BlockType) { BlockedMessage = message; Blocked.TrySetResult(); await Release.Task; }
         lock (UserMessages) UserMessages.Add((userIds, message));
         if (type == FailType)
             throw new InvalidOperationException("publication failed");
@@ -1251,6 +1252,35 @@ public class DuelOrchestratorTests
             Assert.AreEqual(91L, MessageValue<long>(events[^1], "sourceMatchId"));
             Assert.AreEqual(accepted.ReservationId, MessageValue<long?>(events[^1], "reservationId"));
         }
+    }
+
+    [TestMethod]
+    public async Task RematchAcceptedWhilePendingPublicationBlocked_ReplaysAcceptedAfterStalePending()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchPending";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var offerId = MessageValue<long>(publisher.BlockedMessage!, "offerId");
+        var accepted = await sut.RespondToOfferAsync(offerId, 200, true);
+        publisher.Release.TrySetResult();
+        var result = await request;
+        var requesterEvents = publisher.UserMessages
+            .Where(x => x.Users.Contains(100))
+            .Select(x => x.Message)
+            .Where(x => MessageValue<string>(x, "type")?.StartsWith("game.rematch", StringComparison.Ordinal) == true)
+            .ToArray();
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(accepted.ReservationId, result.ReservationId);
+        Assert.AreEqual("game.rematchAccepted", MessageValue<string>(requesterEvents[^1], "type"));
+        Assert.AreEqual(91L, MessageValue<long>(requesterEvents[^1], "sourceMatchId"));
+        Assert.AreEqual(accepted.ReservationId, MessageValue<long?>(requesterEvents[^1], "reservationId"));
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
     }
 
     [TestMethod]
