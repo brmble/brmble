@@ -38,8 +38,9 @@ function emit(type: string, data: unknown) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(next => { resolve = next; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((next, fail) => { resolve = next; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function snapshot(
@@ -141,6 +142,22 @@ describe('useDuelQueueState', () => {
     act(() => result.current.reset());
     expect(result.current.byChannel.size).toBe(0);
     emit('game.queueSnapshot', snapshot(7, 1, 2, queued));
+    expect(result.current.byChannel.size).toBe(0);
+  });
+
+  it('keeps a same-channel delayed push hidden before failed recovery', async () => {
+    const recovery = deferred<DuelQueueSnapshot>();
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
+    act(() => result.current.reset());
+    connect(2);
+    api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
+    const request = result.current.requestSnapshot();
+    emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
+    expect(result.current.byChannel.size).toBe(0);
+    await act(async () => recovery.reject(new Error('offline')));
+    await request;
     expect(result.current.byChannel.size).toBe(0);
   });
 
