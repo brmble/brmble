@@ -55,6 +55,7 @@ file sealed class BlockingFirstStartPublisher : IGameEventPublisher
     }
 
     public void ReleaseFirstStart() => _releaseFirstStart.TrySetResult();
+    public void FailFirstStart(Exception exception) => _releaseFirstStart.TrySetException(exception);
 }
 
 // Deterministic RNG so the manager tests never depend on chance. Each roll returns
@@ -237,6 +238,50 @@ public class GameSessionManagerTests
             && message.msg.GetType().GetProperty("active")?.GetValue(message.msg) is true));
         Assert.AreEqual(0, publisher.Sent.Count(message => MessageType(message.msg) == "game.stateUpdated"));
         Assert.IsFalse(FeedTexts(publisher.Sent).Any(text => text.Contains("started")));
+    }
+
+    [TestMethod]
+    public async Task FailedOldStartupCleanup_PreservesReplacementRuntimeMappings()
+    {
+        var publisher = new BlockingFirstStartPublisher();
+        var sink = new RecordingCompletedMatchSink();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new HalvingRandom(), new FakePresence(), publisher, sink);
+        var configuration = new DuelConfiguration("rps", "bo3", 1,
+            new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete");
+        var players = (new DuelPlayer(10, 100, "Alice"), new DuelPlayer(20, 200, "Bob"));
+        var completionReservations = new List<long>();
+        manager.MatchCompleted += completion =>
+        {
+            lock (completionReservations) completionReservations.Add(completion.ReservationId);
+            return Task.CompletedTask;
+        };
+
+        var oldStartTask = manager.StartAsync(new DuelReservation(
+            95, 7, players.Item1, players.Item2, configuration, DateTimeOffset.UtcNow, 5, null));
+        await publisher.FirstStartEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out var oldMatch));
+        await manager.ForfeitAsync(oldMatch.MatchId, 100, "disconnect");
+
+        var replacement = await manager.StartAsync(new DuelReservation(
+            96, 7, players.Item1, players.Item2, configuration, DateTimeOffset.UtcNow, 6, null));
+        Assert.IsTrue(replacement.Success);
+
+        publisher.FailFirstStart(new InvalidOperationException("old start publication failed"));
+        var oldResult = await oldStartTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsFalse(oldResult.Success);
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out var playerOneMatch));
+        Assert.IsTrue(manager.TryGetActiveMatch(200, out var playerTwoMatch));
+        Assert.AreEqual(replacement.MatchId, playerOneMatch.MatchId);
+        Assert.AreEqual(replacement.MatchId, playerTwoMatch.MatchId);
+        Assert.IsTrue(manager.IsMatchLive(replacement.MatchId));
+
+        await manager.ForfeitAsync(replacement.MatchId, 100, "quit");
+
+        CollectionAssert.AreEquivalent(new long[] { 95, 96 }, completionReservations);
+        Assert.AreEqual(2, completionReservations.Count);
+        Assert.AreEqual(2, sink.Matches.Count);
     }
 
     private static string? MessageType(object message) =>

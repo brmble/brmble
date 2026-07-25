@@ -131,7 +131,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
             return new GameStartResult(false, 0, null, "Player one already has an active game.");
         if (!_stableUserToMatch.TryAdd(reservation.PlayerTwo.UserId, matchId))
         {
-            _stableUserToMatch.TryRemove(reservation.PlayerOne.UserId, out _);
+            RemoveIndex(_stableUserToMatch, reservation.PlayerOne.UserId, matchId);
             return new GameStartResult(false, 0, null, "Player two already has an active game.");
         }
         if (!_matches.TryAdd(matchId, match))
@@ -254,21 +254,21 @@ public sealed class GameSessionManager : IDuelMatchRunner
             return new InviteResult(false, 0, "You already have an active game.");
         if (!_userToMatch.TryAdd(targetSession, matchId))
         {
-            _userToMatch.TryRemove(inviterSession, out _);
+            RemoveIndex(_userToMatch, inviterSession, matchId);
             return new InviteResult(false, 0, "The other player already has an active game.");
         }
 
         if (!_stableUserToMatch.TryAdd(inviterUserId, matchId))
         {
-            _userToMatch.TryRemove(inviterSession, out _);
-            _userToMatch.TryRemove(targetSession, out _);
+            RemoveIndex(_userToMatch, inviterSession, matchId);
+            RemoveIndex(_userToMatch, targetSession, matchId);
             return new InviteResult(false, 0, "You already have an active game.");
         }
         if (!_stableUserToMatch.TryAdd(targetUserId, matchId))
         {
-            _stableUserToMatch.TryRemove(inviterUserId, out _);
-            _userToMatch.TryRemove(inviterSession, out _);
-            _userToMatch.TryRemove(targetSession, out _);
+            RemoveIndex(_stableUserToMatch, inviterUserId, matchId);
+            RemoveIndex(_userToMatch, inviterSession, matchId);
+            RemoveIndex(_userToMatch, targetSession, matchId);
             return new InviteResult(false, 0, "The other player already has an active game.");
         }
 
@@ -382,10 +382,10 @@ public sealed class GameSessionManager : IDuelMatchRunner
             new { type = eventType, matchId });
         // The pending invite made the channel busy; clear the badge now that it's gone.
         await PublishDuelStateAsync(match, active: false);
-        foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
-        _stableUserToMatch.TryRemove(match.PlayerOne.UserId, out _);
-        _stableUserToMatch.TryRemove(match.PlayerTwo.UserId, out _);
-        _matches.TryRemove(matchId, out _);
+        foreach (var p in match.Players) RemoveIndex(_userToMatch, p, matchId);
+        RemoveIndex(_stableUserToMatch, match.PlayerOne.UserId, matchId);
+        RemoveIndex(_stableUserToMatch, match.PlayerTwo.UserId, matchId);
+        RemoveMatch(match);
     }
 
     public async Task ActionAsync(long matchId, long sessionId, IReadOnlyDictionary<string, object?> action)
@@ -776,11 +776,17 @@ public sealed class GameSessionManager : IDuelMatchRunner
     {
         DisposeTimers(match);
         foreach (var sessionId in match.Players)
-            _userToMatch.TryRemove(sessionId, out _);
-        _stableUserToMatch.TryRemove(match.PlayerOne.UserId, out _);
-        _stableUserToMatch.TryRemove(match.PlayerTwo.UserId, out _);
-        _matches.TryRemove(match.MatchId, out _);
+            RemoveIndex(_userToMatch, sessionId, match.MatchId);
+        RemoveIndex(_stableUserToMatch, match.PlayerOne.UserId, match.MatchId);
+        RemoveIndex(_stableUserToMatch, match.PlayerTwo.UserId, match.MatchId);
+        RemoveMatch(match);
     }
+
+    private static void RemoveIndex(ConcurrentDictionary<long, long> index, long key, long matchId) =>
+        ((ICollection<KeyValuePair<long, long>>)index).Remove(new(key, matchId));
+
+    private void RemoveMatch(LiveMatch match) =>
+        ((ICollection<KeyValuePair<long, LiveMatch>>)_matches).Remove(new(match.MatchId, match));
 
     private async Task RaiseMatchCompletedAsync(LiveMatch match, DateTimeOffset endedAt)
     {
