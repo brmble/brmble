@@ -153,7 +153,8 @@ public sealed record ActiveSnapshotInput(
     long MatchId,
     DuelReservation? Reservation,
     DuelConfiguration Configuration,
-    DateTimeOffset StartedAt)
+    DateTimeOffset StartedAt,
+    string Status = "live")
 {
     public ActiveSnapshotInput(DuelConfiguration configuration, DateTimeOffset startedAt)
         : this(0, null, configuration, startedAt)

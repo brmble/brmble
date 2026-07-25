@@ -124,6 +124,33 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task PausedClient_BuffersBroadcastsAndCompletesBootstrapInFifoOrder()
+    {
+        var socket = CreateMockWebSocket(WebSocketState.Open);
+        var sent = new List<string>();
+        socket.Setup(w => w.SendAsync(It.IsAny<ArraySegment<byte>>(), WebSocketMessageType.Text, true,
+                It.IsAny<CancellationToken>()))
+            .Callback((ArraySegment<byte> bytes, WebSocketMessageType _, bool _, CancellationToken _) =>
+                sent.Add(System.Text.Json.JsonDocument.Parse(bytes).RootElement.GetProperty("type").GetString()!))
+            .Returns(Task.CompletedTask);
+        _bus.AddPausedClient(socket.Object, 1);
+
+        await _bus.BroadcastAsync(new { type = "bufferedOne" });
+        await _bus.BroadcastAsync(new { type = "bufferedTwo" });
+        Assert.AreEqual(0, sent.Count);
+
+        await _bus.CompleteInitializationAsync(socket.Object,
+            [new { type = "sessionMappingSnapshot" }, new { type = "game.queueSnapshot" }],
+            CancellationToken.None);
+        await _bus.BroadcastAsync(new { type = "live" });
+
+        CollectionAssert.AreEqual(new[]
+        {
+            "sessionMappingSnapshot", "game.queueSnapshot", "bufferedOne", "bufferedTwo", "live"
+        }, sent);
+    }
+
+    [TestMethod]
     public void RemoveClient_IsIdempotent()
     {
         var ws = CreateMockWebSocket(WebSocketState.Open);

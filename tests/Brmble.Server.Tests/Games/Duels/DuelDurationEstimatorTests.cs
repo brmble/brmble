@@ -175,6 +175,27 @@ public sealed class DuelDurationEstimatorTests
     }
 
     [TestMethod]
+    public async Task BuildEtas_ReusesPrecomputedActiveEstimateWithoutRepositoryCall()
+    {
+        var active = Config("rps", "bo3", 2);
+        var repository = new StubDurationRepository(call => call.GameType == "rps"
+            ? throw new AssertFailedException("active estimate was recalculated")
+            : Samples(10_000, 10));
+        var input = Input(
+            active: new ActiveSnapshotInput(active, CalculatedAt.AddSeconds(-30)),
+            queue: [Reservation(1, Config("arena"))]);
+        var remaining = DurationEstimate.Known(7_000, 14, EstimateMethod.ConditionalRemaining);
+
+        var eta = (await new DuelDurationEstimator(repository).BuildEtasAsync(input, remaining)).Single();
+
+        Assert.AreEqual(7_000L, eta.Milliseconds);
+        AssertSegment(eta.Segments.Single(), active, 14, EstimateMethod.ConditionalRemaining);
+        CollectionAssert.AreEqual(
+            new[] { new RepositoryCall("arena", "bo3", 1, null) },
+            repository.Calls);
+    }
+
+    [TestMethod]
     public async Task BuildEtas_ReadyCheckAddsWindowAndPromotedPairDuration()
     {
         var ready = Config("rps", "bo5", 4);

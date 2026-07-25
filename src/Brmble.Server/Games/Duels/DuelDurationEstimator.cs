@@ -74,7 +74,8 @@ public sealed class DuelDurationEstimator
         return DurationEstimate.Known(milliseconds, sampleCount, EstimateMethod.FullMedian);
     }
 
-    public async Task<IReadOnlyList<QueueEtaSnapshot>> BuildEtasAsync(ChannelSnapshotInput input)
+    public async Task<IReadOnlyList<QueueEtaSnapshot>> BuildEtasAsync(
+        ChannelSnapshotInput input, DurationEstimate? activeEstimate = null)
     {
         var accumulated = new List<DurationEstimate>();
         var segments = new List<EtaSegmentSnapshot>();
@@ -84,7 +85,8 @@ public sealed class DuelDurationEstimator
             var elapsedMs = Math.Max(
                 0,
                 checked((long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds));
-            Add(await EstimateRemainingAsync(input.Active.Configuration, elapsedMs), input.Active.Configuration);
+            Add(activeEstimate ?? await EstimateRemainingAsync(input.Active.Configuration, elapsedMs),
+                input.Active.Configuration);
         }
 
         if (input.ReadyCheck is not null)

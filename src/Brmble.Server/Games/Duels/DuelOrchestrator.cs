@@ -2,12 +2,14 @@ namespace Brmble.Server.Games.Duels;
 
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CompletedSourceLifetime = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan SnapshotRetryDelay = TimeSpan.FromSeconds(1);
     private const int CompletedSourceLimit = 1000;
 
     private readonly GameDefinitionCatalog _catalog;
@@ -16,6 +18,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private readonly IDuelMatchRunnerRouter _runner;
     private readonly DuelDurationEstimator? _estimator;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger<DuelOrchestrator> _logger;
     private readonly object _gate = new();
     private readonly Dictionary<long, Offer> _offers = [];
     private readonly Dictionary<long, RematchTerminalOutcome> _rematchOutcomes = [];
@@ -23,7 +26,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
-    private readonly Dictionary<int, Task> _snapshotPublicationTails = [];
+    private readonly Dictionary<int, SnapshotLane> _snapshotLanes = [];
     private readonly Dictionary<long, CompletedDuelSource> _completedSources = [];
     private readonly LinkedList<CompletedDuelSource> _completedSourceOrder = [];
     private readonly Dictionary<long, LinkedListNode<CompletedDuelSource>> _completedSourceNodes = [];
@@ -47,7 +50,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         IGameEventPublisher publisher,
         IDuelMatchRunnerRouter runner,
         DuelDurationEstimator? estimator,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILogger<DuelOrchestrator>? logger = null)
     {
         _catalog = catalog;
         _presence = presence;
@@ -55,6 +59,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         _runner = runner;
         _estimator = estimator;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _logger = logger ?? NullLogger<DuelOrchestrator>.Instance;
         _runner.MatchCompleted += OnMatchCompletedAsync;
     }
 
@@ -930,13 +935,20 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             return new(channelId, missingClock.Generation, missingClock.Revision, now, null, null, []);
         }
 
-        var active = channel.Active is null || channel.ActiveMatchId is null || channel.ActiveStartedAt is null
-            ? null
-            : new ActiveSnapshotInput(
+        ActiveSnapshotInput? active = null;
+        if (channel.Active is not null && channel.ActiveMatchId is not null && channel.ActiveStartedAt is not null)
+            active = new ActiveSnapshotInput(
                 channel.ActiveMatchId.Value,
                 channel.Active,
                 channel.Active.Configuration,
                 channel.ActiveStartedAt.Value);
+        else if (channel.Starting is not null)
+            active = new ActiveSnapshotInput(
+                0,
+                channel.Starting.Reservation,
+                channel.Starting.Reservation.Configuration,
+                channel.Starting.Reservation.AcceptedAt,
+                "starting");
         var ready = channel.ReadyCheck is null
             ? null
             : new ReadySnapshotInput(channel.ReadyCheck.Reservation, channel.ReadyCheck.ExpiresAt)
@@ -949,22 +961,25 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private async Task<DuelQueueSnapshot> BuildSnapshotAsync(ChannelSnapshotInput input)
     {
         var stopwatch = Stopwatch.StartNew();
-        var etas = _estimator is null
-            ? input.Queue.Select(_ => new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, [])).ToArray()
-            : await _estimator.BuildEtasAsync(input);
         DurationEstimate? remaining = null;
         if (input.Active is not null)
         {
-            var elapsed = Math.Max(0, (long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds);
             remaining = _estimator is null
                 ? DurationEstimate.Unknown(0)
-                : await _estimator.EstimateRemainingAsync(input.Active.Configuration, elapsed);
+                : input.Active.Status == "starting"
+                    ? await _estimator.EstimateDurationAsync(input.Active.Configuration)
+                    : await _estimator.EstimateRemainingAsync(
+                        input.Active.Configuration,
+                        Math.Max(0, (long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds));
         }
+        var etas = _estimator is null
+            ? input.Queue.Select(_ => new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, [])).ToArray()
+            : await _estimator.BuildEtasAsync(input, remaining);
         stopwatch.Stop();
 
         var active = input.Active is null ? null : new ActiveDuelSnapshot(
             input.Active.MatchId,
-            "live",
+            input.Active.Status,
             input.Active.StartedAt,
             Players(input.Active.Reservation!),
             input.Active.Configuration.GameType,
@@ -993,32 +1008,94 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     internal Task DrainSnapshotPublicationsAsync(int channelId)
     {
         lock (_gate)
-            return _snapshotPublicationTails.GetValueOrDefault(channelId, Task.CompletedTask);
+            return _snapshotLanes.TryGetValue(channelId, out var lane)
+                ? lane.Idle.Task
+                : Task.CompletedTask;
+    }
+
+    internal bool HasActiveSnapshotWorker(int channelId)
+    {
+        lock (_gate)
+            return _snapshotLanes.TryGetValue(channelId, out var lane) && lane.Worker is not null;
     }
 
     private void EnqueueSnapshotPublication(int channelId)
     {
         lock (_gate)
         {
-            var input = CaptureSnapshotInput(channelId);
-            var previous = _snapshotPublicationTails.GetValueOrDefault(channelId, Task.CompletedTask);
-            _snapshotPublicationTails[channelId] = PublishSnapshotAfterAsync(previous, input);
+            if (!_snapshotLanes.TryGetValue(channelId, out var lane))
+                _snapshotLanes[channelId] = lane = new();
+            lane.Pending = true;
+            if (lane.Worker is null)
+            {
+                lane.Idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                lane.Worker = Task.Run(() => PublishSnapshotsAsync(channelId, lane));
+            }
         }
     }
 
-    private async Task PublishSnapshotAfterAsync(Task previous, ChannelSnapshotInput input)
+    private async Task PublishSnapshotsAsync(int channelId, SnapshotLane lane)
     {
-        try
+        while (true)
         {
-            await Task.Yield();
-            await previous;
-            var snapshot = await BuildSnapshotAsync(input);
-            await _publisher.PublishToChannelAsync(input.ChannelId, DuelWire.ToEvent(snapshot));
+            ChannelSnapshotInput input;
+            lock (_gate)
+            {
+                lane.Pending = false;
+                input = CaptureSnapshotInput(channelId);
+            }
+
+            try
+            {
+                var snapshot = await BuildSnapshotAsync(input);
+                await _publisher.PublishToChannelAsync(channelId, DuelWire.ToEvent(snapshot));
+                lock (_gate) lane.LastPublished = (input.Generation, input.Revision);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish duel queue snapshot for channel {ChannelId}; retrying", channelId);
+                Task delay;
+                lock (_gate)
+                {
+                    lane.Pending = true;
+                    delay = Task.Delay(SnapshotRetryDelay, _timeProvider);
+                    lane.RetryDelay = delay;
+                }
+                await delay;
+                lock (_gate) lane.RetryDelay = null;
+                continue;
+            }
+
+            lock (_gate)
+            {
+                if (lane.Pending) continue;
+                lane.Worker = null;
+                lane.Idle.TrySetResult();
+                return;
+            }
         }
-        catch
+    }
+
+    private sealed class SnapshotLane
+    {
+        public bool Pending;
+        public Task? Worker;
+        public Task? RetryDelay;
+        public TaskCompletionSource Idle { get; set; } = CompletedIdle();
+        public (long Generation, long Revision) LastPublished;
+
+        private static TaskCompletionSource CompletedIdle()
         {
-            // Snapshot delivery is recoverable and must not block duel progression.
+            var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            source.SetResult();
+            return source;
         }
+    }
+
+    internal bool IsSnapshotRetryWaiting(int channelId)
+    {
+        lock (_gate)
+            return _snapshotLanes.TryGetValue(channelId, out var lane) && lane.RetryDelay is not null;
     }
 
     private void RemoveOffer(Offer offer, string? terminalReason = null)

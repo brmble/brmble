@@ -1,6 +1,4 @@
 using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
@@ -9,8 +7,6 @@ namespace Brmble.Server.WebSockets;
 
 public static class BrmbleWebSocketHandler
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     public static async Task HandleAsync(HttpContext context)
     {
         if (!context.WebSockets.IsWebSocketRequest)
@@ -91,33 +87,29 @@ public static class BrmbleWebSocketHandler
         IReadOnlyDictionary<int, SessionMapping> mappings,
         CancellationToken cancellationToken)
     {
-        var snapshot = mappings.ToDictionary(
-            kvp => kvp.Key.ToString(),
-            kvp => new
-            {
-                matrixUserId = kvp.Value.MatrixUserId,
-                mumbleName = kvp.Value.MumbleName,
-                companionId = kvp.Value.CompanionId,
-                certHash = kvp.Value.CertHash,
-                isBrmbleClient = kvp.Value.IsBrmbleClient,
-            });
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
-            new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions));
-        await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
-        if (sessionId != 0)
-            await SendQueueSnapshotAsync(socket, snapshots, sessionId, cancellationToken);
-        eventBus.AddClient(socket, userId);
-    }
-
-    internal static async Task SendQueueSnapshotAsync(
-        WebSocket socket,
-        IDuelSnapshotProvider snapshots,
-        long sessionId,
-        CancellationToken cancellationToken)
-    {
-        var payload = DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId));
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, DuelWire.JsonOptions));
-        await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+        eventBus.AddPausedClient(socket, userId);
+        try
+        {
+            var snapshot = mappings.ToDictionary(
+                kvp => kvp.Key.ToString(),
+                kvp => new
+                {
+                    matrixUserId = kvp.Value.MatrixUserId,
+                    mumbleName = kvp.Value.MumbleName,
+                    companionId = kvp.Value.CompanionId,
+                    certHash = kvp.Value.CertHash,
+                    isBrmbleClient = kvp.Value.IsBrmbleClient,
+                });
+            var initial = new List<object> { new { type = "sessionMappingSnapshot", mappings = snapshot } };
+            if (sessionId != 0)
+                initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
+            await eventBus.CompleteInitializationAsync(socket, initial, cancellationToken);
+        }
+        catch
+        {
+            eventBus.RemoveClient(socket);
+            throw;
+        }
     }
 
     internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new
