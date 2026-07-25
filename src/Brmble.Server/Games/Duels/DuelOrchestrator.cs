@@ -4,6 +4,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CompletedSourceLifetime = TimeSpan.FromMinutes(30);
+    private const int CompletedSourceLimit = 1000;
 
     private readonly GameDefinitionCatalog _catalog;
     private readonly IGamePresence _presence;
@@ -15,6 +17,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
+    private readonly Dictionary<long, CompletedDuelSource> _completedSources = [];
+    private readonly Queue<CompletedDuelSource> _completedSourceOrder = [];
     private long _nextOfferId;
     private long _nextReservationId;
     private long _nextAcceptanceSequence;
@@ -69,7 +73,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return Reject("A player is already committed.", DuelRejectReason.AlreadyCommitted);
 
             var offerId = ++_nextOfferId;
-            offer = new Offer(offerId, channelId, inviter, target, configuration, _timeProvider.GetUtcNow().Add(OfferLifetime));
+            offer = new Offer(offerId, channelId, inviter, target, configuration,
+                _timeProvider.GetUtcNow().Add(OfferLifetime), null);
             _offers.Add(offerId, offer);
             _commitmentsByUserId.Add(inviter.UserId, new(DuelCommitmentKind.Challenge, offerId));
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.Challenge, offerId));
@@ -143,7 +148,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     offer.Configuration,
                     _timeProvider.GetUtcNow(),
                     ++_nextAcceptanceSequence,
-                    null);
+                    offer.SourceMatchId);
                 acceptedReservationId = reservation.ReservationId;
                 SetPairCommitment(reservation, DuelCommitmentKind.Queued);
                 var channel = GetChannel(offer.ChannelId);
@@ -162,12 +167,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             }
         }
 
-        await PublishBestEffortAsync(ParticipantIds(offer), new
-        {
-            type = accept ? "game.accepted" : "game.declined",
-            offerId,
-            matchId = offerId,
-        });
+        await PublishOfferResponseBestEffortAsync(offer, accept);
 
         if (!accept) return Success(offerId, null);
         if (immediate is null) return Success(offerId, acceptedReservationId);
@@ -259,8 +259,58 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         return Success(null, reservationId);
     }
 
-    public Task<DuelCommandResult> RequestRematchAsync(long sourceMatchId, long requesterUserId) =>
-        Task.FromResult(Reject("Rematches are not available yet.", DuelRejectReason.StaleOffer));
+    public async Task<DuelCommandResult> RequestRematchAsync(long sourceMatchId, long requesterUserId)
+    {
+        Offer offer;
+        lock (_gate)
+        {
+            PruneCompletedSources();
+            if (!_completedSources.TryGetValue(sourceMatchId, out var source))
+                return Reject("This completed match is no longer available.", DuelRejectReason.StaleOffer);
+            if (source.PlayerOne.UserId != requesterUserId && source.PlayerTwo.UserId != requesterUserId)
+                return Reject("Only a participant may request a rematch.", DuelRejectReason.NotParticipant);
+            if (!StillPresent(source.PlayerOne, source.ChannelId)
+                || !StillPresent(source.PlayerTwo, source.ChannelId))
+                return Reject("A player is no longer available.", DuelRejectReason.NotPresent);
+            if (_commitmentsByUserId.ContainsKey(source.PlayerOne.UserId)
+                || _commitmentsByUserId.ContainsKey(source.PlayerTwo.UserId))
+                return Reject("A player is already committed.", DuelRejectReason.AlreadyCommitted);
+
+            var requester = source.PlayerOne.UserId == requesterUserId ? source.PlayerOne : source.PlayerTwo;
+            var target = source.PlayerOne.UserId == requesterUserId ? source.PlayerTwo : source.PlayerOne;
+            var offerId = ++_nextOfferId;
+            offer = new Offer(offerId, source.ChannelId, requester, target, source.Configuration,
+                _timeProvider.GetUtcNow().Add(OfferLifetime), sourceMatchId);
+            _offers.Add(offerId, offer);
+            _commitmentsByUserId.Add(requester.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
+            _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
+        }
+
+        try
+        {
+            await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
+                "game.rematchPending", offer, offer.Target.UserId));
+            await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Target.UserId }, RematchMessage(
+                "game.rematchOffered", offer, offer.Target.UserId));
+        }
+        catch
+        {
+            var removed = false;
+            lock (_gate)
+            {
+                if (_offers.TryGetValue(offer.Id, out var current) && ReferenceEquals(current, offer))
+                {
+                    RemoveOffer(offer);
+                    removed = true;
+                }
+            }
+            if (removed) await PublishCancellationBestEffortAsync(offer, "deliveryFailed");
+            return Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
+        }
+
+        _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
+        return Success(offer.Id, null);
+    }
 
     public Task<DuelQueueSnapshot> GetSnapshotForSessionAsync(long sessionId)
     {
@@ -407,6 +457,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         {
             offers = _offers.Values.Where(x => x.ChannelId == channelId).ToList();
             foreach (var offer in offers) RemoveOffer(offer);
+            foreach (var source in _completedSources.Values.Where(x => x.ChannelId == channelId).ToArray())
+                _completedSources.Remove(source.MatchId);
             if (_channels.Remove(channelId, out var channel))
             {
                 if (channel.ReadyCheck is not null) { timer = channel.ReadyCheck.Timer; reservations.Add(channel.ReadyCheck.Reservation); }
@@ -535,6 +587,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return;
             if (channel.Starting?.Reservation.ReservationId == completion.ReservationId)
             {
+                RetainCompletedSource(completion);
                 channel.Starting.CompletedDuringStart = true;
                 ReleasePair(channel.Starting.Reservation);
                 channel.Starting = null;
@@ -544,6 +597,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 goto CompletionHandled;
             }
             if (channel.Active?.ReservationId != completion.ReservationId) return;
+            RetainCompletedSource(completion);
             channel.Advancing = true;
             channel.ActiveForfeits.RemoveWhere(x => x.ReservationId == channel.Active.ReservationId);
             ReleasePair(channel.Active);
@@ -641,13 +695,18 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     }
 
     private Task PublishCancellationAsync(Offer offer, string reason) =>
-        _publisher.PublishToUsersAsync(ParticipantIds(offer), new
-        {
-            type = reason == "declined" ? "game.declined" : "game.expired",
-            offerId = offer.Id,
-            matchId = offer.Id,
-            reason,
-        });
+        offer.SourceMatchId is null
+            ? _publisher.PublishToUsersAsync(ParticipantIds(offer), new
+            {
+                type = reason == "declined" ? "game.declined" : "game.expired",
+                offerId = offer.Id,
+                matchId = offer.Id,
+                reason,
+            })
+            : _publisher.PublishToUsersAsync(ParticipantIds(offer), RematchMessage(
+                reason == "expired" ? "game.rematchExpired"
+                    : reason == "declined" ? "game.rematchDeclined" : "game.rematchCanceled",
+                offer, offer.Target.UserId, reason));
 
     private async Task PublishCancellationBestEffortAsync(Offer offer, string reason)
     {
@@ -664,6 +723,62 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         catch
         {
             // Delivery is advisory; authoritative lifecycle progression must continue.
+        }
+    }
+
+    private Task PublishOfferResponseBestEffortAsync(Offer offer, bool accept) =>
+        offer.SourceMatchId is null
+            ? PublishBestEffortAsync(ParticipantIds(offer), new
+            {
+                type = accept ? "game.accepted" : "game.declined",
+                offerId = offer.Id,
+                matchId = offer.Id,
+            })
+            : PublishBestEffortAsync(ParticipantIds(offer), RematchMessage(
+                accept ? "game.rematchAccepted" : "game.rematchDeclined",
+                offer, offer.Target.UserId, accept ? "accepted" : "declined"));
+
+    private static object RematchMessage(string type, Offer offer, long toUserId, string? reason = null) => new
+    {
+        type,
+        offerId = offer.Id,
+        matchId = offer.Id,
+        sourceMatchId = offer.SourceMatchId,
+        fromUserId = offer.Inviter.UserId,
+        fromSessionId = offer.Inviter.SessionId,
+        toUserId,
+        toSessionId = offer.Target.SessionId,
+        gameType = offer.Configuration.GameType,
+        format = offer.Configuration.Format,
+        rulesetVersion = offer.Configuration.RulesetVersion,
+        options = offer.Configuration.Options,
+        expiresAt = offer.ExpiresAt,
+        inviteMs = (int)OfferLifetime.TotalMilliseconds,
+        reason,
+    };
+
+    private void RetainCompletedSource(MatchCompletion completion)
+    {
+        PruneCompletedSources();
+        if (_completedSources.ContainsKey(completion.MatchId)) return;
+        var source = new CompletedDuelSource(
+            completion.MatchId, completion.ChannelId, completion.PlayerOne, completion.PlayerTwo,
+            completion.Configuration, _timeProvider.GetUtcNow());
+        _completedSources.Add(source.MatchId, source);
+        _completedSourceOrder.Enqueue(source);
+        PruneCompletedSources();
+    }
+
+    private void PruneCompletedSources()
+    {
+        var cutoff = _timeProvider.GetUtcNow() - CompletedSourceLifetime;
+        while (_completedSourceOrder.TryPeek(out var source)
+            && (source.CompletedAt < cutoff || _completedSources.Count > CompletedSourceLimit))
+        {
+            _completedSourceOrder.Dequeue();
+            if (_completedSources.TryGetValue(source.MatchId, out var current)
+                && ReferenceEquals(current, source))
+                _completedSources.Remove(source.MatchId);
         }
     }
 
@@ -813,7 +928,16 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         DuelPlayer Inviter,
         DuelPlayer Target,
         DuelConfiguration Configuration,
-        DateTimeOffset ExpiresAt);
+        DateTimeOffset ExpiresAt,
+        long? SourceMatchId);
+
+    public sealed record CompletedDuelSource(
+        long MatchId,
+        int ChannelId,
+        DuelPlayer PlayerOne,
+        DuelPlayer PlayerTwo,
+        DuelConfiguration Configuration,
+        DateTimeOffset CompletedAt);
 
     private sealed record UserCommitment(DuelCommitmentKind Kind, long Id);
 

@@ -24,6 +24,17 @@ internal sealed class TestDefinition : IDuelGameDefinition
         $"limit-{normalizedOptions["limit"]}";
 }
 
+internal sealed class TestRpsDefinition : IDuelGameDefinition
+{
+    public string GameType => "rps";
+    public string RunnerKey => "test-runner";
+    public int RulesetVersion => 4;
+    public IReadOnlyDictionary<string, object?> NormalizeOptions(IReadOnlyDictionary<string, object?>? options) =>
+        new Dictionary<string, object?> { ["bestOf"] = Convert.ToInt32(options?["bestOf"] ?? 3) };
+    public string MatchFormat(IReadOnlyDictionary<string, object?> normalizedOptions) =>
+        $"bo{normalizedOptions["bestOf"]}";
+}
+
 internal sealed class TestPresence : IGamePresence
 {
     public Dictionary<long, (int Channel, bool Brmble, long UserId, string Name)> Sessions { get; } = [];
@@ -1038,6 +1049,219 @@ public class DuelOrchestratorTests
         CollectionAssert.Contains(types, "game.invitePending");
         CollectionAssert.Contains(types, "game.expired");
     }
+
+    [TestMethod]
+    public async Task RematchAcceptedBehindExistingQueue_PreservesSourceConfigurationAndMatchId()
+    {
+        var presence = new TestPresence();
+        var publisher = new TestPublisher();
+        var router = new TestRouter();
+        var sut = new DuelOrchestrator(
+            new GameDefinitionCatalog([new TestRpsDefinition()]), presence, publisher, router);
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var sourceOffer = await sut.CreateChallengeAsync(10, 20, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 5 });
+        var waitingOffer = await sut.CreateChallengeAsync(30, 40, "rps", null);
+        var queuedOffer = await sut.CreateChallengeAsync(50, 60, "rps", null);
+        var source = await sut.RespondToOfferAsync(sourceOffer.OfferId!.Value, 200, true);
+        await sut.RespondToOfferAsync(waitingOffer.OfferId!.Value, 400, true);
+        await sut.RespondToOfferAsync(queuedOffer.OfferId!.Value, 600, true);
+        await router.CompleteAsync(new MatchCompletion(91, source.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo,
+            router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+
+        var rematch = await sut.RequestRematchAsync(91, 100);
+        var accepted = await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true);
+        var queued = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.IsTrue(accepted.Success);
+        CollectionAssert.AreEqual(new long[] { 500, 100 },
+            queued.Queue.Select(x => x.Players[0].UserId).ToArray());
+        await sut.RespondReadyAsync(queued.ReadyCheck!.ReservationId, 300, ReadyResponse.Decline);
+        var next = await sut.GetSnapshotForSessionAsync(10);
+        await sut.RespondReadyAsync(next.ReadyCheck!.ReservationId, 500, ReadyResponse.Accept);
+        await sut.RespondReadyAsync(next.ReadyCheck.ReservationId, 600, ReadyResponse.Accept);
+        await router.CompleteAsync(new MatchCompletion(92, next.ReadyCheck.ReservationId, 1,
+            router.Starts[1].PlayerOne, router.Starts[1].PlayerTwo,
+            router.Starts[1].Configuration, DateTimeOffset.UtcNow));
+        var promoted = await sut.GetSnapshotForSessionAsync(10);
+        await sut.RespondReadyAsync(promoted.ReadyCheck!.ReservationId, 100, ReadyResponse.Accept);
+        await sut.RespondReadyAsync(promoted.ReadyCheck.ReservationId, 200, ReadyResponse.Accept);
+
+        var started = router.Starts[2];
+        Assert.AreEqual("rps", started.Configuration.GameType);
+        Assert.AreEqual("bo5", started.Configuration.Format);
+        Assert.AreEqual(4, started.Configuration.RulesetVersion);
+        Assert.AreEqual(5, started.Configuration.Options["bestOf"]);
+        Assert.AreEqual(91L, started.SourceMatchId);
+    }
+
+    [TestMethod]
+    public async Task RematchEitherParticipantCanRequest_AddressesOtherWithPrivateMetadata()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+
+        var offer = await sut.RequestRematchAsync(91, 200);
+
+        Assert.IsTrue(offer.Success);
+        var pending = publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchPending");
+        var offered = publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchOffered");
+        CollectionAssert.AreEquivalent(new long[] { 200 }, pending.Users.ToArray());
+        CollectionAssert.AreEquivalent(new long[] { 100 }, offered.Users.ToArray());
+        Assert.AreEqual(91L, MessageValue<long>(offered.Message, "sourceMatchId"));
+        Assert.AreEqual("test", MessageValue<string>(offered.Message, "gameType"));
+        Assert.AreEqual("limit-10", MessageValue<string>(offered.Message, "format"));
+        Assert.AreEqual(4, MessageValue<int>(offered.Message, "rulesetVersion"));
+        Assert.AreEqual(30_000, MessageValue<int>(offered.Message, "inviteMs"));
+        Assert.IsNotNull(MessageValue<DateTimeOffset>(offered.Message, "expiresAt"));
+    }
+
+    [TestMethod]
+    public async Task RematchRejectsNonparticipantMissingExpiredUnavailableAndCommittedSources()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91, time.GetUtcNow());
+
+        Assert.AreEqual(DuelRejectReason.NotParticipant, (await sut.RequestRematchAsync(91, 300)).Reason);
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(404, 100)).Reason);
+        presence.Sessions[20] = (2, true, 200, "user-200");
+        Assert.AreEqual(DuelRejectReason.NotPresent, (await sut.RequestRematchAsync(91, 100)).Reason);
+        presence.Sessions.Remove(20);
+        Add(presence, 21, 200);
+        Assert.AreEqual(DuelRejectReason.NotPresent, (await sut.RequestRematchAsync(91, 100)).Reason);
+        presence.Sessions.Remove(21);
+        presence.Sessions[20] = (1, true, 200, "user-200");
+        var commitment = await sut.CreateChallengeAsync(10, 30, "test", null);
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted, (await sut.RequestRematchAsync(91, 100)).Reason);
+        await sut.CancelOfferAsync(commitment.OfferId!.Value, 100);
+        time.Advance(TimeSpan.FromMinutes(31));
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(91, 100)).Reason);
+    }
+
+    [TestMethod]
+    public async Task RematchPendingReservesBothAndConcurrentRequestsCommitExactlyOnce()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+
+        var requests = await Task.WhenAll(
+            sut.RequestRematchAsync(91, 100),
+            sut.RequestRematchAsync(91, 200));
+        var winner = requests.Single(x => x.Success);
+
+        Assert.AreEqual(1, requests.Count(x => x.Success));
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted, requests.Single(x => !x.Success).Reason);
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted,
+            (await sut.CreateChallengeAsync(10, 30, "test", null)).Reason);
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted,
+            (await sut.CreateChallengeAsync(20, 30, "test", null)).Reason);
+        var responder = MessageValue<long>(
+            publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchOffered").Message,
+            "toUserId");
+        var accepted = await Task.WhenAll(
+            sut.RespondToOfferAsync(winner.OfferId!.Value, responder, true),
+            sut.RespondToOfferAsync(winner.OfferId.Value, responder, true));
+        Assert.AreEqual(1, accepted.Count(x => x.Success));
+        Assert.AreEqual(DuelRejectReason.StaleOffer, accepted.Single(x => !x.Success).Reason);
+        Assert.AreEqual(2, router.Starts.Count);
+    }
+
+    [TestMethod]
+    public async Task RematchOfferExpiresAfterThirtySecondsReleasesBothAndLaterResponseIsStale()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, publisher, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91, time.GetUtcNow());
+        var rematch = await sut.RequestRematchAsync(91, 100);
+
+        time.Advance(TimeSpan.FromSeconds(30));
+        await WaitUntilAsync(() => publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchExpired"));
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer,
+            (await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true)).Reason);
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
+        var expired = publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchExpired");
+        CollectionAssert.AreEquivalent(new long[] { 100, 200 }, expired.Users.ToArray());
+        Assert.AreEqual("expired", MessageValue<string>(expired.Message, "reason"));
+        Assert.AreEqual(91L, MessageValue<long>(expired.Message, "sourceMatchId"));
+    }
+
+    [DataTestMethod]
+    [DataRow(DuelCancelReason.Disconnected, "disconnected")]
+    [DataRow(DuelCancelReason.LeftChannel, "leftChannel")]
+    public async Task RematchPresenceLossInvalidatesOfferAndReleasesBoth(DuelCancelReason reason, string expectedReason)
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+        var rematch = await sut.RequestRematchAsync(91, 100);
+
+        await sut.HandlePresenceLostAsync(100, 10, reason);
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer,
+            (await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true)).Reason);
+        Assert.IsTrue((await sut.CreateChallengeAsync(20, 30, "test", null)).Success);
+        var canceled = publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchCanceled");
+        Assert.AreEqual(expectedReason, MessageValue<string>(canceled.Message, "reason"));
+    }
+
+    [TestMethod]
+    public async Task RematchPublicationFailureCompensatesAndChannelRemovalClearsSource()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.FailType = "game.rematchOffered";
+
+        var failed = await sut.RequestRematchAsync(91, 100);
+        publisher.FailType = null;
+        Assert.IsFalse(failed.Success);
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
+        await sut.HandleChannelRemovedAsync(1);
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(91, 100)).Reason);
+    }
+
+    [TestMethod]
+    public async Task RematchCompletedSourceRetentionKeepsNewestThousandAndIgnoresDuplicateCompletion()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        for (var matchId = 1L; matchId <= 1001; matchId++)
+            await CompleteMatchAsync(sut, router, matchId, time.GetUtcNow());
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(1, 100)).Reason);
+        var newest = await sut.RequestRematchAsync(1001, 100);
+        Assert.IsTrue(newest.Success);
+        await sut.CancelOfferAsync(newest.OfferId!.Value, 100);
+        await router.CompleteAsync(new MatchCompletion(1001, -1, 1,
+            new(10, 100, "changed"), new(20, 200, "changed"),
+            new("changed", "changed", 99, new Dictionary<string, object?>(), "changed"), time.GetUtcNow()));
+        var stable = await sut.RequestRematchAsync(1001, 100);
+        await sut.RespondToOfferAsync(stable.OfferId!.Value, 200, true);
+        Assert.AreEqual("test", router.Starts[^1].Configuration.GameType);
+        Assert.AreEqual(1001L, router.Starts[^1].SourceMatchId);
+    }
+
+    private static async Task CompleteMatchAsync(
+        DuelOrchestrator sut, TestRouter router, long matchId, DateTimeOffset? endedAt = null)
+    {
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var accepted = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        var started = router.Starts[^1];
+        await router.CompleteAsync(new MatchCompletion(matchId, accepted.ReservationId!.Value, 1,
+            started.PlayerOne, started.PlayerTwo, started.Configuration, endedAt ?? DateTimeOffset.UtcNow));
+    }
+
+    private static T? MessageValue<T>(object message, string name) =>
+        (T?)message.GetType().GetProperty(name)?.GetValue(message);
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
