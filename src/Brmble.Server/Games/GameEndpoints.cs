@@ -61,15 +61,24 @@ public static class GameEndpoints
         });
 
         app.MapPost("/games/forfeit", async (ForfeitDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
+            IDuelMatchRunnerRouter runner,
             ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+            if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            await mgr.ForfeitBySessionAsync(dto.MatchId, session, "forfeit");
-            return Results.Ok();
+            var cancellation = await orchestrator.CancelOfferAsync(dto.MatchId, user.UserId);
+            if (cancellation.Success) return Results.Ok();
+            if (runner.TryGetActiveMatch(user.UserId, out var active) && active.MatchId == dto.MatchId)
+            {
+                await runner.ForfeitAsync(dto.MatchId, user.UserId, "forfeit");
+                return Results.Ok();
+            }
+            return Results.BadRequest(new GameErrorWire(
+                cancellation.Error ?? "No matching offer or active match was found.",
+                DuelWire.Reason(cancellation.Reason)));
         });
 
         app.MapGet("/games/stats/{gameType}", async (string gameType, string? window, HttpContext ctx,

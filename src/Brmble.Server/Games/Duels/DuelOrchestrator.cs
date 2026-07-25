@@ -146,7 +146,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             }
         }
 
-        await _publisher.PublishToUsersAsync(ParticipantIds(offer), new
+        await PublishBestEffortAsync(ParticipantIds(offer), new
         {
             type = accept ? "game.accepted" : "game.declined",
             offerId,
@@ -229,54 +229,67 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             result = new(false, 0, null, ex.Message);
         }
 
-        DuelReservation? next = null;
+        var ownedTransition = false;
+        var needsAdvancement = false;
         lock (_gate)
         {
             var channel = GetChannel(reservation.ChannelId);
             if (channel.Active?.ReservationId == reservation.ReservationId)
             {
-                channel.Advancing = false;
+                ownedTransition = true;
                 if (!result.Success)
                 {
                     channel.Active = null;
                     ReleasePair(reservation);
-                    if (channel.Queue.Count > 0)
-                    {
-                        next = channel.Queue.Dequeue();
-                        channel.Active = next;
-                        channel.Advancing = true;
-                        SetPairCommitment(next, DuelCommitmentKind.Active);
-                    }
+                    channel.Advancing = true;
+                    needsAdvancement = true;
                 }
+                else channel.Advancing = false;
                 channel.Revision++;
             }
         }
 
+        if (!ownedTransition)
+            return new(false, offerId, reservation.ReservationId,
+                "The match completed during startup.", DuelRejectReason.NotPresent);
         if (result.Success) return Success(offerId, reservation.ReservationId);
 
-        await _publisher.PublishToUsersAsync(ParticipantIds(reservation), new
+        await PublishBestEffortAsync(ParticipantIds(reservation), new
         {
             type = "game.commitmentCanceled",
             reservationId = reservation.ReservationId,
             reason = "startFailed",
         });
-        if (next is not null) _ = StartAsync(offerId: 0, next);
+        if (needsAdvancement) await AdvanceChannelAsync(reservation.ChannelId);
         return new(false, offerId, reservation.ReservationId,
             result.Error ?? "The match could not be started.", DuelRejectReason.NotPresent);
     }
 
-    private Task OnMatchCompletedAsync(MatchCompletion completion)
+    private async Task OnMatchCompletedAsync(MatchCompletion completion)
     {
+        var needsAdvancement = false;
         lock (_gate)
         {
             if (!_channels.TryGetValue(completion.ChannelId, out var channel)
                 || channel.Active?.ReservationId != completion.ReservationId)
-                return Task.CompletedTask;
+                return;
             channel.Advancing = true;
             ReleasePair(channel.Active);
             channel.Active = null;
-            channel.Advancing = false;
+            needsAdvancement = true;
             channel.Revision++;
+        }
+        if (needsAdvancement) await AdvanceChannelAsync(completion.ChannelId);
+    }
+
+    // Task 6 replaces this boundary with ready-check promotion. Until then, a queued
+    // pair keeps the channel occupied and no waited pair is started directly.
+    private Task AdvanceChannelAsync(int channelId)
+    {
+        lock (_gate)
+        {
+            var channel = GetChannel(channelId);
+            channel.Advancing = channel.Queue.Count > 0;
         }
         return Task.CompletedTask;
     }
@@ -304,6 +317,18 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             matchId = offer.Id,
             reason,
         });
+
+    private async Task PublishBestEffortAsync(IReadOnlySet<long> userIds, object message)
+    {
+        try
+        {
+            await _publisher.PublishToUsersAsync(userIds, message);
+        }
+        catch
+        {
+            // Delivery is advisory; authoritative lifecycle progression must continue.
+        }
+    }
 
     private bool TryResolvePlayer(long sessionId, out DuelPlayer player, out int channelId)
     {

@@ -1,5 +1,6 @@
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Engines;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Games.Duels;
@@ -51,9 +52,12 @@ internal sealed class TestPresence : IGamePresence
 internal sealed class TestPublisher : IGameEventPublisher
 {
     public List<(IReadOnlySet<long> Users, object Message)> UserMessages { get; } = [];
+    public string? FailType { get; set; }
     public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
     {
         lock (UserMessages) UserMessages.Add((userIds, message));
+        if (message.GetType().GetProperty("type")?.GetValue(message) as string == FailType)
+            throw new InvalidOperationException("publication failed");
         return Task.CompletedTask;
     }
     public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
@@ -66,6 +70,8 @@ internal sealed class TestRouter : IDuelMatchRunnerRouter
     public List<DuelReservation> Starts { get; } = [];
     public TaskCompletionSource? StartBlock { get; set; }
     public bool FailNextStart { get; set; }
+    public bool CompleteDuringStart { get; set; }
+    public Func<Task>? AfterCompletionDuringStart { get; set; }
 
     public async Task<GameStartResult> StartAsync(DuelReservation reservation)
     {
@@ -76,7 +82,17 @@ internal sealed class TestRouter : IDuelMatchRunnerRouter
             FailNextStart = false;
             return new(false, 0, null, "start failed");
         }
-        return new(true, Interlocked.Increment(ref _matchId), DateTimeOffset.UtcNow, null);
+        var matchId = Interlocked.Increment(ref _matchId);
+        if (CompleteDuringStart)
+        {
+            CompleteDuringStart = false;
+            await CompleteAsync(new MatchCompletion(
+                matchId, reservation.ReservationId, reservation.ChannelId,
+                reservation.PlayerOne, reservation.PlayerTwo, reservation.Configuration,
+                DateTimeOffset.UtcNow));
+            if (AfterCompletionDuringStart is not null) await AfterCompletionDuringStart();
+        }
+        return new(true, matchId, DateTimeOffset.UtcNow, null);
     }
 
     public bool TryGetActiveMatch(long userId, out ActiveMatchReference match) { match = null!; return false; }
@@ -212,6 +228,20 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task AcceptedPublicationFailure_DoesNotControlAuthoritativeStart()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        publisher.FailType = "game.accepted";
+
+        var result = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(1, router.Starts.Count);
+    }
+
+    [TestMethod]
     public async Task StartFailure_ReleasesCommitmentsAndDoesNotLeaveChannelAdvancing()
     {
         var (sut, presence, publisher, router) = Create();
@@ -229,10 +259,11 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
-    public async Task StartFailure_AdvancesAlreadyQueuedPair()
+    public async Task StartFailure_PreservesQueuedPairForReadyCheckAdvancement()
     {
         var (sut, presence, _, router) = Create();
         Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300); Add(presence, 40, 400);
+        Add(presence, 50, 500); Add(presence, 60, 600);
         var first = await sut.CreateChallengeAsync(10, 20, "test", null);
         var second = await sut.CreateChallengeAsync(30, 40, "test", null);
         router.StartBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -243,9 +274,128 @@ public class DuelOrchestratorTests
         router.FailNextStart = true;
         router.StartBlock.SetResult();
         await firstAcceptance;
-        await WaitUntilAsync(() => router.Starts.Count == 2);
+        var third = await sut.CreateChallengeAsync(50, 60, "test", null);
+        await sut.RespondToOfferAsync(third.OfferId!.Value, 600, true);
+        var snapshot = await sut.GetSnapshotForSessionAsync(10);
 
-        Assert.AreEqual(300L, router.Starts[1].PlayerOne.UserId);
+        Assert.AreEqual(1, router.Starts.Count);
+        CollectionAssert.AreEqual(new long[] { 300, 500 },
+            snapshot.Queue.Select(x => x.Players[0].UserId).ToArray());
+    }
+
+    [TestMethod]
+    public async Task StartFailurePublicationFailure_StillPreservesQueuedProgressionState()
+    {
+        var (sut, presence, publisher, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var first = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var second = await sut.CreateChallengeAsync(30, 40, "test", null);
+        router.StartBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstAcceptance = sut.RespondToOfferAsync(first.OfferId!.Value, 200, true);
+        await WaitUntilAsync(() => router.Starts.Count == 1);
+        await sut.RespondToOfferAsync(second.OfferId!.Value, 400, true);
+        publisher.FailType = "game.commitmentCanceled";
+        router.FailNextStart = true;
+
+        router.StartBlock.SetResult();
+        var failed = await firstAcceptance;
+        var third = await sut.CreateChallengeAsync(50, 60, "test", null);
+        await sut.RespondToOfferAsync(third.OfferId!.Value, 600, true);
+
+        Assert.IsFalse(failed.Success);
+        Assert.AreEqual(1, router.Starts.Count);
+        CollectionAssert.AreEqual(new long[] { 300, 500 },
+            (await sut.GetSnapshotForSessionAsync(10)).Queue.Select(x => x.Players[0].UserId).ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompletionWithQueuedPair_KeepsQueueOccupiedAndAppendsNewAcceptance()
+    {
+        var (sut, presence, _, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var queuedOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var newcomerOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        await sut.RespondToOfferAsync(queuedOffer.OfferId!.Value, 400, true);
+
+        await router.CompleteAsync(new MatchCompletion(
+            1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo,
+            router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        await sut.RespondToOfferAsync(newcomerOffer.OfferId!.Value, 600, true);
+        var snapshot = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.AreEqual(1, router.Starts.Count);
+        CollectionAssert.AreEqual(new long[] { 300, 500 },
+            snapshot.Queue.Select(x => x.Players[0].UserId).ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompletionDuringRunnerStart_ReturnsInterruptedWithoutReleasingReplacement()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        router.CompleteDuringStart = true;
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        DuelCommandResult? replacement = null;
+        router.AfterCompletionDuringStart = async () =>
+        {
+            var replacementOffer = await sut.CreateChallengeAsync(10, 30, "test", null);
+            replacement = await sut.RespondToOfferAsync(replacementOffer.OfferId!.Value, 300, true);
+        };
+
+        var result = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        var blocked = await sut.CreateChallengeAsync(10, 20, "test", null);
+
+        Assert.IsFalse(result.Success);
+        Assert.IsTrue(replacement?.Success);
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted, blocked.Reason);
+        Assert.AreEqual(2, router.Starts.Count);
+    }
+
+    [TestMethod]
+    public async Task UnavailableBeforeAcceptance_ReleasesPairWithoutQueueMutation()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        presence.Sessions.Remove(20);
+
+        var rejected = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        var replacement = await sut.CreateChallengeAsync(10, 30, "test", null);
+
+        Assert.AreEqual(DuelRejectReason.NotPresent, rejected.Reason);
+        Assert.IsTrue(replacement.Success);
+        Assert.AreEqual(0, router.Starts.Count);
+        Assert.AreEqual(0, (await sut.GetSnapshotForSessionAsync(10)).Queue.Count);
+    }
+
+    [TestMethod]
+    public async Task MixedGameFormats_QueueInAcceptanceOrder()
+    {
+        var presence = new TestPresence();
+        var publisher = new TestPublisher();
+        var router = new TestRouter();
+        var sut = new DuelOrchestrator(
+            new GameDefinitionCatalog([new DeathrollEngine(), new RpsEngine()]),
+            presence, publisher, router);
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var active = await sut.CreateChallengeAsync(10, 20, "deathroll", null);
+        var rps = await sut.CreateChallengeAsync(30, 40, "rps",
+            new Dictionary<string, object?> { ["bestOf"] = 5 });
+        var deathroll = await sut.CreateChallengeAsync(50, 60, "deathroll",
+            new Dictionary<string, object?> { ["startingCeiling"] = 500 });
+
+        await sut.RespondToOfferAsync(active.OfferId!.Value, 200, true);
+        await sut.RespondToOfferAsync(rps.OfferId!.Value, 400, true);
+        await sut.RespondToOfferAsync(deathroll.OfferId!.Value, 600, true);
+        var snapshot = await sut.GetSnapshotForSessionAsync(10);
+
+        CollectionAssert.AreEqual(new[] { "rps", "deathroll" },
+            snapshot.Queue.Select(x => x.GameType).ToArray());
+        CollectionAssert.AreEqual(new[] { "bo5", "1v1" },
+            snapshot.Queue.Select(x => x.Format).ToArray());
     }
 
     [TestMethod]
@@ -259,6 +409,21 @@ public class DuelOrchestratorTests
         var replacement = await sut.CreateChallengeAsync(20, 30, "test", null);
 
         Assert.IsTrue(replacement.Success);
+    }
+
+    [TestMethod]
+    public async Task OwnerCancellation_PublishesOnlyToOfferParticipants()
+    {
+        var (sut, presence, publisher, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+
+        await sut.CancelOfferAsync(offer.OfferId!.Value, 100);
+
+        var cancellation = publisher.UserMessages.Single(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.declined");
+        CollectionAssert.AreEquivalent(new long[] { 100, 200 }, cancellation.Users.ToArray());
+        Assert.IsFalse(cancellation.Users.Contains(300));
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

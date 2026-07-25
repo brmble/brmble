@@ -56,7 +56,74 @@ public class GameEndpointsTests
         orchestrator.Verify(x => x.RespondToOfferAsync(9, It.Is<long>(id => id > 0), true), Times.Once);
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(Mock<IDuelOrchestrator> orchestrator)
+    [TestMethod]
+    public async Task Forfeit_PendingOfferOwner_CancelsWithoutRunnerForfeit()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        orchestrator.Setup(x => x.CancelOfferAsync(9, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(true, 9, null, null, DuelRejectReason.None));
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 9 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        router.Verify(x => x.ForfeitAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task Forfeit_StaleOfferFallsBackToAuthenticatedUsersMatchingActiveMatch()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        orchestrator.Setup(x => x.CancelOfferAsync(12, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(false, null, null, "stale", DuelRejectReason.StaleOffer));
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference match) =>
+            {
+                match = new ActiveMatchReference(12, 4, 1, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 12 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        router.Verify(x => x.ForfeitAsync(12, It.Is<long>(id => id > 0), "forfeit"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Forfeit_ForeignMatchId_IsRejectedWithoutRunnerMutation()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        orchestrator.Setup(x => x.CancelOfferAsync(99, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(false, null, null, "not participant", DuelRejectReason.NotParticipant));
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference match) =>
+            {
+                match = new ActiveMatchReference(12, 4, 1, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 99 });
+        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual("notParticipant", error?.Reason);
+        router.Verify(x => x.ForfeitAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+    }
+
+    private static WebApplicationFactory<Program> CreateFactory(
+        Mock<IDuelOrchestrator> orchestrator,
+        Mock<IDuelMatchRunnerRouter>? router = null)
     {
         var factory = new BrmbleServerFactory();
         factory.SessionMappingMock
@@ -66,6 +133,11 @@ public class GameEndpointsTests
         {
             services.RemoveAll<IDuelOrchestrator>();
             services.AddSingleton(orchestrator.Object);
+            if (router is not null)
+            {
+                services.RemoveAll<IDuelMatchRunnerRouter>();
+                services.AddSingleton(router.Object);
+            }
         }));
     }
 }
