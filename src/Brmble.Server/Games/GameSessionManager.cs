@@ -554,21 +554,33 @@ public sealed class GameSessionManager : IDuelMatchRunner
         }
     }
 
-    public async Task ForfeitAsync(long matchId, long sessionId, string reason)
+    public Task ForfeitAsync(long matchId, long userId, string reason)
     {
-        if (!_matches.TryGetValue(matchId, out var match)) return;
+        if (!_matches.TryGetValue(matchId, out var match)) return Task.CompletedTask;
 
-        var player = match.PlayerOne.UserId == sessionId ? match.PlayerOne
-            : match.PlayerTwo.UserId == sessionId ? match.PlayerTwo
-            : match.PlayerOne.SessionId == sessionId ? match.PlayerOne
+        var player = match.PlayerOne.UserId == userId ? match.PlayerOne
+            : match.PlayerTwo.UserId == userId ? match.PlayerTwo
+            : null;
+        return player is null ? Task.CompletedTask : ForfeitPlayerAsync(match, player, reason);
+    }
+
+    [Obsolete("Use DuelOrchestrator after Task 5")]
+    public Task ForfeitBySessionAsync(long matchId, long sessionId, string reason)
+    {
+        if (!_matches.TryGetValue(matchId, out var match)) return Task.CompletedTask;
+
+        var player = match.PlayerOne.SessionId == sessionId ? match.PlayerOne
             : match.PlayerTwo.SessionId == sessionId ? match.PlayerTwo
             : null;
+        return player is null ? Task.CompletedTask : ForfeitPlayerAsync(match, player, reason);
+    }
+
+    private async Task ForfeitPlayerAsync(LiveMatch match, DuelPlayer player, string reason)
+    {
+        var matchId = match.MatchId;
 
         // Only an actual participant may forfeit. Match ids are a guessable
-        // sequential counter and /games/forfeit only proves a valid session, so
-        // without this any authenticated user could end any live match (and get
-        // persisted as a bogus loser via the SessionToUser fallback below).
-        if (player is null) return;
+        // sequential counter, so identity must resolve to one of the match players.
 
         // A pending (not-yet-accepted) invite has no result to persist. Cancel it
         // outright so a disconnect/channel-change while an invite is in flight
@@ -586,7 +598,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
             DisposeTimers(match);
         }
 
-        sessionId = player.SessionId;
+        var sessionId = player.SessionId;
         var otherId = match.Players[0] == sessionId ? match.Players[1] : match.Players[0];
         var winnerDbId = match.SessionToUser.TryGetValue(otherId, out var wId) ? wId : otherId;
         var loserDbId = match.SessionToUser.TryGetValue(sessionId, out var lId) ? lId : sessionId;

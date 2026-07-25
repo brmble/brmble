@@ -145,6 +145,29 @@ public class GameSessionManagerTests
     }
 
     [TestMethod]
+    public async Task RunnerForfeit_DoesNotTreatNonparticipantStableUserIdAsParticipantSessionId()
+    {
+        var sink = new RecordingCompletedMatchSink();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new HalvingRandom(), new FakePresence(), new FakePublisher(), sink);
+        IDuelMatchRunner runner = manager;
+        var reservation = new DuelReservation(
+            93, 7,
+            new DuelPlayer(10, 100, "Alice"),
+            new DuelPlayer(20, 200, "Bob"),
+            new DuelConfiguration("rps", "bo3", 1,
+                new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+            DateTimeOffset.UtcNow, 3, null);
+        var started = await runner.StartAsync(reservation);
+
+        await runner.ForfeitAsync(started.MatchId, userId: 10, "collision");
+
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
+        Assert.IsTrue(runner.TryGetActiveMatch(100, out _));
+        Assert.AreEqual(0, sink.Matches.Count);
+    }
+
+    [TestMethod]
     public async Task Invite_NotifiesInviter_WithPendingEvent()
     {
         var presence = new FakePresence();
@@ -363,7 +386,7 @@ public class GameSessionManagerTests
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
+        await mgr.ForfeitBySessionAsync(invite.MatchId, sessionId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
 
         using var conn = db.CreateConnection();
         var matchMeta = await conn.QuerySingleAsync<string>(
@@ -392,7 +415,7 @@ public class GameSessionManagerTests
         await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
 
         // A third party must not be able to end someone else's live match.
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: 99, reason: "grief");
+        await mgr.ForfeitBySessionAsync(invite.MatchId, sessionId: 99, reason: "grief");
 
         Assert.IsTrue(mgr.IsMatchLive(invite.MatchId), "non-participant forfeit must not end the match");
         Assert.IsFalse(SentType(pub.Sent, "game.ended"));
@@ -489,7 +512,7 @@ public class GameSessionManagerTests
 
         var invite = await mgr.InviteAsync(10, 20, "deathroll");
         // Simulate a disconnect/channel-change while the invite is still pending.
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: 10, reason: "disconnect");
+        await mgr.ForfeitBySessionAsync(invite.MatchId, sessionId: 10, reason: "disconnect");
 
         Assert.IsTrue(SentType(pub.Sent, "game.expired"), "pending invite should be cancelled as expired");
         Assert.IsFalse(SentType(pub.Sent, "game.ended"));

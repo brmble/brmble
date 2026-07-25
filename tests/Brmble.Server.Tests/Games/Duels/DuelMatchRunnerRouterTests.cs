@@ -11,6 +11,7 @@ file sealed class FakeDuelRunner(string key) : IDuelMatchRunner
     public Dictionary<long, ActiveMatchReference> ActiveByUser { get; } = [];
     public List<(long matchId, long userId, string reason)> Forfeits { get; } = [];
     public DuelReservation? CompleteDuringStart { get; set; }
+    public bool ThrowAfterCompletion { get; set; }
     public async Task<GameStartResult> StartAsync(DuelReservation reservation)
     {
         if (StartResult.Success)
@@ -24,6 +25,8 @@ file sealed class FakeDuelRunner(string key) : IDuelMatchRunner
             await CompleteAsync(new MatchCompletion(
                 StartResult.MatchId, reservation.ReservationId, reservation.ChannelId,
                 reservation.PlayerOne, reservation.PlayerTwo, reservation.Configuration, DateTimeOffset.UtcNow));
+        if (ThrowAfterCompletion)
+            throw new InvalidOperationException("start failed after completion");
         return StartResult;
     }
     public bool TryGetActiveMatch(long userId, out ActiveMatchReference match) => ActiveByUser.TryGetValue(userId, out match!);
@@ -102,6 +105,29 @@ public class DuelMatchRunnerRouterTests
         await router.ForfeitAsync(55, 100, "disconnect");
 
         Assert.AreEqual(0, runner.Forfeits.Count);
+    }
+
+    [TestMethod]
+    public async Task CompletionThenStartException_DoesNotPoisonSameReservationRetry()
+    {
+        var reservation = Reservation("continuous");
+        var runner = new FakeDuelRunner("continuous")
+        {
+            StartResult = new(true, 55, DateTimeOffset.UtcNow, null),
+            CompleteDuringStart = reservation,
+            ThrowAfterCompletion = true,
+        };
+        var router = new DuelMatchRunnerRouter([runner]);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => router.StartAsync(reservation));
+        runner.CompleteDuringStart = null;
+        runner.ThrowAfterCompletion = false;
+
+        var retried = await router.StartAsync(reservation);
+        await router.ForfeitAsync(retried.MatchId, reservation.PlayerOne.UserId, "disconnect");
+
+        Assert.IsTrue(retried.Success);
+        Assert.AreEqual((55L, 100L, "disconnect"), runner.Forfeits.Single());
     }
 
     private static DuelReservation Reservation(string runnerKey) => new(

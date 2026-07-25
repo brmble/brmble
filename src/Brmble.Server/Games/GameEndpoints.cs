@@ -68,7 +68,7 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            await mgr.ForfeitAsync(dto.MatchId, session, "forfeit");
+            await mgr.ForfeitBySessionAsync(dto.MatchId, session, "forfeit");
             return Results.Ok();
         });
 

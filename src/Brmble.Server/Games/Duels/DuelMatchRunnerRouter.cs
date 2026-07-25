@@ -36,7 +36,10 @@ public sealed class DuelMatchRunnerRouter : IDuelMatchRunnerRouter
         catch
         {
             lock (_mappingLock)
+            {
                 _startingReservations.Remove(reservation.ReservationId);
+                _completedDuringStart.Remove(reservation.ReservationId);
+            }
             throw;
         }
 
