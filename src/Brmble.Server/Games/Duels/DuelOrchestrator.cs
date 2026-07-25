@@ -16,6 +16,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
     private readonly Dictionary<long, Offer> _offers = [];
+    private readonly Dictionary<long, RematchTerminalOutcome> _rematchOutcomes = [];
+    private readonly Queue<long> _rematchOutcomeOrder = [];
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
@@ -153,6 +155,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     ++_nextAcceptanceSequence,
                     offer.SourceMatchId);
                 offer.AcceptedReservationId = reservation.ReservationId;
+                RecordRematchOutcome(offer, RematchTerminalKind.Accepted, "accepted");
                 acceptedReservationId = reservation.ReservationId;
                 SetPairCommitment(reservation, DuelCommitmentKind.Queued);
                 var channel = GetChannel(offer.ChannelId);
@@ -291,6 +294,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
         }
 
+        _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
+
         try
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
@@ -302,33 +307,22 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         }
         catch
         {
-            var removed = false;
-            var awaitAcceptedReplay = false;
             lock (_gate)
             {
                 if (OwnsOffer(offer))
-                {
                     RemoveOffer(offer, "deliveryFailed");
-                    removed = true;
-                }
-                else if (offer.AcceptedReservationId is not null)
-                {
-                    awaitAcceptedReplay = true;
-                }
             }
-            if (removed) await PublishCancellationBestEffortAsync(offer, "deliveryFailed");
-            if (awaitAcceptedReplay)
-            {
-                await PublishAcceptedReplayBestEffortAsync(offer);
-                return Success(offer.Id, offer.AcceptedReservationId);
-            }
-            return Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
+            return await ReplayTerminalOutcomeAsync(offer);
         }
 
         var offeredTransition = await ReplayTerminalOutcomeIfTransitionedAsync(offer);
         if (offeredTransition is not null) return offeredTransition;
 
-        _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
+        lock (_gate)
+        {
+            offer.PublicationCompleted = true;
+            RemoveRematchOutcome(offer.Id, out _);
+        }
         return Success(offer.Id, null);
     }
 
@@ -777,30 +771,44 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         reason,
     };
 
-    private Task PublishAcceptedReplayBestEffortAsync(Offer offer) =>
-        PublishBestEffortAsync(ParticipantIds(offer), RematchMessage(
-            "game.rematchAccepted", offer, offer.Target.UserId, "accepted"));
-
     private async Task<DuelCommandResult?> ReplayTerminalOutcomeIfTransitionedAsync(Offer offer)
     {
-        long? acceptedReservationId;
-        string? terminalReason;
         lock (_gate)
         {
             if (OwnsOffer(offer)) return null;
-            acceptedReservationId = offer.AcceptedReservationId;
-            terminalReason = offer.TerminalReason ?? "stale";
         }
-
-        if (acceptedReservationId is not null)
-        {
-            await PublishAcceptedReplayBestEffortAsync(offer);
-            return Success(offer.Id, acceptedReservationId);
-        }
-
-        await PublishCancellationBestEffortAsync(offer, terminalReason);
-        return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
+        return await ReplayTerminalOutcomeAsync(offer);
     }
+
+    private async Task<DuelCommandResult> ReplayTerminalOutcomeAsync(Offer offer)
+    {
+        RematchTerminalOutcome outcome;
+        lock (_gate)
+        {
+            if (!RemoveRematchOutcome(offer.Id, out outcome!))
+                return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
+        }
+
+        await PublishBestEffortAsync(outcome.ParticipantIds, RematchTerminalMessage(outcome));
+        return outcome.Kind == RematchTerminalKind.Accepted
+            ? Success(outcome.OfferId, outcome.ReservationId)
+            : Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
+    }
+
+    private static object RematchTerminalMessage(RematchTerminalOutcome outcome) => new
+    {
+        type = outcome.Kind switch
+        {
+            RematchTerminalKind.Accepted => "game.rematchAccepted",
+            RematchTerminalKind.Declined => "game.rematchDeclined",
+            RematchTerminalKind.Expired => "game.rematchExpired",
+            _ => "game.rematchCanceled",
+        },
+        offerId = outcome.OfferId,
+        sourceMatchId = outcome.SourceMatchId,
+        reservationId = outcome.ReservationId,
+        reason = outcome.Reason,
+    };
 
     private void RetainCompletedSource(MatchCompletion completion)
     {
@@ -894,8 +902,36 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     {
         if (!_offers.Remove(offer.Id)) return;
         offer.TerminalReason = terminalReason;
+        if (terminalReason is not null)
+            RecordRematchOutcome(offer,
+                terminalReason == "declined" ? RematchTerminalKind.Declined
+                : terminalReason == "expired" ? RematchTerminalKind.Expired
+                : RematchTerminalKind.Canceled,
+                terminalReason);
         RemoveCommitment(offer.Inviter.UserId, offer.Id);
         RemoveCommitment(offer.Target.UserId, offer.Id);
+    }
+
+    private void RecordRematchOutcome(Offer offer, RematchTerminalKind kind, string reason)
+    {
+        if (offer.SourceMatchId is null || offer.PublicationCompleted) return;
+        if (!_rematchOutcomes.ContainsKey(offer.Id))
+            _rematchOutcomeOrder.Enqueue(offer.Id);
+        _rematchOutcomes[offer.Id] = new(
+            kind, offer.Id, offer.SourceMatchId.Value, offer.AcceptedReservationId,
+            offer.ChannelId, ParticipantIds(offer), reason);
+        while (_rematchOutcomes.Count > 1000 && _rematchOutcomeOrder.TryDequeue(out var oldest))
+            _rematchOutcomes.Remove(oldest);
+    }
+
+    private bool RemoveRematchOutcome(long offerId, out RematchTerminalOutcome? outcome)
+    {
+        var removed = _rematchOutcomes.Remove(offerId, out outcome);
+        if (!removed) return false;
+        var remaining = _rematchOutcomeOrder.Where(x => x != offerId).ToArray();
+        _rematchOutcomeOrder.Clear();
+        foreach (var id in remaining) _rematchOutcomeOrder.Enqueue(id);
+        return true;
     }
 
     private void SetPairCommitment(DuelReservation reservation, DuelCommitmentKind kind)
@@ -1008,6 +1044,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         public long? SourceMatchId { get; } = sourceMatchId;
         public long? AcceptedReservationId { get; set; }
         public string? TerminalReason { get; set; }
+        public bool PublicationCompleted { get; set; }
     }
 
     public sealed record CompletedDuelSource(
@@ -1017,6 +1054,17 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         DuelPlayer PlayerTwo,
         DuelConfiguration Configuration,
         DateTimeOffset CompletedAt);
+
+    private enum RematchTerminalKind { Accepted, Declined, Expired, Canceled }
+
+    private sealed record RematchTerminalOutcome(
+        RematchTerminalKind Kind,
+        long OfferId,
+        long SourceMatchId,
+        long? ReservationId,
+        int ChannelId,
+        IReadOnlySet<long> ParticipantIds,
+        string Reason);
 
     private sealed record UserCommitment(DuelCommitmentKind Kind, long Id);
 

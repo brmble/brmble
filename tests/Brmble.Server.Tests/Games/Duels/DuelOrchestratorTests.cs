@@ -152,6 +152,7 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
         foreach (var timer in _timers.ToArray()) timer.FireIfDue(_now);
     }
     public void FireTimerEvenIfDisposed(int index) => _timers[index].FireEvenIfDisposed();
+    public int TimerCount => _timers.Count;
     private sealed class TestTimer(TestTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset due) : ITimer
     {
         private bool _disposed;
@@ -1140,6 +1141,8 @@ public class DuelOrchestratorTests
         Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
         Assert.IsFalse(publisher.UserMessages.Any(x =>
             MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
+        Assert.AreEqual(0, PrivateCollectionCount(sut, "_rematchOutcomes"));
+        Assert.AreEqual(0, PrivateCollectionCount(sut, "_rematchOutcomeOrder"));
         var requesterEvents = publisher.UserMessages
             .Where(x => x.Users.Contains(100))
             .Select(x => MessageValue<string>(x.Message, "type"))
@@ -1281,6 +1284,49 @@ public class DuelOrchestratorTests
         Assert.AreEqual(accepted.ReservationId, MessageValue<long?>(requesterEvents[^1], "reservationId"));
         Assert.IsFalse(publisher.UserMessages.Any(x =>
             MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
+    }
+
+    [DataTestMethod]
+    [DataRow("game.rematchPending", false)]
+    [DataRow("game.rematchPending", true)]
+    [DataRow("game.rematchOffered", false)]
+    [DataRow("game.rematchOffered", true)]
+    public async Task RematchExactExpiryDuringPublication_ReplaysExpiredTerminal(
+        string blockedType, bool publicationFails)
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, publisher, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91, time.GetUtcNow());
+        var timersBeforeRequest = time.TimerCount;
+        publisher.BlockType = blockedType;
+        if (publicationFails) publisher.FailType = blockedType;
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(timersBeforeRequest + 1, time.TimerCount);
+        var offerId = MessageValue<long>(publisher.BlockedMessage!, "offerId");
+        var expiresAt = MessageValue<DateTimeOffset>(publisher.BlockedMessage!, "expiresAt");
+        Assert.AreEqual(time.GetUtcNow().AddSeconds(30), expiresAt);
+
+        time.Advance(TimeSpan.FromSeconds(30));
+        await WaitUntilAsync(() => publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchExpired"));
+        publisher.Release.TrySetResult();
+        var result = await request;
+        var relevant = publisher.UserMessages
+            .Where(x => x.Users.Contains(100))
+            .Select(x => x.Message)
+            .Where(x => MessageValue<long>(x, "offerId") == offerId)
+            .ToArray();
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
+        Assert.AreEqual("game.rematchExpired", MessageValue<string>(relevant[^1], "type"));
+        Assert.AreEqual("expired", MessageValue<string>(relevant[^1], "reason"));
+        Assert.AreEqual(DuelRejectReason.StaleOffer,
+            (await sut.RespondToOfferAsync(offerId, 200, true)).Reason);
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
     }
 
     [TestMethod]
@@ -1500,6 +1546,12 @@ public class DuelOrchestratorTests
 
     private static T? MessageValue<T>(object message, string name) =>
         (T?)message.GetType().GetProperty(name)?.GetValue(message);
+
+    private static int PrivateCollectionCount(object instance, string fieldName)
+    {
+        var value = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+        return (int)value.GetType().GetProperty("Count")!.GetValue(value)!;
+    }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
