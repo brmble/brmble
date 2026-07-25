@@ -73,6 +73,7 @@ import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import { paintApi } from './api/paint';
+import type { PaintSessionStatus } from './types/paint';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1068,6 +1069,7 @@ function App() {
   const [showGame, setShowGame] = useState(false);
   const [showPaintSetup, setShowPaintSetup] = useState(false);
   const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
+  const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
   const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
@@ -2910,6 +2912,23 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const update = (data: unknown) => {
+      const event = data as { sessionId?: string; status?: PaintSessionStatus };
+      if (!event.sessionId || !event.status) return;
+      setPaintSessionStatuses(prev => ({ ...prev, [event.sessionId!]: event.status! }));
+    };
+
+    bridge.on('paint.sessionEnded', update);
+    bridge.on('paint.sessionExpired', update);
+    bridge.on('paint.sessionUnavailable', update);
+    return () => {
+      bridge.off('paint.sessionEnded', update);
+      bridge.off('paint.sessionExpired', update);
+      bridge.off('paint.sessionUnavailable', update);
+    };
+  }, []);
+
+  useEffect(() => {
     bridge.send('cert.requestStatus');
     bridge.send('profiles.list');
   }, []);
@@ -4383,6 +4402,7 @@ const handleConnect = (serverData: SavedServer) => {
                      onTypingStart={matrixClient.startTyping}
                      onTypingStop={matrixClient.stopTyping}
                      currentUserId={selfSession}
+                     paintSessionStatuses={paintSessionStatuses}
                      onJoinPaint={(sessionId) => { void paintApi.join(sessionId).then(() => setActivePaintSessionId(sessionId)); }}
                   />
                   </ErrorBoundary>
@@ -4411,6 +4431,7 @@ const handleConnect = (serverData: SavedServer) => {
                     typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
                     onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
                     onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
+                    paintSessionStatuses={paintSessionStatuses}
                   />
                   </ErrorBoundary>
                 </div>

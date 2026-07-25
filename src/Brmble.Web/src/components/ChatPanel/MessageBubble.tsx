@@ -11,6 +11,7 @@ import Avatar from '../Avatar/Avatar';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { parsePaintInvitation } from '../../utils/parseMessageMedia';
 import { PaintSessionCard } from '../Paint/PaintSessionCard';
+import type { PaintSessionStatus } from '../../types/paint';
 import './MessageBubble.css';
 
 interface MessageBubbleProps {
@@ -49,6 +50,8 @@ interface MessageBubbleProps {
   onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
   edited?: boolean;
   currentUserId?: number;
+  users?: { session: number; name: string; channelId?: number; matrixUserId?: string; avatarUrl?: string }[];
+  paintSessionStatuses?: Record<string, PaintSessionStatus>;
   onJoinPaint?: (sessionId: string) => void;
 }
 
@@ -153,7 +156,7 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, currentUserId, onJoinPaint, ...rest }, ref) {
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, currentUserId, users, paintSessionStatuses, onJoinPaint, ...rest }, ref) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -201,6 +204,12 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
 
   const firstUrl = (!isSystem && content) ? extractFirstUrl(content) : null;
   const paintInvitation = parsePaintInvitation(content);
+  const currentVoiceSessionId = currentUserId;
+  const paintUser = currentVoiceSessionId === undefined ? undefined : users?.find(user => user.session === currentVoiceSessionId);
+  const canJoinPaint = paintInvitation
+    ? (currentVoiceSessionId === paintInvitation.hostUserId || paintInvitation.participantUserIds.includes(currentVoiceSessionId ?? -1))
+      && paintUser?.channelId === paintInvitation.channelId
+    : false;
   const hasReplyPreview = Boolean(replyToEventId && (replyToSender || replyToContent));
   const canJumpToReply = Boolean(hasReplyPreview && replyToEventId && onReplyClick);
   const replyPreviewLabel = `Jump to replied message from ${replyToSender ?? 'unknown sender'}: ${replyToContent ?? 'empty message'}`;
@@ -256,7 +265,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
           )
         )}
         {content && (
-          paintInvitation ? <PaintSessionCard session={paintInvitation} canJoin={currentUserId === paintInvitation.hostUserId || paintInvitation.participantUserIds.includes(currentUserId ?? -1)} onJoin={() => onJoinPaint?.(paintInvitation.sessionId)} /> :
+          paintInvitation ? <PaintSessionCard session={paintInvitation} canJoin={canJoinPaint} liveStatus={paintSessionStatuses?.[paintInvitation.sessionId]} onJoin={() => onJoinPaint?.(paintInvitation.sessionId)} /> :
           html ? (
             <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (

@@ -16,6 +16,7 @@ import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import { buildMessageEditContent, canEditMessage } from '../../utils/matrixMessageEditing';
+import type { PaintSessionStatus } from '../../types/paint';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
@@ -40,7 +41,7 @@ interface ChatPanelProps {
   onViewerQualityChange?: (userId: number, quality: ViewerQuality) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
   /** Connected users for avatar lookup by sender name */
-  users?: { name: string; matrixUserId?: string; avatarUrl?: string }[];
+  users?: { session: number; name: string; channelId?: number; matrixUserId?: string; avatarUrl?: string }[];
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
@@ -53,6 +54,7 @@ interface ChatPanelProps {
   onTypingStart?: (targetId: string) => void | Promise<void>;
   onTypingStop?: (targetId: string) => void | Promise<void>;
   currentUserId?: number;
+  paintSessionStatuses?: Record<string, PaintSessionStatus>;
   onJoinPaint?: (sessionId: string) => void;
 }
 
@@ -61,7 +63,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, onJoinPaint }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -1002,6 +1004,8 @@ const [replyState, setReplyState] = useState<{
                     onToggleReaction={(messageId, emoji, isReacted) => onToggleReaction?.(channelId || '', messageId, emoji, isReacted)}
                     edited={item.message.edited}
                     currentUserId={currentUserId}
+                    users={users}
+                    paintSessionStatuses={paintSessionStatuses}
                     onJoinPaint={onJoinPaint}
                   />
                 </Fragment>
