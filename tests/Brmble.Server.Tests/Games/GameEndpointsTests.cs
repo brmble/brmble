@@ -53,6 +53,7 @@ public class GameEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.AreEqual("alreadyCommitted", error?.Reason);
+        Assert.IsNotNull(error?.Reason);
         orchestrator.Verify(x => x.RespondToOfferAsync(9, It.Is<long>(id => id > 0), true), Times.Once);
     }
 

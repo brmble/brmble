@@ -3,15 +3,18 @@ namespace Brmble.Server.Games.Duels;
 public sealed class DuelOrchestrator : IDuelOrchestrator
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
 
     private readonly GameDefinitionCatalog _catalog;
     private readonly IGamePresence _presence;
     private readonly IGameEventPublisher _publisher;
     private readonly IDuelMatchRunnerRouter _runner;
+    private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
     private readonly Dictionary<long, Offer> _offers = [];
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
+    private readonly Dictionary<int, ChannelClock> _channelClocks = [];
     private long _nextOfferId;
     private long _nextReservationId;
     private long _nextAcceptanceSequence;
@@ -20,12 +23,14 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         GameDefinitionCatalog catalog,
         IGamePresence presence,
         IGameEventPublisher publisher,
-        IDuelMatchRunnerRouter runner)
+        IDuelMatchRunnerRouter runner,
+        TimeProvider? timeProvider = null)
     {
         _catalog = catalog;
         _presence = presence;
         _publisher = publisher;
         _runner = runner;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _runner.MatchCompleted += OnMatchCompletedAsync;
     }
 
@@ -64,7 +69,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return Reject("A player is already committed.", DuelRejectReason.AlreadyCommitted);
 
             var offerId = ++_nextOfferId;
-            offer = new Offer(offerId, channelId, inviter, target, configuration, DateTimeOffset.UtcNow.Add(OfferLifetime));
+            offer = new Offer(offerId, channelId, inviter, target, configuration, _timeProvider.GetUtcNow().Add(OfferLifetime));
             _offers.Add(offerId, offer);
             _commitmentsByUserId.Add(inviter.UserId, new(DuelCommitmentKind.Challenge, offerId));
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.Challenge, offerId));
@@ -136,7 +141,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     offer.Inviter,
                     offer.Target,
                     offer.Configuration,
-                    DateTimeOffset.UtcNow,
+                    _timeProvider.GetUtcNow(),
                     ++_nextAcceptanceSequence,
                     null);
                 acceptedReservationId = reservation.ReservationId;
@@ -153,7 +158,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 {
                     channel.Queue.Enqueue(reservation);
                 }
-                channel.Revision++;
+                Bump(offer.ChannelId, channel);
             }
         }
 
@@ -185,8 +190,62 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         return Success(offerId, null);
     }
 
-    public Task<DuelCommandResult> RespondReadyAsync(long reservationId, long userId, ReadyResponse response) =>
-        Task.FromResult(Reject("Ready checks are not available yet.", DuelRejectReason.StaleOffer));
+    public async Task<DuelCommandResult> RespondReadyAsync(long reservationId, long userId, ReadyResponse response)
+    {
+        ReadyCheck? removed = null;
+        ReadyCheck? changed = null;
+        DuelReservation? start = null;
+        int channelId;
+        lock (_gate)
+        {
+            var pair = _channels.Values.Select(x => x.ReadyCheck)
+                .FirstOrDefault(x => x?.Reservation.ReservationId == reservationId);
+            if (pair is null)
+                return Reject("This ready check is no longer available.", DuelRejectReason.StaleOffer);
+            channelId = pair.Reservation.ChannelId;
+            var player = PlayerFor(pair.Reservation, userId);
+            if (player is null)
+                return Reject("Only a participant may respond.", DuelRejectReason.NotParticipant);
+            if (!StillPresent(player, channelId))
+                return Reject("The player is no longer present.", DuelRejectReason.NotPresent);
+
+            var channel = _channels[channelId];
+            if (response == ReadyResponse.Decline)
+            {
+                removed = RemoveReadyCheck(channel, pair);
+                channel.Advancing = true;
+                Bump(channelId, channel);
+            }
+            else if (pair.ReadyUserIds.Add(userId))
+            {
+                changed = pair;
+                Bump(channelId, channel);
+                if (pair.ReadyUserIds.Count == 2)
+                {
+                    removed = pair;
+                    channel.ReadyCheck = null;
+                    channel.Active = pair.Reservation;
+                    channel.Advancing = true;
+                    SetPairCommitment(pair.Reservation, DuelCommitmentKind.Active);
+                    Bump(channelId, channel);
+                    start = pair.Reservation;
+                }
+            }
+        }
+
+        removed?.Timer?.Dispose();
+        if (response == ReadyResponse.Decline)
+        {
+            await PublishReservationCancellationAsync(removed!.Reservation, "declined");
+            await AdvanceChannelAsync(channelId);
+        }
+        else
+        {
+            await PublishReadyBestEffortAsync(changed);
+        }
+        if (start is not null) return await StartAsync(0, start);
+        return Success(null, reservationId);
+    }
 
     public Task<DuelCommandResult> RequestRematchAsync(long sourceMatchId, long requesterUserId) =>
         Task.FromResult(Reject("Rematches are not available yet.", DuelRejectReason.StaleOffer));
@@ -199,7 +258,10 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         lock (_gate)
         {
             if (!_channels.TryGetValue(channelId, out var channel))
-                return Task.FromResult(EmptySnapshot(channelId));
+            {
+                var clock = GetClock(channelId);
+                return Task.FromResult(EmptySnapshot(channelId, clock.Generation == 0 ? 1 : clock.Generation, clock.Revision));
+            }
             var queue = channel.Queue.Select((reservation, index) => new QueuedDuelSnapshot(
                 reservation.ReservationId,
                 index + 1,
@@ -208,26 +270,126 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 reservation.Configuration.Format,
                 reservation.Configuration.RulesetVersion,
                 new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, []))).ToArray();
+            var ready = channel.ReadyCheck is null ? null : new ReadyCheckSnapshot(
+                channel.ReadyCheck.Reservation.ReservationId,
+                channel.ReadyCheck.ExpiresAt,
+                Players(channel.ReadyCheck.Reservation, channel.ReadyCheck.ReadyUserIds),
+                channel.ReadyCheck.Reservation.Configuration.GameType,
+                channel.ReadyCheck.Reservation.Configuration.Format,
+                channel.ReadyCheck.Reservation.Configuration.RulesetVersion);
             return Task.FromResult(new DuelQueueSnapshot(
-                1, 1, channel.Revision, channelId, DateTimeOffset.UtcNow, 0, null, null, queue));
+                1, channel.Generation, channel.Revision, channelId, _timeProvider.GetUtcNow(), 0, null, ready, queue));
         }
     }
 
     public async Task HandlePresenceLostAsync(long userId, long oldSessionId, DuelCancelReason reason)
     {
         Offer[] canceled;
+        List<DuelReservation> reservations = [];
+        List<int> advanceChannels = [];
+        DuelReservation? activeForfeitCandidate = null;
         lock (_gate)
         {
             canceled = _offers.Values
-                .Where(x => x.Inviter.UserId == userId || x.Target.UserId == userId)
+                .Where(x => HasPlayer(x, userId, oldSessionId))
                 .ToArray();
             foreach (var offer in canceled) RemoveOffer(offer);
+
+            if (_commitmentsByUserId.TryGetValue(userId, out var commitment))
+            {
+                foreach (var (channelId, channel) in _channels)
+                {
+                    if (channel.Active is not null && commitment.Kind == DuelCommitmentKind.Active
+                        && channel.Active.ReservationId == commitment.Id
+                        && PlayerFor(channel.Active, userId)?.SessionId == oldSessionId)
+                    {
+                        if (!channel.ForfeitedUserIds.Contains(userId)) activeForfeitCandidate = channel.Active;
+                        break;
+                    }
+
+                    var queued = channel.Queue.ToArray();
+                    var removedQueued = queued.FirstOrDefault(x => x.ReservationId == commitment.Id
+                        && PlayerFor(x, userId)?.SessionId == oldSessionId);
+                    if (removedQueued is not null)
+                    {
+                        channel.Queue.Clear();
+                        foreach (var item in queued.Where(x => x.ReservationId != removedQueued.ReservationId))
+                            channel.Queue.Enqueue(item);
+                        ReleasePair(removedQueued);
+                        reservations.Add(removedQueued);
+                        Bump(channelId, channel);
+                        if (channel.Active is null && channel.ReadyCheck is null) { channel.Advancing = true; advanceChannels.Add(channelId); }
+                        break;
+                    }
+                    if (channel.ReadyCheck?.Reservation.ReservationId == commitment.Id
+                        && PlayerFor(channel.ReadyCheck.Reservation, userId)?.SessionId == oldSessionId)
+                    {
+                        var removedReady = RemoveReadyCheck(channel, channel.ReadyCheck);
+                        removedReady.Timer?.Dispose();
+                        reservations.Add(removedReady.Reservation);
+                        channel.Advancing = true;
+                        Bump(channelId, channel);
+                        advanceChannels.Add(channelId);
+                        break;
+                    }
+                }
+            }
         }
         foreach (var offer in canceled)
-            await PublishCancellationAsync(offer, CancelReason(reason));
+            await PublishCancellationBestEffortAsync(offer, CancelReason(reason));
+        foreach (var reservation in reservations)
+            await PublishReservationCancellationAsync(reservation, CancelReason(reason));
+        if (activeForfeitCandidate is not null
+            && _runner.TryGetActiveMatch(userId, out var forfeit)
+            && forfeit.ReservationId == activeForfeitCandidate.ReservationId)
+        {
+            var ownsForfeit = false;
+            lock (_gate)
+            {
+                if (_channels.TryGetValue(activeForfeitCandidate.ChannelId, out var channel)
+                    && channel.Active?.ReservationId == activeForfeitCandidate.ReservationId)
+                    ownsForfeit = channel.ForfeitedUserIds.Add(userId);
+            }
+            if (ownsForfeit) await _runner.ForfeitAsync(forfeit.MatchId, userId, CancelReason(reason));
+        }
+        foreach (var channelId in advanceChannels.Distinct())
+            await AdvanceChannelAsync(channelId);
     }
 
-    public Task HandleChannelRemovedAsync(int channelId) => Task.CompletedTask;
+    public async Task HandleChannelRemovedAsync(int channelId)
+    {
+        List<Offer> offers;
+        List<DuelReservation> reservations = [];
+        List<(DuelReservation Reservation, long UserId)> forfeitCandidates = [];
+        ITimer? timer = null;
+        lock (_gate)
+        {
+            offers = _offers.Values.Where(x => x.ChannelId == channelId).ToList();
+            foreach (var offer in offers) RemoveOffer(offer);
+            if (_channels.Remove(channelId, out var channel))
+            {
+                if (channel.ReadyCheck is not null) { timer = channel.ReadyCheck.Timer; reservations.Add(channel.ReadyCheck.Reservation); }
+                reservations.AddRange(channel.Queue);
+                if (channel.Active is not null)
+                {
+                    reservations.Add(channel.Active);
+                    foreach (var userId in ParticipantIds(channel.Active))
+                        forfeitCandidates.Add((channel.Active, userId));
+                }
+                foreach (var reservation in reservations) ReleasePair(reservation);
+            }
+            var clock = GetClock(channelId);
+            clock.Generation++;
+            clock.Revision++;
+        }
+        timer?.Dispose();
+        foreach (var offer in offers) await PublishCancellationBestEffortAsync(offer, "channelRemoved");
+        foreach (var reservation in reservations) await PublishReservationCancellationAsync(reservation, "channelRemoved");
+        foreach (var item in forfeitCandidates)
+            if (_runner.TryGetActiveMatch(item.UserId, out var active)
+                && active.ReservationId == item.Reservation.ReservationId)
+                await _runner.ForfeitAsync(active.MatchId, item.UserId, "channelRemoved");
+    }
 
     private async Task<DuelCommandResult> StartAsync(long offerId, DuelReservation reservation)
     {
@@ -245,8 +407,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         var needsAdvancement = false;
         lock (_gate)
         {
-            var channel = GetChannel(reservation.ChannelId);
-            if (channel.Active?.ReservationId == reservation.ReservationId)
+            if (_channels.TryGetValue(reservation.ChannelId, out var channel)
+                && channel.Active?.ReservationId == reservation.ReservationId)
             {
                 ownedTransition = true;
                 if (!result.Success)
@@ -257,7 +419,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     needsAdvancement = true;
                 }
                 else channel.Advancing = false;
-                channel.Revision++;
+                Bump(reservation.ChannelId, channel);
             }
         }
 
@@ -289,26 +451,84 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             ReleasePair(channel.Active);
             channel.Active = null;
             needsAdvancement = true;
-            channel.Revision++;
+            Bump(completion.ChannelId, channel);
         }
         if (needsAdvancement) await AdvanceChannelAsync(completion.ChannelId);
     }
 
-    // Task 6 replaces this boundary with ready-check promotion. Until then, a queued
-    // pair keeps the channel occupied and no waited pair is started directly.
-    private Task AdvanceChannelAsync(int channelId)
+    private async Task AdvanceChannelAsync(int channelId)
     {
+        while (true)
+        {
+            ReadyCheck? promoted = null;
+            DuelReservation? invalid = null;
+            lock (_gate)
+            {
+                if (!_channels.TryGetValue(channelId, out var channel)) return;
+                if (channel.Active is not null || channel.ReadyCheck is not null)
+                {
+                    channel.Advancing = false;
+                    return;
+                }
+                if (channel.Queue.Count == 0)
+                {
+                    channel.Advancing = false;
+                    return;
+                }
+
+                var candidate = channel.Queue.Dequeue();
+                if (!StillPresent(candidate.PlayerOne, channelId) || !StillPresent(candidate.PlayerTwo, channelId))
+                {
+                    invalid = candidate;
+                    ReleasePair(candidate);
+                    Bump(channelId, channel);
+                }
+                else
+                {
+                    var clock = GetClock(channelId);
+                    var generation = ++clock.ReadyGeneration;
+                    promoted = new(candidate, _timeProvider.GetUtcNow().Add(ReadyTimeout), generation);
+                    channel.ReadyCheck = promoted;
+                    channel.Advancing = false;
+                    SetPairCommitment(candidate, DuelCommitmentKind.ReadyCheck);
+                    Bump(channelId, channel);
+                    promoted.Timer = _timeProvider.CreateTimer(
+                        _ => _ = ExpireReadyAsync(channelId, candidate.ReservationId, generation),
+                        null, ReadyTimeout, Timeout.InfiniteTimeSpan);
+                }
+            }
+
+            if (invalid is not null)
+            {
+                await PublishReservationCancellationAsync(invalid, "disconnected");
+                continue;
+            }
+            await PublishReadyBestEffortAsync(promoted);
+            return;
+        }
+    }
+
+    private async Task ExpireReadyAsync(int channelId, long reservationId, long generation)
+    {
+        DuelReservation? reservation = null;
         lock (_gate)
         {
-            var channel = GetChannel(channelId);
-            channel.Advancing = channel.Queue.Count > 0;
+            if (!_channels.TryGetValue(channelId, out var channel)
+                || channel.ReadyCheck is not { } ready
+                || ready.Reservation.ReservationId != reservationId
+                || ready.Generation != generation)
+                return;
+            reservation = RemoveReadyCheck(channel, ready).Reservation;
+            channel.Advancing = true;
+            Bump(channelId, channel);
         }
-        return Task.CompletedTask;
+        await PublishReservationCancellationAsync(reservation, "expired");
+        await AdvanceChannelAsync(channelId);
     }
 
     private async Task ExpireOfferAsync(long offerId, DateTimeOffset expiresAt)
     {
-        await Task.Delay(expiresAt - DateTimeOffset.UtcNow);
+        await Task.Delay(expiresAt - _timeProvider.GetUtcNow(), _timeProvider);
         Offer? offer = null;
         lock (_gate)
         {
@@ -366,8 +586,27 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private ChannelState GetChannel(int channelId)
     {
         if (!_channels.TryGetValue(channelId, out var channel))
-            _channels.Add(channelId, channel = new());
+        {
+            var clock = GetClock(channelId);
+            if (clock.Generation == 0) clock.Generation = 1;
+            _channels.Add(channelId, channel = new() { Generation = clock.Generation, Revision = clock.Revision });
+        }
         return channel;
+    }
+
+    private ChannelClock GetClock(int channelId)
+    {
+        if (!_channelClocks.TryGetValue(channelId, out var clock))
+            _channelClocks.Add(channelId, clock = new());
+        return clock;
+    }
+
+    private void Bump(int channelId, ChannelState channel)
+    {
+        channel.Revision++;
+        var clock = GetClock(channelId);
+        clock.Generation = channel.Generation;
+        clock.Revision = channel.Revision;
     }
 
     private void RemoveOffer(Offer offer)
@@ -389,15 +628,52 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         RemoveCommitment(reservation.PlayerTwo.UserId, reservation.ReservationId);
     }
 
+    private ReadyCheck RemoveReadyCheck(ChannelState channel, ReadyCheck ready)
+    {
+        channel.ReadyCheck = null;
+        ReleasePair(ready.Reservation);
+        return ready;
+    }
+
     private void RemoveCommitment(long userId, long id)
     {
         if (_commitmentsByUserId.TryGetValue(userId, out var commitment) && commitment.Id == id)
             _commitmentsByUserId.Remove(userId);
     }
 
-    private static IReadOnlyList<DuelPlayerSnapshot> Players(DuelReservation reservation) =>
-        [new(reservation.PlayerOne.UserId, reservation.PlayerOne.SessionId, reservation.PlayerOne.DisplayName),
-         new(reservation.PlayerTwo.UserId, reservation.PlayerTwo.SessionId, reservation.PlayerTwo.DisplayName)];
+    private static IReadOnlyList<DuelPlayerSnapshot> Players(
+        DuelReservation reservation, IReadOnlySet<long>? readyUserIds = null) =>
+        [new(reservation.PlayerOne.UserId, reservation.PlayerOne.SessionId, reservation.PlayerOne.DisplayName,
+             readyUserIds?.Contains(reservation.PlayerOne.UserId) == true),
+         new(reservation.PlayerTwo.UserId, reservation.PlayerTwo.SessionId, reservation.PlayerTwo.DisplayName,
+             readyUserIds?.Contains(reservation.PlayerTwo.UserId) == true)];
+
+    private static DuelPlayer? PlayerFor(DuelReservation reservation, long userId) =>
+        reservation.PlayerOne.UserId == userId ? reservation.PlayerOne
+        : reservation.PlayerTwo.UserId == userId ? reservation.PlayerTwo : null;
+
+    private static bool HasPlayer(Offer offer, long userId, long sessionId) =>
+        (offer.Inviter.UserId == userId && offer.Inviter.SessionId == sessionId)
+        || (offer.Target.UserId == userId && offer.Target.SessionId == sessionId);
+
+    private Task PublishReservationCancellationAsync(DuelReservation reservation, string reason) =>
+        PublishBestEffortAsync(ParticipantIds(reservation), new
+        {
+            type = "game.commitmentCanceled",
+            reservationId = reservation.ReservationId,
+            reason,
+        });
+
+    private Task PublishReadyBestEffortAsync(ReadyCheck? ready) => ready is null
+        ? Task.CompletedTask
+        : PublishBestEffortAsync(ParticipantIds(ready.Reservation), new
+        {
+            type = "game.readyCheck",
+            reservationId = ready.Reservation.ReservationId,
+            expiresAt = ready.ExpiresAt,
+            readyMs = (int)ReadyTimeout.TotalMilliseconds,
+            readyUserIds = ready.ReadyUserIds.ToArray(),
+        });
 
     private static IReadOnlySet<long> ParticipantIds(Offer offer) =>
         new HashSet<long> { offer.Inviter.UserId, offer.Target.UserId };
@@ -418,8 +694,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         _ => "disconnected",
     };
 
-    private static DuelQueueSnapshot EmptySnapshot(int channelId) =>
-        new(1, 1, 0, channelId, DateTimeOffset.UtcNow, 0, null, null, []);
+    private static DuelQueueSnapshot EmptySnapshot(int channelId, long generation = 1, long revision = 0) =>
+        new(1, generation, revision, channelId, DateTimeOffset.UtcNow, 0, null, null, []);
 
     private sealed record Offer(
         long Id,
@@ -435,8 +711,26 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     {
         public DuelReservation? Active;
         public Queue<DuelReservation> Queue { get; } = [];
-        public object? ReadyCheck { get; set; }
+        public ReadyCheck? ReadyCheck { get; set; }
         public bool Advancing;
+        public long Generation;
         public long Revision;
+        public HashSet<long> ForfeitedUserIds { get; } = [];
+    }
+
+    private sealed class ReadyCheck(DuelReservation reservation, DateTimeOffset expiresAt, long generation)
+    {
+        public DuelReservation Reservation { get; } = reservation;
+        public DateTimeOffset ExpiresAt { get; } = expiresAt;
+        public long Generation { get; } = generation;
+        public HashSet<long> ReadyUserIds { get; } = [];
+        public ITimer? Timer { get; set; }
+    }
+
+    private sealed class ChannelClock
+    {
+        public long Generation;
+        public long Revision;
+        public long ReadyGeneration;
     }
 }

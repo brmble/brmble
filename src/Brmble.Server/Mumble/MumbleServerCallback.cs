@@ -16,6 +16,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly IDuelMatchRunnerRouter _gameSessions;
+    private readonly IDuelOrchestrator? _duels;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -28,7 +29,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
         IDuelMatchRunnerRouter gameSessions,
-        ILogger<MumbleServerCallback> logger)
+        ILogger<MumbleServerCallback> logger,
+        IDuelOrchestrator? duels = null)
     {
         _handlers = handlers;
         _sessionMapping = sessionMapping;
@@ -38,6 +40,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _liveKitRevocationScheduler = liveKitRevocationScheduler;
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _gameSessions = gameSessions;
+        _duels = duels;
         _logger = logger;
     }
 
@@ -165,10 +168,9 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
+            if (_duels is not null)
+                await _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
-
-            if (_gameSessions.TryGetActiveMatch(mapping.UserId, out var match))
-                await _gameSessions.ForfeitAsync(match.MatchId, mapping.UserId, "disconnect");
         }
 
         _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
@@ -194,16 +196,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         var channelChanged = !_channelMembership.TryGetChannel(user.SessionId, out var previousChannel)
             || previousChannel != channelId;
+        var snapshot = _sessionMapping.GetSnapshot();
+        if (channelChanged && snapshot.TryGetValue(user.SessionId, out var mapped) && _duels is not null)
+            await _duels.HandlePresenceLostAsync(mapped.UserId, user.SessionId, DuelCancelReason.LeftChannel);
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
 
-        var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            if (channelChanged && _gameSessions.TryGetActiveMatch(mapping.UserId, out var match))
-                await _gameSessions.ForfeitAsync(match.MatchId, mapping.UserId, "left_channel");
-
             var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
             foreach (var roomName in shareRooms)
             {
@@ -222,8 +223,11 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     public Task DispatchChannelCreated(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelCreated(channel)));
 
-    public Task DispatchChannelRemoved(MumbleChannel channel)
-        => Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
+    public async Task DispatchChannelRemoved(MumbleChannel channel)
+    {
+        if (_duels is not null) await _duels.HandleChannelRemovedAsync(channel.Id);
+        await Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
+    }
 
     public Task DispatchChannelRenamed(MumbleChannel channel)
         => Task.WhenAll(_handlers.Select(h => h.OnChannelRenamed(channel)));
