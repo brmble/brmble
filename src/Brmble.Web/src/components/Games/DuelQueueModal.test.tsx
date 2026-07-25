@@ -139,6 +139,28 @@ describe('DuelQueueModal', () => {
     outside.remove();
   });
 
+  it('traps Tab and Shift+Tab inside the dialog', () => {
+    const background = document.createElement('button');
+    document.body.appendChild(background);
+    const { unmount } = render(<DuelQueueModal snapshot={snapshot()} resolveName={resolveName} onClose={vi.fn()} />);
+    const close = screen.getByRole('button', { name: 'Close duel activity' });
+
+    background.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(close).toHaveFocus();
+
+    background.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(close).toHaveFocus();
+
+    close.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(close).toHaveFocus();
+
+    unmount();
+    background.remove();
+  });
+
   it('keeps long queue content in a dedicated scroll region', () => {
     const queue = Array.from({ length: 20 }, (_, index) => ({
       reservationId: index + 1,
@@ -156,5 +178,21 @@ describe('DuelQueueModal', () => {
     const content = screen.getByTestId('duel-activity-content');
     expect(dialog).toContainElement(content);
     expect(content).toContainElement(screen.getByText('20. Alice vs Bob'));
+  });
+
+  it('renders long player and format tokens inside wrapping content elements', () => {
+    const longToken = 'A'.repeat(200);
+    render(<DuelQueueModal snapshot={snapshot({ queue: [{
+      reservationId: 1,
+      position: 1,
+      players: [{ ...players[0], displayName: longToken }, players[1]],
+      gameType: 'rps',
+      format: longToken,
+      rulesetVersion: 1,
+      eta: { status: 'unknown', estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
+    }] })} resolveName={resolveName} onClose={vi.fn()} />);
+
+    expect(screen.getByText(`1. ${longToken} vs Bob`)).toBeInTheDocument();
+    expect(screen.getByText(`Rock Paper Scissors · ${longToken}`)).toBeInTheDocument();
   });
 });

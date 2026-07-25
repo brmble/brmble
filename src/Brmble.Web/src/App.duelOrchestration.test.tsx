@@ -176,7 +176,7 @@ describe('App duel orchestration', () => {
     expect(mocks.screenShare.disconnectViewer).not.toHaveBeenCalled();
   });
 
-  it('shows one ready notification and sends exact accept and decline commands', () => {
+  it('locks a ready submission against dismiss and double click', () => {
     mocks.duelQueue.byChannel = new Map([[7, {
       schemaVersion: 1, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
       active: null, queue: [], readyCheck: { reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
@@ -186,10 +186,33 @@ describe('App duel orchestration', () => {
     act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void }).__emit('voice.connected', { channelId: 7, users: [{ session: 11, name: 'Me', self: true, channelId: 7 }] }));
 
     expect(screen.getAllByText('Ready to play?')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Ready' }));
+    const ready = screen.getByRole('button', { name: 'Ready' });
+    fireEvent.click(ready);
+    fireEvent.click(ready);
     expect(mocks.duelQueue.respondReady).toHaveBeenCalledWith(42, true);
+    expect(mocks.duelQueue.respondReady).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByLabelText('Dismiss notification'));
-    expect(mocks.duelQueue.respondReady).toHaveBeenCalledWith(42, false);
+    expect(mocks.duelQueue.respondReady).not.toHaveBeenCalledWith(42, false);
+    expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
+  });
+
+  it('resets the ready lock for a new reservation', () => {
+    const readySnapshot = (reservationId: number) => ({
+      schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
+      active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }] },
+    });
+    mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
+    const { rerender } = renderApp();
+    act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void }).__emit('voice.connected', { channelId: 7, users: [{ session: 11, name: 'Me', self: true, channelId: 7 }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready' }));
+
+    mocks.duelQueue.byChannel = new Map([[7, readySnapshot(43)]]);
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Ready' }));
+
+    expect(mocks.duelQueue.respondReady).toHaveBeenNthCalledWith(1, 42, true);
+    expect(mocks.duelQueue.respondReady).toHaveBeenNthCalledWith(2, 43, true);
   });
 
   it('requests recovery on connect and resets both stores on disconnect', () => {
@@ -201,7 +224,7 @@ describe('App duel orchestration', () => {
     expect(mocks.duelQueue.reset).toHaveBeenCalledOnce();
   });
 
-  it('accepts or declines one incoming rematch notification', () => {
+  it('locks rematch acceptance against dismiss and double click', () => {
     mocks.duelQueue.incomingRematch = {
       offerId: 73,
       sourceMatchId: 91,
@@ -209,16 +232,17 @@ describe('App duel orchestration', () => {
       gameType: 'rps',
       expiresAt: new Date(Date.now() + 20_000).toISOString(),
     };
-    const { rerender } = renderApp();
+    renderApp();
 
     expect(mocks.notificationQueue.register).toHaveBeenCalledWith('game-rematch', 'info', 2);
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    const accept = screen.getByRole('button', { name: 'Accept' });
+    fireEvent.click(accept);
+    fireEvent.click(accept);
     expect(mocks.duelQueue.respondOffer).toHaveBeenCalledWith(73, true);
+    expect(mocks.duelQueue.respondOffer).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByLabelText('Dismiss notification'));
-    expect(mocks.duelQueue.respondOffer).toHaveBeenCalledWith(73, false);
-
-    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-    expect(mocks.ids.has('game-rematch')).toBe(true);
+    expect(mocks.duelQueue.respondOffer).not.toHaveBeenCalledWith(73, false);
+    expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
   });
 
   it('requests the ended source match and shows pending state in the App modal', () => {

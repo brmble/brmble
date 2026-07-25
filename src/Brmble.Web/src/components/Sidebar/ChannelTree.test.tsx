@@ -825,4 +825,11 @@ describe('ChannelTree duel activity badge', () => {
     render(<ChannelTree channels={channels} users={[]} duelChannelIds={new Set()} onJoinChannel={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Open duel activity for General' })).not.toBeInTheDocument();
   });
+
+  it('uses the dedicated touch-target class while keeping the swords icon', () => {
+    render(<ChannelTree channels={channels} users={[]} duelChannelIds={new Set([1])} onJoinChannel={vi.fn()} />);
+    const badge = screen.getByRole('button', { name: 'Open duel activity for General' });
+    expect(badge).toHaveClass('channel-duel-icon');
+    expect(badge.querySelector('[data-icon="swords"]')).not.toBeNull();
+  });
 });

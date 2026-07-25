@@ -998,6 +998,37 @@ function App() {
   const readyCheck = [...duelQueue.byChannel.values()]
     .map(snapshot => snapshot.readyCheck)
     .find(check => check?.players.some(player => player.sessionId === selfSession && !player.ready)) ?? null;
+  const readySubmissionRef = useRef<number | null>(null);
+  const rematchSubmissionRef = useRef<number | null>(null);
+  const [submittedReadyId, setSubmittedReadyId] = useState<number | null>(null);
+  const [submittedRematchId, setSubmittedRematchId] = useState<number | null>(null);
+  const submitReady = useCallback((ready: boolean) => {
+    if (!readyCheck || readySubmissionRef.current === readyCheck.reservationId) return;
+    readySubmissionRef.current = readyCheck.reservationId;
+    setSubmittedReadyId(readyCheck.reservationId);
+    duelQueue.respondReady(readyCheck.reservationId, ready);
+  }, [duelQueue.respondReady, readyCheck]);
+  const submitRematch = useCallback((accept: boolean) => {
+    const offer = duelQueue.incomingRematch;
+    if (!offer || rematchSubmissionRef.current === offer.offerId) return;
+    rematchSubmissionRef.current = offer.offerId;
+    setSubmittedRematchId(offer.offerId);
+    duelQueue.respondOffer(offer.offerId, accept);
+  }, [duelQueue.incomingRematch, duelQueue.respondOffer]);
+  useEffect(() => {
+    const reservationId = readyCheck?.reservationId ?? null;
+    if (readySubmissionRef.current != null && readySubmissionRef.current !== reservationId) {
+      readySubmissionRef.current = null;
+      setSubmittedReadyId(null);
+    }
+  }, [readyCheck?.reservationId]);
+  useEffect(() => {
+    const offerId = duelQueue.incomingRematch?.offerId ?? null;
+    if (rematchSubmissionRef.current != null && rematchSubmissionRef.current !== offerId) {
+      rematchSubmissionRef.current = null;
+      setSubmittedRematchId(null);
+    }
+  }, [duelQueue.incomingRematch?.offerId]);
   useEffect(() => {
     if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
     else notifQueueRef.current.unregister('game-ready');
@@ -1880,6 +1911,10 @@ function App() {
       // reach the server. The server tears the match down on its side.
       gameStateRef.current.reset();
       duelQueueRef.current.reset();
+      readySubmissionRef.current = null;
+      rematchSubmissionRef.current = null;
+      setSubmittedReadyId(null);
+      setSubmittedRematchId(null);
       setSelectedDuelChannelId(null);
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
@@ -3282,6 +3317,10 @@ const handleConnect = (serverData: SavedServer) => {
       // match down on its side, so this is purely a local UI reset.
       gameStateRef.current.reset();
       duelQueueRef.current.reset();
+      readySubmissionRef.current = null;
+      rematchSubmissionRef.current = null;
+      setSubmittedReadyId(null);
+      setSubmittedRematchId(null);
       setSelectedDuelChannelId(null);
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
@@ -4537,8 +4576,16 @@ const handleConnect = (serverData: SavedServer) => {
             visible={true}
             title="Ready to play?"
             detail={`${gameDisplayName(readyCheck.gameType)} · ${readyCheck.format}`}
-            actions={<button className="btn btn-sm btn-primary" onClick={() => duelQueue.respondReady(readyCheck.reservationId, true)}>Ready</button>}
-            onDismiss={() => duelQueue.respondReady(readyCheck.reservationId, false)}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => submitReady(true)}
+                disabled={submittedReadyId === readyCheck.reservationId}
+              >
+                {submittedReadyId === readyCheck.reservationId ? 'Submitting' : 'Ready'}
+              </button>
+            }
+            onDismiss={() => submitReady(false)}
             onExited={() => notifQueue.unregister('game-ready')}
           />
         )}
@@ -4551,8 +4598,16 @@ const handleConnect = (serverData: SavedServer) => {
             visible={true}
             title="Rematch offered"
             detail={`${gameDisplayName(duelQueue.incomingRematch.gameType)} rematch`}
-            actions={<button className="btn btn-sm btn-primary" onClick={() => duelQueue.respondOffer(duelQueue.incomingRematch!.offerId, true)}>Accept</button>}
-            onDismiss={() => duelQueue.respondOffer(duelQueue.incomingRematch!.offerId, false)}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => submitRematch(true)}
+                disabled={submittedRematchId === duelQueue.incomingRematch.offerId}
+              >
+                {submittedRematchId === duelQueue.incomingRematch.offerId ? 'Submitting' : 'Accept'}
+              </button>
+            }
+            onDismiss={() => submitRematch(false)}
             onExited={() => notifQueue.unregister('game-rematch')}
           />
         )}

@@ -115,6 +115,9 @@
 .channel-duel-icon {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--space-xl);
+  min-height: var(--space-xl);
   color: var(--accent-primary);
   margin-left: var(--space-2xs);
   padding: 0;
