@@ -91,29 +91,69 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
-    public async Task Forfeit_PendingOfferOwner_CancelsWithoutRunnerForfeit()
+    public async Task CancelOffer_Owner_CallsCancelWithStableAuthenticatedUser()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.CancelOfferAsync(9, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(true, 9, null, null, DuelRejectReason.None));
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/offers/cancel", new { offerId = 9 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        orchestrator.Verify(x => x.CancelOfferAsync(9, It.Is<long>(id => id > 0)), Times.Once);
+    }
+
+    [DataTestMethod]
+    [DataRow(DuelRejectReason.NotParticipant, "notParticipant")]
+    [DataRow(DuelRejectReason.StaleOffer, "staleOffer")]
+    public async Task CancelOffer_Failure_ReturnsExhaustiveWireReason(DuelRejectReason reason, string expectedReason)
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.CancelOfferAsync(12, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(false, null, null, "rejected", reason));
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/offers/cancel", new { offerId = 12 });
+        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual(expectedReason, error?.Reason);
+    }
+
+    [TestMethod]
+    public async Task Forfeit_ForeignMatchId_IsRejectedWithoutRunnerMutation()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
         var router = new Mock<IDuelMatchRunnerRouter>();
-        orchestrator.Setup(x => x.CancelOfferAsync(9, It.IsAny<long>()))
-            .ReturnsAsync(new DuelCommandResult(true, 9, null, null, DuelRejectReason.None));
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference match) =>
+            {
+                match = new ActiveMatchReference(12, 4, 1, "discrete");
+                return true;
+            });
         await using var factory = CreateFactory(orchestrator, router);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
-        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 9 });
+        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 99 });
+        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
 
-        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual("notParticipant", error?.Reason);
+        orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
         router.Verify(x => x.ForfeitAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
     }
 
     [TestMethod]
-    public async Task Forfeit_StaleOfferFallsBackToAuthenticatedUsersMatchingActiveMatch()
+    public async Task Forfeit_MatchingActiveMatch_ForfeitsAsStableAuthenticatedUser()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
         var router = new Mock<IDuelMatchRunnerRouter>();
-        orchestrator.Setup(x => x.CancelOfferAsync(12, It.IsAny<long>()))
-            .ReturnsAsync(new DuelCommandResult(false, null, null, "stale", DuelRejectReason.StaleOffer));
         router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
             .Returns((long _, out ActiveMatchReference match) =>
             {
@@ -131,28 +171,46 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
-    public async Task Forfeit_ForeignMatchId_IsRejectedWithoutRunnerMutation()
+    public async Task Ready_MapsBooleanToReadyResponseAndStableUser()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
-        var router = new Mock<IDuelMatchRunnerRouter>();
-        orchestrator.Setup(x => x.CancelOfferAsync(99, It.IsAny<long>()))
-            .ReturnsAsync(new DuelCommandResult(false, null, null, "not participant", DuelRejectReason.NotParticipant));
-        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
-            .Returns((long _, out ActiveMatchReference match) =>
-            {
-                match = new ActiveMatchReference(12, 4, 1, "discrete");
-                return true;
-            });
-        await using var factory = CreateFactory(orchestrator, router);
+        orchestrator.Setup(x => x.RespondReadyAsync(20, It.IsAny<long>(), ReadyResponse.Decline))
+            .ReturnsAsync(new DuelCommandResult(true, null, 20, null, DuelRejectReason.None));
+        await using var factory = CreateFactory(orchestrator);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
-        var response = await client.PostAsJsonAsync("/games/forfeit", new { matchId = 99 });
-        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
+        var response = await client.PostAsJsonAsync("/games/ready", new { reservationId = 20, accept = false });
 
-        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.AreEqual("notParticipant", error?.Reason);
-        router.Verify(x => x.ForfeitAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        orchestrator.Verify(x => x.RespondReadyAsync(20, It.Is<long>(id => id > 0), ReadyResponse.Decline), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Rematch_UsesStableAuthenticatedUser()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.RequestRematchAsync(30, It.IsAny<long>()))
+            .ReturnsAsync(new DuelCommandResult(true, 31, null, null, DuelRejectReason.None));
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/rematch", new { matchId = 30 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        orchestrator.Verify(x => x.RequestRematchAsync(30, It.Is<long>(id => id > 0)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CancelOffer_WithoutCertificate_IsUnauthorized()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator);
+        var response = await factory.CreateClient().PostAsJsonAsync("/games/offers/cancel", new { offerId = 9 });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(

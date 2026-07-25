@@ -9,10 +9,10 @@ namespace Brmble.Server.Games;
 public static class GameEndpoints
 {
     public record InviteDto(long TargetSessionId, string GameType, Dictionary<string, object?>? Options = null);
-    public record RespondDto(long? OfferId, long? MatchId, bool Accept)
-    {
-        public long ResolvedOfferId => OfferId ?? MatchId ?? 0;
-    }
+    public record OfferResponseDto(long OfferId, bool Accept);
+    public record CancelOfferDto(long OfferId);
+    public record ReadyDto(long ReservationId, bool Accept);
+    public record RematchDto(long MatchId);
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
@@ -45,7 +45,7 @@ public static class GameEndpoints
             return Results.BadRequest(new GameErrorWire(r.Error ?? "The challenge was rejected.", DuelWire.Reason(r.Reason)));
         });
 
-        app.MapPost("/games/respond", async (RespondDto dto, HttpContext ctx,
+        app.MapPost("/games/respond", async (OfferResponseDto dto, HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
             ISessionMappingService sessions) =>
         {
@@ -53,10 +53,38 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            var r = await orchestrator.RespondToOfferAsync(dto.ResolvedOfferId, user.UserId, dto.Accept);
+            var r = await orchestrator.RespondToOfferAsync(dto.OfferId, user.UserId, dto.Accept);
             return r.Success
                 ? Results.Ok(new { offerId = r.OfferId, reservationId = r.ReservationId })
                 : Results.BadRequest(new GameErrorWire(r.Error ?? "The response was rejected.", DuelWire.Reason(r.Reason)));
+        });
+
+        app.MapPost("/games/offers/cancel", async (CancelOfferDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            var r = await orchestrator.CancelOfferAsync(dto.OfferId, user.UserId);
+            return CommandResult(r, "The offer could not be canceled.");
+        });
+
+        app.MapPost("/games/ready", async (ReadyDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            var response = dto.Accept ? ReadyResponse.Accept : ReadyResponse.Decline;
+            var r = await orchestrator.RespondReadyAsync(dto.ReservationId, user.UserId, response);
+            return CommandResult(r, "The ready response was rejected.");
+        });
+
+        app.MapPost("/games/rematch", async (RematchDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            var r = await orchestrator.RequestRematchAsync(dto.MatchId, user.UserId);
+            return CommandResult(r, "The rematch request was rejected.");
         });
 
         app.MapPost("/games/action", async (ActionDto dto, HttpContext ctx,
@@ -72,24 +100,21 @@ public static class GameEndpoints
         });
 
         app.MapPost("/games/forfeit", async (ForfeitDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
-            IDuelMatchRunnerRouter runner,
+            ICertificateHashExtractor certs, UserRepository users, IDuelMatchRunnerRouter runner,
             ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            var cancellation = await orchestrator.CancelOfferAsync(dto.MatchId, user.UserId);
-            if (cancellation.Success) return Results.Ok();
             if (runner.TryGetActiveMatch(user.UserId, out var active) && active.MatchId == dto.MatchId)
             {
                 await runner.ForfeitAsync(dto.MatchId, user.UserId, "forfeit");
                 return Results.Ok();
             }
             return Results.BadRequest(new GameErrorWire(
-                cancellation.Error ?? "No matching offer or active match was found.",
-                DuelWire.Reason(cancellation.Reason)));
+                "The requested match is not the authenticated user's active match.",
+                DuelWire.Reason(DuelRejectReason.NotParticipant)));
         });
 
         app.MapGet("/games/stats/{gameType}", async (string gameType, string? window, HttpContext ctx,
@@ -147,6 +172,10 @@ public static class GameEndpoints
             _ => (DateTimeOffset.UnixEpoch, now),
         };
     }
+
+    private static IResult CommandResult(DuelCommandResult result, string fallback) => result.Success
+        ? Results.Ok(new { offerId = result.OfferId, reservationId = result.ReservationId })
+        : Results.BadRequest(new GameErrorWire(result.Error ?? fallback, DuelWire.Reason(result.Reason)));
 
     private static IReadOnlyDictionary<string, object?>? ConvertOptions(Dictionary<string, object?>? options)
     {

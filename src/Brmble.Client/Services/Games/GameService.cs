@@ -24,6 +24,7 @@ internal sealed class GameService : IService
     private readonly Func<string?> _getApiUrl;
     private readonly Func<X509Certificate2, Uri, string, Task<ChannelRequestBridgeHandler.TlsCallResult>> _postJsonAsync;
     private readonly Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> _getAsync;
+    private readonly Func<X509Certificate2?> _getCertificate;
     private NativeBridge? _bridge;
 
     public GameService(
@@ -31,13 +32,15 @@ internal sealed class GameService : IService
         CertificateService? certService,
         Func<string?> getApiUrl,
         Func<X509Certificate2, Uri, string, Task<ChannelRequestBridgeHandler.TlsCallResult>> postJsonAsync,
-        Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> getAsync)
+        Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> getAsync,
+        Func<X509Certificate2?>? getCertificate = null)
     {
         _bridge = bridge;
         _certService = certService;
         _getApiUrl = getApiUrl;
         _postJsonAsync = postJsonAsync;
         _getAsync = getAsync;
+        _getCertificate = getCertificate ?? (() => _certService?.GetExportableCertificate());
     }
 
     public string ServiceName => "games";
@@ -48,6 +51,9 @@ internal sealed class GameService : IService
     {
         bridge.RegisterHandler("game.invite", d => PostAsync("games/invite", d));
         bridge.RegisterHandler("game.respond", d => PostAsync("games/respond", d));
+        bridge.RegisterHandler("game.cancelOffer", d => PostAsync("games/offers/cancel", d));
+        bridge.RegisterHandler("game.ready", d => PostAsync("games/ready", d));
+        bridge.RegisterHandler("game.rematch", d => PostAsync("games/rematch", d));
         bridge.RegisterHandler("game.action", d => PostAsync("games/action", d));
         bridge.RegisterHandler("game.forfeit", d => PostAsync("games/forfeit", d));
         bridge.RegisterHandler("games.request", HandleRequestAsync);
@@ -74,7 +80,7 @@ internal sealed class GameService : IService
             return;
         }
 
-        using var cert = _certService?.GetExportableCertificate();
+        using var cert = _getCertificate();
         if (cert is null)
         {
             SendResponse(requestId, false, null, 0, "No client certificate");
@@ -87,6 +93,12 @@ internal sealed class GameService : IService
         {
             switch (action)
             {
+                case "queue":
+                {
+                    var result = await _getAsync(cert, new Uri(baseUri, "games/queue"));
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
                 case "stats":
                 {
                     var gameType = data.TryGetProperty("gameType", out var gtEl) ? gtEl.GetString() : null;
@@ -170,7 +182,7 @@ internal sealed class GameService : IService
             return;
         }
 
-        using var cert = _certService?.GetExportableCertificate();
+        using var cert = _getCertificate();
         if (cert is null)
         {
             SendError(path, "No client certificate");
