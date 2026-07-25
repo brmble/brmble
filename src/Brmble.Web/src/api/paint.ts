@@ -63,7 +63,7 @@ async function post<T>(path: string, payload: Record<string, unknown>): Promise<
 
 async function mutate(event: string, path: string, payload: Record<string, unknown>): Promise<void> {
   if (isWebViewBridgeAvailable()) {
-    bridge.send(event, payload);
+    await bridgeRequest<unknown>(event, payload);
     return;
   }
   await post<unknown>(path, payload);

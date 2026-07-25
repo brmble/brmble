@@ -40,15 +40,26 @@ describe('paintApi browser fallback', () => {
 });
 
 describe('paintApi WebView bridge', () => {
-  it('returns the correlated created paint session response', async () => {
-    const postMessage = vi.fn();
+  const stroke = {
+    correlationId: 'stroke-1',
+    generation: 3,
+    tool: 'pen' as const,
+    color: '#123456',
+    width: 6 as const,
+    points: [{ x: 0.25, y: 0.75, pressure: 0.5 }],
+  };
+
+  beforeEach(() => {
     Object.defineProperty(window, 'chrome', {
       configurable: true,
-      value: { webview: { postMessage } },
+      value: { webview: { postMessage: vi.fn() } },
     });
+  });
 
+  it('returns the correlated created paint session response', async () => {
     const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
     const result = paintApi.createSession({ channelId: 7, participantUserIds: [2] });
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
     const request = postMessage.mock.calls[0][0];
 
     expect(request).toEqual(expect.objectContaining({
@@ -64,5 +75,75 @@ describe('paintApi WebView bridge', () => {
     });
 
     await expect(result).resolves.toEqual({ ...response, channelId: 7 });
+  });
+
+  it.each([
+    ['attachSource', 'paint.attachSource', () => paintApi.attachSource(sessionId, '$source'), { sessionId, sourceEventId: '$source' }],
+    ['join', 'paint.join', () => paintApi.join(sessionId), { sessionId }],
+    ['leave', 'paint.leave', () => paintApi.leave(sessionId), { sessionId }],
+    ['commitStroke', 'paint.commitStroke', () => paintApi.commitStroke(sessionId, stroke), { sessionId, ...stroke }],
+    ['sendPreview', 'paint.sendPreview', () => paintApi.sendPreview(sessionId, stroke), { sessionId, ...stroke }],
+    ['undo', 'paint.undo', () => paintApi.undo(sessionId), { sessionId }],
+    ['clear', 'paint.clear', () => paintApi.clear(sessionId), { sessionId }],
+    ['end', 'paint.end', () => paintApi.end(sessionId), { sessionId }],
+  ])('correlates the %s mutation and retains its payload', async (_operation, event, invoke, payload) => {
+    const result = invoke();
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+
+    expect(request).toEqual({
+      type: event,
+      data: { ...payload, requestId: expect.any(Number) },
+    });
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId, success: true, body: '{}' },
+      },
+    });
+
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it('keeps end pending until its correlated response arrives', async () => {
+    const result = paintApi.end(sessionId);
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+    const settled = vi.fn();
+    void result.then(settled, settled);
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId + 1, success: true, body: '{}' },
+      },
+    });
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId, success: true, body: '{}' },
+      },
+    });
+
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it('rejects end with the correlated bridge error', async () => {
+    const result = paintApi.end(sessionId);
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId, success: false, statusCode: 409, error: 'Paint session is no longer open.' },
+      },
+    });
+
+    await expect(result).rejects.toThrow('Paint session is no longer open.');
   });
 });
