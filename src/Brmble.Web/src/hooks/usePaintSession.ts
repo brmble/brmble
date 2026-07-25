@@ -71,6 +71,7 @@ export function usePaintSession(sessionId: string) {
         if (!isCurrentSession(preview)) return;
         const current = snapshotRef.current;
         if (!current || preview.generation < current.generation) return;
+        if (current.strokes.some(stroke => previewKey(stroke) === previewKey(preview))) return;
         setPreviews(existing => [...existing.filter(item => previewKey(item) !== previewKey(preview)), preview]);
       },
       'paint.strokeCommitted': data => acceptPermanent(data as PaintStrokeCommittedEvent, current => {

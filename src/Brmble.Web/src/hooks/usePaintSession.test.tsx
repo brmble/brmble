@@ -88,7 +88,7 @@ describe('usePaintSession', () => {
     });
   });
 
-  it('replaces a matching preview when the committed stroke arrives', async () => {
+  it('filters the local user preview when their own committed stroke arrives', async () => {
     const harness = renderPaintSessionHook();
     await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
 
@@ -109,6 +109,42 @@ describe('usePaintSession', () => {
     })));
 
     expect(harness.result.current.previews).toHaveLength(0);
+    expect(harness.result.current.strokes.map(stroke => stroke.id)).toEqual(['server-1']);
+  });
+
+  it('ignores a late preview that matches an already committed stroke', async () => {
+    const harness = renderPaintSessionHook();
+    await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
+
+    act(() => harness.emit('paint.strokeCommitted', committed({
+      revision: 1,
+      stroke: { ...committed().stroke, correlationId: 'corr-1', id: 'server-1' },
+    })));
+    act(() => harness.emit('paint.previewUpdated', {
+      sessionId,
+      generation: 0,
+      authorUserId: 1,
+      authorMatrixUserId: '@alice:server',
+      input: preview({ correlationId: 'corr-1', authorUserId: 1 }),
+    }));
+
+    expect(harness.result.current.previews).toHaveLength(0);
+    expect(harness.result.current.strokes.map(stroke => stroke.id)).toEqual(['server-1']);
+  });
+
+  it('deduplicates repeated committed stroke ids', async () => {
+    const harness = renderPaintSessionHook();
+    await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
+
+    act(() => harness.emit('paint.strokeCommitted', committed({
+      revision: 1,
+      stroke: { ...committed().stroke, id: 'server-1' },
+    })));
+    act(() => harness.emit('paint.strokeCommitted', committed({
+      revision: 2,
+      stroke: { ...committed().stroke, id: 'server-1', sequence: 1 },
+    })));
+
     expect(harness.result.current.strokes.map(stroke => stroke.id)).toEqual(['server-1']);
   });
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PaintEditor } from './PaintEditor';
+import { PaintEditor, PAINT_PREVIEW_THROTTLE_MS } from './PaintEditor';
 import type { PaintSessionSnapshot } from '../../types/paint';
 
 const activeSnapshot: PaintSessionSnapshot = {
@@ -43,6 +43,7 @@ describe('PaintEditor', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -58,7 +59,7 @@ describe('PaintEditor', () => {
     fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
 
-    expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
     expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
     expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ generation: 0, tool: 'pen', color: '#111827', width: 6, points: expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]) }));
     const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
@@ -83,10 +84,10 @@ describe('PaintEditor', () => {
     fireEvent.pointerMove(canvas, { clientX: 60, clientY: 60, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
 
-    expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
     expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
     const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
-    expect(correlationIds).toEqual([activeCorrelationId, activeCorrelationId, activeCorrelationId]);
+    expect(correlationIds).toEqual([activeCorrelationId, activeCorrelationId]);
   });
 
   it('cleans up a cancelled gesture so a later gesture can commit', () => {
@@ -103,7 +104,162 @@ describe('PaintEditor', () => {
     fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 2 });
 
     expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
-    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ points: [{ x: 0.6, y: 0.6 }, { x: 0.8, y: 0.8 }] }));
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ points: [{ x: 0.6, y: 0.6 }, { x: 0.8, y: 0.8 }, { x: 1, y: 1 }] }));
+  });
+
+  it('renders the local stroke during pointer movement before server acknowledgement', () => {
+    const stroke = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke,
+    } as unknown as CanvasRenderingContext2D);
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 40, pointerId: 1 });
+
+    expect(stroke).toHaveBeenCalled();
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it('throttles preview sends while retaining every committed point in order', () => {
+    vi.useFakeTimers();
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 40, pointerId: 1 });
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(PAINT_PREVIEW_THROTTLE_MS);
+    fireEvent.pointerMove(canvas, { clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 60, clientY: 60, pointerId: 1 });
+
+    expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.2, y: 0.2 },
+        { x: 0.3, y: 0.3 },
+        { x: 0.4, y: 0.4 },
+        { x: 0.5, y: 0.5 },
+        { x: 0.6, y: 0.6 },
+      ],
+    }));
+  });
+
+  it('does not commit a cancelled pointer gesture', () => {
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+
+    expect(paintApi.commitStroke).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a gesture after pointer capture is lost', () => {
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.lostPointerCapture(canvas, { pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+
+    expect(paintApi.commitStroke).not.toHaveBeenCalled();
+  });
+
+  it('does not redraw a cancelled gesture when its own preview echo arrives late', () => {
+    const stroke = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke,
+    } as unknown as CanvasRenderingContext2D);
+    const paintApi = fakePaintApi();
+    const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[]} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    const cancelledCorrelationId = paintApi.sendPreview.mock.calls[0][1].correlationId;
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+
+    stroke.mockClear();
+    rerender(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[{
+      sessionId: 'session-1',
+      authorUserId: 1,
+      authorMatrixUserId: '@alice:server',
+      correlationId: cancelledCorrelationId,
+      generation: 0,
+      tool: 'pen' as const,
+      color: '#111827',
+      width: 6,
+      points: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }],
+    }]} currentUserId={1} />);
+
+    expect(stroke).not.toHaveBeenCalled();
+  });
+
+  it('keeps the pending local committed stroke visible while suppressing the echoed preview before the server commit arrives', () => {
+    const stroke = vi.fn();
+    const lineTo = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo,
+      stroke,
+    } as unknown as CanvasRenderingContext2D);
+    const paintApi = fakePaintApi();
+    const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[]} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+    const committedCorrelationId = paintApi.commitStroke.mock.calls[0][1].correlationId;
+
+    stroke.mockClear();
+    lineTo.mockClear();
+    rerender(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[{
+      sessionId: 'session-1',
+      authorUserId: 1,
+      authorMatrixUserId: '@alice:server',
+      correlationId: committedCorrelationId,
+      generation: 0,
+      tool: 'pen' as const,
+      color: '#111827',
+      width: 6,
+      points: [{ x: 0.1, y: 0.1 }],
+    }]} currentUserId={1} />);
+
+    expect(stroke).toHaveBeenCalledTimes(1);
+    expect(lineTo).toHaveBeenCalledTimes(2);
   });
 
   it('hides host-only actions from participants', () => {
