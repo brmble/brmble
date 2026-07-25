@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDuelQueueState, type DuelQueueSnapshot } from './useDuelQueueState';
 import { useGameState } from './useGameState';
 
@@ -79,6 +79,8 @@ describe('useDuelQueueState', () => {
     vi.clearAllMocks();
     api.getQueueSnapshot.mockReturnValue(new Promise(() => {}));
   });
+
+  afterEach(() => vi.useRealTimers());
 
   function connect(channelId = 2) {
     emit('voice.connected', { channelId });
@@ -193,6 +195,73 @@ describe('useDuelQueueState', () => {
     await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 1, 1, queued, t3));
     expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 1, queued, t3));
+  });
+
+  it('automatically retries failed recovery and then accepts newer pushes', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(snapshot(2, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    emit('game.queueSnapshot', snapshot(2, 9, 9, queued));
+    expect(result.current.byChannel.size).toBe(0);
+
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0));
+    emit('game.queueSnapshot', snapshot(2, 1, 1, queued));
+    expect(result.current.byChannel.get(2)?.queue).toEqual(queued);
+  });
+
+  it('cancels an old-channel retry on movement', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(snapshot(7, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    expect(result.current.byChannel.has(2)).toBe(false);
+    expect(result.current.byChannel.has(7)).toBe(true);
+  });
+
+  it('cancels retry timers on reset and unmount', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot.mockRejectedValue(new Error('offline'));
+    const first = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => first.result.current.requestSnapshot());
+    act(() => first.result.current.reset());
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(1);
+
+    connect(2);
+    await act(() => first.result.current.requestSnapshot());
+    first.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('schedules only one retry timer per repeated failure', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot.mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    expect(vi.getTimerCount()).toBe(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it('ignores pushes for a moved-to channel until its automatic recovery completes', async () => {
@@ -315,17 +384,15 @@ describe('useDuelQueueState', () => {
     consoleError.mockRestore();
   });
 
-  it('lets only the latest overlapping snapshot request apply', async () => {
-    const first = deferred<DuelQueueSnapshot>();
-    const second = deferred<DuelQueueSnapshot>();
-    api.getQueueSnapshot.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  it('coalesces overlapping snapshot requests', async () => {
+    const recovery = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
     const { result } = renderHook(() => useDuelQueueState());
     const firstRequest = result.current.requestSnapshot();
     const secondRequest = result.current.requestSnapshot();
-    await act(async () => second.resolve(snapshot(2, 1, 1, queued)));
-    await secondRequest;
-    await act(async () => first.resolve(snapshot(3, 1, 1, queued)));
-    await firstRequest;
+    expect(api.getQueueSnapshot).toHaveBeenCalledOnce();
+    await act(async () => recovery.resolve(snapshot(2, 1, 1, queued)));
+    await Promise.all([firstRequest, secondRequest]);
     expect([...result.current.byChannel.keys()]).toEqual([2]);
   });
 

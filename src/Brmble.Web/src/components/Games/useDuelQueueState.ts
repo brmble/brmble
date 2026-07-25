@@ -48,6 +48,16 @@ export function useDuelQueueState(): DuelQueueState {
     revision: number;
   }>());
   const recoveryStatusRef = useRef(new Map<number, 'recovering' | 'recovered'>());
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const requestSnapshotRef = useRef<() => Promise<void>>(async () => {});
+
+  const cancelRecovery = useCallback(() => {
+    if (retryTimerRef.current != null) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    inFlightRef.current = null;
+    requestEpochRef.current++;
+  }, []);
 
   const applySnapshot = useCallback((snapshot: DuelQueueSnapshot) => {
     if (!acceptingSnapshotsRef.current
@@ -74,43 +84,59 @@ export function useDuelQueueState(): DuelQueueState {
     });
   }, []);
 
-  const requestSnapshot = useCallback(async () => {
+  const requestSnapshot = useCallback((): Promise<void> => {
+    if (retryTimerRef.current != null) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    if (inFlightRef.current) return inFlightRef.current;
     acceptingSnapshotsRef.current = true;
     const epoch = ++requestEpochRef.current;
     const requestedChannelId = currentChannelIdRef.current;
     if (requestedChannelId != null) recoveryStatusRef.current.set(requestedChannelId, 'recovering');
-    try {
-      const snapshot = await gamesApi.getQueueSnapshot();
-      if (!mountedRef.current || requestEpochRef.current !== epoch) return;
-      if (snapshot.schemaVersion !== 1) return;
-      const generatedAt = Date.parse(snapshot.generatedAt);
-      if (!Number.isFinite(generatedAt)) return;
-      if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
-      if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
-      currentChannelIdRef.current = snapshot.channelId;
-      deniedChannelIdsRef.current.delete(snapshot.channelId);
-      versionsRef.current.set(snapshot.channelId, {
-        generation: snapshot.generation,
-        revision: snapshot.revision,
-      });
-      recoveryBaselinesRef.current.set(snapshot.channelId, {
-        generatedAt,
-        generation: snapshot.generation,
-        revision: snapshot.revision,
-      });
-      recoveryStatusRef.current.set(snapshot.channelId, 'recovered');
-      setByChannel(new Map([[snapshot.channelId, snapshot]]));
-    } catch {
-      // Queue snapshots are advisory and a later push or channel change retries them.
-    }
-  }, [applySnapshot]);
+    let request!: Promise<void>;
+    request = (async () => {
+      try {
+        const snapshot = await gamesApi.getQueueSnapshot();
+        if (!mountedRef.current || requestEpochRef.current !== epoch) return;
+        if (snapshot.schemaVersion !== 1) return;
+        const generatedAt = Date.parse(snapshot.generatedAt);
+        if (!Number.isFinite(generatedAt)) return;
+        if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
+        if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
+        currentChannelIdRef.current = snapshot.channelId;
+        deniedChannelIdsRef.current.delete(snapshot.channelId);
+        versionsRef.current.set(snapshot.channelId, {
+          generation: snapshot.generation,
+          revision: snapshot.revision,
+        });
+        recoveryBaselinesRef.current.set(snapshot.channelId, {
+          generatedAt,
+          generation: snapshot.generation,
+          revision: snapshot.revision,
+        });
+        recoveryStatusRef.current.set(snapshot.channelId, 'recovered');
+        setByChannel(new Map([[snapshot.channelId, snapshot]]));
+      } catch {
+        if (mountedRef.current && requestEpochRef.current === epoch && retryTimerRef.current == null) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            void requestSnapshotRef.current();
+          }, 1000);
+        }
+      } finally {
+        if (inFlightRef.current === request) inFlightRef.current = null;
+      }
+    })();
+    inFlightRef.current = request;
+    return request;
+  }, []);
+  requestSnapshotRef.current = requestSnapshot;
 
   useEffect(() => {
     mountedRef.current = true;
     const handleSnapshot = (data: unknown) => applySnapshot(data as DuelQueueSnapshot);
     const handleConnected = (data: unknown) => {
       const { channelId } = data as { channelId?: number };
-      requestEpochRef.current++;
+      cancelRecovery();
       acceptingSnapshotsRef.current = true;
       currentChannelIdRef.current = channelId ?? null;
       deniedChannelIdsRef.current.clear();
@@ -122,7 +148,7 @@ export function useDuelQueueState(): DuelQueueState {
     const handleChannelChanged = (data: unknown) => {
       const d = data as { channelId?: number; previousChannelId?: number };
       if (!acceptingSnapshotsRef.current) return;
-      requestEpochRef.current++;
+      cancelRecovery();
       if (d.previousChannelId != null && d.previousChannelId !== d.channelId) {
         deniedChannelIdsRef.current.add(d.previousChannelId);
         setByChannel(previous => {
@@ -158,7 +184,7 @@ export function useDuelQueueState(): DuelQueueState {
     }
     return () => {
       mountedRef.current = false;
-      requestEpochRef.current++;
+      cancelRecovery();
       bridge.off('game.queueSnapshot', handleSnapshot);
       bridge.off('voice.connected', handleConnected);
       bridge.off('voice.channelChanged', handleChannelChanged);
@@ -168,7 +194,7 @@ export function useDuelQueueState(): DuelQueueState {
         bridge.off(type, handleRematchTerminal);
       }
     };
-  }, [applySnapshot, requestSnapshot]);
+  }, [applySnapshot, cancelRecovery, requestSnapshot]);
 
   const contain = useCallback((request: Promise<void>) => { void request.catch(() => {}); }, []);
   const respondReady = useCallback((reservationId: number, ready: boolean) => {
@@ -184,7 +210,7 @@ export function useDuelQueueState(): DuelQueueState {
     contain(gamesApi.cancelOffer(offerId));
   }, [contain]);
   const reset = useCallback(() => {
-    requestEpochRef.current++;
+    cancelRecovery();
     acceptingSnapshotsRef.current = false;
     currentChannelIdRef.current = null;
     deniedChannelIdsRef.current.clear();
@@ -193,7 +219,7 @@ export function useDuelQueueState(): DuelQueueState {
     setByChannel(new Map());
     setIncomingRematch(null);
     setOutgoingRematch(null);
-  }, []);
+  }, [cancelRecovery]);
 
   return {
     byChannel,
