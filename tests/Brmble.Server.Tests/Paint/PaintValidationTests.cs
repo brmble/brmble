@@ -7,6 +7,23 @@ namespace Brmble.Server.Tests.Paint;
 public sealed class PaintValidationTests
 {
     [TestMethod]
+    public void ValidateStrokeInput_AcceptsDocumentedThinWidthAndPalette()
+    {
+        var input = new PaintStrokeInput(
+            Guid.NewGuid(),
+            0,
+            PaintTool.Pen,
+            "#FFFFFF",
+            (PaintStrokeWidth)3,
+            new[] { new PaintPoint(0.1, 0.2, 0.5) });
+
+        var result = PaintValidation.ValidateStrokeInput(input);
+
+        Assert.AreEqual("#ffffff", result.Color);
+        Assert.AreEqual(3, (int)result.Width);
+    }
+
+    [TestMethod]
     public void ValidateStrokeInput_NormalizesPenColor()
     {
         var input = new PaintStrokeInput(

@@ -8,7 +8,7 @@ public enum PaintTool
 
 public enum PaintStrokeWidth
 {
-    Thin = 2,
+    Thin = 3,
     Medium = 6,
     Wide = 12,
 }

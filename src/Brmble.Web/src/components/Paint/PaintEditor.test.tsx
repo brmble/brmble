@@ -23,7 +23,7 @@ describe('PaintEditor', () => {
 
     expect(paintApi.sendPreview).toHaveBeenCalledTimes(2);
     expect(paintApi.commitStroke).toHaveBeenCalledTimes(1);
-    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ generation: 0, tool: 'pen', points: expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]) }));
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({ generation: 0, tool: 'pen', color: '#111827', width: 6, points: expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]) }));
     const correlationIds = [...paintApi.sendPreview.mock.calls, ...paintApi.commitStroke.mock.calls].map(([, stroke]) => stroke.correlationId);
     expect([...new Set(correlationIds)]).toHaveLength(1);
     expect(correlationIds[0]).toEqual(expect.any(String));
