@@ -32,6 +32,28 @@ export interface DuelQueueState {
   reset: () => void;
 }
 
+function validateRecoverySnapshot(
+  value: unknown,
+  expectedChannelId: number | null,
+  currentChannelId: number | null,
+): { snapshot: DuelQueueSnapshot; generatedAt: number } | null {
+  if (value == null || typeof value !== 'object') return null;
+  const snapshot = value as Partial<DuelQueueSnapshot>;
+  const generatedAt = typeof snapshot.generatedAt === 'string' ? Date.parse(snapshot.generatedAt) : NaN;
+  if (snapshot.schemaVersion !== 1
+    || typeof snapshot.channelId !== 'number'
+    || typeof snapshot.generation !== 'number'
+    || typeof snapshot.revision !== 'number'
+    || !Number.isFinite(generatedAt)
+    || !Array.isArray(snapshot.queue)
+    || (snapshot.active != null && !Array.isArray(snapshot.active.players))
+    || (snapshot.readyCheck != null && !Array.isArray(snapshot.readyCheck.players))
+    || snapshot.queue.some(item => item == null || !Array.isArray(item.players) || !Array.isArray(item.eta?.segments))
+    || (expectedChannelId != null && snapshot.channelId !== expectedChannelId)
+    || (currentChannelId != null && snapshot.channelId !== currentChannelId)) return null;
+  return { snapshot: snapshot as DuelQueueSnapshot, generatedAt };
+}
+
 export function useDuelQueueState(): DuelQueueState {
   const [byChannel, setByChannel] = useState<Map<number, DuelQueueSnapshot>>(() => new Map());
   const [incomingRematch, setIncomingRematch] = useState<RematchOffer | null>(null);
@@ -94,14 +116,23 @@ export function useDuelQueueState(): DuelQueueState {
     if (requestedChannelId != null) recoveryStatusRef.current.set(requestedChannelId, 'recovering');
     let request!: Promise<void>;
     request = (async () => {
+      const scheduleRetry = () => {
+        if (mountedRef.current && requestEpochRef.current === epoch && retryTimerRef.current == null) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            void requestSnapshotRef.current();
+          }, 1000);
+        }
+      };
       try {
-        const snapshot = await gamesApi.getQueueSnapshot();
+        const response: unknown = await gamesApi.getQueueSnapshot();
         if (!mountedRef.current || requestEpochRef.current !== epoch) return;
-        if (snapshot.schemaVersion !== 1) return;
-        const generatedAt = Date.parse(snapshot.generatedAt);
-        if (!Number.isFinite(generatedAt)) return;
-        if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
-        if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
+        const validated = validateRecoverySnapshot(response, requestedChannelId, currentChannelIdRef.current);
+        if (!validated) {
+          scheduleRetry();
+          return;
+        }
+        const { snapshot, generatedAt } = validated;
         currentChannelIdRef.current = snapshot.channelId;
         deniedChannelIdsRef.current.delete(snapshot.channelId);
         versionsRef.current.set(snapshot.channelId, {
@@ -116,12 +147,7 @@ export function useDuelQueueState(): DuelQueueState {
         recoveryStatusRef.current.set(snapshot.channelId, 'recovered');
         setByChannel(new Map([[snapshot.channelId, snapshot]]));
       } catch {
-        if (mountedRef.current && requestEpochRef.current === epoch && retryTimerRef.current == null) {
-          retryTimerRef.current = setTimeout(() => {
-            retryTimerRef.current = null;
-            void requestSnapshotRef.current();
-          }, 1000);
-        }
+        scheduleRetry();
       } finally {
         if (inFlightRef.current === request) inFlightRef.current = null;
       }

@@ -264,6 +264,41 @@ describe('useDuelQueueState', () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
+  it('retries an old-channel recovery response and accepts the current channel', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot
+      .mockResolvedValueOnce(snapshot(2, 1, 0))
+      .mockResolvedValueOnce(snapshot(7, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(7);
+    await act(() => result.current.requestSnapshot());
+    expect(result.current.byChannel.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    expect(result.current.byChannel.has(7)).toBe(true);
+  });
+
+  it.each([
+    ['invalid schema', { ...snapshot(2, 1, 0), schemaVersion: 2 }],
+    ['malformed generatedAt', { ...snapshot(2, 1, 0), generatedAt: 'bad' }],
+    ['null queue', { ...snapshot(2, 1, 0), queue: null }],
+  ])('retries a recovery response with %s exactly once', async (_name, invalid) => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot
+      .mockResolvedValueOnce(invalid as unknown as DuelQueueSnapshot)
+      .mockResolvedValueOnce(snapshot(2, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    expect(result.current.byChannel.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(result.current.byChannel.has(2)).toBe(true);
+  });
+
   it('ignores pushes for a moved-to channel until its automatic recovery completes', async () => {
     const recovery = deferred<DuelQueueSnapshot>();
     api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
@@ -357,6 +392,7 @@ describe('useDuelQueueState', () => {
   });
 
   it('ignores an old request epoch and rebases from the current recovery response', async () => {
+    vi.useFakeTimers();
     const oldRequest = deferred<DuelQueueSnapshot>();
     const currentRequest = deferred<DuelQueueSnapshot>();
     api.getQueueSnapshot.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(currentRequest.promise);
@@ -367,6 +403,7 @@ describe('useDuelQueueState', () => {
     await act(async () => oldRequest.resolve(snapshot(2, 9, 9, queued)));
     await old;
     expect(result.current.byChannel.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
     await act(async () => currentRequest.resolve(snapshot(7, 0, 0, queued)));
     expect(result.current.byChannel.get(7)).toEqual(snapshot(7, 0, 0, queued));
   });
