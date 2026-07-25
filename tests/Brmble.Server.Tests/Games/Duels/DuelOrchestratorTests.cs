@@ -53,12 +53,16 @@ internal sealed class TestPublisher : IGameEventPublisher
 {
     public List<(IReadOnlySet<long> Users, object Message)> UserMessages { get; } = [];
     public string? FailType { get; set; }
-    public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
+    public string? BlockType { get; set; }
+    public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
     {
+        var type = message.GetType().GetProperty("type")?.GetValue(message) as string;
+        if (type == BlockType) { Blocked.TrySetResult(); await Release.Task; }
         lock (UserMessages) UserMessages.Add((userIds, message));
-        if (message.GetType().GetProperty("type")?.GetValue(message) as string == FailType)
+        if (type == FailType)
             throw new InvalidOperationException("publication failed");
-        return Task.CompletedTask;
     }
     public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
 }
@@ -421,9 +425,63 @@ public class DuelOrchestratorTests
         await sut.CancelOfferAsync(offer.OfferId!.Value, 100);
 
         var cancellation = publisher.UserMessages.Single(x =>
-            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.declined");
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.expired");
         CollectionAssert.AreEquivalent(new long[] { 100, 200 }, cancellation.Users.ToArray());
         Assert.IsFalse(cancellation.Users.Contains(300));
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.declined"));
+    }
+
+    [TestMethod]
+    public async Task RecipientCancellation_PublishesDeclinedWithoutExpired()
+    {
+        var (sut, presence, publisher, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+
+        await sut.CancelOfferAsync(offer.OfferId!.Value, 200);
+
+        Assert.IsTrue(publisher.UserMessages.Any(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.declined"));
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.expired"));
+    }
+
+    [TestMethod]
+    public async Task Challenge_PublishesPendingBeforeBlockedTargetInvite()
+    {
+        var (sut, presence, publisher, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        publisher.BlockType = "game.invited";
+
+        var challenge = sut.CreateChallengeAsync(10, 20, "test", null);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        CollectionAssert.AreEqual(new[] { "game.invitePending" },
+            publisher.UserMessages.Select(x => x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string).ToArray());
+        publisher.Release.TrySetResult();
+        Assert.IsTrue((await challenge).Success);
+        CollectionAssert.AreEqual(new[] { "game.invitePending", "game.invited" },
+            publisher.UserMessages.Select(x => x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string).ToArray());
+    }
+
+    [TestMethod]
+    public async Task TargetInvitePublicationFailure_CompensatesPendingAndReleasesCommitments()
+    {
+        var (sut, presence, publisher, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        publisher.FailType = "game.invited";
+
+        var failed = await sut.CreateChallengeAsync(10, 20, "test", null);
+        publisher.FailType = null;
+        var replacement = await sut.CreateChallengeAsync(10, 30, "test", null);
+
+        Assert.IsFalse(failed.Success);
+        Assert.IsTrue(replacement.Success);
+        var types = publisher.UserMessages.Select(x =>
+            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string).ToArray();
+        CollectionAssert.Contains(types, "game.invitePending");
+        CollectionAssert.Contains(types, "game.expired");
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

@@ -72,23 +72,32 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
 
         try
         {
-            await _publisher.PublishToUsersAsync(new HashSet<long> { target.UserId }, new
-            {
-                type = "game.invited", offerId = offer.Id, matchId = offer.Id,
-                gameType = configuration.GameType, from = inviter.SessionId,
-                inviteMs = (int)OfferLifetime.TotalMilliseconds,
-            });
             await _publisher.PublishToUsersAsync(new HashSet<long> { inviter.UserId }, new
             {
                 type = "game.invitePending", offerId = offer.Id, matchId = offer.Id,
                 gameType = configuration.GameType, target = target.SessionId,
                 inviteMs = (int)OfferLifetime.TotalMilliseconds,
             });
+            await _publisher.PublishToUsersAsync(new HashSet<long> { target.UserId }, new
+            {
+                type = "game.invited", offerId = offer.Id, matchId = offer.Id,
+                gameType = configuration.GameType, from = inviter.SessionId,
+                inviteMs = (int)OfferLifetime.TotalMilliseconds,
+            });
         }
         catch
         {
-            lock (_gate) RemoveOffer(offer);
-            throw;
+            var removed = false;
+            lock (_gate)
+            {
+                if (_offers.TryGetValue(offer.Id, out var current) && ReferenceEquals(current, offer))
+                {
+                    RemoveOffer(offer);
+                    removed = true;
+                }
+            }
+            if (removed) await PublishCancellationBestEffortAsync(offer, "expired");
+            return Reject("The challenge could not be delivered.", DuelRejectReason.NotPresent);
         }
 
         _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
@@ -171,7 +180,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return Reject("Only a participant may cancel this offer.", DuelRejectReason.NotParticipant);
             RemoveOffer(offer);
         }
-        await PublishCancellationAsync(offer, "declined");
+        await PublishCancellationAsync(offer,
+            requesterUserId == offer.Inviter.UserId ? "expired" : "declined");
         return Success(offerId, null);
     }
 
@@ -319,6 +329,12 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             matchId = offer.Id,
             reason,
         });
+
+    private async Task PublishCancellationBestEffortAsync(Offer offer, string reason)
+    {
+        try { await PublishCancellationAsync(offer, reason); }
+        catch { }
+    }
 
     private async Task PublishBestEffortAsync(IReadOnlySet<long> userIds, object message)
     {

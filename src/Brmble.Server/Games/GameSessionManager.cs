@@ -134,6 +134,13 @@ public sealed class GameSessionManager : IDuelMatchRunner
             var views = match.Players
                 .Select(player => (object)new { userId = player, view = engine.PublicView(match.State, player) })
                 .ToArray();
+            lock (match.Lock)
+            {
+                if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
+                    return StartInterrupted(matchId);
+                match.Status = "live";
+                StartTurnTimer(match, TurnTimeout);
+            }
             await _publisher.PublishToUsersAsync(RouteSet(match), new
             {
                 type = "game.started",
@@ -144,26 +151,18 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 penalty = false,
                 views,
             });
-            if (!IsMatchStarting(match))
+            if (!IsMatchLiveReference(match))
                 return StartInterrupted(matchId);
 
-            await PublishDuelStateAsync(match, active: true);
-            if (!IsMatchStarting(match))
+            await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: true));
+            if (!IsMatchLiveReference(match))
                 return StartInterrupted(matchId);
 
             var startLine = engine.StartFeedLine(match.State, sid => NameOf(match, sid))
                 ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
-            await PublishFeedAsync(match, startLine);
-            if (!IsMatchStarting(match))
+            await PublishAdvisoryAsync(() => PublishFeedAsync(match, startLine));
+            if (!IsMatchLiveReference(match))
                 return StartInterrupted(matchId);
-
-            lock (match.Lock)
-            {
-                if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
-                    return StartInterrupted(matchId);
-                match.Status = "live";
-                StartTurnTimer(match, TurnTimeout);
-            }
             return new GameStartResult(true, matchId, startedAt, null);
         }
         catch (Exception ex)
@@ -171,6 +170,12 @@ public sealed class GameSessionManager : IDuelMatchRunner
             RemoveRuntime(match);
             return new GameStartResult(false, 0, null, ex.Message);
         }
+    }
+
+    private async Task PublishAdvisoryAsync(Func<Task> publish)
+    {
+        try { await publish(); }
+        catch { }
     }
 
     // Maps a match's Mumble session players to the stable db user ids used for
@@ -356,12 +361,12 @@ public sealed class GameSessionManager : IDuelMatchRunner
             await _publisher.PublishToUsersAsync(
                 RouteSet(match),
                 new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId, draw = isDraw });
-            await PublishDuelStateAsync(match, active: false);
+            await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: false));
             var feedText = match.Engine.EndFeedLine(match.State, sid => NameOf(match, sid))
                 ?? (winner is not null
                     ? $"🏆 {NameOf(match, winner.UserId)} wins!"
                     : $"{GameName(match.GameType)} over.");
-            await PublishFeedAsync(match, feedText);
+            await PublishAdvisoryAsync(() => PublishFeedAsync(match, feedText));
         }
         finally
         {
@@ -434,9 +439,9 @@ public sealed class GameSessionManager : IDuelMatchRunner
             await _publisher.PublishToUsersAsync(
                 RouteSet(match),
                 new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
-            await PublishDuelStateAsync(match, active: false);
-            await PublishFeedAsync(match,
-                $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");
+            await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: false));
+            await PublishAdvisoryAsync(() => PublishFeedAsync(match,
+                $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!"));
         }
         finally
         {
@@ -447,10 +452,10 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private static string NameOf(LiveMatch match, long sessionId)
         => match.SessionToName.TryGetValue(sessionId, out var name) ? name : $"user {sessionId}";
 
-    private bool IsMatchStarting(LiveMatch match)
+    private bool IsMatchLiveReference(LiveMatch match)
     {
         lock (match.Lock)
-            return match.Status == "starting"
+            return match.Status == "live"
                 && _matches.TryGetValue(match.MatchId, out var current)
                 && ReferenceEquals(current, match);
     }
@@ -499,7 +504,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
         foreach (var e in events)
         {
             var text = match.Engine.EventFeedLine(e, sid => NameOf(match, sid));
-            if (text is not null) await PublishFeedAsync(match, text);
+            if (text is not null) await PublishAdvisoryAsync(() => PublishFeedAsync(match, text));
         }
     }
 
