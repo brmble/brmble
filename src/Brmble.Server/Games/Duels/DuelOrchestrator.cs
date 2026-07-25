@@ -316,6 +316,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         catch
         {
             var removed = false;
+            var awaitAcceptedReplay = false;
             lock (_gate)
             {
                 if (OwnsOffer(offer))
@@ -324,21 +325,35 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     removed = true;
                 }
                 else if (offer.AcceptedReservationId is not null)
-                    return Success(offer.Id, offer.AcceptedReservationId);
+                {
+                    awaitAcceptedReplay = true;
+                }
             }
             if (removed) await PublishCancellationBestEffortAsync(offer, "deliveryFailed");
+            if (awaitAcceptedReplay)
+            {
+                await PublishAcceptedReplayBestEffortAsync(offer);
+                return Success(offer.Id, offer.AcceptedReservationId);
+            }
             return Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
         }
 
         string? terminalReason = null;
+        var acceptedReplay = false;
         lock (_gate)
         {
             if (!OwnsOffer(offer))
             {
                 if (offer.AcceptedReservationId is not null)
-                    return Success(offer.Id, offer.AcceptedReservationId);
-                terminalReason = offer.TerminalReason ?? "stale";
+                    acceptedReplay = true;
+                else
+                    terminalReason = offer.TerminalReason ?? "stale";
             }
+        }
+        if (acceptedReplay)
+        {
+            await PublishAcceptedReplayBestEffortAsync(offer);
+            return Success(offer.Id, offer.AcceptedReservationId);
         }
         if (terminalReason is not null)
         {
@@ -781,6 +796,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         type,
         offerId = offer.Id,
         sourceMatchId = offer.SourceMatchId,
+        reservationId = offer.AcceptedReservationId,
         fromUserId = offer.Inviter.UserId,
         fromSessionId = offer.Inviter.SessionId,
         toUserId,
@@ -793,6 +809,10 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         inviteMs = (int)OfferLifetime.TotalMilliseconds,
         reason,
     };
+
+    private Task PublishAcceptedReplayBestEffortAsync(Offer offer) =>
+        PublishBestEffortAsync(ParticipantIds(offer), RematchMessage(
+            "game.rematchAccepted", offer, offer.Target.UserId, "accepted"));
 
     private void RetainCompletedSource(MatchCompletion completion)
     {

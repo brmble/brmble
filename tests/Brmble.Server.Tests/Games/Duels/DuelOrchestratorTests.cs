@@ -1221,6 +1221,39 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task RematchAcceptedWhileActionablePublicationBlocked_ReplaysAcceptedAfterStaleOffer()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchOffered";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var pending = publisher.UserMessages.Single(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchPending");
+        var offerId = MessageValue<long>(pending.Message, "offerId");
+        var accepted = await sut.RespondToOfferAsync(offerId, 200, true);
+        publisher.Release.TrySetResult();
+        var result = await request;
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(accepted.ReservationId, result.ReservationId);
+        foreach (var userId in new long[] { 100, 200 })
+        {
+            var events = publisher.UserMessages
+                .Where(x => x.Users.Contains(userId))
+                .Select(x => x.Message)
+                .Where(x => MessageValue<string>(x, "type")?.StartsWith("game.rematch", StringComparison.Ordinal) == true)
+                .ToArray();
+            Assert.AreEqual("game.rematchAccepted", MessageValue<string>(events[^1], "type"));
+            Assert.AreEqual(offerId, MessageValue<long>(events[^1], "offerId"));
+            Assert.AreEqual(91L, MessageValue<long>(events[^1], "sourceMatchId"));
+            Assert.AreEqual(accepted.ReservationId, MessageValue<long?>(events[^1], "reservationId"));
+        }
+    }
+
+    [TestMethod]
     public async Task RematchRejectsNonparticipantMissingExpiredUnavailableAndCommittedSources()
     {
         var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
