@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.Games;
 
@@ -29,7 +30,7 @@ public enum InviteRejectReason { None, Blocked, ChannelBusy }
 
 public record InviteResult(bool Success, long MatchId, string? Error, InviteRejectReason Reason = InviteRejectReason.None);
 
-public sealed class GameSessionManager
+public sealed class GameSessionManager : IDuelMatchRunner
 {
     private static readonly TimeSpan InviteTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(15);
@@ -40,10 +41,12 @@ public sealed class GameSessionManager
     private readonly IRandomSource _rng;
     private readonly IGamePresence _presence;
     private readonly IGameEventPublisher _publisher;
-    private readonly GameRepository _repository;
+    private readonly ICompletedMatchSink _completedMatches;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
+    [Obsolete("Use DuelOrchestrator after Task 5")]
     private readonly ConcurrentDictionary<long, long> _userToMatch = new();
+    private readonly ConcurrentDictionary<long, long> _stableUserToMatch = new();
     private long _matchIdCounter;
 
     public GameSessionManager(
@@ -51,18 +54,19 @@ public sealed class GameSessionManager
         IRandomSource rng,
         IGamePresence presence,
         IGameEventPublisher publisher,
-        GameRepository repository)
+        ICompletedMatchSink completedMatches)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
         _presence = presence;
         _publisher = publisher;
-        _repository = repository;
+        _completedMatches = completedMatches;
     }
 
     private sealed class LiveMatch
     {
         public required long MatchId;
+        public required long ReservationId;
         public required string GameType;
         public required IGameEngine Engine;
         public required object State;
@@ -70,6 +74,9 @@ public sealed class GameSessionManager
         public required IReadOnlyDictionary<long, long> SessionToUser; // session id -> stable db user id
         public required IReadOnlyDictionary<long, string> SessionToName; // session id -> display name
         public required int ChannelId;
+        public required DuelPlayer PlayerOne;
+        public required DuelPlayer PlayerTwo;
+        public required DuelConfiguration Configuration;
         public string Status = "pending"; // pending | live | done
         public DateTimeOffset StartedAt;
         public Timer? InviteTimer;
@@ -81,6 +88,88 @@ public sealed class GameSessionManager
         public readonly object Lock = new();
     }
 
+    public string RunnerKey => "discrete";
+    public event Func<MatchCompletion, Task>? MatchCompleted;
+
+    public async Task<GameStartResult> StartAsync(DuelReservation reservation)
+    {
+        if (!_engines.TryGetValue(reservation.Configuration.GameType, out var engine))
+            return new GameStartResult(false, 0, null,
+                $"Unknown game type '{reservation.Configuration.GameType}'.");
+
+        var matchId = Interlocked.Increment(ref _matchIdCounter);
+        var startedAt = DateTimeOffset.UtcNow;
+        var match = new LiveMatch
+        {
+            MatchId = matchId,
+            ReservationId = reservation.ReservationId,
+            GameType = reservation.Configuration.GameType,
+            Engine = engine,
+            State = engine.InitialState(
+                [new GamePlayer(reservation.PlayerOne.SessionId), new GamePlayer(reservation.PlayerTwo.SessionId)],
+                _rng, reservation.Configuration.Options),
+            Players = [reservation.PlayerOne.SessionId, reservation.PlayerTwo.SessionId],
+            SessionToUser = new Dictionary<long, long>
+            {
+                [reservation.PlayerOne.SessionId] = reservation.PlayerOne.UserId,
+                [reservation.PlayerTwo.SessionId] = reservation.PlayerTwo.UserId,
+            },
+            SessionToName = new Dictionary<long, string>
+            {
+                [reservation.PlayerOne.SessionId] = reservation.PlayerOne.DisplayName,
+                [reservation.PlayerTwo.SessionId] = reservation.PlayerTwo.DisplayName,
+            },
+            ChannelId = reservation.ChannelId,
+            PlayerOne = reservation.PlayerOne,
+            PlayerTwo = reservation.PlayerTwo,
+            Configuration = reservation.Configuration,
+            Status = "live",
+            StartedAt = startedAt,
+        };
+
+        if (!_stableUserToMatch.TryAdd(reservation.PlayerOne.UserId, matchId))
+            return new GameStartResult(false, 0, null, "Player one already has an active game.");
+        if (!_stableUserToMatch.TryAdd(reservation.PlayerTwo.UserId, matchId))
+        {
+            _stableUserToMatch.TryRemove(reservation.PlayerOne.UserId, out _);
+            return new GameStartResult(false, 0, null, "Player two already has an active game.");
+        }
+        if (!_matches.TryAdd(matchId, match))
+        {
+            RemoveRuntime(match);
+            return new GameStartResult(false, 0, null, "The match could not be started.");
+        }
+
+        try
+        {
+            var views = match.Players
+                .Select(player => (object)new { userId = player, view = engine.PublicView(match.State, player) })
+                .ToArray();
+            await _publisher.PublishToUsersAsync(RouteSet(match), new
+            {
+                type = "game.started",
+                matchId,
+                gameType = match.GameType,
+                firstTurn = IsSimultaneous(match) ? (long?)null : CurrentPlayer(match),
+                turnMs = (int)TurnTimeout.TotalMilliseconds,
+                penalty = false,
+                views,
+            });
+            await PublishDuelStateAsync(match, active: true);
+            var startLine = engine.StartFeedLine(match.State, sid => NameOf(match, sid))
+                ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
+            await PublishFeedAsync(match, startLine);
+            StartTurnTimer(match, TurnTimeout);
+            return new GameStartResult(true, matchId, startedAt, null);
+        }
+        catch (Exception ex)
+        {
+            RemoveRuntime(match);
+            return new GameStartResult(false, 0, null, ex.Message);
+        }
+    }
+
+    [Obsolete("Use DuelOrchestrator after Task 5")]
     public async Task<InviteResult> InviteAsync(long inviterSession, long targetSession, string gameType,
         IReadOnlyDictionary<string, object?>? options = null)
     {
@@ -118,6 +207,7 @@ public sealed class GameSessionManager
         var match = new LiveMatch
         {
             MatchId = matchId,
+            ReservationId = 0,
             GameType = gameType,
             Engine = engine,
             State = engine.InitialState(players, _rng, options),
@@ -133,6 +223,16 @@ public sealed class GameSessionManager
                 [targetSession] = _presence.GetDisplayName(targetSession) ?? $"user {targetSession}",
             },
             ChannelId = inviterChannel,
+            PlayerOne = new DuelPlayer(inviterSession, inviterUserId,
+                _presence.GetDisplayName(inviterSession) ?? $"user {inviterSession}"),
+            PlayerTwo = new DuelPlayer(targetSession, targetUserId,
+                _presence.GetDisplayName(targetSession) ?? $"user {targetSession}"),
+            Configuration = new DuelConfiguration(
+                gameType,
+                engine.MatchFormat(engine.NormalizeOptions(options)),
+                engine.RulesetVersion,
+                engine.NormalizeOptions(options),
+                RunnerKey),
         };
 
         if (!_userToMatch.TryAdd(inviterSession, matchId))
@@ -140,6 +240,20 @@ public sealed class GameSessionManager
         if (!_userToMatch.TryAdd(targetSession, matchId))
         {
             _userToMatch.TryRemove(inviterSession, out _);
+            return new InviteResult(false, 0, "The other player already has an active game.");
+        }
+
+        if (!_stableUserToMatch.TryAdd(inviterUserId, matchId))
+        {
+            _userToMatch.TryRemove(inviterSession, out _);
+            _userToMatch.TryRemove(targetSession, out _);
+            return new InviteResult(false, 0, "You already have an active game.");
+        }
+        if (!_stableUserToMatch.TryAdd(targetUserId, matchId))
+        {
+            _stableUserToMatch.TryRemove(inviterUserId, out _);
+            _userToMatch.TryRemove(inviterSession, out _);
+            _userToMatch.TryRemove(targetSession, out _);
             return new InviteResult(false, 0, "The other player already has an active game.");
         }
 
@@ -190,6 +304,7 @@ public sealed class GameSessionManager
         return HandleTurnTimeoutAsync(matchId, generation);
     }
 
+    [Obsolete("Use DuelOrchestrator after Task 5")]
     public async Task RespondAsync(long matchId, long targetSession, bool accept)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
@@ -253,6 +368,8 @@ public sealed class GameSessionManager
         // The pending invite made the channel busy; clear the badge now that it's gone.
         await PublishDuelStateAsync(match, active: false);
         foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
+        _stableUserToMatch.TryRemove(match.PlayerOne.UserId, out _);
+        _stableUserToMatch.TryRemove(match.PlayerTwo.UserId, out _);
         _matches.TryRemove(matchId, out _);
     }
 
@@ -406,46 +523,52 @@ public sealed class GameSessionManager
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
-            Format: match.Engine.MatchFormat(match.State),
+            Format: match.Configuration.Format,
+            RulesetVersion: match.Configuration.RulesetVersion,
             Outcome: isDraw ? "draw" : "decided",
             AbandonReason: null,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
             Participants: persistedParticipants,
             MetadataJson: BuildMatchMetadata(match));
-
-        await _repository.SaveCompletedMatchAsync(completed);
-
         var winner = isDraw ? null : outcome.Participants.FirstOrDefault(p => p.Placement == 1);
+        RemoveRuntime(match);
 
-        // winner.UserId is still a Mumble session id here (translation to db ids
-        // happens in persistedParticipants above), which is what the client compares
-        // against its own session id — so emit it directly as winnerId.
-        await _publisher.PublishToUsersAsync(
-            RouteSet(match),
-            new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId, draw = isDraw });
-
-        await PublishDuelStateAsync(match, active: false);
-
-        var feedText = match.Engine.EndFeedLine(match.State, sid => NameOf(match, sid))
-            ?? (winner is not null
-                ? $"🏆 {NameOf(match, winner.UserId)} wins!"
-                : $"{GameName(match.GameType)} over.");
-        await PublishFeedAsync(match, feedText);
-
-        foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
-        _matches.TryRemove(match.MatchId, out _);
+        try
+        {
+            _completedMatches.Enqueue(completed);
+            // winner.UserId remains a Mumble session id for the client view.
+            await _publisher.PublishToUsersAsync(
+                RouteSet(match),
+                new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId, draw = isDraw });
+            await PublishDuelStateAsync(match, active: false);
+            var feedText = match.Engine.EndFeedLine(match.State, sid => NameOf(match, sid))
+                ?? (winner is not null
+                    ? $"🏆 {NameOf(match, winner.UserId)} wins!"
+                    : $"{GameName(match.GameType)} over.");
+            await PublishFeedAsync(match, feedText);
+        }
+        finally
+        {
+            await RaiseMatchCompletedAsync(match, completed.EndedAt);
+        }
     }
 
     public async Task ForfeitAsync(long matchId, long sessionId, string reason)
     {
         if (!_matches.TryGetValue(matchId, out var match)) return;
 
+        var player = match.PlayerOne.UserId == sessionId ? match.PlayerOne
+            : match.PlayerTwo.UserId == sessionId ? match.PlayerTwo
+            : match.PlayerOne.SessionId == sessionId ? match.PlayerOne
+            : match.PlayerTwo.SessionId == sessionId ? match.PlayerTwo
+            : null;
+
         // Only an actual participant may forfeit. Match ids are a guessable
         // sequential counter and /games/forfeit only proves a valid session, so
         // without this any authenticated user could end any live match (and get
         // persisted as a bogus loser via the SessionToUser fallback below).
-        if (!match.SessionToUser.ContainsKey(sessionId)) return;
+        if (player is null) return;
 
         // A pending (not-yet-accepted) invite has no result to persist. Cancel it
         // outright so a disconnect/channel-change while an invite is in flight
@@ -463,6 +586,7 @@ public sealed class GameSessionManager
             DisposeTimers(match);
         }
 
+        sessionId = player.SessionId;
         var otherId = match.Players[0] == sessionId ? match.Players[1] : match.Players[0];
         var winnerDbId = match.SessionToUser.TryGetValue(otherId, out var wId) ? wId : otherId;
         var loserDbId = match.SessionToUser.TryGetValue(sessionId, out var lId) ? lId : sessionId;
@@ -476,27 +600,30 @@ public sealed class GameSessionManager
         var completed = new CompletedMatch(
             GameType: match.GameType,
             ChannelId: match.ChannelId,
-            Format: match.Engine.MatchFormat(match.State),
+            Format: match.Configuration.Format,
+            RulesetVersion: match.Configuration.RulesetVersion,
             Outcome: "abandoned",
             AbandonReason: reason,
             StartedAt: match.StartedAt,
             EndedAt: DateTimeOffset.UtcNow,
             Participants: participants,
             MetadataJson: BuildMatchMetadata(match));
+        RemoveRuntime(match);
 
-        await _repository.SaveCompletedMatchAsync(completed);
-
-        await _publisher.PublishToUsersAsync(
-            RouteSet(match),
-            new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
-
-        await PublishDuelStateAsync(match, active: false);
-
-        await PublishFeedAsync(match,
-            $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");
-
-        foreach (var p in match.Players) _userToMatch.TryRemove(p, out _);
-        _matches.TryRemove(matchId, out _);
+        try
+        {
+            _completedMatches.Enqueue(completed);
+            await _publisher.PublishToUsersAsync(
+                RouteSet(match),
+                new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
+            await PublishDuelStateAsync(match, active: false);
+            await PublishFeedAsync(match,
+                $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!");
+        }
+        finally
+        {
+            await RaiseMatchCompletedAsync(match, completed.EndedAt);
+        }
     }
 
     private static string NameOf(LiveMatch match, long sessionId)
@@ -572,8 +699,19 @@ public sealed class GameSessionManager
     private static string GameName(string gameType)
         => string.IsNullOrEmpty(gameType) ? gameType : char.ToUpperInvariant(gameType[0]) + gameType[1..];
 
-    public bool TryGetActiveMatch(long userId, out long matchId)
-        => _userToMatch.TryGetValue(userId, out matchId);
+    public bool TryGetActiveMatch(long userId, out ActiveMatchReference match)
+    {
+        if (_stableUserToMatch.TryGetValue(userId, out var matchId)
+            && _matches.TryGetValue(matchId, out var liveMatch))
+        {
+            match = new ActiveMatchReference(
+                matchId, liveMatch.ReservationId, liveMatch.ChannelId, liveMatch.Configuration.RunnerKey);
+            return true;
+        }
+
+        match = null!;
+        return false;
+    }
 
     public bool IsMatchLive(long matchId)
         => _matches.TryGetValue(matchId, out var match) && match.Status == "live";
@@ -594,5 +732,32 @@ public sealed class GameSessionManager
         match.InviteTimer = null;
         match.TurnTimer?.Dispose();
         match.TurnTimer = null;
+    }
+
+    private void RemoveRuntime(LiveMatch match)
+    {
+        DisposeTimers(match);
+        foreach (var sessionId in match.Players)
+            _userToMatch.TryRemove(sessionId, out _);
+        _stableUserToMatch.TryRemove(match.PlayerOne.UserId, out _);
+        _stableUserToMatch.TryRemove(match.PlayerTwo.UserId, out _);
+        _matches.TryRemove(match.MatchId, out _);
+    }
+
+    private async Task RaiseMatchCompletedAsync(LiveMatch match, DateTimeOffset endedAt)
+    {
+        var handlers = MatchCompleted;
+        if (handlers is null) return;
+
+        var completion = new MatchCompletion(
+            match.MatchId,
+            match.ReservationId,
+            match.ChannelId,
+            match.PlayerOne,
+            match.PlayerTwo,
+            match.Configuration,
+            endedAt);
+        foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
+            await handler(completion);
     }
 }

@@ -1,6 +1,7 @@
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Brmble.Server.LiveKit;
 
 namespace Brmble.Server.Mumble;
@@ -14,7 +15,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
-    private readonly GameSessionManager _gameSessions;
+    private readonly IDuelMatchRunnerRouter _gameSessions;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -26,7 +27,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         ScreenShareTracker screenShareTracker,
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
-        GameSessionManager gameSessions,
+        IDuelMatchRunnerRouter gameSessions,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -166,8 +167,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         {
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
 
-            if (_gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
-                await _gameSessions.ForfeitAsync(matchId, user.SessionId, "disconnect");
+            if (_gameSessions.TryGetActiveMatch(mapping.UserId, out var match))
+                await _gameSessions.ForfeitAsync(match.MatchId, mapping.UserId, "disconnect");
         }
 
         _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
@@ -200,8 +201,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            if (channelChanged && _gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
-                await _gameSessions.ForfeitAsync(matchId, user.SessionId, "left_channel");
+            if (channelChanged && _gameSessions.TryGetActiveMatch(mapping.UserId, out var match))
+                await _gameSessions.ForfeitAsync(match.MatchId, mapping.UserId, "left_channel");
 
             var shareRooms = _screenShareTracker.GetSharesByUserId(mapping.UserId);
             foreach (var roomName in shareRooms)

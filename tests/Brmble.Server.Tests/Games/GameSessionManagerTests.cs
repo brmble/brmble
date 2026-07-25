@@ -1,5 +1,6 @@
 using System.Linq;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
 using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -35,13 +36,24 @@ file sealed class HalvingRandom : IRandomSource
     public int Roll(int maxInclusive) => maxInclusive <= 1 ? 1 : Math.Max(1, maxInclusive / 2);
 }
 
+file sealed class ImmediateCompletedMatchSink(GameRepository repository) : ICompletedMatchSink
+{
+    public void Enqueue(CompletedMatch match) => repository.SaveCompletedMatchAsync(match).GetAwaiter().GetResult();
+}
+
+file sealed class RecordingCompletedMatchSink : ICompletedMatchSink
+{
+    public List<CompletedMatch> Matches { get; } = [];
+    public void Enqueue(CompletedMatch match) => Matches.Add(match);
+}
+
 [TestClass]
 public class GameSessionManagerTests
 {
     private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
     {
         var engines = new IGameEngine[] { new DeathrollEngine(), new RpsEngine() };
-        return new GameSessionManager(engines, new HalvingRandom(), presence, pub, repo);
+        return new GameSessionManager(engines, new HalvingRandom(), presence, pub, new ImmediateCompletedMatchSink(repo));
     }
 
     private static bool SentType(IEnumerable<(string kind, object msg)> sent, string type) =>
@@ -72,6 +84,64 @@ public class GameSessionManagerTests
         var upd = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.stateUpdated");
         if (upd.msg is null) return null;
         return upd.msg.GetType().GetProperty("turnStarted")?.GetValue(upd.msg) as bool?;
+    }
+
+    [TestMethod]
+    public async Task StartAsync_UsesImmutableReservationConfiguration_AndCompletesWithCanonicalMetadata()
+    {
+        var presence = new FakePresence();
+        var pub = new FakePublisher();
+        var sink = new RecordingCompletedMatchSink();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new HalvingRandom(), presence, pub, sink);
+        var configuration = new DuelConfiguration(
+            "rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5 },
+            "discrete");
+        var reservation = new DuelReservation(
+            91, 7,
+            new DuelPlayer(10, 100, "Alice"),
+            new DuelPlayer(20, 200, "Bob"),
+            configuration, DateTimeOffset.UtcNow, 1, null);
+        MatchCompletion? completion = null;
+        manager.MatchCompleted += value => { completion = value; return Task.CompletedTask; };
+
+        var started = await manager.StartAsync(reservation);
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsTrue(started.Success);
+        Assert.IsNotNull(completion);
+        Assert.AreEqual(91L, completion.ReservationId);
+        Assert.AreSame(configuration, completion.Configuration);
+        Assert.AreEqual("bo5", sink.Matches.Single().Format);
+        Assert.AreEqual(3, sink.Matches.Single().RulesetVersion);
+    }
+
+    [TestMethod]
+    public async Task Forfeit_ReleasesRuntimeBeforePersistenceWorkerRuns()
+    {
+        var sink = new RecordingCompletedMatchSink();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new HalvingRandom(), new FakePresence(), new FakePublisher(), sink);
+        var reservation = new DuelReservation(
+            92, 7,
+            new DuelPlayer(10, 100, "Alice"),
+            new DuelPlayer(20, 200, "Bob"),
+            new DuelConfiguration("rps", "bo3", 1,
+                new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+            DateTimeOffset.UtcNow, 2, null);
+        var started = await manager.StartAsync(reservation);
+
+        await manager.ForfeitAsync(started.MatchId, 100, "disconnect");
+
+        Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
+        Assert.IsFalse(manager.TryGetActiveMatch(200, out _));
+        Assert.IsFalse(manager.IsMatchLive(started.MatchId));
+        Assert.AreEqual(1, sink.Matches.Count);
     }
 
     [TestMethod]

@@ -31,22 +31,7 @@ public record CompletedMatch(
     DateTimeOffset StartedAt,
     DateTimeOffset EndedAt,
     IReadOnlyList<CompletedParticipant> Participants,
-    string? MetadataJson = null)
-{
-    public CompletedMatch(
-        string GameType,
-        int ChannelId,
-        string Format,
-        string Outcome,
-        string? AbandonReason,
-        DateTimeOffset StartedAt,
-        DateTimeOffset EndedAt,
-        IReadOnlyList<CompletedParticipant> Participants,
-        string? MetadataJson = null)
-        : this(GameType, ChannelId, Format, 1, Outcome, AbandonReason, StartedAt, EndedAt, Participants, MetadataJson)
-    {
-    }
-}
+    string? MetadataJson = null);
 
 public record CompletedParticipant(
     long UserId,

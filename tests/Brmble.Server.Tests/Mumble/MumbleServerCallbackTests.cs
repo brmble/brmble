@@ -2,6 +2,7 @@ using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.Logging;
@@ -24,7 +25,7 @@ public class MumbleServerCallbackTests
         IReadOnlyList<TimeSpan>? liveKitRevocationRetryDelays = null,
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null,
-        GameSessionManager? gameSessions = null)
+        IDuelMatchRunnerRouter? gameSessions = null)
     {
         if (mapping is null)
         {
@@ -57,20 +58,47 @@ public class MumbleServerCallbackTests
             screenShareTracker ?? new ScreenShareTracker(),
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
-            gameSessions ?? CreateGameSessions(),
+            gameSessions ?? new Mock<IDuelMatchRunnerRouter>().Object,
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
-    private static GameSessionManager CreateGameSessions()
+    [TestMethod]
+    public async Task DispatchUserDisconnected_ForfeitsByStableMappedUserId()
     {
-        var presence = new Mock<IGamePresence>().Object;
-        var publisher = new Mock<IGameEventPublisher>().Object;
-        return new GameSessionManager(
-            Array.Empty<IGameEngine>(),
-            new CryptoRandomSource(),
-            presence,
-            publisher,
-            Brmble.Server.Tests.Games.GameTestHelpers.NewRepo());
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var games = new Mock<IDuelMatchRunnerRouter>();
+        var active = new ActiveMatchReference(55, 9, 7, "discrete");
+        games.Setup(g => g.TryGetActiveMatch(100, out active)).Returns(true);
+        var callback = CreateCallback([], mapping: mapping.Object, gameSessions: games.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        games.Verify(g => g.ForfeitAsync(55, 100, "disconnect"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_ForfeitsByStableMappedUserIdWhenLeavingChannel()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(m => m.TryGetChannel(42, out It.Ref<int>.IsAny)).Returns(true);
+        var games = new Mock<IDuelMatchRunnerRouter>();
+        var active = new ActiveMatchReference(55, 9, 7, "discrete");
+        games.Setup(g => g.TryGetActiveMatch(100, out active)).Returns(true);
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, gameSessions: games.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        games.Verify(g => g.ForfeitAsync(55, 100, "left_channel"), Times.Once);
     }
 
     [TestMethod]
