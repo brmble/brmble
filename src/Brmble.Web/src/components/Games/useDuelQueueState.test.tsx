@@ -144,25 +144,34 @@ describe('useDuelQueueState', () => {
     expect(result.current.byChannel.size).toBe(0);
   });
 
-  it('accepts current-channel recovery after reconnect but rejects an old tuple tombstone', () => {
+  it('rebases the same exact tuple from authenticated recovery after reconnect', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     connect(2);
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     act(() => result.current.reset());
     connect(2);
-    emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
-    expect(result.current.byChannel.size).toBe(0);
-    emit('game.queueSnapshot', snapshot(2, 4, 1, queued));
-    expect(result.current.byChannel.get(2)?.generation).toBe(4);
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 3, 4, queued));
+    await act(() => result.current.requestSnapshot());
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 3, 4, queued));
   });
 
-  it('applies requested snapshots through the same tuple gate and contains errors', async () => {
+  it('rebases a lower server-restart tuple from authenticated recovery', async () => {
     const { result } = renderHook(() => useDuelQueueState());
     connect();
-    emit('game.queueSnapshot', snapshot(2, 2, 5, queued));
-    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 2, 4));
+    emit('game.queueSnapshot', snapshot(2, 8, 20, queued));
+    act(() => result.current.reset());
+    connect();
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0));
     await act(() => result.current.requestSnapshot());
-    expect(result.current.byChannel.get(2)?.revision).toBe(5);
+    expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0));
+    emit('game.queueSnapshot', snapshot(2, 1, 0, queued));
+    expect(result.current.byChannel.get(2)?.queue).toEqual([]);
+    emit('game.queueSnapshot', snapshot(2, 1, 1, queued));
+    expect(result.current.byChannel.get(2)?.queue).toEqual(queued);
+  });
+
+  it('contains recovery errors', async () => {
+    const { result } = renderHook(() => useDuelQueueState());
     api.getQueueSnapshot.mockRejectedValueOnce(new Error('offline'));
     await expect(result.current.requestSnapshot()).resolves.toBeUndefined();
   });
@@ -188,6 +197,21 @@ describe('useDuelQueueState', () => {
     await act(async () => oldRequest.resolve(snapshot(2, 1, 1, queued)));
     await request;
     expect(result.current.byChannel.has(2)).toBe(false);
+  });
+
+  it('ignores an old request epoch and rebases from the current recovery response', async () => {
+    const oldRequest = deferred<DuelQueueSnapshot>();
+    const currentRequest = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(currentRequest.promise);
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    const old = result.current.requestSnapshot();
+    emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
+    await act(async () => oldRequest.resolve(snapshot(2, 9, 9, queued)));
+    await old;
+    expect(result.current.byChannel.size).toBe(0);
+    await act(async () => currentRequest.resolve(snapshot(7, 0, 0, queued)));
+    expect(result.current.byChannel.get(7)).toEqual(snapshot(7, 0, 0, queued));
   });
 
   it('ignores a deferred snapshot after unmount without a React warning', async () => {

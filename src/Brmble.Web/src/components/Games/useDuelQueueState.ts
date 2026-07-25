@@ -70,10 +70,17 @@ export function useDuelQueueState(): DuelQueueState {
     try {
       const snapshot = await gamesApi.getQueueSnapshot();
       if (!mountedRef.current || requestEpochRef.current !== epoch) return;
+      if (snapshot.schemaVersion !== 1) return;
       if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
       if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
-      if (currentChannelIdRef.current == null) currentChannelIdRef.current = snapshot.channelId;
-      applySnapshot(snapshot);
+      currentChannelIdRef.current = snapshot.channelId;
+      deniedChannelIdsRef.current.delete(snapshot.channelId);
+      versionsRef.current.clear();
+      versionsRef.current.set(snapshot.channelId, {
+        generation: snapshot.generation,
+        revision: snapshot.revision,
+      });
+      setByChannel(new Map([[snapshot.channelId, snapshot]]));
     } catch {
       // Queue snapshots are advisory and a later push or channel change retries them.
     }
@@ -88,6 +95,7 @@ export function useDuelQueueState(): DuelQueueState {
       acceptingSnapshotsRef.current = true;
       currentChannelIdRef.current = channelId ?? null;
       deniedChannelIdsRef.current.clear();
+      versionsRef.current.clear();
     };
     const handleChannelChanged = (data: unknown) => {
       const d = data as { channelId?: number; previousChannelId?: number };
@@ -105,6 +113,7 @@ export function useDuelQueueState(): DuelQueueState {
       if (d.channelId != null) {
         currentChannelIdRef.current = d.channelId;
         deniedChannelIdsRef.current.delete(d.channelId);
+        versionsRef.current.delete(d.channelId);
       }
       void requestSnapshot();
     };
@@ -156,6 +165,7 @@ export function useDuelQueueState(): DuelQueueState {
     acceptingSnapshotsRef.current = false;
     currentChannelIdRef.current = null;
     deniedChannelIdsRef.current.clear();
+    versionsRef.current.clear();
     setByChannel(new Map());
     setIncomingRematch(null);
     setOutgoingRematch(null);
