@@ -36,6 +36,22 @@ internal sealed class ManagerSink : ICompletedMatchSink
     public void Enqueue(CompletedMatch match) => Matches.Add(match);
 }
 
+internal sealed class RecordingTimerFactory : IGameTimerFactory
+{
+    public List<(TimerCallback Callback, object? State, TimeSpan Due)> Timers { get; } = [];
+
+    public IDisposable Create(TimerCallback callback, object? state, TimeSpan due)
+    {
+        Timers.Add((callback, state, due));
+        return new RecordingTimer();
+    }
+
+    private sealed class RecordingTimer : IDisposable
+    {
+        public void Dispose() { }
+    }
+}
+
 [TestClass]
 public class GameSessionManagerTests
 {
@@ -47,20 +63,24 @@ public class GameSessionManagerTests
         new([new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, sink);
 
     [TestMethod]
-    public async Task ActionWhileStartedPublicationAwaits_IsAppliedAfterObservableStart()
+    public async Task ActionWhileStartedPublicationAwaits_IsAppliedBeforeTimerStartsAfterDelivery()
     {
         var publisher = new ManagerPublisher { BlockType = "game.started" };
-        var manager = Manager(publisher, new ManagerSink());
+        var timers = new RecordingTimerFactory();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(), timers);
         var start = manager.StartAsync(Reservation(80));
         await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(manager.TryGetActiveMatch(100, out var active));
 
         await manager.ActionAsync(active.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.AreEqual(0, timers.Timers.Count);
+        Assert.IsTrue(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
         publisher.Release.TrySetResult();
         var result = await start;
 
         Assert.IsTrue(result.Success);
-        Assert.IsTrue(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        Assert.AreEqual(1, timers.Timers.Count);
     }
 
     [TestMethod]
@@ -84,7 +104,9 @@ public class GameSessionManagerTests
     {
         var publisher = new ManagerPublisher { BlockType = "game.started" };
         var sink = new ManagerSink();
-        var manager = Manager(publisher, sink);
+        var timers = new RecordingTimerFactory();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, sink, timers);
         var completions = 0;
         manager.MatchCompleted += _ => { completions++; return Task.CompletedTask; };
         var start = manager.StartAsync(Reservation(82));
@@ -97,6 +119,7 @@ public class GameSessionManagerTests
         await manager.FireTurnTimeoutForTestAsync(active.MatchId);
 
         Assert.IsFalse(result.Success);
+        Assert.AreEqual(0, timers.Timers.Count);
         Assert.AreEqual(1, completions);
         Assert.IsFalse(manager.IsMatchLive(active.MatchId));
         Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.duelState"

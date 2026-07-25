@@ -26,6 +26,17 @@ public interface IGamePresence
     Task<bool> AreChallengesBlockedAsync(long sessionId);
 }
 
+internal interface IGameTimerFactory
+{
+    IDisposable Create(TimerCallback callback, object? state, TimeSpan due);
+}
+
+internal sealed class GameTimerFactory : IGameTimerFactory
+{
+    public IDisposable Create(TimerCallback callback, object? state, TimeSpan due) =>
+        new Timer(callback, state, due, Timeout.InfiniteTimeSpan);
+}
+
 public sealed class GameSessionManager : IDuelMatchRunner
 {
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(15);
@@ -36,6 +47,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private readonly IRandomSource _rng;
     private readonly IGameEventPublisher _publisher;
     private readonly ICompletedMatchSink _completedMatches;
+    private readonly IGameTimerFactory _timerFactory;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
     private readonly ConcurrentDictionary<long, long> _stableUserToMatch = new();
@@ -46,11 +58,22 @@ public sealed class GameSessionManager : IDuelMatchRunner
         IRandomSource rng,
         IGameEventPublisher publisher,
         ICompletedMatchSink completedMatches)
+        : this(engines, rng, publisher, completedMatches, new GameTimerFactory())
+    {
+    }
+
+    internal GameSessionManager(
+        IEnumerable<IGameEngine> engines,
+        IRandomSource rng,
+        IGameEventPublisher publisher,
+        ICompletedMatchSink completedMatches,
+        IGameTimerFactory timerFactory)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
         _publisher = publisher;
         _completedMatches = completedMatches;
+        _timerFactory = timerFactory;
     }
 
     private sealed class LiveMatch
@@ -69,7 +92,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
         public required DuelConfiguration Configuration;
         public string Status = "starting"; // starting | live | done
         public DateTimeOffset StartedAt;
-        public Timer? TurnTimer;
+        public IDisposable? TurnTimer;
         // Bumped every time a turn timer is (re)started. A queued timeout callback
         // whose generation is stale must bail — Timer.Dispose() doesn't wait for an
         // in-flight callback, so without this a penalty could hit the wrong player.
@@ -139,7 +162,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
                     return StartInterrupted(matchId);
                 match.Status = "live";
-                StartTurnTimer(match, TurnTimeout);
             }
             await _publisher.PublishToUsersAsync(RouteSet(match), new
             {
@@ -153,6 +175,13 @@ public sealed class GameSessionManager : IDuelMatchRunner
             });
             if (!IsMatchLiveReference(match))
                 return StartInterrupted(matchId);
+
+            lock (match.Lock)
+            {
+                if (match.Status != "live" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
+                    return StartInterrupted(matchId);
+                StartTurnTimer(match, TurnTimeout);
+            }
 
             await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: true));
             if (!IsMatchLiveReference(match))
@@ -262,7 +291,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
         // Capture the generation this timer belongs to. If the callback is already
         // queued when we restart the timer, it will see a newer generation and bail.
         var generation = Interlocked.Increment(ref match.TurnGeneration);
-        match.TurnTimer = new Timer(_ => OnTurnTimeout(match.MatchId, generation), null, due, Timeout.InfiniteTimeSpan);
+        match.TurnTimer = _timerFactory.Create(_ => OnTurnTimeout(match.MatchId, generation), null, due);
     }
 
     private void OnTurnTimeout(long matchId, long generation)
