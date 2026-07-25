@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { PaintEditor } from './PaintEditor';
 import type { PaintSessionSnapshot } from '../../types/paint';
 
@@ -9,7 +10,43 @@ const activeSnapshot: PaintSessionSnapshot = {
   participants: [], strokes: [], generation: 0, revision: 0,
 };
 
+function fakePaintApi() {
+  return {
+    commitStroke: vi.fn(),
+    sendPreview: vi.fn(),
+    undo: vi.fn(),
+    clear: vi.fn(),
+    end: vi.fn(),
+  };
+}
+
+async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
+  const matrixClient = { getAccessToken: () => 'token', mxcUrlToHttp: () => 'https://matrix/source' };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob() }));
+  vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:source'), revokeObjectURL: vi.fn() });
+  Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { configurable: true, get: () => 100 });
+  Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 100 });
+  Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    clearRect: vi.fn(), drawImage, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(new Blob(['png'], { type: 'image/png' })));
+
+  render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} matrixClient={matrixClient} onSave={onSave} />);
+  await waitFor(() => expect(drawImage).toHaveBeenCalled());
+}
+
 describe('PaintEditor', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('reuses one correlation ID for every preview and commit in a pointer gesture', () => {
     const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
@@ -92,5 +129,43 @@ describe('PaintEditor', () => {
 
     await waitFor(() => expect(draw).toHaveBeenCalled());
     expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalled();
+  });
+
+  it('keeps save disabled while a save operation is in progress', async () => {
+    let resolveSave!: () => void;
+    const onSave = vi.fn(() => new Promise<void>(resolve => { resolveSave = resolve; }));
+    await renderLoadedEditor(onSave);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Saving...' }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    resolveSave();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to chat' })).toBeDisabled());
+  });
+
+  it('shows a retryable error and does not mark saved when save fails', async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new Error('Upload failed'));
+    await renderLoadedEditor(onSave);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
+    expect(screen.getByRole('button', { name: 'Save to chat' })).toBeEnabled();
+  });
+
+  it('reuses the same composed PNG when retrying a failed save lifecycle', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error('Chat post failed'))
+      .mockResolvedValueOnce(undefined);
+    await renderLoadedEditor(onSave);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Chat post failed');
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1][0]).toBe(onSave.mock.calls[0][0]);
+    expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledTimes(1);
   });
 });

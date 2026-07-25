@@ -11,7 +11,7 @@ import type { ChatMessage } from './types';
 import type { PaintSessionSnapshot, PaintSessionStatus } from './types/paint';
 
 const paint = vi.hoisted(() => ({
-  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), join: vi.fn(),
+  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), join: vi.fn(), end: vi.fn(),
 }));
 
 vi.mock('./bridge', () => {
@@ -27,11 +27,23 @@ vi.mock('./bridge', () => {
 vi.mock('./api/paint', () => ({ paintApi: paint }));
 
 vi.mock('./components/Paint/PaintEditor', () => ({
-  PaintEditor: ({ snapshot, previews, onSave }: { snapshot: PaintSessionSnapshot; previews: unknown[]; onSave: (blob: Blob) => Promise<void> }) => <section>
-    <output data-testid="stroke-count">{snapshot.strokes.length}</output>
-    <output data-testid="preview-count">{previews.length}</output>
-    <button onClick={() => void onSave(new Blob(['png'], { type: 'image/png' }))}>Save to chat</button>
-  </section>,
+  PaintEditor: ({ snapshot, previews, onSave }: { snapshot: PaintSessionSnapshot; previews: unknown[]; onSave: (blob: Blob) => Promise<void> }) => {
+    const [error, setError] = useState<string | null>(null);
+    const save = async () => {
+      setError(null);
+      try {
+        await onSave(new Blob(['png'], { type: 'image/png' }));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'Unable to save');
+      }
+    };
+    return <section>
+      <output data-testid="stroke-count">{snapshot.strokes.length}</output>
+      <output data-testid="preview-count">{previews.length}</output>
+      {error && <p role="alert">{error}</p>}
+      <button onClick={() => void save()}>Save to chat</button>
+    </section>;
+  },
 }));
 
 beforeAll(() => {
@@ -126,7 +138,7 @@ function fakeMatrixClient() {
     joinRoom: vi.fn(),
     uploadContent: vi.fn().mockResolvedValue({ content_uri: 'mxc://test/image' }),
     sendMessage: vi.fn().mockResolvedValue({ event_id: '$source' }),
-    getRoom: vi.fn(() => ({ timeline: [] })),
+    getRoom: vi.fn((): { timeline: unknown[] } => ({ timeline: [] })),
   };
 }
 
@@ -149,12 +161,28 @@ async function renderPaintInvitationMessage(content: string) {
   });
 }
 
+async function openActivePaintSession(user: ReturnType<typeof userEvent.setup>, matrixClient: ReturnType<typeof fakeMatrixClient>) {
+  paint.createSession.mockResolvedValue({ sessionId: 'session-1', matrixRoomId: '!paint:test', channelId: 5 });
+  paint.attachSource.mockResolvedValue(undefined);
+  paint.getSnapshot.mockResolvedValue(initial);
+
+  await user.click(screen.getByRole('button', { name: 'Start paint' }));
+  await user.click(screen.getByLabelText('Bob'));
+  await user.upload(screen.getByLabelText('Source image'), new File(['source'], 'source.png', { type: 'image/png' }));
+  await user.click(within(screen.getByRole('dialog', { name: 'Start collaborative paint' })).getByRole('button', { name: 'Start paint' }));
+  expect(await screen.findByLabelText('Collaborative paint')).toBeInTheDocument();
+
+  matrixClient.uploadContent.mockClear();
+  matrixClient.sendMessage.mockClear();
+  paint.end.mockClear();
+}
+
 describe('collaborative paint app flow', () => {
   beforeEach(() => { vi.clearAllMocks(); (bridge as any).__reset(); });
 
   it('opens setup, attaches after creation, applies events, refreshes gaps, and saves only the committed canvas', async () => {
     const user = userEvent.setup();
-    const matrixClient = { getMediaConfig: vi.fn().mockResolvedValue({}), joinRoom: vi.fn(), uploadContent: vi.fn().mockResolvedValue({ content_uri: 'mxc://test/image' }), sendMessage: vi.fn().mockResolvedValue({ event_id: '$source' }) };
+    const matrixClient = { getMediaConfig: vi.fn().mockResolvedValue({}), joinRoom: vi.fn(), uploadContent: vi.fn().mockResolvedValue({ content_uri: 'mxc://test/image' }), sendMessage: vi.fn().mockResolvedValue({ event_id: '$source' }), getRoom: vi.fn(() => ({ timeline: [] })) };
     paint.createSession.mockResolvedValue({ sessionId: 'session-1', matrixRoomId: '!paint:test', channelId: 5 });
     paint.attachSource.mockResolvedValue(undefined);
     paint.getSnapshot.mockResolvedValueOnce(initial).mockResolvedValueOnce({ ...initial, revision: 4, strokes: [{ id: 'stroke-1', correlationId: 'c', authorUserId: 7, authorMatrixUserId: '@host:test', sequence: 1, generation: 0, tool: 'pen', color: '#EF4444', width: 6, points: [{ x: .1, y: .2 }], active: true }] });
@@ -177,10 +205,139 @@ describe('collaborative paint app flow', () => {
     await act(async () => { (bridge as any).__emit('paint.strokeUndone', { sessionId: 'session-1', revision: 4, generation: 0, undoneStrokeId: 'stroke-1' }); });
     await waitFor(() => expect(paint.getSnapshot).toHaveBeenCalledTimes(2));
     await user.click(screen.getByRole('button', { name: 'Save to chat' }));
-    expect(matrixClient.sendMessage).toHaveBeenLastCalledWith('!channel:test', expect.objectContaining({ msgtype: 'm.image', body: 'collaborative-paint.png' }));
+    await waitFor(() => expect(matrixClient.sendMessage).toHaveBeenLastCalledWith(
+      '!channel:test',
+      expect.objectContaining({ msgtype: 'm.image', body: 'collaborative-paint.png' }),
+      'brmble-paint-save-session-1-save-session-1',
+    ));
     const savedMessage = matrixClient.sendMessage.mock.calls.at(-1)?.[1];
     expect(savedMessage).toBeDefined();
     expect(savedMessage).not.toHaveProperty('previews');
+  });
+
+  it('posts the final image before ending, closing, and returning to chat', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockResolvedValue({ event_id: '$final' });
+    paint.end.mockReset().mockResolvedValue(undefined);
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.uploadContent).toHaveBeenCalledTimes(1);
+    expect(matrixClient.sendMessage).toHaveBeenCalledWith(
+      '!channel:test',
+      expect.objectContaining({ msgtype: 'm.image', url: 'mxc://test/final', 'org.brmble.paintSaveOperationId': 'save-session-1' }),
+      'brmble-paint-save-session-1-save-session-1',
+    );
+    expect(matrixClient.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(paint.end.mock.invocationCallOrder[0]);
+  });
+
+  it('does not end or close when chat posting fails after upload', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockRejectedValueOnce(new Error('Chat post failed'));
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Chat post failed');
+    expect(paint.end).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Collaborative paint')).toBeInTheDocument();
+  });
+
+  it('reuses the same frozen file when retrying a failed upload', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset()
+      .mockRejectedValueOnce(new Error('Upload failed'))
+      .mockResolvedValueOnce({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockResolvedValue({ event_id: '$final' });
+    paint.end.mockReset().mockResolvedValue(undefined);
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.uploadContent).toHaveBeenCalledTimes(2);
+    expect(matrixClient.uploadContent.mock.calls[1][0]).toBe(matrixClient.uploadContent.mock.calls[0][0]);
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not post a second image when ending fails after a confirmed chat post', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockResolvedValue({ event_id: '$final' });
+    paint.end.mockReset().mockRejectedValueOnce(new Error('End failed')).mockResolvedValueOnce(undefined);
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('End failed');
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.uploadContent).toHaveBeenCalledTimes(1);
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1);
+    expect(paint.end).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses the same Matrix transaction id and metadata when retrying a timed-out chat post', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset()
+      .mockRejectedValueOnce(new Error('Request timed out'))
+      .mockResolvedValueOnce({ event_id: '$final' });
+    paint.end.mockReset().mockResolvedValue(undefined);
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request timed out');
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.uploadContent).toHaveBeenCalledTimes(1);
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(2);
+    expect(matrixClient.sendMessage.mock.calls[1][1]).toEqual(matrixClient.sendMessage.mock.calls[0][1]);
+    expect(matrixClient.sendMessage.mock.calls[0][2]).toBe('brmble-paint-save-session-1-save-session-1');
+    expect(matrixClient.sendMessage.mock.calls[1][2]).toBe('brmble-paint-save-session-1-save-session-1');
+  });
+
+  it('does not send a second Matrix message when a previous timed-out post is found in the room timeline', async () => {
+    const user = userEvent.setup();
+    const acceptedEvent = {
+      getType: () => 'm.room.message',
+      getId: () => '$final',
+      getContent: () => ({ msgtype: 'm.image', url: 'mxc://test/final', info: { size: 3 }, 'org.brmble.paintSaveOperationId': 'save-session-1' }),
+    };
+    const room = { timeline: [] as typeof acceptedEvent[] };
+    const matrixClient = fakeMatrixClient();
+    matrixClient.getRoom.mockImplementation(() => room);
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockRejectedValueOnce(new Error('Request timed out'));
+    paint.end.mockReset().mockResolvedValue(undefined);
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request timed out');
+    room.timeline = [acceptedEvent];
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1);
+    expect(paint.end).toHaveBeenCalledWith('session-1');
   });
 
   it('updates invitation cards when paint terminal events arrive through the app bridge', async () => {
