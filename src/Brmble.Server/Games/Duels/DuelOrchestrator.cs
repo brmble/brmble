@@ -1,5 +1,7 @@
 namespace Brmble.Server.Games.Duels;
 
+using System.Collections.ObjectModel;
+
 public sealed class DuelOrchestrator : IDuelOrchestrator
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
@@ -18,7 +20,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
     private readonly Dictionary<long, CompletedDuelSource> _completedSources = [];
-    private readonly Queue<CompletedDuelSource> _completedSourceOrder = [];
+    private readonly LinkedList<CompletedDuelSource> _completedSourceOrder = [];
+    private readonly Dictionary<long, LinkedListNode<CompletedDuelSource>> _completedSourceNodes = [];
     private long _nextOfferId;
     private long _nextReservationId;
     private long _nextAcceptanceSequence;
@@ -133,7 +136,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
 
             if (!accept)
             {
-                RemoveOffer(offer);
+                RemoveOffer(offer, "declined");
             }
             else
             {
@@ -149,6 +152,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     _timeProvider.GetUtcNow(),
                     ++_nextAcceptanceSequence,
                     offer.SourceMatchId);
+                offer.AcceptedReservationId = reservation.ReservationId;
                 acceptedReservationId = reservation.ReservationId;
                 SetPairCommitment(reservation, DuelCommitmentKind.Queued);
                 var channel = GetChannel(offer.ChannelId);
@@ -183,7 +187,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                 return Reject("This offer is no longer available.", DuelRejectReason.StaleOffer);
             if (offer.Inviter.UserId != requesterUserId && offer.Target.UserId != requesterUserId)
                 return Reject("Only a participant may cancel this offer.", DuelRejectReason.NotParticipant);
-            RemoveOffer(offer);
+            var reason = requesterUserId == offer.Inviter.UserId ? "expired" : "declined";
+            RemoveOffer(offer, reason);
         }
         await PublishCancellationAsync(offer,
             requesterUserId == offer.Inviter.UserId ? "expired" : "declined");
@@ -290,6 +295,11 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
                 "game.rematchPending", offer, offer.Target.UserId));
+            lock (_gate)
+            {
+                if (!OwnsOffer(offer))
+                    return OfferPublicationResult(offer);
+            }
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Target.UserId }, RematchMessage(
                 "game.rematchOffered", offer, offer.Target.UserId));
         }
@@ -298,14 +308,32 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             var removed = false;
             lock (_gate)
             {
-                if (_offers.TryGetValue(offer.Id, out var current) && ReferenceEquals(current, offer))
+                if (OwnsOffer(offer))
                 {
-                    RemoveOffer(offer);
+                    RemoveOffer(offer, "deliveryFailed");
                     removed = true;
                 }
+                else if (offer.AcceptedReservationId is not null)
+                    return Success(offer.Id, offer.AcceptedReservationId);
             }
             if (removed) await PublishCancellationBestEffortAsync(offer, "deliveryFailed");
             return Reject("The rematch offer could not be delivered.", DuelRejectReason.NotPresent);
+        }
+
+        string? terminalReason = null;
+        lock (_gate)
+        {
+            if (!OwnsOffer(offer))
+            {
+                if (offer.AcceptedReservationId is not null)
+                    return Success(offer.Id, offer.AcceptedReservationId);
+                terminalReason = offer.TerminalReason ?? "stale";
+            }
+        }
+        if (terminalReason is not null)
+        {
+            await PublishCancellationBestEffortAsync(offer, terminalReason);
+            return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
         }
 
         _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
@@ -355,7 +383,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             canceled = _offers.Values
                 .Where(x => HasPlayer(x, userId, oldSessionId))
                 .ToArray();
-            foreach (var offer in canceled) RemoveOffer(offer);
+            foreach (var offer in canceled) RemoveOffer(offer, CancelReason(reason));
 
             if (_commitmentsByUserId.TryGetValue(userId, out var commitment))
             {
@@ -456,9 +484,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         lock (_gate)
         {
             offers = _offers.Values.Where(x => x.ChannelId == channelId).ToList();
-            foreach (var offer in offers) RemoveOffer(offer);
+            foreach (var offer in offers) RemoveOffer(offer, "channelRemoved");
             foreach (var source in _completedSources.Values.Where(x => x.ChannelId == channelId).ToArray())
-                _completedSources.Remove(source.MatchId);
+                RemoveCompletedSource(source.MatchId);
             if (_channels.Remove(channelId, out var channel))
             {
                 if (channel.ReadyCheck is not null) { timer = channel.ReadyCheck.Timer; reservations.Add(channel.ReadyCheck.Reservation); }
@@ -688,7 +716,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             if (_offers.TryGetValue(offerId, out var current) && current.ExpiresAt == expiresAt)
             {
                 offer = current;
-                RemoveOffer(current);
+                RemoveOffer(current, "expired");
             }
         }
         if (offer is not null) await PublishCancellationAsync(offer, "expired");
@@ -742,7 +770,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     {
         type,
         offerId = offer.Id,
-        matchId = offer.Id,
         sourceMatchId = offer.SourceMatchId,
         fromUserId = offer.Inviter.UserId,
         fromSessionId = offer.Inviter.SessionId,
@@ -761,26 +788,41 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     {
         PruneCompletedSources();
         if (_completedSources.ContainsKey(completion.MatchId)) return;
+        var options = new ReadOnlyDictionary<string, object?>(
+            new Dictionary<string, object?>(completion.Configuration.Options));
+        var configuration = completion.Configuration with { Options = options };
         var source = new CompletedDuelSource(
             completion.MatchId, completion.ChannelId, completion.PlayerOne, completion.PlayerTwo,
-            completion.Configuration, _timeProvider.GetUtcNow());
+            configuration, completion.EndedAt);
         _completedSources.Add(source.MatchId, source);
-        _completedSourceOrder.Enqueue(source);
+        _completedSourceNodes.Add(source.MatchId, _completedSourceOrder.AddLast(source));
         PruneCompletedSources();
     }
 
     private void PruneCompletedSources()
     {
         var cutoff = _timeProvider.GetUtcNow() - CompletedSourceLifetime;
-        while (_completedSourceOrder.TryPeek(out var source)
-            && (source.CompletedAt < cutoff || _completedSources.Count > CompletedSourceLimit))
+        while (_completedSourceOrder.First is { } node
+            && (node.Value.CompletedAt <= cutoff || _completedSources.Count > CompletedSourceLimit))
         {
-            _completedSourceOrder.Dequeue();
-            if (_completedSources.TryGetValue(source.MatchId, out var current)
-                && ReferenceEquals(current, source))
-                _completedSources.Remove(source.MatchId);
+            RemoveCompletedSource(node.Value.MatchId);
         }
     }
+
+    private void RemoveCompletedSource(long matchId)
+    {
+        _completedSources.Remove(matchId);
+        if (_completedSourceNodes.Remove(matchId, out var node))
+            _completedSourceOrder.Remove(node);
+    }
+
+    private bool OwnsOffer(Offer offer) =>
+        _offers.TryGetValue(offer.Id, out var current) && ReferenceEquals(current, offer);
+
+    private static DuelCommandResult OfferPublicationResult(Offer offer) =>
+        offer.AcceptedReservationId is { } reservationId
+            ? Success(offer.Id, reservationId)
+            : Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
 
     private bool TryResolvePlayer(long sessionId, out DuelPlayer player, out int channelId)
     {
@@ -823,9 +865,10 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         clock.Revision = channel.Revision;
     }
 
-    private void RemoveOffer(Offer offer)
+    private void RemoveOffer(Offer offer, string? terminalReason = null)
     {
         if (!_offers.Remove(offer.Id)) return;
+        offer.TerminalReason = terminalReason;
         RemoveCommitment(offer.Inviter.UserId, offer.Id);
         RemoveCommitment(offer.Target.UserId, offer.Id);
     }
@@ -922,14 +965,25 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private static DuelQueueSnapshot EmptySnapshot(int channelId, long generation = 1, long revision = 0) =>
         new(1, generation, revision, channelId, DateTimeOffset.UtcNow, 0, null, null, []);
 
-    private sealed record Offer(
-        long Id,
-        int ChannelId,
-        DuelPlayer Inviter,
-        DuelPlayer Target,
-        DuelConfiguration Configuration,
-        DateTimeOffset ExpiresAt,
-        long? SourceMatchId);
+    private sealed class Offer(
+        long id,
+        int channelId,
+        DuelPlayer inviter,
+        DuelPlayer target,
+        DuelConfiguration configuration,
+        DateTimeOffset expiresAt,
+        long? sourceMatchId)
+    {
+        public long Id { get; } = id;
+        public int ChannelId { get; } = channelId;
+        public DuelPlayer Inviter { get; } = inviter;
+        public DuelPlayer Target { get; } = target;
+        public DuelConfiguration Configuration { get; } = configuration;
+        public DateTimeOffset ExpiresAt { get; } = expiresAt;
+        public long? SourceMatchId { get; } = sourceMatchId;
+        public long? AcceptedReservationId { get; set; }
+        public string? TerminalReason { get; set; }
+    }
 
     public sealed record CompletedDuelSource(
         long MatchId,

@@ -2,6 +2,7 @@ using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Reflection;
 
 namespace Brmble.Server.Tests.Games.Duels;
 
@@ -1116,6 +1117,77 @@ public class DuelOrchestratorTests
         Assert.AreEqual(4, MessageValue<int>(offered.Message, "rulesetVersion"));
         Assert.AreEqual(30_000, MessageValue<int>(offered.Message, "inviteMs"));
         Assert.IsNotNull(MessageValue<DateTimeOffset>(offered.Message, "expiresAt"));
+        Assert.IsNull(offered.Message.GetType().GetProperty("matchId"));
+        Assert.IsNull(pending.Message.GetType().GetProperty("matchId"));
+    }
+
+    [TestMethod]
+    public async Task RematchCanceledWhilePendingPublicationBlocked_DoesNotPublishActionableOrSucceed()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchPending";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        publisher.Release.TrySetResult();
+        var result = await request;
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
+        Assert.IsTrue((await sut.CreateChallengeAsync(20, 30, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task RematchCanceledDuringActionablePublication_EndsWithTerminalEventAndFailure()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200); Add(presence, 30, 300);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchOffered";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await sut.HandleChannelRemovedAsync(1);
+        publisher.Release.TrySetResult();
+        var result = await request;
+        var types = publisher.UserMessages.Select(x => MessageValue<string>(x.Message, "type")).ToArray();
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
+        Assert.AreEqual("game.rematchCanceled", types[^1]);
+        Assert.IsTrue((await sut.CreateChallengeAsync(10, 30, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task RematchActionablePublicationFailureAfterConcurrentAcceptance_PreservesAcceptedReservation()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchOffered";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var offered = publisher.UserMessages.Single(x => MessageValue<string>(x.Message, "type") == "game.rematchPending");
+        var offerId = MessageValue<long>(offered.Message, "offerId");
+        var accepted = await sut.RespondToOfferAsync(offerId, 200, true);
+        publisher.FailType = "game.rematchOffered";
+        publisher.Release.TrySetResult();
+        var result = await request;
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(offerId, result.OfferId);
+        Assert.IsTrue(accepted.Success);
+        Assert.AreEqual(2, router.Starts.Count);
+        Assert.AreEqual(DuelRejectReason.AlreadyCommitted,
+            (await sut.RequestRematchAsync(91, 100)).Reason);
+        Assert.IsFalse(publisher.UserMessages.Any(x =>
+            MessageValue<string>(x.Message, "reason") == "deliveryFailed"));
     }
 
     [TestMethod]
@@ -1248,6 +1320,50 @@ public class DuelOrchestratorTests
         await sut.RespondToOfferAsync(stable.OfferId!.Value, 200, true);
         Assert.AreEqual("test", router.Starts[^1].Configuration.GameType);
         Assert.AreEqual(1001L, router.Starts[^1].SourceMatchId);
+    }
+
+    [TestMethod]
+    public async Task RematchSourceCopiesConfigurationOptionsAtCompletion()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        ((Dictionary<string, object?>)router.Starts[0].Configuration.Options)["limit"] = 99;
+
+        var rematch = await sut.RequestRematchAsync(91, 100);
+        await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true);
+
+        Assert.AreEqual(10, router.Starts[^1].Configuration.Options["limit"]);
+    }
+
+    [TestMethod]
+    public async Task RematchSourceExpiryUsesEndedAtAndExpiresAtExactThirtyMinuteBoundary()
+    {
+        var now = new DateTimeOffset(2026, 7, 25, 1, 0, 0, TimeSpan.Zero);
+        var time = new TestTimeProvider(now);
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91, now.AddMinutes(-30));
+
+        var result = await sut.RequestRematchAsync(91, 100);
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
+    }
+
+    [TestMethod]
+    public async Task RematchChannelRemovalClearsCompletedSourceOrderStorage()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100);
+        Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+
+        await sut.HandleChannelRemovedAsync(1);
+
+        var order = typeof(DuelOrchestrator)
+            .GetField("_completedSourceOrder", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(sut)!;
+        Assert.AreEqual(0, (int)order.GetType().GetProperty("Count")!.GetValue(order)!);
     }
 
     private static async Task CompleteMatchAsync(
