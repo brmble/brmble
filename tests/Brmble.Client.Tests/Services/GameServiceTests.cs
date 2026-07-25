@@ -87,6 +87,29 @@ public class GameServiceTests
         Assert.AreEqual(400, document.RootElement.GetProperty("statusCode").GetInt32());
     }
 
+    [DataTestMethod]
+    [DataRow("game.ready", "{\"reservationId\":12,\"ready\":true}", "games/ready", "reservationId", 12L)]
+    [DataRow("game.respond", "{\"offerId\":9,\"accept\":true}", "games/respond", "offerId", 9L)]
+    [DataRow("game.rematch", "{\"sourceMatchId\":15}", "games/rematch", "sourceMatchId", 15L)]
+    public async Task Command_ErrorCorrelatesCommandPathAndIdentifier(
+        string command, string json, string path, string idProperty, long id)
+    {
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = CreateService(bridge, cert, (_, _) =>
+            new(false, "{\"error\":\"Rejected\",\"reason\":\"stale\"}", 409, "Conflict"));
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, command, JsonSerializer.Deserialize<JsonElement>(json));
+
+        var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
+        using var document = JsonDocument.Parse(error.DataJson);
+        Assert.AreEqual(command, document.RootElement.GetProperty("command").GetString());
+        Assert.AreEqual(path, document.RootElement.GetProperty("path").GetString());
+        Assert.AreEqual(id, document.RootElement.GetProperty(idProperty).GetInt64());
+        Assert.AreEqual("stale", document.RootElement.GetProperty("reason").GetString());
+    }
+
     [TestMethod]
     public async Task Command_ChunkedServerErrorThroughAdapter_PreservesStructuredReason()
     {

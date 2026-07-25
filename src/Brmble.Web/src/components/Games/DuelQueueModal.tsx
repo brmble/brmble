@@ -87,7 +87,7 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
             <section className={styles.section} aria-label="Active duel">
               <span className={styles.label}>{snapshot.active.status === 'starting' ? 'Starting' : 'Live'}</span>
               <strong className={styles.pair}>{pairLabel(snapshot.active.players, resolveName)}</strong>
-              <span className={styles.meta}>{gameDisplayName(snapshot.active.gameType)} · {snapshot.active.format}</span>
+              <span className={styles.meta}>{gameDisplayName(snapshot.active.gameType)} · {snapshot.active.format} · v{snapshot.active.rulesetVersion}</span>
               <span className={styles.eta}>
                 {snapshot.active.remaining.status === 'known' && snapshot.active.remaining.milliseconds != null
                   ? `About ${formatDuration(snapshot.active.remaining.milliseconds)}`
@@ -100,7 +100,7 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
             <section className={styles.section} aria-label="Ready check">
               <span className={styles.label}>Ready check</span>
               <strong className={styles.pair}>{pairLabel(snapshot.readyCheck.players, resolveName)}</strong>
-              <span className={styles.meta}>{gameDisplayName(snapshot.readyCheck.gameType)} · {snapshot.readyCheck.format}</span>
+              <span className={styles.meta}>{gameDisplayName(snapshot.readyCheck.gameType)} · {snapshot.readyCheck.format} · v{snapshot.readyCheck.rulesetVersion}</span>
               <div className={styles.readyPlayers}>
                 {snapshot.readyCheck.players.map(player => (
                   <span key={player.userId || player.sessionId}>
@@ -118,7 +118,7 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
                 {snapshot.queue.map(entry => (
                   <li key={entry.reservationId} className={styles.queueItem}>
                     <strong className={styles.pair}>{entry.position}. {pairLabel(entry.players, resolveName)}</strong>
-                    <span className={styles.meta}>{gameDisplayName(entry.gameType)} · {entry.format}</span>
+                    <span className={styles.meta}>{gameDisplayName(entry.gameType)} · {entry.format} · v{entry.rulesetVersion}</span>
                     <span className={styles.eta}>
                       {entry.eta.status === 'known' && entry.eta.milliseconds != null
                         ? `About ${formatDuration(entry.eta.milliseconds)}`

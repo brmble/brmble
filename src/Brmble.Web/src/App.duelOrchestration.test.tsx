@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
   };
   const duelQueue = {
     byChannel: new Map(), incomingRematch: null as RematchOffer | null, outgoingRematch: null as RematchOffer | null,
+    commandError: null as null | { revision: number; operation: string; id: number },
     respondReady: vi.fn(), requestRematch: vi.fn(), respondOffer: vi.fn(), cancelOffer: vi.fn(),
     requestSnapshot: vi.fn().mockResolvedValue(undefined), reset: vi.fn(),
   };
@@ -155,6 +156,7 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.byChannel = new Map();
     mocks.duelQueue.incomingRematch = null;
     mocks.duelQueue.outgoingRematch = null;
+    mocks.duelQueue.commandError = null;
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
   });
@@ -215,6 +217,28 @@ describe('App duel orchestration', () => {
     expect(mocks.duelQueue.respondReady).toHaveBeenNthCalledWith(2, 43, true);
   });
 
+  it('unlocks only the matching rejected ready command and permits decline or retry', () => {
+    const readySnapshot = (reservationId: number) => ({
+      schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
+      active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }] },
+    });
+    mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
+    const { rerender } = renderApp();
+    act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void }).__emit('voice.connected', { channelId: 7, users: [{ session: 11, name: 'Me', self: true, channelId: 7 }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready' }));
+
+    mocks.duelQueue.commandError = { revision: 1, operation: 'ready', id: 41 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
+
+    mocks.duelQueue.commandError = { revision: 2, operation: 'ready', id: 42 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    expect(screen.getByRole('button', { name: 'Ready' })).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('Dismiss notification'));
+    expect(mocks.duelQueue.respondReady).toHaveBeenLastCalledWith(42, false);
+  });
+
   it('requests recovery on connect and resets both stores on disconnect', () => {
     renderApp();
     act(() => (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { channelId: 7 }));
@@ -243,6 +267,21 @@ describe('App duel orchestration', () => {
     fireEvent.click(screen.getByLabelText('Dismiss notification'));
     expect(mocks.duelQueue.respondOffer).not.toHaveBeenCalledWith(73, false);
     expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
+  });
+
+  it('unlocks only the matching rejected rematch response', () => {
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
+    const { rerender } = renderApp();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+
+    mocks.duelQueue.commandError = { revision: 1, operation: 'respondOffer', id: 72 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
+
+    mocks.duelQueue.commandError = { revision: 2, operation: 'respondOffer', id: 73 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    expect(mocks.duelQueue.respondOffer).toHaveBeenCalledTimes(2);
   });
 
   it('requests the ended source match and shows pending state in the App modal', () => {

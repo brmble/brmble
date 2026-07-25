@@ -1030,6 +1030,17 @@ function App() {
     }
   }, [duelQueue.incomingRematch?.offerId]);
   useEffect(() => {
+    const error = duelQueue.commandError;
+    if (error?.operation === 'ready' && readySubmissionRef.current === error.id) {
+      readySubmissionRef.current = null;
+      setSubmittedReadyId(null);
+    }
+    if (error?.operation === 'respondOffer' && rematchSubmissionRef.current === error.id) {
+      rematchSubmissionRef.current = null;
+      setSubmittedRematchId(null);
+    }
+  }, [duelQueue.commandError]);
+  useEffect(() => {
     if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
     else notifQueueRef.current.unregister('game-ready');
   }, [readyCheck]);

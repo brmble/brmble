@@ -58,10 +58,10 @@ describe('DuelQueueModal', () => {
     />);
 
     expect(screen.getByText('1. Cara vs Dan')).toBeInTheDocument();
-    expect(screen.getByText('Rock Paper Scissors · bo3')).toBeInTheDocument();
+    expect(screen.getByText('Rock Paper Scissors · bo3 · v1')).toBeInTheDocument();
     expect(screen.getByText('About 24s')).toBeInTheDocument();
     expect(screen.getByText('2. Alice vs Bob')).toBeInTheDocument();
-    expect(screen.getByText('Deathroll · 1v1')).toBeInTheDocument();
+    expect(screen.getByText('Deathroll · 1v1 · v1')).toBeInTheDocument();
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 
@@ -85,6 +85,7 @@ describe('DuelQueueModal', () => {
 
     expect(screen.getByRole('region', { name: 'Active duel' })).toHaveTextContent(status === 'starting' ? 'Starting' : 'Live');
     expect(screen.getByRole('region', { name: 'Active duel' })).toHaveTextContent('Alice vs Bob');
+    expect(screen.getByRole('region', { name: 'Active duel' })).toHaveTextContent('Rock Paper Scissors · bo5 · v2');
     expect(screen.getByText('About 1m 1s')).toBeInTheDocument();
   });
 
@@ -106,6 +107,7 @@ describe('DuelQueueModal', () => {
 
     expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Alice Ready');
     expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Bob Waiting');
+    expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Deathroll · 1v1 · v1');
 
     rerender(<DuelQueueModal snapshot={snapshot()} resolveName={resolveName} onClose={vi.fn()} />);
     expect(screen.getByText('No duel activity in this channel.')).toBeInTheDocument();
@@ -193,6 +195,6 @@ describe('DuelQueueModal', () => {
     }] })} resolveName={resolveName} onClose={vi.fn()} />);
 
     expect(screen.getByText(`1. ${longToken} vs Bob`)).toBeInTheDocument();
-    expect(screen.getByText(`Rock Paper Scissors · ${longToken}`)).toBeInTheDocument();
+    expect(screen.getByText(`Rock Paper Scissors · ${longToken} · v1`)).toBeInTheDocument();
   });
 });

@@ -49,13 +49,13 @@ internal sealed class GameService : IService
 
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("game.invite", d => PostAsync("games/invite", d));
-        bridge.RegisterHandler("game.respond", d => PostAsync("games/respond", d));
-        bridge.RegisterHandler("game.cancelOffer", d => PostAsync("games/offers/cancel", d));
-        bridge.RegisterHandler("game.ready", d => PostAsync("games/ready", d));
-        bridge.RegisterHandler("game.rematch", d => PostAsync("games/rematch", d));
-        bridge.RegisterHandler("game.action", d => PostAsync("games/action", d));
-        bridge.RegisterHandler("game.forfeit", d => PostAsync("games/forfeit", d));
+        bridge.RegisterHandler("game.invite", d => PostAsync("game.invite", "games/invite", d));
+        bridge.RegisterHandler("game.respond", d => PostAsync("game.respond", "games/respond", d));
+        bridge.RegisterHandler("game.cancelOffer", d => PostAsync("game.cancelOffer", "games/offers/cancel", d));
+        bridge.RegisterHandler("game.ready", d => PostAsync("game.ready", "games/ready", d));
+        bridge.RegisterHandler("game.rematch", d => PostAsync("game.rematch", "games/rematch", d));
+        bridge.RegisterHandler("game.action", d => PostAsync("game.action", "games/action", d));
+        bridge.RegisterHandler("game.forfeit", d => PostAsync("game.forfeit", "games/forfeit", d));
         bridge.RegisterHandler("games.request", HandleRequestAsync);
     }
 
@@ -174,21 +174,21 @@ internal sealed class GameService : IService
     /// the matching games endpoint. On any failure, emits a <c>game.error</c>
     /// bridge event so the UI can react.
     /// </summary>
-    private async Task PostAsync(string path, JsonElement data)
+    private async Task PostAsync(string command, string path, JsonElement data)
     {
         try
         {
             var apiUrl = _getApiUrl();
             if (string.IsNullOrWhiteSpace(apiUrl))
             {
-                SendError(path, "Not connected — no Brmble API URL");
+                SendError(command, path, data, "Not connected — no Brmble API URL");
                 return;
             }
 
             using var cert = _getCertificate();
             if (cert is null)
             {
-                SendError(path, "No client certificate");
+                SendError(command, path, data, "No client certificate");
                 return;
             }
 
@@ -203,12 +203,12 @@ internal sealed class GameService : IService
                 // error body (e.g. {"error":"…","reason":"blocked"}). Surface it so the
                 // UI can branch on a code instead of pattern-matching the message text.
                 var (message, reason) = ParseErrorBody(result.Body, result.Error, result.StatusCode);
-                SendError(path, message, result.StatusCode, reason);
+                SendError(command, path, data, message, result.StatusCode, reason);
             }
         }
         catch (Exception ex)
         {
-            SendError(path, ex.Message);
+            SendError(command, path, data, ex.Message);
         }
     }
 
@@ -237,9 +237,23 @@ internal sealed class GameService : IService
         }
     }
 
-    private void SendError(string path, string? error, int statusCode = 0, string? reason = null)
+    private void SendError(string command, string path, JsonElement data, string? error, int statusCode = 0, string? reason = null)
     {
-        _bridge?.Send("game.error", new { path, error, statusCode, reason });
+        long? Id(string name) => data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out var id) ? id : null;
+        _bridge?.Send("game.error", new
+        {
+            command,
+            path,
+            error,
+            statusCode,
+            reason,
+            reservationId = Id("reservationId"),
+            offerId = Id("offerId"),
+            sourceMatchId = Id("sourceMatchId"),
+        });
         _bridge?.NotifyUiThread();
     }
 }

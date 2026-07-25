@@ -454,6 +454,26 @@ describe('useDuelQueueState', () => {
     expect(api.cancelOffer).toHaveBeenCalledWith(78);
   });
 
+  it('reports correlated bridge command failures with a monotonic revision', () => {
+    const { result } = renderHook(() => useDuelQueueState());
+
+    emit('game.error', { command: 'game.ready', path: 'games/ready', reservationId: 12, reason: 'stale' });
+    expect(result.current.commandError).toMatchObject({ revision: 1, operation: 'ready', id: 12, reason: 'stale' });
+    emit('game.error', { command: 'game.respond', path: 'games/respond', offerId: 56, reason: 'expired' });
+    expect(result.current.commandError).toMatchObject({ revision: 2, operation: 'respondOffer', id: 56, reason: 'expired' });
+  });
+
+  it('reports direct ready and offer response rejections', async () => {
+    api.respondReady.mockRejectedValueOnce(new Error('ready rejected'));
+    api.respondOffer.mockRejectedValueOnce(new Error('offer rejected'));
+    const { result } = renderHook(() => useDuelQueueState());
+
+    act(() => result.current.respondReady(12, true));
+    await waitFor(() => expect(result.current.commandError).toMatchObject({ operation: 'ready', id: 12 }));
+    act(() => result.current.respondOffer(56, true));
+    await waitFor(() => expect(result.current.commandError).toMatchObject({ operation: 'respondOffer', id: 56 }));
+  });
+
   it('cleans up listeners on unmount without duplicating handlers', () => {
     const first = renderHook(() => useDuelQueueState());
     first.unmount();

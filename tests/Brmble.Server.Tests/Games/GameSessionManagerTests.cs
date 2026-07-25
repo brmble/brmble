@@ -10,8 +10,10 @@ namespace Brmble.Server.Tests.Games;
 internal sealed class ManagerPublisher : IGameEventPublisher
 {
     public List<object> Messages { get; } = [];
+    public List<object> Delivered { get; } = [];
     public string? BlockType { get; set; }
     public string? FailType { get; set; }
+    public bool FailOnce { get; set; }
     public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public async Task PublishToUsersAsync(IReadOnlySet<long> users, object message) => await PublishAsync(message);
@@ -20,8 +22,13 @@ internal sealed class ManagerPublisher : IGameEventPublisher
     {
         lock (Messages) Messages.Add(message);
         var type = MessageType(message);
-        if (type == BlockType) { Blocked.TrySetResult(); await Release.Task; }
-        if (type == FailType) throw new InvalidOperationException($"{type} failed");
+        if (type == BlockType && Blocked.TrySetResult()) await Release.Task;
+        if (type == FailType)
+        {
+            if (FailOnce) FailType = null;
+            throw new InvalidOperationException($"{type} failed");
+        }
+        lock (Delivered) Delivered.Add(message);
     }
     private static string? MessageType(object message) => message.GetType().GetProperty("type")?.GetValue(message) as string;
 }
@@ -64,7 +71,7 @@ public class GameSessionManagerTests
         new([new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, sink);
 
     [TestMethod]
-    public async Task ActionWhileStartedPublicationAwaits_IsAppliedBeforeTimerStartsAfterDelivery()
+    public async Task ActionWhileStartedPublicationAwaits_IsDeliveredAfterStartedBeforeTimerStarts()
     {
         var publisher = new ManagerPublisher { BlockType = "game.started" };
         var timers = new RecordingTimerFactory();
@@ -74,14 +81,21 @@ public class GameSessionManagerTests
         await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(manager.TryGetActiveMatch(100, out var active));
 
-        await manager.ActionAsync(active.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        var action = manager.ActionAsync(active.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
         Assert.AreEqual(0, timers.Timers.Count);
-        Assert.IsTrue(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        Assert.IsFalse(action.IsCompleted);
+        Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
         publisher.Release.TrySetResult();
+        await Task.WhenAll(start, action);
         var result = await start;
 
         Assert.IsTrue(result.Success);
         Assert.AreEqual(1, timers.Timers.Count);
+        CollectionAssert.AreEqual(
+            new[] { "game.started", "game.stateUpdated" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.started" or "game.stateUpdated")
+                .ToArray());
     }
 
     [TestMethod]
@@ -114,8 +128,10 @@ public class GameSessionManagerTests
         await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
         manager.TryGetActiveMatch(100, out var active);
 
-        await manager.ForfeitAsync(active.MatchId, 100, "disconnect");
+        var forfeit = manager.ForfeitAsync(active.MatchId, 100, "disconnect");
+        Assert.IsFalse(forfeit.IsCompleted);
         publisher.Release.TrySetResult();
+        await Task.WhenAll(start, forfeit);
         var result = await start;
         await manager.FireTurnTimeoutForTestAsync(active.MatchId);
 
@@ -137,14 +153,17 @@ public class GameSessionManagerTests
         var oldStart = manager.StartAsync(Reservation(83));
         await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
         manager.TryGetActiveMatch(100, out var old);
-        await manager.ForfeitAsync(old.MatchId, 100, "disconnect");
+        var forfeit = manager.ForfeitAsync(old.MatchId, 100, "disconnect");
         publisher.BlockType = null;
-        var replacement = await manager.StartAsync(Reservation(84));
+        var overlapping = await manager.StartAsync(Reservation(84));
 
         publisher.Release.TrySetException(new InvalidOperationException("old publish failed"));
+        await Task.WhenAll(oldStart, forfeit);
         var oldResult = await oldStart;
+        var replacement = await manager.StartAsync(Reservation(84));
 
         Assert.IsFalse(oldResult.Success);
+        Assert.IsFalse(overlapping.Success);
         Assert.IsTrue(replacement.Success);
         Assert.IsTrue(manager.TryGetActiveMatch(100, out var current));
         Assert.AreEqual(replacement.MatchId, current.MatchId);
@@ -368,6 +387,64 @@ public class GameSessionManagerTests
         Assert.AreEqual(true, ended.GetType().GetProperty("draw")?.GetValue(ended));
         Assert.AreEqual(1, (await repo.GetUserStatsAsync(100, "rps")).Draws);
         Assert.AreEqual(1, (await repo.GetUserStatsAsync(200, "rps")).Draws);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentTimeouts_DeliverStateInMutationOrderBeforeEnded()
+    {
+        var publisher = new ManagerPublisher { BlockType = "game.stateUpdated" };
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(991));
+
+        var firstTimeout = manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var secondTimeout = manager.FireTurnTimeoutForTestAsync(started.MatchId);
+
+        Assert.IsFalse(secondTimeout.IsCompleted, "A later mutation must await earlier outbound delivery.");
+        Assert.IsFalse(publisher.Delivered.Any(x => MessageType(x) == "game.ended"));
+
+        publisher.Release.TrySetResult();
+        await Task.WhenAll(firstTimeout, secondTimeout);
+
+        CollectionAssert.AreEqual(
+            new[] { "game.stateUpdated", "game.stateUpdated", "game.ended" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.stateUpdated" or "game.ended")
+                .ToArray());
+    }
+
+    [TestMethod]
+    public async Task FailedPublication_DoesNotPoisonLaterMatchPublications()
+    {
+        var publisher = new ManagerPublisher { FailType = "game.stateUpdated", FailOnce = true };
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(992));
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" }));
+        await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+
+        Assert.AreEqual(1, publisher.Delivered.Count(x => MessageType(x) == "game.stateUpdated"));
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
+    }
+
+    [TestMethod]
+    public async Task FailedFinalStatePublication_StillDrainsCompletionAndReleasesRuntime()
+    {
+        var publisher = new ManagerPublisher();
+        var sink = new ManagerSink();
+        var manager = Manager(publisher, sink);
+        var started = await manager.StartAsync(Reservation(993));
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        publisher.FailType = "game.stateUpdated";
+        publisher.FailOnce = true;
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            manager.FireTurnTimeoutForTestAsync(started.MatchId));
+
+        Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
+        Assert.AreEqual(1, sink.Matches.Count);
+        Assert.IsTrue(publisher.Delivered.Any(x => MessageType(x) == "game.ended"));
     }
 
     private static bool? LastTurnStarted(ManagerPublisher publisher)

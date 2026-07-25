@@ -24,12 +24,20 @@ export interface DuelQueueState {
   byChannel: ReadonlyMap<number, DuelQueueSnapshot>;
   incomingRematch: RematchOffer | null;
   outgoingRematch: RematchOffer | null;
+  commandError: DuelCommandError | null;
   respondReady: (reservationId: number, ready: boolean) => void;
   requestRematch: (sourceMatchId: number) => void;
   respondOffer: (offerId: number, accept: boolean) => void;
   cancelOffer: (offerId: number) => void;
   requestSnapshot: () => Promise<void>;
   reset: () => void;
+}
+
+export interface DuelCommandError {
+  revision: number;
+  operation: 'ready' | 'respondOffer' | 'requestRematch';
+  id: number;
+  reason?: string;
 }
 
 function validateRecoverySnapshot(
@@ -58,6 +66,8 @@ export function useDuelQueueState(): DuelQueueState {
   const [byChannel, setByChannel] = useState<Map<number, DuelQueueSnapshot>>(() => new Map());
   const [incomingRematch, setIncomingRematch] = useState<RematchOffer | null>(null);
   const [outgoingRematch, setOutgoingRematch] = useState<RematchOffer | null>(null);
+  const [commandError, setCommandError] = useState<DuelCommandError | null>(null);
+  const commandErrorRevisionRef = useRef(0);
   const deniedChannelIdsRef = useRef(new Set<number>());
   const mountedRef = useRef(true);
   const requestEpochRef = useRef(0);
@@ -199,12 +209,24 @@ export function useDuelQueueState(): DuelQueueState {
       setIncomingRematch(current => current?.offerId === offerId ? null : current);
       setOutgoingRematch(current => current?.offerId === offerId ? null : current);
     };
+    const handleCommandError = (data: unknown) => {
+      const error = data as { command?: string; path?: string; reservationId?: number; offerId?: number; sourceMatchId?: number; reason?: string };
+      const correlated = error.command === 'game.ready' && error.path === 'games/ready' && typeof error.reservationId === 'number'
+        ? { operation: 'ready' as const, id: error.reservationId }
+        : error.command === 'game.respond' && error.path === 'games/respond' && typeof error.offerId === 'number'
+          ? { operation: 'respondOffer' as const, id: error.offerId }
+          : error.command === 'game.rematch' && error.path === 'games/rematch' && typeof error.sourceMatchId === 'number'
+            ? { operation: 'requestRematch' as const, id: error.sourceMatchId }
+            : null;
+      if (correlated) setCommandError({ revision: ++commandErrorRevisionRef.current, ...correlated, reason: error.reason });
+    };
 
     bridge.on('game.queueSnapshot', handleSnapshot);
     bridge.on('voice.connected', handleConnected);
     bridge.on('voice.channelChanged', handleChannelChanged);
     bridge.on('game.rematchOffered', handleIncomingRematch);
     bridge.on('game.rematchPending', handleOutgoingRematch);
+    bridge.on('game.error', handleCommandError);
     for (const type of ['game.rematchAccepted', 'game.rematchDeclined', 'game.rematchExpired', 'game.rematchCanceled']) {
       bridge.on(type, handleRematchTerminal);
     }
@@ -216,25 +238,28 @@ export function useDuelQueueState(): DuelQueueState {
       bridge.off('voice.channelChanged', handleChannelChanged);
       bridge.off('game.rematchOffered', handleIncomingRematch);
       bridge.off('game.rematchPending', handleOutgoingRematch);
+      bridge.off('game.error', handleCommandError);
       for (const type of ['game.rematchAccepted', 'game.rematchDeclined', 'game.rematchExpired', 'game.rematchCanceled']) {
         bridge.off(type, handleRematchTerminal);
       }
     };
   }, [applySnapshot, cancelRecovery, requestSnapshot]);
 
-  const contain = useCallback((request: Promise<void>) => { void request.catch(() => {}); }, []);
+  const reportDirectError = useCallback((operation: DuelCommandError['operation'], id: number) => {
+    setCommandError({ revision: ++commandErrorRevisionRef.current, operation, id });
+  }, []);
   const respondReady = useCallback((reservationId: number, ready: boolean) => {
-    contain(gamesApi.respondReady(reservationId, ready));
-  }, [contain]);
+    void gamesApi.respondReady(reservationId, ready).catch(() => reportDirectError('ready', reservationId));
+  }, [reportDirectError]);
   const requestRematch = useCallback((sourceMatchId: number) => {
-    contain(gamesApi.requestRematch(sourceMatchId));
-  }, [contain]);
+    void gamesApi.requestRematch(sourceMatchId).catch(() => reportDirectError('requestRematch', sourceMatchId));
+  }, [reportDirectError]);
   const respondOffer = useCallback((offerId: number, accept: boolean) => {
-    contain(gamesApi.respondOffer(offerId, accept));
-  }, [contain]);
+    void gamesApi.respondOffer(offerId, accept).catch(() => reportDirectError('respondOffer', offerId));
+  }, [reportDirectError]);
   const cancelOffer = useCallback((offerId: number) => {
-    contain(gamesApi.cancelOffer(offerId));
-  }, [contain]);
+    void gamesApi.cancelOffer(offerId).catch(() => {});
+  }, []);
   const reset = useCallback(() => {
     cancelRecovery();
     acceptingSnapshotsRef.current = false;
@@ -245,12 +270,14 @@ export function useDuelQueueState(): DuelQueueState {
     setByChannel(new Map());
     setIncomingRematch(null);
     setOutgoingRematch(null);
+    setCommandError(null);
   }, [cancelRecovery]);
 
   return {
     byChannel,
     incomingRematch,
     outgoingRematch,
+    commandError,
     respondReady,
     requestRematch,
     respondOffer,
