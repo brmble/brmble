@@ -935,7 +935,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
-| **Games** | `swords`, `game-deathroll`, `game-rps`, `rps-rock`, `rps-paper`, `rps-scissors` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`); `rps-*` are the RPS choice-button icons (object metaphors) |
+| **Games** | `swords`, `game-deathroll`, `game-rps`, `rps-rock`, `rps-paper`, `rps-scissors` | `swords` = the "Challenge to a duel" menu parent and the actionable duel activity badge; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`); `rps-*` are the RPS choice-button icons (object metaphors) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 

@@ -1,6 +1,14 @@
 .modal {
   width: min(100%, calc(var(--sidebar-width) * 2));
+  max-height: calc(100vh - (var(--space-lg) * 2));
   padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .section,

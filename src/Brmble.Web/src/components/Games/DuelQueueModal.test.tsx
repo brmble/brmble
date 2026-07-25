@@ -121,4 +121,40 @@ describe('DuelQueueModal', () => {
 
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it('focuses the close button and handles document Escape once', () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    const onClose = vi.fn();
+
+    const { unmount } = render(<DuelQueueModal snapshot={snapshot()} resolveName={resolveName} onClose={onClose} />);
+
+    expect(screen.getByRole('button', { name: 'Close duel activity' })).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    unmount();
+    expect(outside).toHaveFocus();
+    outside.remove();
+  });
+
+  it('keeps long queue content in a dedicated scroll region', () => {
+    const queue = Array.from({ length: 20 }, (_, index) => ({
+      reservationId: index + 1,
+      position: index + 1,
+      players,
+      gameType: 'rps',
+      format: 'bo3',
+      rulesetVersion: 1,
+      eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+    }));
+
+    render(<DuelQueueModal snapshot={snapshot({ queue })} resolveName={resolveName} onClose={vi.fn()} />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Duel activity' });
+    const content = screen.getByTestId('duel-activity-content');
+    expect(dialog).toContainElement(content);
+    expect(content).toContainElement(screen.getByText('20. Alice vs Bob'));
+  });
 });
