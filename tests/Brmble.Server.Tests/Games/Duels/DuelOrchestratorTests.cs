@@ -794,6 +794,26 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task PendingOfferOnlyRemoval_PersistsHigherLifetimeClockOnRecreation()
+    {
+        var (sut, presence, _, _) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        Add(presence, 30, 300); Add(presence, 40, 400);
+        await sut.CreateChallengeAsync(10, 20, "test", null);
+        var before = await sut.GetSnapshotForSessionAsync(10);
+
+        await sut.HandleChannelRemovedAsync(1);
+        var replacementOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        await sut.RespondToOfferAsync(replacementOffer.OfferId!.Value, 400, true);
+        var recreated = await sut.GetSnapshotForSessionAsync(30);
+
+        Assert.AreEqual(1L, before.Generation);
+        Assert.AreEqual(0L, before.Revision);
+        Assert.IsTrue(recreated.Generation > before.Generation);
+        Assert.IsTrue(recreated.Revision > before.Revision);
+    }
+
+    [TestMethod]
     public async Task CompletionDuringRunnerStart_ReturnsInterruptedWithoutReleasingReplacement()
     {
         var (sut, presence, _, router) = Create();

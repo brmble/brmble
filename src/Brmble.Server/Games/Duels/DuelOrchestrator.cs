@@ -679,7 +679,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     private ChannelClock GetClock(int channelId)
     {
         if (!_channelClocks.TryGetValue(channelId, out var clock))
-            _channelClocks.Add(channelId, clock = new());
+            _channelClocks.Add(channelId, clock = new() { Generation = 1 });
         return clock;
     }
 
