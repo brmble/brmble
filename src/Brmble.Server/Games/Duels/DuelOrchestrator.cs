@@ -216,13 +216,11 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         {
             if (!_offers.TryGetValue(offerId, out offer!))
                 return Reject("This offer is no longer available.", DuelRejectReason.StaleOffer);
-            if (offer.Inviter.UserId != requesterUserId && offer.Target.UserId != requesterUserId)
-                return Reject("Only a participant may cancel this offer.", DuelRejectReason.NotParticipant);
-            var reason = requesterUserId == offer.Inviter.UserId ? "expired" : "declined";
-            RemoveOffer(offer, reason);
+            if (offer.Inviter.UserId != requesterUserId)
+                return Reject("Only the offer requester may cancel this offer.", DuelRejectReason.NotParticipant);
+            RemoveOffer(offer, "expired");
         }
-        await PublishCancellationAsync(offer,
-            requesterUserId == offer.Inviter.UserId ? "expired" : "declined");
+        await PublishCancellationAsync(offer, "expired");
         return Success(offerId, null);
     }
 

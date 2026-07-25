@@ -20,7 +20,7 @@ public static class GameEndpoints
         }
     }
     public record CancelOfferDto(long OfferId);
-    public record ReadyDto(long ReservationId, bool Ready);
+    public record ReadyDto(long ReservationId, bool? Ready);
     public record RematchDto(long SourceMatchId);
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
@@ -80,6 +80,8 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            if (dto.OfferId <= 0)
+                return InvalidCommandId("offerId");
             var r = await orchestrator.CancelOfferAsync(dto.OfferId, user.UserId);
             return CommandResult(r, "The offer could not be canceled.");
         });
@@ -92,7 +94,12 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            var response = dto.Ready ? ReadyResponse.Accept : ReadyResponse.Decline;
+            if (dto.ReservationId <= 0)
+                return InvalidCommandId("reservationId");
+            if (dto.Ready is null)
+                return Results.BadRequest(new GameErrorWire(
+                    "ready is required.", DuelWire.Reason(DuelRejectReason.InvalidConfiguration)));
+            var response = dto.Ready.Value ? ReadyResponse.Accept : ReadyResponse.Decline;
             var r = await orchestrator.RespondReadyAsync(dto.ReservationId, user.UserId, response);
             return CommandResult(r, "The ready response was rejected.");
         });
@@ -105,6 +112,8 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            if (dto.SourceMatchId <= 0)
+                return InvalidCommandId("sourceMatchId");
             var r = await orchestrator.RequestRematchAsync(dto.SourceMatchId, user.UserId);
             return CommandResult(r, "The rematch request was rejected.");
         });
@@ -198,6 +207,9 @@ public static class GameEndpoints
     private static IResult CommandResult(DuelCommandResult result, string fallback) => result.Success
         ? Results.Ok(new { offerId = result.OfferId, reservationId = result.ReservationId })
         : Results.BadRequest(new GameErrorWire(result.Error ?? fallback, DuelWire.Reason(result.Reason)));
+
+    private static IResult InvalidCommandId(string name) => Results.BadRequest(new GameErrorWire(
+        $"{name} must be positive.", DuelWire.Reason(DuelRejectReason.InvalidConfiguration)));
 
     private static IReadOnlyDictionary<string, object?>? ConvertOptions(Dictionary<string, object?>? options)
     {

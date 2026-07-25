@@ -88,6 +88,29 @@ public class GameServiceTests
     }
 
     [TestMethod]
+    public async Task Command_ChunkedServerErrorThroughAdapter_PreservesStructuredReason()
+    {
+        const string firstChunk = "{\"error\":\"Not your ";
+        const string secondChunk = "offer\",\"reason\":\"notParticipant\"}";
+        var rawResponse = "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n"
+            + $"{firstChunk.Length:X};source=Kestrel\r\n{firstChunk}\r\n"
+            + $"{secondChunk.Length:X}\r\n{secondChunk}\r\n"
+            + "0\r\nRequest-Id: abc\r\n\r\n";
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = CreateService(bridge, cert, (_, _) => MumbleAdapter.ParseHttpResponse(rawResponse));
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "game.cancelOffer",
+            JsonSerializer.SerializeToElement(new { offerId = 9 }));
+
+        var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
+        using var document = JsonDocument.Parse(error.DataJson);
+        Assert.AreEqual("Not your offer", document.RootElement.GetProperty("error").GetString());
+        Assert.AreEqual("notParticipant", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
     public async Task QueueRequest_MalformedApiUrl_ReturnsCorrelatedError()
     {
         using var cert = CreateCertificate();

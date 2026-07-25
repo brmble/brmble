@@ -1320,18 +1320,36 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
-    public async Task RecipientCancellation_PublishesDeclinedWithoutExpired()
+    public async Task Challenge_TargetCannotCancelAndOfferRemainsForInviter()
     {
         var (sut, presence, publisher, _) = Create();
         Add(presence, 10, 100); Add(presence, 20, 200);
         var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
 
-        await sut.CancelOfferAsync(offer.OfferId!.Value, 200);
+        var targetCancellation = await sut.CancelOfferAsync(offer.OfferId!.Value, 200);
+        var inviterCancellation = await sut.CancelOfferAsync(offer.OfferId.Value, 100);
 
-        Assert.IsTrue(publisher.UserMessages.Any(x =>
-            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.declined"));
-        Assert.IsFalse(publisher.UserMessages.Any(x =>
-            x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string == "game.expired"));
+        Assert.IsFalse(targetCancellation.Success);
+        Assert.AreEqual(DuelRejectReason.NotParticipant, targetCancellation.Reason);
+        Assert.IsTrue(inviterCancellation.Success);
+        Assert.IsFalse(publisher.UserMessages.Any(x => MessageValue<string>(x.Message, "type") == "game.declined"));
+        Assert.IsTrue(publisher.UserMessages.Any(x => MessageValue<string>(x.Message, "type") == "game.expired"));
+    }
+
+    [TestMethod]
+    public async Task Rematch_TargetCannotCancelAndOfferRemainsForRequester()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        var offer = await sut.RequestRematchAsync(91, 100);
+
+        var targetCancellation = await sut.CancelOfferAsync(offer.OfferId!.Value, 200);
+        var requesterCancellation = await sut.CancelOfferAsync(offer.OfferId.Value, 100);
+
+        Assert.IsFalse(targetCancellation.Success);
+        Assert.AreEqual(DuelRejectReason.NotParticipant, targetCancellation.Reason);
+        Assert.IsTrue(requesterCancellation.Success);
     }
 
     [TestMethod]

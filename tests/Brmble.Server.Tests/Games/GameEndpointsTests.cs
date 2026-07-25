@@ -225,6 +225,41 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
+    public async Task Ready_MissingReady_ReturnsBadRequestWithoutCall()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/ready", new { reservationId = 20 });
+        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual("invalidConfiguration", error?.Reason);
+        orchestrator.Verify(x => x.RespondReadyAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<ReadyResponse>()), Times.Never);
+    }
+
+    [DataTestMethod]
+    [DataRow("/games/offers/cancel", "{\"offerId\":0}")]
+    [DataRow("/games/ready", "{\"reservationId\":0,\"ready\":false}")]
+    [DataRow("/games/rematch", "{\"sourceMatchId\":0}")]
+    public async Task NewCommand_NonPositiveId_ReturnsBadRequestWithoutCall(string path, string json)
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsync(path, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+        orchestrator.Verify(x => x.RespondReadyAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<ReadyResponse>()), Times.Never);
+        orchestrator.Verify(x => x.RequestRematchAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task Rematch_UsesStableAuthenticatedUser()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();

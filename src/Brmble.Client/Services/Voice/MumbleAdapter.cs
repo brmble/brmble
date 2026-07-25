@@ -1260,82 +1260,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // The response data already in ms is valid — treat as end-of-stream.
             }
 
-            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-
-            // Parse HTTP status line
-            var statusEnd = response.IndexOf('\n');
-            if (statusEnd < 0)
+            var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+            if (parsed.StatusCode != 200)
             {
-                Debug.WriteLine("[Brmble:mTLS] No HTTP status line in response");
-                return (null, 0, null);
+                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {parsed.StatusCode}");
+                return (null, parsed.StatusCode, parsed.Body);
             }
 
-            var statusLine = response[..statusEnd].Trim();
-            Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
-
-            // Parse numeric status code from status line (e.g. "HTTP/1.1 409 Conflict")
-            var statusCode = 0;
-            var parts = statusLine.Split(' ');
-            if (parts.Length >= 2) int.TryParse(parts[1], out statusCode);
-
-            if (statusCode != 200)
-            {
-                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
-                // Extract body for error details
-                string? errorBody = null;
-                var errBodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-                if (errBodyStart < 0)
-                    errBodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-                if (errBodyStart >= 0)
-                {
-                    var errSepLen = response[errBodyStart] == '\r' ? 4 : 2;
-                    errorBody = response[(errBodyStart + errSepLen)..].Trim();
-                }
-                return (null, statusCode, errorBody);
-            }
-
-            // Find body after header separator
-            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-                bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-            {
-                Debug.WriteLine("[Brmble:mTLS] No HTTP body found");
-                return (null, 200, null);
-            }
-
-            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-            var body = response[(bodyStart + separatorLength)..].Trim();
-
-            // Handle chunked transfer encoding — reassemble chunk data
-            var headersSection = response[..bodyStart];
-            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-            {
-                var sb = new System.Text.StringBuilder();
-                var remaining = body;
-                while (remaining.Length > 0)
-                {
-                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                    if (lineEnd < 0) break;
-
-                    var chunkSizeHex = remaining[..lineEnd].Trim();
-                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                        break;
-
-                    var chunkStart = lineEnd + 2;
-                    if (chunkStart + chunkSize > remaining.Length) break;
-                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                    remaining = remaining[(chunkStart + chunkSize)..];
-                    if (remaining.StartsWith("\r\n"))
-                        remaining = remaining[2..];
-                }
-                body = sb.ToString().Trim();
-            }
-
-            if (string.IsNullOrWhiteSpace(body))
+            if (string.IsNullOrWhiteSpace(parsed.Body))
                 return (null, 200, null);
 
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            using var doc = System.Text.Json.JsonDocument.Parse(parsed.Body);
             return (doc.RootElement.Clone(), 200, null);
         }
         finally
@@ -1379,62 +1314,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
 
-                var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-                var statusEnd = response.IndexOf('\n');
-                if (statusEnd < 0) return new TlsResult(false, null, 0, "No response from server");
-
-                var statusLine = response[..statusEnd].Trim();
-
-                // Parse status code from "HTTP/1.1 200 OK"
-                var statusCode = 0;
-                var parts = statusLine.Split(' ');
-                if (parts.Length >= 2 && !int.TryParse(parts[1], out statusCode))
-                    return new TlsResult(false, null, 0, $"Unparseable status line: {statusLine}");
-
-                var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-                if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-
-                string? body = null;
-                if (bodyStart >= 0)
-                {
-                    var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-                    body = response[(bodyStart + separatorLength)..].Trim();
-                }
-
-                if (statusCode < 200 || statusCode >= 300)
-                {
-                    var errorDetail = string.IsNullOrWhiteSpace(body)
-                        ? $"Server returned {statusCode}"
-                        : $"Server returned {statusCode}: {body}";
-                    return new TlsResult(false, body, statusCode, errorDetail);
-                }
-
-                if (body is null)
-                    return new TlsResult(true, null, statusCode, null);
-
-                var headersSection = response[..bodyStart];
-                if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-                {
-                    var sb = new System.Text.StringBuilder();
-                    var remaining = body;
-                    while (remaining.Length > 0)
-                    {
-                        var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                        if (lineEnd < 0) break;
-                        var chunkSizeHex = remaining[..lineEnd].Trim();
-                        if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                            break;
-                        var chunkStart = lineEnd + 2;
-                        if (chunkStart + chunkSize > remaining.Length) break;
-                        sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                        remaining = remaining[(chunkStart + chunkSize)..];
-                        if (remaining.StartsWith("\r\n"))
-                            remaining = remaining[2..];
-                    }
-                    body = sb.ToString().Trim();
-                }
-
-                return new TlsResult(true, string.IsNullOrWhiteSpace(body) ? null : body, statusCode, null);
+                var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+                return new TlsResult(parsed.Success, parsed.Body, parsed.StatusCode, parsed.Error);
             }
             finally
             {
@@ -1445,6 +1326,64 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             return new TlsResult(false, null, 0, ex.Message);
         }
+    }
+
+    internal static ChannelRequestBridgeHandler.TlsCallResult ParseHttpResponse(string response)
+    {
+        var statusEnd = response.IndexOf('\n');
+        if (statusEnd < 0)
+            return new(false, null, 0, "No response from server");
+
+        var statusLine = response[..statusEnd].Trim();
+        var parts = statusLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var statusCode))
+            return new(false, null, 0, $"Unparseable status line: {statusLine}");
+
+        var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+        string? body = null;
+        if (bodyStart >= 0)
+        {
+            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+            body = response[(bodyStart + separatorLength)..];
+            var headers = response[..bodyStart];
+            if (headers.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+                body = DecodeChunkedBody(body);
+            else
+                body = body.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(body)) body = null;
+        var success = statusCode is >= 200 and < 300;
+        var error = success ? null : body is null
+            ? $"Server returned {statusCode}"
+            : $"Server returned {statusCode}: {body}";
+        return new(success, body, statusCode, error);
+    }
+
+    private static string DecodeChunkedBody(string body)
+    {
+        var result = new System.Text.StringBuilder();
+        var offset = 0;
+        while (offset < body.Length)
+        {
+            var lineEnd = body.IndexOf("\r\n", offset, StringComparison.Ordinal);
+            if (lineEnd < 0) break;
+            var sizeText = body[offset..lineEnd];
+            var extension = sizeText.IndexOf(';');
+            if (extension >= 0) sizeText = sizeText[..extension];
+            if (!int.TryParse(sizeText.Trim(), System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out var size))
+                break;
+            offset = lineEnd + 2;
+            if (size == 0) break;
+            if (size < 0 || offset + size > body.Length) break;
+            result.Append(body.AsSpan(offset, size));
+            offset += size;
+            if (offset + 2 > body.Length || body.AsSpan(offset, 2) is not "\r\n") break;
+            offset += 2;
+        }
+        return result.ToString().Trim();
     }
 
     private static async Task<TlsResult> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
