@@ -1,3 +1,5 @@
+using Brmble.Server.Games.Duels;
+
 namespace Brmble.Server.Games;
 
 public enum InteractionModel { AlternatingTurns, SimultaneousCommit }
@@ -16,10 +18,22 @@ public abstract record GameOutcome
         IReadOnlyList<CompletedParticipant> Participants) : GameOutcome;
 }
 
-public interface IGameEngine
+public interface IGameEngine : IDuelGameDefinition
 {
-    string GameType { get; }
+    new string GameType { get; }
     InteractionModel InteractionModel { get; }
+    new string RunnerKey => "discrete";
+    new int RulesetVersion => 1;
+    new IReadOnlyDictionary<string, object?> NormalizeOptions(IReadOnlyDictionary<string, object?>? options)
+        => new Dictionary<string, object?>();
+    new string MatchFormat(IReadOnlyDictionary<string, object?> normalizedOptions) => "1v1";
+    string IDuelGameDefinition.GameType => GameType;
+    string IDuelGameDefinition.RunnerKey => RunnerKey;
+    int IDuelGameDefinition.RulesetVersion => RulesetVersion;
+    IReadOnlyDictionary<string, object?> IDuelGameDefinition.NormalizeOptions(
+        IReadOnlyDictionary<string, object?>? options) => NormalizeOptions(options);
+    string IDuelGameDefinition.MatchFormat(IReadOnlyDictionary<string, object?> normalizedOptions) =>
+        MatchFormat(normalizedOptions);
 
     // Creates the initial opaque state for a match with the given ordered players.
     // `options` carries optional match parameters supplied with the invite (e.g. RPS
