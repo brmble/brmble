@@ -57,6 +57,23 @@ public class GameRepository : IDurationSampleRepository
         return matchId;
     }
 
+    public async Task<GameMatch?> GetMatchAsync(long matchId)
+    {
+        using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync("""
+            SELECT id AS Id, game_type AS GameType, channel_id AS ChannelId, format AS Format,
+                   ruleset_version AS RulesetVersion, outcome AS Outcome, abandon_reason AS AbandonReason,
+                   started_at AS StartedAt, ended_at AS EndedAt, duration_ms AS DurationMs,
+                   metadata_json AS MetadataJson
+            FROM game_matches WHERE id = @matchId;
+            """, new { matchId });
+        if (row is null) return null;
+        return new GameMatch(
+            (long)row.Id, (string)row.GameType, (int)(long)row.ChannelId, (string)row.Format,
+            (int)(long)row.RulesetVersion, (string)row.Outcome, (string?)row.AbandonReason,
+            (string)row.StartedAt, (string)row.EndedAt, (long)row.DurationMs, (string?)row.MetadataJson);
+    }
+
     private static async Task UpsertUserStatsAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
         long userId, string gameType, string result)
     {

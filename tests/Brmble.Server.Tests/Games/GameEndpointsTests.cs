@@ -58,26 +58,22 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
-    public async Task Respond_LegacyMatchId_UsesStableAuthenticatedUser()
+    public async Task Respond_MatchIdOnly_IsRejectedWithoutOrchestratorCall()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
-        orchestrator.Setup(x => x.RespondToOfferAsync(9, It.IsAny<long>(), false))
-            .ReturnsAsync(new DuelCommandResult(true, 9, null, null, DuelRejectReason.None));
         await using var factory = CreateFactory(orchestrator);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
         var response = await client.PostAsJsonAsync("/games/respond", new { matchId = 9, accept = false });
 
-        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
-        orchestrator.Verify(x => x.RespondToOfferAsync(9, It.Is<long>(id => id > 0), false), Times.Once);
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        orchestrator.Verify(x => x.RespondToOfferAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<bool>()), Times.Never);
     }
 
     [DataTestMethod]
     [DataRow("{\"accept\":true}")]
     [DataRow("{\"offerId\":0,\"accept\":true}")]
-    [DataRow("{\"offerId\":9,\"matchId\":9,\"accept\":true}")]
-    [DataRow("{\"offerId\":9,\"matchId\":10,\"accept\":true}")]
     public async Task Respond_AmbiguousOrNonPositiveId_ReturnsBadRequestWithoutCall(string json)
     {
         var orchestrator = new Mock<IDuelOrchestrator>();

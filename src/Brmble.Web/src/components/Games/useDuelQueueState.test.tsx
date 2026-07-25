@@ -485,13 +485,16 @@ describe('useGameState duel offer contracts', () => {
     vi.clearAllMocks();
   });
 
-  it('uses offerId for responses and cancellation, with matchId as an event fallback', () => {
+  it('uses offerId for responses and cancellation without accepting matchId aliases', () => {
     const { result } = renderHook(() => useGameState(11));
     emit('game.invited', { offerId: 5, matchId: 99, from: 22, gameType: 'rps' });
     act(() => result.current.acceptInvite());
     expect(api.respondOffer).toHaveBeenCalledWith(5, true);
 
     emit('game.invitePending', { matchId: 7, target: 22, gameType: 'rps' });
+    act(() => result.current.cancelInvite());
+    expect(api.cancelOffer).not.toHaveBeenCalled();
+    emit('game.invitePending', { offerId: 7, target: 22, gameType: 'rps' });
     act(() => result.current.cancelInvite());
     expect(api.cancelOffer).toHaveBeenCalledWith(7);
     expect(api.forfeit).not.toHaveBeenCalled();

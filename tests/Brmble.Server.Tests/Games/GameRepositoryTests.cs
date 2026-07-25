@@ -171,6 +171,20 @@ public class GameRepositoryTests
     }
 
     [TestMethod]
+    public async Task GetMatch_ReturnsSavedExplicitRulesetVersion()
+    {
+        var (repo, _) = GameTestHelpers.NewRepoWithDb();
+        var now = DateTimeOffset.UtcNow;
+        var matchId = await repo.SaveCompletedMatchAsync(new CompletedMatch(
+            "rps", 7, "bo5", 6, "draw", null, now.AddSeconds(-5), now, []));
+
+        var saved = await repo.GetMatchAsync(matchId);
+
+        Assert.IsNotNull(saved);
+        Assert.AreEqual(6, saved.RulesetVersion);
+    }
+
+    [TestMethod]
     public async Task GetDurationSamples_ReturnsNewestHundredQualifyingRowsInGroup()
     {
         var (repo, db) = GameTestHelpers.NewRepoWithDb();

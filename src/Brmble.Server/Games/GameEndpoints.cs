@@ -9,16 +9,7 @@ namespace Brmble.Server.Games;
 public static class GameEndpoints
 {
     public record InviteDto(long TargetSessionId, string GameType, Dictionary<string, object?>? Options = null);
-    public record OfferResponseDto(long? OfferId, long? MatchId, bool Accept)
-    {
-        public bool TryResolveOfferId(out long offerId)
-        {
-            offerId = OfferId is > 0 && MatchId is null ? OfferId.Value
-                : MatchId is > 0 && OfferId is null ? MatchId.Value
-                : 0;
-            return offerId > 0;
-        }
-    }
+    public record OfferResponseDto(long OfferId, bool Accept);
     public record CancelOfferDto(long OfferId);
     public record ReadyDto(long ReservationId, bool? Ready);
     public record RematchDto(long SourceMatchId);
@@ -50,7 +41,7 @@ public static class GameEndpoints
             // dto.TargetSessionId is a Mumble session id supplied by the web client.
             var options = ConvertOptions(dto.Options);
             var r = await orchestrator.CreateChallengeAsync(session, dto.TargetSessionId, dto.GameType, options);
-            if (r.Success) return Results.Ok(new { offerId = r.OfferId, matchId = r.OfferId });
+            if (r.Success) return Results.Ok(new { offerId = r.OfferId });
             return Results.BadRequest(new GameErrorWire(r.Error ?? "The challenge was rejected.", DuelWire.Reason(r.Reason)));
         });
 
@@ -62,11 +53,11 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            if (!dto.TryResolveOfferId(out var offerId))
+            if (dto.OfferId <= 0)
                 return Results.BadRequest(new GameErrorWire(
-                    "Exactly one positive offerId or matchId is required.",
+                    "offerId must be positive.",
                     DuelWire.Reason(DuelRejectReason.InvalidConfiguration)));
-            var r = await orchestrator.RespondToOfferAsync(offerId, user.UserId, dto.Accept);
+            var r = await orchestrator.RespondToOfferAsync(dto.OfferId, user.UserId, dto.Accept);
             return r.Success
                 ? Results.Ok(new { offerId = r.OfferId, reservationId = r.ReservationId })
                 : Results.BadRequest(new GameErrorWire(r.Error ?? "The response was rejected.", DuelWire.Reason(r.Reason)));

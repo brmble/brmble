@@ -513,6 +513,32 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task PresentChannelSnapshot_ReadDoesNotCreateClockAndFirstAcceptedMutationStartsAtOne()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+
+        var first = await sut.GetSnapshotForSessionAsync(10);
+        var second = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.AreEqual(0L, first.Generation);
+        Assert.AreEqual(0L, first.Revision);
+        Assert.AreEqual(0L, second.Generation);
+        Assert.AreEqual(0L, second.Revision);
+
+        router.StartBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var acceptance = sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        await WaitUntilAsync(() => router.Starts.Count == 1);
+        var mutated = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.AreEqual(1L, mutated.Generation);
+        Assert.AreEqual(1L, mutated.Revision);
+        router.StartBlock.SetResult();
+        await acceptance;
+    }
+
+    [TestMethod]
     public async Task ConcurrentChallengesAcrossSessionsOfSameUser_CommitExactlyOnce()
     {
         var (sut, presence, _, _) = Create();
@@ -1037,6 +1063,7 @@ public class DuelOrchestratorTests
         router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
 
         await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await WaitUntilAsync(() => router.Forfeits.Count == 1);
 
         CollectionAssert.AreEqual(new[] { (77L, 100L, "disconnected") }, router.Forfeits.ToArray());
         Assert.AreEqual(DuelRejectReason.AlreadyCommitted,
@@ -1054,6 +1081,7 @@ public class DuelOrchestratorTests
         var first = await sut.RespondToOfferAsync(firstOffer.OfferId!.Value, 200, true);
         router.ActiveMatches[100] = new(71, first.ReservationId!.Value, 1, "test-runner");
         await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await WaitUntilAsync(() => router.Forfeits.Count == 1);
         await router.CompleteAsync(new MatchCompletion(71, first.ReservationId.Value, 1,
             router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, DateTimeOffset.UtcNow));
         var secondOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
@@ -1061,6 +1089,7 @@ public class DuelOrchestratorTests
         router.ActiveMatches[100] = new(72, second.ReservationId!.Value, 1, "test-runner");
 
         await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await WaitUntilAsync(() => router.Forfeits.Count == 2);
 
         CollectionAssert.AreEqual(
             new[] { (71L, 100L, "disconnected"), (72L, 100L, "disconnected") },
@@ -1068,25 +1097,52 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
-    public async Task FailedActiveForfeit_CanBeRetriedForSameReservation()
+    public async Task FailedActiveForfeit_RetriesAfterDelayWithoutAnotherPresenceCallback()
     {
-        var (sut, presence, _, router) = Create();
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(clock);
         Add(presence, 10, 100); Add(presence, 20, 200);
         var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
         var active = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
         router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
         router.FailNextForfeit = true;
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-            sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected));
-        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => router.ForfeitAttempts.Count == 1);
 
+        Assert.AreEqual(0, router.Forfeits.Count);
+        await WaitUntilAsync(() => clock.TimerCount >= 2);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => router.Forfeits.Count == 1);
         Assert.AreEqual(2, router.ForfeitAttempts.Count);
-        Assert.AreEqual(1, router.Forfeits.Count);
     }
 
     [TestMethod]
-    public async Task ConcurrentActivePresenceLoss_StartsAtMostOneForfeitAndFailureAllowsRetry()
+    public async Task ActiveForfeitRetry_StopsWhenMatchCompletesBeforeDelay()
+    {
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(clock);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var active = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+        router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
+        router.FailNextForfeit = true;
+
+        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
+        await WaitUntilAsync(() => router.ForfeitAttempts.Count == 1);
+        await router.CompleteAsync(new MatchCompletion(77, active.ReservationId.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo,
+            router.Starts[0].Configuration, clock.GetUtcNow()));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Task.Yield();
+
+        Assert.AreEqual(1, router.ForfeitAttempts.Count);
+        Assert.AreEqual(0, router.Forfeits.Count);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentActivePresenceLoss_StartsAtMostOneForfeit()
     {
         var (sut, presence, _, router) = Create();
         Add(presence, 10, 100); Add(presence, 20, 200);
@@ -1094,7 +1150,6 @@ public class DuelOrchestratorTests
         var active = await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
         router.ActiveMatches[100] = new(77, active.ReservationId!.Value, 1, "test-runner");
         router.ForfeitBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        router.FailNextForfeit = true;
 
         var first = sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
         await router.ForfeitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1102,12 +1157,10 @@ public class DuelOrchestratorTests
         await duplicate;
         Assert.AreEqual(1, router.ForfeitAttempts.Count);
         router.ForfeitBlock.SetResult();
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => first);
-        router.ForfeitBlock = null;
+        await first;
+        await WaitUntilAsync(() => router.Forfeits.Count == 1);
 
-        await sut.HandlePresenceLostAsync(100, 10, DuelCancelReason.Disconnected);
-
-        Assert.AreEqual(2, router.ForfeitAttempts.Count);
+        Assert.AreEqual(1, router.ForfeitAttempts.Count);
         Assert.AreEqual(1, router.Forfeits.Count);
     }
 
@@ -1216,7 +1269,7 @@ public class DuelOrchestratorTests
         await sut.RespondToOfferAsync(replacementOffer.OfferId!.Value, 400, true);
         var recreated = await sut.GetSnapshotForSessionAsync(30);
 
-        Assert.AreEqual(1L, before.Generation);
+        Assert.AreEqual(0L, before.Generation);
         Assert.AreEqual(0L, before.Revision);
         Assert.IsTrue(recreated.Generation > before.Generation);
         Assert.IsTrue(recreated.Revision > before.Revision);
@@ -1368,6 +1421,8 @@ public class DuelOrchestratorTests
         Assert.IsTrue((await challenge).Success);
         CollectionAssert.AreEqual(new[] { "game.invitePending", "game.invited" },
             publisher.UserMessages.Select(x => x.Message.GetType().GetProperty("type")?.GetValue(x.Message) as string).ToArray());
+        Assert.IsTrue(publisher.UserMessages.All(x => x.Message.GetType().GetProperty("offerId") is not null));
+        Assert.IsTrue(publisher.UserMessages.All(x => x.Message.GetType().GetProperty("matchId") is null));
     }
 
     [TestMethod]

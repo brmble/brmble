@@ -10,6 +10,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CompletedSourceLifetime = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan SnapshotRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ForfeitRetryDelay = TimeSpan.FromSeconds(1);
+    private const int ForfeitAttemptLimit = 3;
     private const int CompletedSourceLimit = 1000;
 
     private readonly GameDefinitionCatalog _catalog;
@@ -109,13 +111,13 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { inviter.UserId }, new
             {
-                type = "game.invitePending", offerId = offer.Id, matchId = offer.Id,
+                type = "game.invitePending", offerId = offer.Id,
                 gameType = configuration.GameType, target = target.SessionId,
                 inviteMs = (int)OfferLifetime.TotalMilliseconds,
             });
             await _publisher.PublishToUsersAsync(new HashSet<long> { target.UserId }, new
             {
-                type = "game.invited", offerId = offer.Id, matchId = offer.Id,
+                type = "game.invited", offerId = offer.Id,
                 gameType = configuration.GameType, from = inviter.SessionId,
                 inviteMs = (int)OfferLifetime.TotalMilliseconds,
             });
@@ -359,7 +361,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         ChannelSnapshotInput input;
         lock (_gate)
         {
-            GetClock(channelId);
             input = CaptureSnapshotInput(channelId);
         }
         return await BuildSnapshotAsync(input);
@@ -448,21 +449,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                     ownsForfeit = channel.ActiveForfeits.Add(token);
             }
             if (ownsForfeit)
-            {
-                try
-                {
-                    await _runner.ForfeitAsync(forfeit.MatchId, userId, CancelReason(reason));
-                }
-                catch
-                {
-                    lock (_gate)
-                    {
-                        if (_channels.TryGetValue(activeForfeitCandidate.ChannelId, out var channel))
-                            channel.ActiveForfeits.Remove(token);
-                    }
-                    throw;
-                }
-            }
+                _ = Task.Run(() => RunActiveForfeitAsync(
+                    activeForfeitCandidate.ChannelId, token, forfeit.MatchId, CancelReason(reason)));
         }
         foreach (var channelId in advanceChannels.Distinct())
         {
@@ -499,7 +487,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 }
                 foreach (var reservation in reservations) ReleasePair(reservation);
             }
-            var clock = GetClock(channelId);
+            if (!_channelClocks.TryGetValue(channelId, out var clock))
+                _channelClocks.Add(channelId, clock = new());
             clock.Generation++;
             clock.Revision++;
             EnqueueSnapshotPublication(channelId);
@@ -511,6 +500,41 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             if (_runner.TryGetActiveMatch(item.UserId, out var active)
                 && active.ReservationId == item.Reservation.ReservationId)
                 await _runner.ForfeitAsync(active.MatchId, item.UserId, "channelRemoved");
+    }
+
+    private async Task RunActiveForfeitAsync(
+        int channelId, ActiveForfeitToken token, long matchId, string reason)
+    {
+        for (var attempt = 1; attempt <= ForfeitAttemptLimit; attempt++)
+        {
+            lock (_gate)
+            {
+                if (!_channels.TryGetValue(channelId, out var channel)
+                    || channel.Active?.ReservationId != token.ReservationId
+                    || !channel.ActiveForfeits.Contains(token))
+                    return;
+            }
+
+            try
+            {
+                await _runner.ForfeitAsync(matchId, token.UserId, reason);
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to forfeit duel reservation {ReservationId} for user {UserId} on attempt {Attempt}",
+                    token.ReservationId, token.UserId, attempt);
+                if (attempt < ForfeitAttemptLimit)
+                    await Task.Delay(ForfeitRetryDelay, _timeProvider);
+            }
+        }
+
+        lock (_gate)
+        {
+            if (_channels.TryGetValue(channelId, out var channel))
+                channel.ActiveForfeits.Remove(token);
+        }
     }
 
     private async Task<DuelCommandResult> StartAsync(long offerId, StartDecision decision)
@@ -664,7 +688,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 }
                 else
                 {
-                    var clock = GetClock(channelId);
+                    var clock = EnsureClock(channelId);
                     var generation = ++clock.ReadyGeneration;
                     promoted = new(candidate, _timeProvider.GetUtcNow().Add(ReadyTimeout), generation);
                     channel.ReadyCheck = promoted;
@@ -740,7 +764,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             {
                 type = reason == "declined" ? "game.declined" : "game.expired",
                 offerId = offer.Id,
-                matchId = offer.Id,
                 reason,
             })
             : _publisher.PublishToUsersAsync(ParticipantIds(offer), RematchMessage(
@@ -772,7 +795,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             {
                 type = accept ? "game.accepted" : "game.declined",
                 offerId = offer.Id,
-                matchId = offer.Id,
             })
             : PublishBestEffortAsync(ParticipantIds(offer), RematchMessage(
                 accept ? "game.rematchAccepted" : "game.rematchDeclined",
@@ -900,24 +922,24 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     {
         if (!_channels.TryGetValue(channelId, out var channel))
         {
-            var clock = GetClock(channelId);
+            var clock = EnsureClock(channelId);
             if (clock.Generation == 0) clock.Generation = 1;
             _channels.Add(channelId, channel = new() { Generation = clock.Generation, Revision = clock.Revision });
         }
         return channel;
     }
 
-    private ChannelClock GetClock(int channelId)
+    private ChannelClock EnsureClock(int channelId)
     {
         if (!_channelClocks.TryGetValue(channelId, out var clock))
-            _channelClocks.Add(channelId, clock = new() { Generation = 1 });
+            _channelClocks.Add(channelId, clock = new());
         return clock;
     }
 
     private void Bump(int channelId, ChannelState channel)
     {
         channel.Revision++;
-        var clock = GetClock(channelId);
+        var clock = EnsureClock(channelId);
         clock.Generation = channel.Generation;
         clock.Revision = channel.Revision;
         EnqueueSnapshotPublication(channelId);

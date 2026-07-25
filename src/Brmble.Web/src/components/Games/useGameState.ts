@@ -197,8 +197,8 @@ export function useGameState(myUserId: number): GameState {
 
   useEffect(() => {
     const handleInvited = (data: unknown) => {
-      const d = data as { offerId?: number; matchId?: number; gameType?: string; from?: number; inviteMs?: number };
-      const offerId = d.offerId ?? d.matchId;
+      const d = data as { offerId?: number; gameType?: string; from?: number; inviteMs?: number };
+      const offerId = d.offerId;
       if (offerId == null || d.from == null) return;
       const gameType = d.gameType ?? 'deathroll';
       if (!SUPPORTED_GAMES.includes(gameType)) {
@@ -214,8 +214,8 @@ export function useGameState(myUserId: number): GameState {
     // offerId (which the fire-and-forget WebView invite couldn't return). Fill in
     // the pending-invite state so the "waiting for opponent" UI and cancel work.
     const handleInvitePending = (data: unknown) => {
-      const d = data as { offerId?: number; matchId?: number; gameType?: string; target?: number; inviteMs?: number };
-      const offerId = d.offerId ?? d.matchId;
+      const d = data as { offerId?: number; gameType?: string; target?: number; inviteMs?: number };
+      const offerId = d.offerId;
       if (offerId == null) return;
       const existing = outgoingInviteRef.current;
       // The user asked to cancel before this confirmation arrived. Now that we have

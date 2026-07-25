@@ -5,6 +5,7 @@ public record GameMatch(
     string GameType,
     int ChannelId,
     string Format,
+    int RulesetVersion,
     string Outcome,
     string? AbandonReason,
     string StartedAt,
