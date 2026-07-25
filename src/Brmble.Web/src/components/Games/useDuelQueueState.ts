@@ -37,6 +37,9 @@ export function useDuelQueueState(): DuelQueueState {
   const [incomingRematch, setIncomingRematch] = useState<RematchOffer | null>(null);
   const [outgoingRematch, setOutgoingRematch] = useState<RematchOffer | null>(null);
   const deniedChannelIdsRef = useRef(new Set<number>());
+  const mountedRef = useRef(true);
+  const requestEpochRef = useRef(0);
+  const currentChannelIdRef = useRef<number | null>(null);
 
   const applySnapshot = useCallback((snapshot: DuelQueueSnapshot) => {
     if (snapshot.schemaVersion !== 1 || deniedChannelIdsRef.current.has(snapshot.channelId)) return;
@@ -53,17 +56,25 @@ export function useDuelQueueState(): DuelQueueState {
   }, []);
 
   const requestSnapshot = useCallback(async () => {
+    const epoch = ++requestEpochRef.current;
+    const requestedChannelId = currentChannelIdRef.current;
     try {
-      applySnapshot(await gamesApi.getQueueSnapshot());
+      const snapshot = await gamesApi.getQueueSnapshot();
+      if (!mountedRef.current || requestEpochRef.current !== epoch) return;
+      if (requestedChannelId != null && snapshot.channelId !== requestedChannelId) return;
+      if (currentChannelIdRef.current != null && snapshot.channelId !== currentChannelIdRef.current) return;
+      applySnapshot(snapshot);
     } catch {
       // Queue snapshots are advisory and a later push or channel change retries them.
     }
   }, [applySnapshot]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const handleSnapshot = (data: unknown) => applySnapshot(data as DuelQueueSnapshot);
     const handleChannelChanged = (data: unknown) => {
       const d = data as { channelId?: number; previousChannelId?: number };
+      requestEpochRef.current++;
       if (d.previousChannelId != null && d.previousChannelId !== d.channelId) {
         deniedChannelIdsRef.current.add(d.previousChannelId);
         setByChannel(previous => {
@@ -73,7 +84,10 @@ export function useDuelQueueState(): DuelQueueState {
           return next;
         });
       }
-      if (d.channelId != null) deniedChannelIdsRef.current.delete(d.channelId);
+      if (d.channelId != null) {
+        currentChannelIdRef.current = d.channelId;
+        deniedChannelIdsRef.current.delete(d.channelId);
+      }
       void requestSnapshot();
     };
     const handleIncomingRematch = (data: unknown) => setIncomingRematch(data as RematchOffer);
@@ -92,6 +106,8 @@ export function useDuelQueueState(): DuelQueueState {
       bridge.on(type, handleRematchTerminal);
     }
     return () => {
+      mountedRef.current = false;
+      requestEpochRef.current++;
       bridge.off('game.queueSnapshot', handleSnapshot);
       bridge.off('voice.channelChanged', handleChannelChanged);
       bridge.off('game.rematchOffered', handleIncomingRematch);
@@ -116,6 +132,8 @@ export function useDuelQueueState(): DuelQueueState {
     contain(gamesApi.cancelOffer(offerId));
   }, [contain]);
   const reset = useCallback(() => {
+    requestEpochRef.current++;
+    currentChannelIdRef.current = null;
     deniedChannelIdsRef.current.clear();
     setByChannel(new Map());
     setIncomingRematch(null);

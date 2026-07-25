@@ -3,6 +3,7 @@ using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
 using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text.Json;
 
 namespace Brmble.Server.Tests.Games;
 
@@ -172,6 +173,54 @@ public class GameSessionManagerTests
         Assert.AreSame(configuration, completion.Configuration);
         Assert.AreEqual("bo5", sink.Matches.Single().Format);
         Assert.AreEqual(3, sink.Matches.Single().RulesetVersion);
+    }
+
+    [TestMethod]
+    public async Task LifecycleEvents_IncludeCanonicalConfiguration()
+    {
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var configuration = new DuelConfiguration("rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5, ["suddenDeath"] = true }, "discrete");
+
+        var started = await manager.StartAsync(Reservation(911, configuration));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        var startedJson = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.started"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var endedJson = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.ended"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        foreach (var payload in new[] { startedJson, endedJson })
+        {
+            StringAssert.Contains(payload, "\"format\":\"bo5\"");
+            StringAssert.Contains(payload, "\"rulesetVersion\":3");
+            StringAssert.Contains(payload, "\"options\":{\"bestOf\":5,\"suddenDeath\":true}");
+        }
+    }
+
+    [TestMethod]
+    public async Task AbandonedLifecycleEvent_IncludesCanonicalConfiguration()
+    {
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var configuration = new DuelConfiguration("rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5 }, "discrete");
+
+        var started = await manager.StartAsync(Reservation(912, configuration));
+        await manager.ForfeitAsync(started.MatchId, 100, "quit");
+
+        var payload = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.ended"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        StringAssert.Contains(payload, "\"format\":\"bo5\"");
+        StringAssert.Contains(payload, "\"rulesetVersion\":3");
+        StringAssert.Contains(payload, "\"options\":{\"bestOf\":5}");
     }
 
     [TestMethod]

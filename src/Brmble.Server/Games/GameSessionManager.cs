@@ -168,6 +168,9 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 type = "game.started",
                 matchId,
                 gameType = match.GameType,
+                format = match.Configuration.Format,
+                rulesetVersion = match.Configuration.RulesetVersion,
+                options = match.Configuration.Options,
                 firstTurn = IsSimultaneous(match) ? (long?)null : CurrentPlayer(match),
                 turnMs = (int)TurnTimeout.TotalMilliseconds,
                 penalty = false,
@@ -389,7 +392,17 @@ public sealed class GameSessionManager : IDuelMatchRunner
             // winner.UserId remains a Mumble session id for the client view.
             await _publisher.PublishToUsersAsync(
                 RouteSet(match),
-                new { type = "game.ended", matchId = match.MatchId, gameType = match.GameType, winnerId = winner?.UserId, draw = isDraw });
+                new
+                {
+                    type = "game.ended",
+                    matchId = match.MatchId,
+                    gameType = match.GameType,
+                    format = match.Configuration.Format,
+                    rulesetVersion = match.Configuration.RulesetVersion,
+                    options = match.Configuration.Options,
+                    winnerId = winner?.UserId,
+                    draw = isDraw,
+                });
             await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: false));
             var feedText = match.Engine.EndFeedLine(match.State, sid => NameOf(match, sid))
                 ?? (winner is not null
@@ -467,7 +480,18 @@ public sealed class GameSessionManager : IDuelMatchRunner
             _completedMatches.Enqueue(completed);
             await _publisher.PublishToUsersAsync(
                 RouteSet(match),
-                new { type = "game.ended", matchId, gameType = match.GameType, abandoned = true, reason, winnerId = otherId });
+                new
+                {
+                    type = "game.ended",
+                    matchId,
+                    gameType = match.GameType,
+                    format = match.Configuration.Format,
+                    rulesetVersion = match.Configuration.RulesetVersion,
+                    options = match.Configuration.Options,
+                    abandoned = true,
+                    reason,
+                    winnerId = otherId,
+                });
             await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: false));
             await PublishAdvisoryAsync(() => PublishFeedAsync(match,
                 $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!"));

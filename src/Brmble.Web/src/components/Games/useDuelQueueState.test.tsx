@@ -36,6 +36,12 @@ function emit(type: string, data: unknown) {
   act(() => handlers.get(type)?.forEach(handler => handler(data)));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(next => { resolve = next; });
+  return { promise, resolve };
+}
+
 function snapshot(
   channelId: number,
   generation: number,
@@ -137,6 +143,62 @@ describe('useDuelQueueState', () => {
     await expect(result.current.requestSnapshot()).resolves.toBeUndefined();
   });
 
+  it('ignores a deferred snapshot resolved after reset', async () => {
+    const pending = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useDuelQueueState());
+    const request = result.current.requestSnapshot();
+    act(() => result.current.reset());
+    await act(async () => pending.resolve(snapshot(2, 1, 1, queued)));
+    await request;
+    expect(result.current.byChannel.size).toBe(0);
+  });
+
+  it('ignores an old-channel request resolved after movement', async () => {
+    const oldRequest = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(oldRequest.promise);
+    const { result } = renderHook(() => useDuelQueueState());
+    const request = result.current.requestSnapshot();
+    emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
+    await act(async () => oldRequest.resolve(snapshot(2, 1, 1, queued)));
+    await request;
+    expect(result.current.byChannel.has(2)).toBe(false);
+  });
+
+  it('ignores a deferred snapshot after unmount without a React warning', async () => {
+    const pending = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(pending.promise);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result, unmount } = renderHook(() => useDuelQueueState());
+    const request = result.current.requestSnapshot();
+    unmount();
+    await act(async () => pending.resolve(snapshot(2, 1, 1, queued)));
+    await request;
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('lets only the latest overlapping snapshot request apply', async () => {
+    const first = deferred<DuelQueueSnapshot>();
+    const second = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useDuelQueueState());
+    const firstRequest = result.current.requestSnapshot();
+    const secondRequest = result.current.requestSnapshot();
+    await act(async () => second.resolve(snapshot(2, 1, 1, queued)));
+    await secondRequest;
+    await act(async () => first.resolve(snapshot(3, 1, 1, queued)));
+    await firstRequest;
+    expect([...result.current.byChannel.keys()]).toEqual([2]);
+  });
+
+  it('accepts requests after StrictMode replays the subscription effect', async () => {
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 1, queued));
+    const { result } = renderHook(() => useDuelQueueState(), { reactStrictMode: true });
+    await act(() => result.current.requestSnapshot());
+    expect(result.current.byChannel.has(2)).toBe(true);
+  });
+
   it('delegates ready, rematch, offer response, and offer cancellation exactly', () => {
     const { result } = renderHook(() => useDuelQueueState());
     act(() => {
@@ -203,6 +265,18 @@ describe('useGameState duel offer contracts', () => {
       format: 'bestOf3',
       rulesetVersion: 2,
       options: { bestOf: 3 },
+    });
+  });
+
+  it('prefers canonical configuration on the ended event', () => {
+    const { result } = renderHook(() => useGameState(11));
+    emit('game.started', { matchId: 8, gameType: 'rps', format: 'old', rulesetVersion: 1, options: {}, views: [] });
+    emit('game.ended', { matchId: 8, gameType: 'rps', format: 'bo5', rulesetVersion: 3, options: { bestOf: 5 }, draw: true });
+    expect(result.current.ended).toMatchObject({
+      sourceMatchId: 8,
+      format: 'bo5',
+      rulesetVersion: 3,
+      options: { bestOf: 5 },
     });
   });
 });
