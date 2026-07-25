@@ -99,6 +99,30 @@ public class GameSessionManagerTests
     }
 
     [TestMethod]
+    public async Task ForfeitAtLiveTransition_DeliversStartedBeforeEndedWithoutStaleStartup()
+    {
+        var publisher = new ManagerPublisher();
+        GameSessionManager? manager = null;
+        Task? forfeit = null;
+        manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(),
+            new RecordingTimerFactory(),
+            matchId => forfeit = manager!.ForfeitAsync(matchId, 100, "disconnect"));
+
+        var result = await manager.StartAsync(Reservation(801));
+        Assert.IsNotNull(forfeit);
+        await forfeit;
+
+        CollectionAssert.AreEqual(
+            new[] { "game.started", "game.ended" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.started" or "game.ended")
+                .ToArray());
+        Assert.IsFalse(result.Success);
+        Assert.IsFalse(manager.IsMatchLive(result.MatchId));
+    }
+
+    [TestMethod]
     public async Task AdvisoryStartupPublicationFailure_DoesNotRollbackObservableMatch()
     {
         var publisher = new ManagerPublisher { FailType = "game.duelState" };

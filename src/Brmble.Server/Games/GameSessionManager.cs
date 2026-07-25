@@ -48,6 +48,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private readonly IGameEventPublisher _publisher;
     private readonly ICompletedMatchSink _completedMatches;
     private readonly IGameTimerFactory _timerFactory;
+    private readonly Action<long>? _liveTransitioned;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
     private readonly ConcurrentDictionary<long, long> _stableUserToMatch = new();
@@ -68,12 +69,24 @@ public sealed class GameSessionManager : IDuelMatchRunner
         IGameEventPublisher publisher,
         ICompletedMatchSink completedMatches,
         IGameTimerFactory timerFactory)
+        : this(engines, rng, publisher, completedMatches, timerFactory, null)
+    {
+    }
+
+    internal GameSessionManager(
+        IEnumerable<IGameEngine> engines,
+        IRandomSource rng,
+        IGameEventPublisher publisher,
+        ICompletedMatchSink completedMatches,
+        IGameTimerFactory timerFactory,
+        Action<long>? liveTransitioned)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
         _publisher = publisher;
         _completedMatches = completedMatches;
         _timerFactory = timerFactory;
+        _liveTransitioned = liveTransitioned;
     }
 
     private sealed class LiveMatch
@@ -159,14 +172,12 @@ public sealed class GameSessionManager : IDuelMatchRunner
             var views = match.Players
                 .Select(player => (object)new { userId = player, view = engine.PublicView(match.State, player) })
                 .ToArray();
+            Task startedPublication;
             lock (match.Lock)
             {
                 if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
                     return StartInterrupted(matchId);
                 match.Status = "live";
-            }
-            Task startedPublication;
-            lock (match.Lock)
                 startedPublication = EnqueueOutbound(match, async () =>
                 {
                     await _publisher.PublishToUsersAsync(RouteSet(match), new
@@ -189,6 +200,8 @@ public sealed class GameSessionManager : IDuelMatchRunner
                         ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
                     await PublishAdvisoryAsync(() => PublishFeedAsync(match, startLine));
                 });
+            }
+            _liveTransitioned?.Invoke(matchId);
             await startedPublication;
             if (!IsMatchLiveReference(match))
                 return StartInterrupted(matchId);
