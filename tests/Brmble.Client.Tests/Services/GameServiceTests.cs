@@ -14,8 +14,9 @@ public class GameServiceTests
     [DataRow("game.invite", "games/invite", "{\"targetSessionId\":77,\"gameType\":\"rps\",\"options\":{\"bestOf\":5}}")]
     [DataRow("game.respond", "games/respond", "{\"offerId\":9,\"accept\":true}")]
     [DataRow("game.cancelOffer", "games/offers/cancel", "{\"offerId\":9}")]
-    [DataRow("game.ready", "games/ready", "{\"reservationId\":12,\"accept\":false}")]
-    [DataRow("game.rematch", "games/rematch", "{\"matchId\":15}")]
+    [DataRow("game.ready", "games/ready", "{\"reservationId\":12,\"ready\":true}")]
+    [DataRow("game.ready", "games/ready", "{\"reservationId\":12,\"ready\":false}")]
+    [DataRow("game.rematch", "games/rematch", "{\"sourceMatchId\":15}")]
     [DataRow("game.action", "games/action", "{\"matchId\":15,\"action\":{\"move\":\"rock\"}}")]
     [DataRow("game.forfeit", "games/forfeit", "{\"matchId\":15}")]
     public async Task Command_ForwardsExactPathAndBody(string command, string expectedPath, string json)
@@ -65,6 +66,65 @@ public class GameServiceTests
         Assert.AreEqual("queue-body", document.RootElement.GetProperty("body").GetString());
         Assert.AreEqual(409, document.RootElement.GetProperty("statusCode").GetInt32());
         Assert.AreEqual("queue-error", document.RootElement.GetProperty("error").GetString());
+    }
+
+    [TestMethod]
+    public async Task Command_ServerErrorBody_PreservesStructuredReason()
+    {
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = CreateService(bridge, cert, (_, _) =>
+            new(false, "{\"error\":\"Not your offer\",\"reason\":\"notParticipant\"}", 400, "Bad Request"));
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "game.cancelOffer",
+            JsonSerializer.SerializeToElement(new { offerId = 9 }));
+
+        var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
+        using var document = JsonDocument.Parse(error.DataJson);
+        Assert.AreEqual("Not your offer", document.RootElement.GetProperty("error").GetString());
+        Assert.AreEqual("notParticipant", document.RootElement.GetProperty("reason").GetString());
+        Assert.AreEqual(400, document.RootElement.GetProperty("statusCode").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task QueueRequest_MalformedApiUrl_ReturnsCorrelatedError()
+    {
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = new GameService(bridge, null, () => "not an absolute URI",
+            (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, "{}", 200, null)),
+            (_, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, "{}", 200, null)),
+            () => cert);
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "games.request",
+            JsonSerializer.SerializeToElement(new { requestId = 73, action = "queue" }));
+
+        var response = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "games.response");
+        using var document = JsonDocument.Parse(response.DataJson);
+        Assert.AreEqual(73, document.RootElement.GetProperty("requestId").GetInt32());
+        Assert.IsFalse(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.IsFalse(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("error").GetString()));
+    }
+
+    [TestMethod]
+    public async Task Command_MalformedApiUrl_ReportsGameError()
+    {
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = new GameService(bridge, null, () => "not an absolute URI",
+            (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, "{}", 200, null)),
+            (_, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, "{}", 200, null)),
+            () => cert);
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "game.cancelOffer",
+            JsonSerializer.SerializeToElement(new { offerId = 9 }));
+
+        var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
+        using var document = JsonDocument.Parse(error.DataJson);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("error").GetString()));
     }
 
     private static GameService CreateService(

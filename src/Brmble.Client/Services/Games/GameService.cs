@@ -68,29 +68,30 @@ internal sealed class GameService : IService
     /// </summary>
     private async Task HandleRequestAsync(JsonElement data)
     {
-        var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == JsonValueKind.Number
-            ? requestIdProp.GetInt32()
+        var requestId = data.TryGetProperty("requestId", out var requestIdProp)
+            && requestIdProp.ValueKind == JsonValueKind.Number
+            && requestIdProp.TryGetInt32(out var parsedRequestId)
+            ? parsedRequestId
             : (int?)null;
-        var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
-        var apiUrl = _getApiUrl();
-
-        if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(apiUrl))
-        {
-            SendResponse(requestId, false, null, 0, "Not connected or invalid games request action");
-            return;
-        }
-
-        using var cert = _getCertificate();
-        if (cert is null)
-        {
-            SendResponse(requestId, false, null, 0, "No client certificate");
-            return;
-        }
-
-        var baseUri = new Uri(apiUrl, UriKind.Absolute);
 
         try
         {
+            var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
+            var apiUrl = _getApiUrl();
+            if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(apiUrl))
+            {
+                SendResponse(requestId, false, null, 0, "Not connected or invalid games request action");
+                return;
+            }
+
+            using var cert = _getCertificate();
+            if (cert is null)
+            {
+                SendResponse(requestId, false, null, 0, "No client certificate");
+                return;
+            }
+
+            var baseUri = new Uri(apiUrl, UriKind.Absolute);
             switch (action)
             {
                 case "queue":
@@ -175,27 +176,25 @@ internal sealed class GameService : IService
     /// </summary>
     private async Task PostAsync(string path, JsonElement data)
     {
-        var apiUrl = _getApiUrl();
-        if (string.IsNullOrWhiteSpace(apiUrl))
-        {
-            SendError(path, "Not connected — no Brmble API URL");
-            return;
-        }
-
-        using var cert = _getCertificate();
-        if (cert is null)
-        {
-            SendError(path, "No client certificate");
-            return;
-        }
-
-        // Forward the frontend's payload exactly as received.
-        var body = data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null
-            ? "{}"
-            : data.GetRawText();
-
         try
         {
+            var apiUrl = _getApiUrl();
+            if (string.IsNullOrWhiteSpace(apiUrl))
+            {
+                SendError(path, "Not connected — no Brmble API URL");
+                return;
+            }
+
+            using var cert = _getCertificate();
+            if (cert is null)
+            {
+                SendError(path, "No client certificate");
+                return;
+            }
+
+            var body = data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null
+                ? "{}"
+                : data.GetRawText();
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var result = await _postJsonAsync(cert, new Uri(baseUri, path), body);
             if (!result.Success)
@@ -203,7 +202,7 @@ internal sealed class GameService : IService
                 // The server encodes a stable machine-readable "reason" code in the
                 // error body (e.g. {"error":"…","reason":"blocked"}). Surface it so the
                 // UI can branch on a code instead of pattern-matching the message text.
-                var (message, reason) = ParseErrorBody(result.Error, result.StatusCode);
+                var (message, reason) = ParseErrorBody(result.Body, result.Error, result.StatusCode);
                 SendError(path, message, result.StatusCode, reason);
             }
         }
@@ -215,13 +214,14 @@ internal sealed class GameService : IService
 
     // Extracts a human-readable message and optional structured reason code from a
     // (possibly JSON) error body. Falls back to the raw text if it isn't JSON.
-    private static (string message, string? reason) ParseErrorBody(string? errorBody, int statusCode)
+    private static (string message, string? reason) ParseErrorBody(
+        string? responseBody, string? transportError, int statusCode)
     {
-        var fallback = errorBody ?? $"Request failed (HTTP {statusCode})";
-        if (string.IsNullOrWhiteSpace(errorBody)) return (fallback, null);
+        var fallback = transportError ?? responseBody ?? $"Request failed (HTTP {statusCode})";
+        if (string.IsNullOrWhiteSpace(responseBody)) return (fallback, null);
         try
         {
-            using var doc = JsonDocument.Parse(errorBody);
+            using var doc = JsonDocument.Parse(responseBody);
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return (fallback, null);
             var message = doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
                 ? e.GetString() ?? fallback

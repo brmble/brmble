@@ -9,10 +9,19 @@ namespace Brmble.Server.Games;
 public static class GameEndpoints
 {
     public record InviteDto(long TargetSessionId, string GameType, Dictionary<string, object?>? Options = null);
-    public record OfferResponseDto(long OfferId, bool Accept);
+    public record OfferResponseDto(long? OfferId, long? MatchId, bool Accept)
+    {
+        public bool TryResolveOfferId(out long offerId)
+        {
+            offerId = OfferId is > 0 && MatchId is null ? OfferId.Value
+                : MatchId is > 0 && OfferId is null ? MatchId.Value
+                : 0;
+            return offerId > 0;
+        }
+    }
     public record CancelOfferDto(long OfferId);
-    public record ReadyDto(long ReservationId, bool Accept);
-    public record RematchDto(long MatchId);
+    public record ReadyDto(long ReservationId, bool Ready);
+    public record RematchDto(long SourceMatchId);
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
@@ -53,37 +62,50 @@ public static class GameEndpoints
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            var r = await orchestrator.RespondToOfferAsync(dto.OfferId, user.UserId, dto.Accept);
+            if (!dto.TryResolveOfferId(out var offerId))
+                return Results.BadRequest(new GameErrorWire(
+                    "Exactly one positive offerId or matchId is required.",
+                    DuelWire.Reason(DuelRejectReason.InvalidConfiguration)));
+            var r = await orchestrator.RespondToOfferAsync(offerId, user.UserId, dto.Accept);
             return r.Success
                 ? Results.Ok(new { offerId = r.OfferId, reservationId = r.ReservationId })
                 : Results.BadRequest(new GameErrorWire(r.Error ?? "The response was rejected.", DuelWire.Reason(r.Reason)));
         });
 
         app.MapPost("/games/offers/cancel", async (CancelOfferDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
+            if (!sessions.TryGetSessionByUserId(user.UserId, out _))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
             var r = await orchestrator.CancelOfferAsync(dto.OfferId, user.UserId);
             return CommandResult(r, "The offer could not be canceled.");
         });
 
         app.MapPost("/games/ready", async (ReadyDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            var response = dto.Accept ? ReadyResponse.Accept : ReadyResponse.Decline;
+            if (!sessions.TryGetSessionByUserId(user.UserId, out _))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            var response = dto.Ready ? ReadyResponse.Accept : ReadyResponse.Decline;
             var r = await orchestrator.RespondReadyAsync(dto.ReservationId, user.UserId, response);
             return CommandResult(r, "The ready response was rejected.");
         });
 
         app.MapPost("/games/rematch", async (RematchDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator) =>
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
+            ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            var r = await orchestrator.RequestRematchAsync(dto.MatchId, user.UserId);
+            if (!sessions.TryGetSessionByUserId(user.UserId, out _))
+                return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            var r = await orchestrator.RequestRematchAsync(dto.SourceMatchId, user.UserId);
             return CommandResult(r, "The rematch request was rejected.");
         });
 

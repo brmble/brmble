@@ -58,6 +58,42 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
+    public async Task Respond_LegacyMatchId_UsesStableAuthenticatedUser()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.RespondToOfferAsync(9, It.IsAny<long>(), false))
+            .ReturnsAsync(new DuelCommandResult(true, 9, null, null, DuelRejectReason.None));
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/respond", new { matchId = 9, accept = false });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        orchestrator.Verify(x => x.RespondToOfferAsync(9, It.Is<long>(id => id > 0), false), Times.Once);
+    }
+
+    [DataTestMethod]
+    [DataRow("{\"accept\":true}")]
+    [DataRow("{\"offerId\":0,\"accept\":true}")]
+    [DataRow("{\"offerId\":9,\"matchId\":9,\"accept\":true}")]
+    [DataRow("{\"offerId\":9,\"matchId\":10,\"accept\":true}")]
+    public async Task Respond_AmbiguousOrNonPositiveId_ReturnsBadRequestWithoutCall(string json)
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsync("/games/respond", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+        var error = await response.Content.ReadFromJsonAsync<GameErrorWire>();
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.AreEqual("invalidConfiguration", error?.Reason);
+        orchestrator.Verify(x => x.RespondToOfferAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task Queue_ReturnsCurrentSessionsWireSnapshot()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
@@ -170,20 +206,22 @@ public class GameEndpointsTests
         router.Verify(x => x.ForfeitAsync(12, It.Is<long>(id => id > 0), "forfeit"), Times.Once);
     }
 
-    [TestMethod]
-    public async Task Ready_MapsBooleanToReadyResponseAndStableUser()
+    [DataTestMethod]
+    [DataRow(true, ReadyResponse.Accept)]
+    [DataRow(false, ReadyResponse.Decline)]
+    public async Task Ready_MapsReadyBooleanToResponseAndStableUser(bool ready, ReadyResponse expected)
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
-        orchestrator.Setup(x => x.RespondReadyAsync(20, It.IsAny<long>(), ReadyResponse.Decline))
+        orchestrator.Setup(x => x.RespondReadyAsync(20, It.IsAny<long>(), expected))
             .ReturnsAsync(new DuelCommandResult(true, null, 20, null, DuelRejectReason.None));
         await using var factory = CreateFactory(orchestrator);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
-        var response = await client.PostAsJsonAsync("/games/ready", new { reservationId = 20, accept = false });
+        var response = await client.PostAsJsonAsync("/games/ready", new { reservationId = 20, ready });
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
-        orchestrator.Verify(x => x.RespondReadyAsync(20, It.Is<long>(id => id > 0), ReadyResponse.Decline), Times.Once);
+        orchestrator.Verify(x => x.RespondReadyAsync(20, It.Is<long>(id => id > 0), expected), Times.Once);
     }
 
     [TestMethod]
@@ -196,7 +234,7 @@ public class GameEndpointsTests
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
-        var response = await client.PostAsJsonAsync("/games/rematch", new { matchId = 30 });
+        var response = await client.PostAsJsonAsync("/games/rematch", new { sourceMatchId = 30 });
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         orchestrator.Verify(x => x.RequestRematchAsync(30, It.Is<long>(id => id > 0)), Times.Once);
@@ -211,6 +249,25 @@ public class GameEndpointsTests
 
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [DataTestMethod]
+    [DataRow("/games/offers/cancel", "{\"offerId\":9}")]
+    [DataRow("/games/ready", "{\"reservationId\":20,\"ready\":true}")]
+    [DataRow("/games/rematch", "{\"sourceMatchId\":30}")]
+    public async Task PresenceRequiredCommand_WithoutCurrentSession_ReturnsBadRequestWithoutCall(string path, string json)
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        await using var factory = CreateFactory(orchestrator, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsync(path, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+        orchestrator.Verify(x => x.RespondReadyAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<ReadyResponse>()), Times.Never);
+        orchestrator.Verify(x => x.RequestRematchAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(
