@@ -116,6 +116,34 @@ public sealed class PaintEndpointsTests
     }
 
     [TestMethod]
+    public async Task Stroke_AcceptsNumericBrushWidthAndRejectsInvalidWidth()
+    {
+        await using var app = await EndpointFixture.StartActiveAsync();
+
+        var good = await app.Client.PostAsJsonAsync($"/paint/sessions/{app.SessionId}/stroke", new
+        {
+            correlationId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            generation = 0,
+            tool = "pen",
+            color = "#EF4444",
+            width = 3,
+            points = new[] { new { x = 0.1, y = 0.2 } },
+        });
+        Assert.AreEqual(HttpStatusCode.Created, good.StatusCode);
+
+        var bad = await app.Client.PostAsJsonAsync($"/paint/sessions/{app.SessionId}/stroke", new
+        {
+            correlationId = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            generation = 0,
+            tool = "pen",
+            color = "#EF4444",
+            width = 5,
+            points = new[] { new { x = 0.1, y = 0.2 } },
+        });
+        Assert.AreEqual(HttpStatusCode.BadRequest, bad.StatusCode);
+    }
+
+    [TestMethod]
     [DataRow("")]
     [DataRow("{")]
     public async Task Stroke_RejectsMalformedOrMissingBodyWithStableErrorShape(string body)

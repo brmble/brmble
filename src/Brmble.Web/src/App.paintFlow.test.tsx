@@ -29,19 +29,24 @@ vi.mock('./api/paint', () => ({ paintApi: paint }));
 vi.mock('./components/Paint/PaintEditor', () => ({
   PaintEditor: ({ snapshot, previews, onSave }: { snapshot: PaintSessionSnapshot; previews: unknown[]; onSave: (blob: Blob) => Promise<void> }) => {
     const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
     const save = async () => {
+      if (saving) return;
+      setSaving(true);
       setError(null);
       try {
         await onSave(new Blob(['png'], { type: 'image/png' }));
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'Unable to save');
+      } finally {
+        setSaving(false);
       }
     };
     return <section>
       <output data-testid="stroke-count">{snapshot.strokes.length}</output>
       <output data-testid="preview-count">{previews.length}</output>
       {error && <p role="alert">{error}</p>}
-      <button onClick={() => void save()}>Save to chat</button>
+      <button onClick={() => void save()} disabled={saving}>{saving ? 'Saving...' : 'Save to chat'}</button>
     </section>;
   },
 }));
@@ -220,19 +225,33 @@ describe('collaborative paint app flow', () => {
     const matrixClient = fakeMatrixClient();
     render(<PaintFlowApp matrixClient={matrixClient} />);
     await openActivePaintSession(user, matrixClient);
+    let resolvePost!: (value: { event_id: string }) => void;
     matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
-    matrixClient.sendMessage.mockReset().mockResolvedValue({ event_id: '$final' });
+    matrixClient.sendMessage.mockReset().mockImplementation(() =>
+      new Promise<{ event_id: string }>(resolve => { resolvePost = resolve; }));
     paint.end.mockReset().mockResolvedValue(undefined);
 
-    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+    const saveButton = screen.getByRole('button', { name: 'Save to chat' });
+    await user.click(saveButton);
+    await waitFor(() => expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1));
+    await user.click(saveButton);
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1);
+    resolvePost({ event_id: '$final' });
 
     await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
     expect(matrixClient.uploadContent).toHaveBeenCalledTimes(1);
     expect(matrixClient.sendMessage).toHaveBeenCalledWith(
       '!channel:test',
-      expect.objectContaining({ msgtype: 'm.image', url: 'mxc://test/final', 'org.brmble.paintSaveOperationId': 'save-session-1' }),
+      expect.objectContaining({
+        msgtype: 'm.image',
+        body: 'collaborative-paint.png',
+        url: 'mxc://test/final',
+        'org.brmble.paintSaveOperationId': 'save-session-1',
+      }),
       'brmble-paint-save-session-1-save-session-1',
     );
+    expect(paint.end).toHaveBeenCalledWith('session-1');
+    expect(screen.queryByLabelText('Collaborative paint')).toBeNull();
     expect(matrixClient.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(paint.end.mock.invocationCallOrder[0]);
   });
 

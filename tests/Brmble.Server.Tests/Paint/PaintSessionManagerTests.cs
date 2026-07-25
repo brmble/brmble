@@ -88,6 +88,29 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Join_RejectsEndedSession()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
+    }
+
+    [TestMethod]
+    public async Task Join_RejectsExpiredSession()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        fixture.Now = fixture.Now.AddMinutes(30);
+        await fixture.Manager.ExpireInactiveForTestAsync();
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
+    }
+
+    [TestMethod]
     public async Task NonHost_CannotActBeforeJoiningAndActivatesAfterSuccessfulJoin()
     {
         var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
