@@ -295,10 +295,20 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         {
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Inviter.UserId }, RematchMessage(
                 "game.rematchPending", offer, offer.Target.UserId));
+            string? pendingTerminalReason = null;
             lock (_gate)
             {
                 if (!OwnsOffer(offer))
-                    return OfferPublicationResult(offer);
+                {
+                    if (offer.AcceptedReservationId is not null)
+                        return OfferPublicationResult(offer);
+                    pendingTerminalReason = offer.TerminalReason ?? "stale";
+                }
+            }
+            if (pendingTerminalReason is not null)
+            {
+                await PublishCancellationBestEffortAsync(offer, pendingTerminalReason);
+                return Reject("This rematch offer is no longer available.", DuelRejectReason.StaleOffer);
             }
             await _publisher.PublishToUsersAsync(new HashSet<long> { offer.Target.UserId }, RematchMessage(
                 "game.rematchOffered", offer, offer.Target.UserId));
@@ -795,7 +805,13 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
             completion.MatchId, completion.ChannelId, completion.PlayerOne, completion.PlayerTwo,
             configuration, completion.EndedAt);
         _completedSources.Add(source.MatchId, source);
-        _completedSourceNodes.Add(source.MatchId, _completedSourceOrder.AddLast(source));
+        var next = _completedSourceOrder.First;
+        while (next is not null && CompareCompletedSources(next.Value, source) <= 0)
+            next = next.Next;
+        var node = next is null
+            ? _completedSourceOrder.AddLast(source)
+            : _completedSourceOrder.AddBefore(next, source);
+        _completedSourceNodes.Add(source.MatchId, node);
         PruneCompletedSources();
     }
 
@@ -814,6 +830,12 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         _completedSources.Remove(matchId);
         if (_completedSourceNodes.Remove(matchId, out var node))
             _completedSourceOrder.Remove(node);
+    }
+
+    private static int CompareCompletedSources(CompletedDuelSource left, CompletedDuelSource right)
+    {
+        var completed = left.CompletedAt.CompareTo(right.CompletedAt);
+        return completed != 0 ? completed : left.MatchId.CompareTo(right.MatchId);
     }
 
     private bool OwnsOffer(Offer offer) =>

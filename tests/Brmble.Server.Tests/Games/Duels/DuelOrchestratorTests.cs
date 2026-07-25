@@ -1139,7 +1139,37 @@ public class DuelOrchestratorTests
         Assert.AreEqual(DuelRejectReason.StaleOffer, result.Reason);
         Assert.IsFalse(publisher.UserMessages.Any(x =>
             MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
+        var requesterEvents = publisher.UserMessages
+            .Where(x => x.Users.Contains(100))
+            .Select(x => MessageValue<string>(x.Message, "type"))
+            .Where(x => x is not null && x.StartsWith("game.rematch", StringComparison.Ordinal))
+            .ToArray();
+        Assert.AreEqual("game.rematchCanceled", requesterEvents[^1]);
         Assert.IsTrue((await sut.CreateChallengeAsync(20, 30, "test", null)).Success);
+    }
+
+    [TestMethod]
+    public async Task RematchChannelRemovedWhilePendingPublicationBlocked_ReplaysTerminalAfterPending()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchPending";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await sut.HandleChannelRemovedAsync(1);
+        publisher.Release.TrySetResult();
+        var result = await request;
+        var requesterEvents = publisher.UserMessages
+            .Where(x => x.Users.Contains(100))
+            .Select(x => MessageValue<string>(x.Message, "type"))
+            .Where(x => x is not null && x.StartsWith("game.rematch", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.IsFalse(result.Success);
+        Assert.IsFalse(requesterEvents.Contains("game.rematchOffered"));
+        Assert.AreEqual("game.rematchCanceled", requesterEvents[^1]);
     }
 
     [TestMethod]
@@ -1364,6 +1394,35 @@ public class DuelOrchestratorTests
             .GetField("_completedSourceOrder", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(sut)!;
         Assert.AreEqual(0, (int)order.GetType().GetProperty("Count")!.GetValue(order)!);
+    }
+
+    [TestMethod]
+    public async Task RematchAgeRetentionPrunesOlderCompletionInsertedAfterNewer()
+    {
+        var now = new DateTimeOffset(2026, 7, 25, 1, 0, 0, TimeSpan.Zero);
+        var time = new TestTimeProvider(now);
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 92, now.AddMinutes(-1));
+        await CompleteMatchAsync(sut, router, 91, now.AddMinutes(-31));
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(91, 100)).Reason);
+        Assert.IsTrue((await sut.RequestRematchAsync(92, 100)).Success);
+    }
+
+    [TestMethod]
+    public async Task RematchCapacityRetentionRemovesChronologicalOldestRegardlessOfCallbackOrder()
+    {
+        var now = new DateTimeOffset(2026, 7, 25, 1, 0, 0, TimeSpan.Zero);
+        var time = new TestTimeProvider(now);
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 1, now);
+        for (var matchId = 2L; matchId <= 1001; matchId++)
+            await CompleteMatchAsync(sut, router, matchId, now.AddMinutes(-1));
+
+        Assert.AreEqual(DuelRejectReason.StaleOffer, (await sut.RequestRematchAsync(2, 100)).Reason);
+        Assert.IsTrue((await sut.RequestRematchAsync(1, 100)).Success);
     }
 
     private static async Task CompleteMatchAsync(
