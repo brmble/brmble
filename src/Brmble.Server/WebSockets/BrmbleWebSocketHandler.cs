@@ -48,32 +48,17 @@ public static class BrmbleWebSocketHandler
             await eventBus.BroadcastAsync(CreateUserMappingAddedPayload(currentSessionId, currentMapping, hash));
         }
 
-        eventBus.AddClient(ws, user.Id);
-
         try
         {
-            if (sessionMapping.TryGetSessionByUserId(user.Id, out var queueSessionId))
-                await SendQueueSnapshotAsync(
-                    ws,
-                    context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
-                    queueSessionId,
-                    context.RequestAborted);
-
-            // Send initial snapshot
-            var snapshot = sessionMapping.GetSnapshot()
-                .ToDictionary(
-                    kvp => kvp.Key.ToString(),
-                    kvp => new
-                    {
-                        matrixUserId = kvp.Value.MatrixUserId,
-                        mumbleName = kvp.Value.MumbleName,
-                        companionId = kvp.Value.CompanionId,
-                        certHash = kvp.Value.CertHash,
-                        isBrmbleClient = kvp.Value.IsBrmbleClient
-                    });
-            var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
-            var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
-            await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, context.RequestAborted);
+            sessionMapping.TryGetSessionByUserId(user.Id, out var queueSessionId);
+            await InitializeClientAsync(
+                ws,
+                eventBus,
+                context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
+                user.Id,
+                queueSessionId,
+                sessionMapping.GetSnapshot(),
+                context.RequestAborted);
 
             // Read loop until close
             var buffer = new byte[1024];
@@ -95,6 +80,33 @@ public static class BrmbleWebSocketHandler
             if (!eventBus.HasConnectedClient(user.Id))
                 activeSessions.Deactivate(hash);
         }
+    }
+
+    internal static async Task InitializeClientAsync(
+        WebSocket socket,
+        IBrmbleEventBus eventBus,
+        IDuelSnapshotProvider snapshots,
+        long userId,
+        long sessionId,
+        IReadOnlyDictionary<int, SessionMapping> mappings,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = mappings.ToDictionary(
+            kvp => kvp.Key.ToString(),
+            kvp => new
+            {
+                matrixUserId = kvp.Value.MatrixUserId,
+                mumbleName = kvp.Value.MumbleName,
+                companionId = kvp.Value.CompanionId,
+                certHash = kvp.Value.CertHash,
+                isBrmbleClient = kvp.Value.IsBrmbleClient,
+            });
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+            new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions));
+        await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+        if (sessionId != 0)
+            await SendQueueSnapshotAsync(socket, snapshots, sessionId, cancellationToken);
+        eventBus.AddClient(socket, userId);
     }
 
     internal static async Task SendQueueSnapshotAsync(

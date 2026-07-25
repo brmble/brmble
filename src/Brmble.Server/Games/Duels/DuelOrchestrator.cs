@@ -23,8 +23,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private readonly Dictionary<long, UserCommitment> _commitmentsByUserId = [];
     private readonly Dictionary<int, ChannelState> _channels = [];
     private readonly Dictionary<int, ChannelClock> _channelClocks = [];
-    private readonly Dictionary<int, SemaphoreSlim> _snapshotLanes = [];
-    private readonly Dictionary<int, (long Generation, long Revision)> _lastPublishedSnapshots = [];
+    private readonly Dictionary<int, Task> _snapshotPublicationTails = [];
     private readonly Dictionary<long, CompletedDuelSource> _completedSources = [];
     private readonly LinkedList<CompletedDuelSource> _completedSourceOrder = [];
     private readonly Dictionary<long, LinkedListNode<CompletedDuelSource>> _completedSourceNodes = [];
@@ -201,7 +200,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         await PublishOfferResponseBestEffortAsync(offer, accept);
 
         if (!accept) return Success(offerId, null);
-        await PublishSnapshotBestEffortAsync(offer.ChannelId);
         if (immediate is null) return Success(offerId, acceptedReservationId);
         return await StartAsync(offerId, immediate);
     }
@@ -279,8 +277,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         }
 
         removed?.Timer?.Dispose();
-        if (changed is not null || removed is not null || start is not null)
-            await PublishSnapshotBestEffortAsync(channelId);
         if (response == ReadyResponse.Decline || removed is not null && start is null)
         {
             var reason = response == ReadyResponse.Decline ? "declined" : "disconnected";
@@ -371,7 +367,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         Offer[] canceled;
         List<DuelReservation> reservations = [];
         List<int> advanceChannels = [];
-        List<int> mutatedChannels = [];
         DuelReservation? activeForfeitCandidate = null;
         lock (_gate)
         {
@@ -394,7 +389,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                         channel.Starting = null;
                         channel.Advancing = true;
                         Bump(channelId, channel);
-                        mutatedChannels.Add(channelId);
                         advanceChannels.Add(channelId);
                         break;
                     }
@@ -417,7 +411,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                         ReleasePair(removedQueued);
                         reservations.Add(removedQueued);
                         Bump(channelId, channel);
-                        mutatedChannels.Add(channelId);
                         if (channel.Active is null && channel.Starting is null && channel.ReadyCheck is null) { channel.Advancing = true; advanceChannels.Add(channelId); }
                         break;
                     }
@@ -429,7 +422,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                         reservations.Add(removedReady.Reservation);
                         channel.Advancing = true;
                         Bump(channelId, channel);
-                        mutatedChannels.Add(channelId);
                         advanceChannels.Add(channelId);
                         break;
                     }
@@ -469,8 +461,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 }
             }
         }
-        foreach (var channelId in mutatedChannels.Distinct())
-            await PublishSnapshotBestEffortAsync(channelId);
         foreach (var channelId in advanceChannels.Distinct())
         {
             await AdvanceChannelAsync(channelId);
@@ -509,9 +499,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             var clock = GetClock(channelId);
             clock.Generation++;
             clock.Revision++;
+            EnqueueSnapshotPublication(channelId);
         }
         timer?.Dispose();
-        await PublishSnapshotBestEffortAsync(channelId);
         foreach (var offer in offers) await PublishCancellationBestEffortAsync(offer, "channelRemoved");
         foreach (var reservation in reservations) await PublishReservationCancellationAsync(reservation, "channelRemoved");
         foreach (var item in forfeitCandidates)
@@ -545,7 +535,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         }
         if (precheckFailed)
         {
-            await PublishSnapshotBestEffortAsync(reservation.ChannelId);
             await PublishReservationCancellationAsync(reservation, decision.Token.CancellationReason ?? "disconnected");
             await AdvanceChannelAsync(reservation.ChannelId);
             return new(false, offerId, reservation.ReservationId,
@@ -599,7 +588,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             return new(false, offerId, reservation.ReservationId,
                 "The match completed during startup.", DuelRejectReason.NotPresent);
         }
-        await PublishSnapshotBestEffortAsync(reservation.ChannelId);
         if (result.Success) return Success(offerId, reservation.ReservationId);
 
         await PublishBestEffortAsync(ParticipantIds(reservation), new
@@ -641,7 +629,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             Bump(completion.ChannelId, channel);
         CompletionHandled:;
         }
-        await PublishSnapshotBestEffortAsync(completion.ChannelId);
         if (needsAdvancement) await AdvanceChannelAsync(completion.ChannelId);
     }
 
@@ -687,7 +674,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 }
             }
 
-            await PublishSnapshotBestEffortAsync(channelId);
             if (invalid is not null)
             {
                 await PublishReservationCancellationAsync(invalid, "disconnected");
@@ -712,7 +698,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             channel.Advancing = true;
             Bump(channelId, channel);
         }
-        await PublishSnapshotBestEffortAsync(channelId);
         await PublishReservationCancellationAsync(reservation, "expired");
         await AdvanceChannelAsync(channelId);
     }
@@ -932,6 +917,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         var clock = GetClock(channelId);
         clock.Generation = channel.Generation;
         clock.Revision = channel.Revision;
+        EnqueueSnapshotPublication(channelId);
     }
 
     private ChannelSnapshotInput CaptureSnapshotInput(int channelId)
@@ -1004,37 +990,34 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             Math.Max(0, stopwatch.ElapsedMilliseconds), active, ready, queue);
     }
 
-    private async Task PublishSnapshotBestEffortAsync(int channelId)
+    internal Task DrainSnapshotPublicationsAsync(int channelId)
     {
-        SemaphoreSlim lane;
+        lock (_gate)
+            return _snapshotPublicationTails.GetValueOrDefault(channelId, Task.CompletedTask);
+    }
+
+    private void EnqueueSnapshotPublication(int channelId)
+    {
         lock (_gate)
         {
-            if (!_snapshotLanes.TryGetValue(channelId, out lane!))
-                _snapshotLanes[channelId] = lane = new(1, 1);
+            var input = CaptureSnapshotInput(channelId);
+            var previous = _snapshotPublicationTails.GetValueOrDefault(channelId, Task.CompletedTask);
+            _snapshotPublicationTails[channelId] = PublishSnapshotAfterAsync(previous, input);
         }
-        await lane.WaitAsync();
+    }
+
+    private async Task PublishSnapshotAfterAsync(Task previous, ChannelSnapshotInput input)
+    {
         try
         {
-            ChannelSnapshotInput input;
-            lock (_gate)
-            {
-                input = CaptureSnapshotInput(channelId);
-                if (_lastPublishedSnapshots.TryGetValue(channelId, out var last)
-                    && (input.Generation < last.Generation
-                        || input.Generation == last.Generation && input.Revision <= last.Revision))
-                    return;
-            }
+            await Task.Yield();
+            await previous;
             var snapshot = await BuildSnapshotAsync(input);
-            await _publisher.PublishToChannelAsync(channelId, DuelWire.ToEvent(snapshot));
-            lock (_gate) _lastPublishedSnapshots[channelId] = (input.Generation, input.Revision);
+            await _publisher.PublishToChannelAsync(input.ChannelId, DuelWire.ToEvent(snapshot));
         }
         catch
         {
             // Snapshot delivery is recoverable and must not block duel progression.
-        }
-        finally
-        {
-            lane.Release();
         }
     }
 

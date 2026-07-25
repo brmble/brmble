@@ -7,7 +7,7 @@ namespace Brmble.Server.Events;
 
 public class BrmbleEventBus : IBrmbleEventBus
 {
-    private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
+    private readonly ConcurrentDictionary<WebSocket, ClientState> _clients = new();
     private readonly ILogger<BrmbleEventBus> _logger;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ISessionMappingService _sessionMapping;
@@ -23,30 +23,23 @@ public class BrmbleEventBus : IBrmbleEventBus
         _sessionMapping = sessionMapping;
     }
 
-    public void AddClient(WebSocket ws, long userId) => _clients[ws] = userId;
+    public void AddClient(WebSocket ws, long userId) => _clients[ws] = new(userId);
 
     public void RemoveClient(WebSocket ws) => _clients.TryRemove(ws, out _);
 
-    public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
+    public bool HasConnectedClient(long userId) => _clients.Values.Any(client => client.UserId == userId);
 
     public async Task BroadcastAsync(object message)
     {
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Keys.Select(async ws =>
+        var tasks = _clients.Select(async entry =>
         {
+            var ws = entry.Key;
             try
             {
-                if (ws.State == WebSocketState.Open)
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
+                await SendAsync(ws, entry.Value, bytes);
             }
             catch (Exception ex)
             {
@@ -72,20 +65,12 @@ public class BrmbleEventBus : IBrmbleEventBus
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value.UserId)).Select(async kvp =>
         {
             var ws = kvp.Key;
             try
             {
-                if (ws.State == WebSocketState.Open)
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
+                await SendAsync(ws, kvp.Value, bytes);
             }
             catch (Exception ex)
             {
@@ -99,7 +84,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync()
     {
-        IReadOnlySet<long> ids = _clients.Values.ToHashSet();
+        IReadOnlySet<long> ids = _clients.Values.Select(client => client.UserId).ToHashSet();
         return Task.FromResult(ids);
     }
 
@@ -108,20 +93,12 @@ public class BrmbleEventBus : IBrmbleEventBus
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value.UserId)).Select(async kvp =>
         {
             var ws = kvp.Key;
             try
             {
-                if (ws.State == WebSocketState.Open)
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
+                await SendAsync(ws, kvp.Value, bytes);
             }
             catch (Exception ex)
             {
@@ -131,5 +108,29 @@ public class BrmbleEventBus : IBrmbleEventBus
         });
 
         await Task.WhenAll(tasks);
+    }
+
+    private async Task SendAsync(WebSocket socket, ClientState client, ArraySegment<byte> bytes)
+    {
+        await client.SendGate.WaitAsync();
+        try
+        {
+            if (socket.State != WebSocketState.Open)
+            {
+                RemoveClient(socket);
+                return;
+            }
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+        }
+        finally
+        {
+            client.SendGate.Release();
+        }
+    }
+
+    private sealed record ClientState(long UserId)
+    {
+        public SemaphoreSlim SendGate { get; } = new(1, 1);
     }
 }

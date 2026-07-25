@@ -93,6 +93,37 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task ConcurrentBroadcasts_SerializeSendsPerClient()
+    {
+        var socket = CreateMockWebSocket(WebSocketState.Open);
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeSends = 0;
+        var concurrentSend = false;
+        socket.Setup(w => w.SendAsync(It.IsAny<ArraySegment<byte>>(), WebSocketMessageType.Text, true,
+                It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                if (Interlocked.Increment(ref activeSends) > 1) concurrentSend = true;
+                firstEntered.TrySetResult();
+                await releaseFirst.Task;
+                Interlocked.Decrement(ref activeSends);
+            });
+        _bus.AddClient(socket.Object, 1);
+
+        var first = _bus.BroadcastAsync(new { type = "first" });
+        await firstEntered.Task;
+        var second = _bus.BroadcastAsync(new { type = "second" });
+        await Task.Delay(50);
+
+        Assert.IsFalse(concurrentSend);
+        releaseFirst.TrySetResult();
+        await Task.WhenAll(first, second);
+        socket.Verify(w => w.SendAsync(It.IsAny<ArraySegment<byte>>(), WebSocketMessageType.Text, true,
+            It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [TestMethod]
     public void RemoveClient_IsIdempotent()
     {
         var ws = CreateMockWebSocket(WebSocketState.Open);
