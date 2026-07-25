@@ -166,7 +166,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             }
             else
             {
-                _offers.Remove(offer.Id);
+                RemoveOffer(offer);
                 var reservationId = ++_nextReservationId;
                 if (reservationId == offer.Id) reservationId = ++_nextReservationId;
                 var reservation = new DuelReservation(

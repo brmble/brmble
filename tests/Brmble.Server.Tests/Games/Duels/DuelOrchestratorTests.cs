@@ -213,11 +213,13 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
         foreach (var timer in _timers.ToArray()) timer.FireIfDue(_now);
     }
     public void FireTimerEvenIfDisposed(int index) => _timers[index].FireEvenIfDisposed();
+    public bool IsTimerDisposed(int index) => _timers[index].IsDisposed;
     public int TimerCount => _timers.Count;
     private sealed class TestTimer(TestTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset due) : ITimer
     {
         private bool _disposed;
         private DateTimeOffset _due = due;
+        public bool IsDisposed => _disposed;
         public bool Change(TimeSpan dueTime, TimeSpan period) { _due = owner._now + dueTime; return !_disposed; }
         public void Dispose() => _disposed = true;
         public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
@@ -1798,6 +1800,21 @@ public class DuelOrchestratorTests
         Assert.IsFalse(publisher.UserMessages.Any(x =>
             MessageValue<string>(x.Message, "type") == "game.rematchExpired"
             && MessageValue<long>(x.Message, "offerId") == rematch.OfferId));
+    }
+
+    [TestMethod]
+    public async Task AcceptedRematch_DisposesOfferTimer()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91, time.GetUtcNow());
+        var timerIndex = time.TimerCount;
+        var rematch = await sut.RequestRematchAsync(91, 100);
+
+        await sut.RespondToOfferAsync(rematch.OfferId!.Value, 200, true);
+
+        Assert.IsTrue(time.IsTimerDisposed(timerIndex));
     }
 
     [TestMethod]
