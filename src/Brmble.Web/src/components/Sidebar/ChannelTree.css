@@ -117,6 +117,10 @@
   align-items: center;
   color: var(--accent-primary);
   margin-left: var(--space-2xs);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
 }
 
 .user-count {

@@ -41,6 +41,8 @@ import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import { useGameState } from './components/Games/useGameState';
+import { useDuelQueueState } from './components/Games/useDuelQueueState';
+import { DuelQueueModal } from './components/Games/DuelQueueModal';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -942,10 +944,13 @@ function App() {
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
+  const duelQueue = useDuelQueueState();
   // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
   // latest game actions without being in their dependency arrays.
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+  const duelQueueRef = useRef(duelQueue);
+  duelQueueRef.current = duelQueue;
   const resolveGamePlayerName = useCallback(
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
     [],
@@ -983,26 +988,27 @@ function App() {
     if (gameState.outgoingInvite) notifQueueRef.current.register('game-pending', 'info', 2);
     else notifQueueRef.current.unregister('game-pending');
   }, [gameState.outgoingInvite]);
-  // Channels with a live duel — drives the swords badge on channel rows. Sourced
-  // from the server's channel-scoped `game.duelState` events (active true/false).
-  const [duelChannelIds, setDuelChannelIds] = useState<Set<number>>(new Set());
+  const duelChannelIds = useMemo(() => new Set(
+    [...duelQueue.byChannel.values()]
+      .filter(snapshot => snapshot.active || snapshot.readyCheck || snapshot.queue.length > 0)
+      .map(snapshot => snapshot.channelId),
+  ), [duelQueue.byChannel]);
+  const [selectedDuelChannelId, setSelectedDuelChannelId] = useState<number | null>(null);
+  const selectedDuelSnapshot = selectedDuelChannelId == null ? null : duelQueue.byChannel.get(selectedDuelChannelId) ?? null;
+  const readyCheck = [...duelQueue.byChannel.values()]
+    .map(snapshot => snapshot.readyCheck)
+    .find(check => check?.players.some(player => player.sessionId === selfSession && !player.ready)) ?? null;
   useEffect(() => {
-    const handleDuelState = (data: unknown) => {
-      const d = data as { channelId?: number; active?: boolean };
-      if (d.channelId == null) return;
-      setDuelChannelIds(prev => {
-        const has = prev.has(d.channelId!);
-        if (d.active && has) return prev;
-        if (!d.active && !has) return prev;
-        const next = new Set(prev);
-        if (d.active) next.add(d.channelId!);
-        else next.delete(d.channelId!);
-        return next;
-      });
-    };
-    bridge.on('game.duelState', handleDuelState);
-    return () => bridge.off('game.duelState', handleDuelState);
-  }, []);
+    if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
+    else notifQueueRef.current.unregister('game-ready');
+  }, [readyCheck]);
+  useEffect(() => {
+    if (duelQueue.incomingRematch) notifQueueRef.current.register('game-rematch', 'info', 2);
+    else notifQueueRef.current.unregister('game-rematch');
+  }, [duelQueue.incomingRematch]);
+  useEffect(() => {
+    if (selectedDuelChannelId != null && !selectedDuelSnapshot) setSelectedDuelChannelId(null);
+  }, [selectedDuelChannelId, selectedDuelSnapshot]);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
   const hasMatrixCredentialsForSessionRef = useRef(false);
@@ -1744,6 +1750,7 @@ function App() {
       setBrmbleServiceBootstrapTimedOut(false);
       overlayConnectedAtRef.current = Date.now();
       notifQueue.unregister('server-removal');
+      void duelQueueRef.current.requestSnapshot();
       setServerRemovalNotification(null);
       const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
 
@@ -1872,7 +1879,8 @@ function App() {
       // would produce a spurious "Not connected" error when Accept can no longer
       // reach the server. The server tears the match down on its side.
       gameStateRef.current.reset();
-      setDuelChannelIds(new Set());
+      duelQueueRef.current.reset();
+      setSelectedDuelChannelId(null);
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);
@@ -3273,7 +3281,8 @@ const handleConnect = (serverData: SavedServer) => {
       // errors when actions can no longer reach the server. The server tears the
       // match down on its side, so this is purely a local UI reset.
       gameStateRef.current.reset();
-      setDuelChannelIds(new Set());
+      duelQueueRef.current.reset();
+      setSelectedDuelChannelId(null);
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setBrmbleDMUsers([]);
@@ -4275,6 +4284,7 @@ const handleConnect = (serverData: SavedServer) => {
           onChallengeDeathroll={(session) => gameState.invite(session)}
           onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
           duelChannelIds={duelChannelIds}
+          onOpenDuelQueue={setSelectedDuelChannelId}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -4488,6 +4498,8 @@ const handleConnect = (serverData: SavedServer) => {
             onPick={(pick) => gameState.sendAction({ pick })}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => duelQueue.requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={!!gameState.ended && duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId}
           />
         ) : (
           <DeathrollModal
@@ -4501,11 +4513,49 @@ const handleConnect = (serverData: SavedServer) => {
             onRoll={gameState.roll}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => duelQueue.requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={!!gameState.ended && duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId}
           />
         )
       )}
 
+      {selectedDuelSnapshot && (
+        <DuelQueueModal
+          snapshot={selectedDuelSnapshot}
+          resolveName={resolveGamePlayerName}
+          onClose={() => setSelectedDuelChannelId(null)}
+        />
+      )}
+
       <div className="notification-stack">
+        {readyCheck && notifQueue.isVisible('game-ready') && (
+          <Notification
+            status="warning"
+            position="top-right"
+            duration={null}
+            countdownMs={Math.max(0, Date.parse(readyCheck.expiresAt) - Date.now())}
+            visible={true}
+            title="Ready to play?"
+            detail={`${gameDisplayName(readyCheck.gameType)} · ${readyCheck.format}`}
+            actions={<button className="btn btn-sm btn-primary" onClick={() => duelQueue.respondReady(readyCheck.reservationId, true)}>Ready</button>}
+            onDismiss={() => duelQueue.respondReady(readyCheck.reservationId, false)}
+            onExited={() => notifQueue.unregister('game-ready')}
+          />
+        )}
+        {duelQueue.incomingRematch && notifQueue.isVisible('game-rematch') && (
+          <Notification
+            status="info"
+            position="top-right"
+            duration={null}
+            countdownMs={Math.max(0, Date.parse(duelQueue.incomingRematch.expiresAt ?? '') - Date.now())}
+            visible={true}
+            title="Rematch offered"
+            detail={`${gameDisplayName(duelQueue.incomingRematch.gameType)} rematch`}
+            actions={<button className="btn btn-sm btn-primary" onClick={() => duelQueue.respondOffer(duelQueue.incomingRematch!.offerId, true)}>Accept</button>}
+            onDismiss={() => duelQueue.respondOffer(duelQueue.incomingRematch!.offerId, false)}
+            onExited={() => notifQueue.unregister('game-rematch')}
+          />
+        )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"

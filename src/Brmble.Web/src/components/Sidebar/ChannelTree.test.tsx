@@ -797,3 +797,32 @@ describe('ChannelTree channel ordering', () => {
     expect(labels).toEqual(['Raid', 'General']);
   });
 });
+
+describe('ChannelTree duel activity badge', () => {
+  it('opens duel activity without selecting or joining the channel', () => {
+    const onOpenDuelQueue = vi.fn();
+    const onSelectChannel = vi.fn();
+    const onJoinChannel = vi.fn();
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[]}
+        duelChannelIds={new Set([1])}
+        onOpenDuelQueue={onOpenDuelQueue}
+        onSelectChannel={onSelectChannel}
+        onJoinChannel={onJoinChannel}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open duel activity for General' }));
+
+    expect(onOpenDuelQueue).toHaveBeenCalledWith(1);
+    expect(onSelectChannel).not.toHaveBeenCalled();
+    expect(onJoinChannel).not.toHaveBeenCalled();
+  });
+
+  it('does not render a passive badge for an idle channel', () => {
+    render(<ChannelTree channels={channels} users={[]} duelChannelIds={new Set()} onJoinChannel={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Open duel activity for General' })).not.toBeInTheDocument();
+  });
+});

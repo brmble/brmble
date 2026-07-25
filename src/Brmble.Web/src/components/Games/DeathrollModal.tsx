@@ -16,6 +16,8 @@ interface DeathrollModalProps {
   onRoll: () => void;
   onForfeit: () => void;
   onClose: () => void;
+  onRematch?: () => void;
+  rematchPending?: boolean;
 }
 
 export function DeathrollModal({
@@ -29,6 +31,8 @@ export function DeathrollModal({
   onRoll,
   onForfeit,
   onClose,
+  onRematch,
+  rematchPending = false,
 }: DeathrollModalProps) {
   const [now, setNow] = useState(() => Date.now());
   // This modal only understands the Deathroll view shape; ignore any other.
@@ -143,7 +147,14 @@ export function DeathrollModal({
 
         <div className={styles.footer}>
           {ended ? (
-            <button className="btn btn-primary" onClick={onClose}>Close</button>
+            <>
+              {onRematch && (
+                <button className="btn btn-secondary" onClick={onRematch} disabled={rematchPending}>
+                  {rematchPending ? 'Rematch pending' : 'Rematch'}
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={onClose}>Close</button>
+            </>
           ) : (
             <>
               <button className="btn btn-danger" onClick={onForfeit}>Forfeit</button>

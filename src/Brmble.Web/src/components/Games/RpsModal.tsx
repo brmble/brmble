@@ -17,6 +17,8 @@ interface RpsModalProps {
   onPick: (pick: string) => void;
   onForfeit: () => void;
   onClose: () => void;
+  onRematch?: () => void;
+  rematchPending?: boolean;
 }
 
 /** The three RPS choices, in canonical order (matches the server engine). */
@@ -45,6 +47,8 @@ export function RpsModal({
   onPick,
   onForfeit,
   onClose,
+  onRematch,
+  rematchPending = false,
 }: RpsModalProps) {
   const [now, setNow] = useState(() => Date.now());
   const incoming: RpsView | null = rawView && isRpsView(rawView) ? rawView : null;
@@ -269,7 +273,14 @@ export function RpsModal({
 
         <div className={styles.footer}>
           {showResult ? (
-            <button className="btn btn-primary" onClick={onClose}>Close</button>
+            <>
+              {onRematch && (
+                <button className="btn btn-secondary" onClick={onRematch} disabled={rematchPending}>
+                  {rematchPending ? 'Rematch pending' : 'Rematch'}
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={onClose}>Close</button>
+            </>
           ) : (
             <button className="btn btn-danger" onClick={onForfeit}>Forfeit</button>
           )}

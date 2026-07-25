@@ -251,15 +251,32 @@ invite it uses `duration={null}` + `countdownMs` (the server owns the window) �
 client-side timer. `×`/Cancel both cancel. The matchId needed to cancel arrives from the
 server's `game.invitePending` event (the fire-and-forget WebView invite can't return it).
 
-#### One duel per channel + duel badge
+#### Project 1 Duel Queue Pattern
 
-The server allows only one live duel per channel and rejects a second with the reason
-`channelBusy` (surfaced to the challenger via the standard `game-error` notification). Channels
-with a live duel show a swords badge (`<Icon name="swords">`, `--accent-primary`) on the channel
-row, sourced from the server's channel-scoped `game.duelState` events (`{ channelId, active }`).
-App maintains the `Set<number>` of busy channels and threads it as `duelChannelIds` through
-`Sidebar` → `ChannelTree` (cleared on voice disconnect). Keep the badge inside the channel-row
-header next to the access-lock icon; do not invent a new row-status container.
+The server allows only one live duel per channel. During project 1, a channel with an active duel
+(including `starting`), ready check, or non-empty accepted-pair queue shows a swords badge button
+(`<Icon name="swords">`, `--accent-primary`) in the channel row. App derives `duelChannelIds` from
+complete `game.queueSnapshot` replacements and clears them on voice disconnect; do not use the old
+`game.duelState` event or `channelBusy` UI state. Keep the button next to the access-lock icon and do
+not invent a new row-status container. Activating it opens that channel's duel activity without
+selecting or joining the channel.
+
+Project 1's duel activity surface is a temporary shared modal using the standard token-styled modal
+shell. It contains metadata only: active/starting pair, ready-check state, accepted pairs in server
+order, game display name, format, and the server-provided static ETA (`About …` or exactly
+`Unknown`). It does not locally decrement or derive ETAs.
+
+Ready checks use one persistent top-right `warning` `<Notification>` under the stable id
+`game-ready`. Show it only when the local participant is not ready. Its single primary action is
+**Ready**; the `×` dismiss affordance declines. Incoming rematches use one persistent top-right
+`info` notification under `game-rematch`, with **Accept** as the single primary action and `×` as
+decline. Both may show a visual-only countdown derived from the server expiry and never own the
+authoritative timeout.
+
+Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
+**Rematch** action beside **Close**. A pending request disables that action and leaves the result
+modal open. Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel`
+foreground game state, or new toast system. Those belong to project 2.
 
 #### Head-to-head record
 
