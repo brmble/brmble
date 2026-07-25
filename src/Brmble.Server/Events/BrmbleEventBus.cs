@@ -87,6 +87,24 @@ public class BrmbleEventBus : IBrmbleEventBus
         await Task.WhenAll(tasks);
     }
 
+    public async Task BroadcastExceptAsync(WebSocket excluded, object message)
+    {
+        var bytes = Serialize(message);
+        var tasks = _clients.Where(entry => !ReferenceEquals(entry.Key, excluded)).Select(async entry =>
+        {
+            try
+            {
+                await SendAsync(entry.Key, entry.Value, bytes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
+                RemoveClient(entry.Key);
+            }
+        });
+        await Task.WhenAll(tasks);
+    }
+
     public async Task BroadcastToChannelAsync(int channelId, object message)
     {
         var sessions = _channelMembership.GetSessionsInChannel(channelId);

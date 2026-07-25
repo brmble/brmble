@@ -36,24 +36,11 @@ public static class BrmbleWebSocketHandler
         var activeSessions = context.RequestServices.GetRequiredService<IActiveBrmbleSessions>();
 
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
-        if (sessionMapping.TryGetMappingByUserId(user.Id, out var currentSessionId, out var currentMapping))
-        {
-            activeSessions.TrackMumbleName(currentMapping!.MumbleName, hash, active: true);
-            sessionMapping.TryUpdateBrmbleStatus(currentSessionId, true);
-            sessionMapping.TryUpdateCertHash(currentSessionId, hash);
-            await eventBus.BroadcastAsync(CreateUserMappingAddedPayload(currentSessionId, currentMapping, hash));
-        }
-
         try
         {
-            sessionMapping.TryGetSessionByUserId(user.Id, out var queueSessionId);
-            await InitializeClientAsync(
-                ws,
-                eventBus,
+            await InitializeAcceptedClientAsync(
+                ws, user.Id, hash, sessionMapping, eventBus, activeSessions,
                 context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
-                user.Id,
-                queueSessionId,
-                sessionMapping.GetSnapshot(),
                 context.RequestAborted);
 
             // Read loop until close
@@ -78,16 +65,47 @@ public static class BrmbleWebSocketHandler
         }
     }
 
+    internal static async Task InitializeAcceptedClientAsync(
+        WebSocket socket,
+        long userId,
+        string certHash,
+        ISessionMappingService sessionMapping,
+        IBrmbleEventBus eventBus,
+        IActiveBrmbleSessions activeSessions,
+        IDuelSnapshotProvider snapshots,
+        CancellationToken cancellationToken)
+    {
+        eventBus.AddPausedClient(socket, userId);
+        try
+        {
+            if (sessionMapping.TryGetMappingByUserId(userId, out var sessionId, out var mapping))
+            {
+                activeSessions.TrackMumbleName(mapping!.MumbleName, certHash, active: true);
+                sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
+                sessionMapping.TryUpdateCertHash(sessionId, certHash);
+                await eventBus.BroadcastExceptAsync(
+                    socket, CreateUserMappingAddedPayload(sessionId, mapping, certHash));
+            }
+
+            sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);
+            await InitializeClientAsync(
+                socket, eventBus, snapshots, queueSessionId, sessionMapping.GetSnapshot(), cancellationToken);
+        }
+        catch
+        {
+            eventBus.RemoveClient(socket);
+            throw;
+        }
+    }
+
     internal static async Task InitializeClientAsync(
         WebSocket socket,
         IBrmbleEventBus eventBus,
         IDuelSnapshotProvider snapshots,
-        long userId,
         long sessionId,
         IReadOnlyDictionary<int, SessionMapping> mappings,
         CancellationToken cancellationToken)
     {
-        eventBus.AddPausedClient(socket, userId);
         try
         {
             var snapshot = mappings.ToDictionary(
