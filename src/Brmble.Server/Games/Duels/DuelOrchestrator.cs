@@ -99,6 +99,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
     {
         Offer offer;
         DuelReservation? immediate = null;
+        long? acceptedReservationId = null;
         lock (_gate)
         {
             if (!_offers.TryGetValue(offerId, out offer!))
@@ -129,6 +130,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
                     DateTimeOffset.UtcNow,
                     ++_nextAcceptanceSequence,
                     null);
+                acceptedReservationId = reservation.ReservationId;
                 SetPairCommitment(reservation, DuelCommitmentKind.Queued);
                 var channel = GetChannel(offer.ChannelId);
                 if (channel.Active is null && channel.ReadyCheck is null && channel.Queue.Count == 0 && !channel.Advancing)
@@ -154,7 +156,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         });
 
         if (!accept) return Success(offerId, null);
-        if (immediate is null) return Success(offerId, GetReservationId(offer));
+        if (immediate is null) return Success(offerId, acceptedReservationId);
         return await StartAsync(offerId, immediate);
     }
 
@@ -376,11 +378,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator
         if (_commitmentsByUserId.TryGetValue(userId, out var commitment) && commitment.Id == id)
             _commitmentsByUserId.Remove(userId);
     }
-
-    private long? GetReservationId(Offer offer) =>
-        _commitmentsByUserId.TryGetValue(offer.Inviter.UserId, out var commitment)
-            ? commitment.Id
-            : null;
 
     private static IReadOnlyList<DuelPlayerSnapshot> Players(DuelReservation reservation) =>
         [new(reservation.PlayerOne.UserId, reservation.PlayerOne.SessionId, reservation.PlayerOne.DisplayName),
