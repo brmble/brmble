@@ -25,12 +25,28 @@ public record CompletedMatch(
     string GameType,
     int ChannelId,
     string Format,
+    int RulesetVersion,
     string Outcome,               // "decided" | "draw" | "abandoned"
     string? AbandonReason,        // null unless abandoned
     DateTimeOffset StartedAt,
     DateTimeOffset EndedAt,
     IReadOnlyList<CompletedParticipant> Participants,
-    string? MetadataJson = null);
+    string? MetadataJson = null)
+{
+    public CompletedMatch(
+        string GameType,
+        int ChannelId,
+        string Format,
+        string Outcome,
+        string? AbandonReason,
+        DateTimeOffset StartedAt,
+        DateTimeOffset EndedAt,
+        IReadOnlyList<CompletedParticipant> Participants,
+        string? MetadataJson = null)
+        : this(GameType, ChannelId, Format, 1, Outcome, AbandonReason, StartedAt, EndedAt, Participants, MetadataJson)
+    {
+    }
+}
 
 public record CompletedParticipant(
     long UserId,
