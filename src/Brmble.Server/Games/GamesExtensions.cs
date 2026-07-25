@@ -26,6 +26,8 @@ public static class GamesExtensions
         services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<GameSessionManager>());
         services.AddSingleton<DuelMatchRunnerRouter>();
         services.AddSingleton<IDuelMatchRunnerRouter>(sp => sp.GetRequiredService<DuelMatchRunnerRouter>());
+        services.AddSingleton<DuelOrchestrator>();
+        services.AddSingleton<IDuelOrchestrator>(sp => sp.GetRequiredService<DuelOrchestrator>());
         return services;
     }
 }

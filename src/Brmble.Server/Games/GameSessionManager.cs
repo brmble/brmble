@@ -26,39 +26,29 @@ public interface IGamePresence
     Task<bool> AreChallengesBlockedAsync(long sessionId);
 }
 
-public enum InviteRejectReason { None, Blocked, ChannelBusy }
-
-public record InviteResult(bool Success, long MatchId, string? Error, InviteRejectReason Reason = InviteRejectReason.None);
-
 public sealed class GameSessionManager : IDuelMatchRunner
 {
-    private static readonly TimeSpan InviteTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TurnTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan PenaltyTimeout = TimeSpan.FromSeconds(5);
     private const int MetadataSchemaVersion = 1;
 
     private readonly IReadOnlyDictionary<string, IGameEngine> _engines;
     private readonly IRandomSource _rng;
-    private readonly IGamePresence _presence;
     private readonly IGameEventPublisher _publisher;
     private readonly ICompletedMatchSink _completedMatches;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
-    [Obsolete("Use DuelOrchestrator after Task 5")]
-    private readonly ConcurrentDictionary<long, long> _userToMatch = new();
     private readonly ConcurrentDictionary<long, long> _stableUserToMatch = new();
     private long _matchIdCounter;
 
     public GameSessionManager(
         IEnumerable<IGameEngine> engines,
         IRandomSource rng,
-        IGamePresence presence,
         IGameEventPublisher publisher,
         ICompletedMatchSink completedMatches)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
-        _presence = presence;
         _publisher = publisher;
         _completedMatches = completedMatches;
     }
@@ -77,9 +67,8 @@ public sealed class GameSessionManager : IDuelMatchRunner
         public required DuelPlayer PlayerOne;
         public required DuelPlayer PlayerTwo;
         public required DuelConfiguration Configuration;
-        public string Status = "pending"; // pending | starting | live | done
+        public string Status = "starting"; // starting | live | done
         public DateTimeOffset StartedAt;
-        public Timer? InviteTimer;
         public Timer? TurnTimer;
         // Bumped every time a turn timer is (re)started. A queued timeout callback
         // whose generation is stale must bail — Timer.Dispose() doesn't wait for an
@@ -184,130 +173,10 @@ public sealed class GameSessionManager : IDuelMatchRunner
         }
     }
 
-    [Obsolete("Use DuelOrchestrator after Task 5")]
-    public async Task<InviteResult> InviteAsync(long inviterSession, long targetSession, string gameType,
-        IReadOnlyDictionary<string, object?>? options = null)
-    {
-        if (inviterSession == targetSession)
-            return new InviteResult(false, 0, "You cannot invite yourself.");
-
-        if (!_engines.TryGetValue(gameType, out var engine))
-            return new InviteResult(false, 0, $"Unknown game type '{gameType}'.");
-
-        if (!_presence.TryGetChannel(inviterSession, out var inviterChannel, out var inviterBrmble, out var inviterUserId) || !inviterBrmble)
-            return new InviteResult(false, 0, "You must be connected to Brmble to start a game.");
-
-        if (!_presence.TryGetChannel(targetSession, out var targetChannel, out var targetBrmble, out var targetUserId) || !targetBrmble)
-            return new InviteResult(false, 0, "The other player must be connected to Brmble.");
-
-        if (await _presence.AreChallengesBlockedAsync(targetSession))
-            return new InviteResult(false, 0, "This player isn't accepting challenges.", InviteRejectReason.Blocked);
-
-        if (inviterChannel != targetChannel)
-            return new InviteResult(false, 0, "You must be in the same channel to start a game.");
-
-        // One duel per channel: the spectator feed posts to the whole channel, so a
-        // second concurrent (or even pending) duel would interleave confusingly.
-        if (_matches.Values.Any(m => m.ChannelId == inviterChannel && m.Status != "done"))
-            return new InviteResult(false, 0, "A duel is already in progress in this channel.", InviteRejectReason.ChannelBusy);
-
-        if (_userToMatch.ContainsKey(inviterSession))
-            return new InviteResult(false, 0, "You already have an active game.");
-
-        if (_userToMatch.ContainsKey(targetSession))
-            return new InviteResult(false, 0, "The other player already has an active game.");
-
-        var matchId = Interlocked.Increment(ref _matchIdCounter);
-        var players = new[] { new GamePlayer(inviterSession), new GamePlayer(targetSession) };
-        var match = new LiveMatch
-        {
-            MatchId = matchId,
-            ReservationId = 0,
-            GameType = gameType,
-            Engine = engine,
-            State = engine.InitialState(players, _rng, options),
-            Players = new[] { inviterSession, targetSession },
-            SessionToUser = new Dictionary<long, long>
-            {
-                [inviterSession] = inviterUserId,
-                [targetSession] = targetUserId,
-            },
-            SessionToName = new Dictionary<long, string>
-            {
-                [inviterSession] = _presence.GetDisplayName(inviterSession) ?? $"user {inviterSession}",
-                [targetSession] = _presence.GetDisplayName(targetSession) ?? $"user {targetSession}",
-            },
-            ChannelId = inviterChannel,
-            PlayerOne = new DuelPlayer(inviterSession, inviterUserId,
-                _presence.GetDisplayName(inviterSession) ?? $"user {inviterSession}"),
-            PlayerTwo = new DuelPlayer(targetSession, targetUserId,
-                _presence.GetDisplayName(targetSession) ?? $"user {targetSession}"),
-            Configuration = new DuelConfiguration(
-                gameType,
-                engine.MatchFormat(engine.NormalizeOptions(options)),
-                engine.RulesetVersion,
-                engine.NormalizeOptions(options),
-                RunnerKey),
-        };
-
-        if (!_userToMatch.TryAdd(inviterSession, matchId))
-            return new InviteResult(false, 0, "You already have an active game.");
-        if (!_userToMatch.TryAdd(targetSession, matchId))
-        {
-            RemoveIndex(_userToMatch, inviterSession, matchId);
-            return new InviteResult(false, 0, "The other player already has an active game.");
-        }
-
-        if (!_stableUserToMatch.TryAdd(inviterUserId, matchId))
-        {
-            RemoveIndex(_userToMatch, inviterSession, matchId);
-            RemoveIndex(_userToMatch, targetSession, matchId);
-            return new InviteResult(false, 0, "You already have an active game.");
-        }
-        if (!_stableUserToMatch.TryAdd(targetUserId, matchId))
-        {
-            RemoveIndex(_stableUserToMatch, inviterUserId, matchId);
-            RemoveIndex(_userToMatch, inviterSession, matchId);
-            RemoveIndex(_userToMatch, targetSession, matchId);
-            return new InviteResult(false, 0, "The other player already has an active game.");
-        }
-
-        _matches[matchId] = match;
-
-        await _publisher.PublishToUsersAsync(
-            new HashSet<long> { targetUserId },
-            new { type = "game.invited", matchId, gameType, from = inviterSession, inviteMs = (int)InviteTimeout.TotalMilliseconds });
-
-        // Tell the challenger their invite is pending so they can show a "waiting for
-        // opponent" notification and cancel it. The WebView client posts invites
-        // fire-and-forget (no response body), so this event is how it learns the
-        // matchId of its own outgoing invite.
-        await _publisher.PublishToUsersAsync(
-            new HashSet<long> { inviterUserId },
-            new { type = "game.invitePending", matchId, gameType, target = targetSession, inviteMs = (int)InviteTimeout.TotalMilliseconds });
-
-        match.InviteTimer = new Timer(_ => OnInviteExpired(matchId), null, InviteTimeout, Timeout.InfiniteTimeSpan);
-
-        // Mark the channel busy as soon as the invite is pending (not just when it goes
-        // live): the server already treats a pending duel as busy for enforcement, so the
-        // channel-tree badge should reflect that too.
-        await PublishDuelStateAsync(match, active: true);
-
-        return new InviteResult(true, matchId, null);
-    }
-
     // Maps a match's Mumble session players to the stable db user ids used for
     // WebSocket routing.
     private static IReadOnlySet<long> RouteSet(LiveMatch match)
         => match.SessionToUser.Values.ToHashSet();
-
-    private void OnInviteExpired(long matchId)
-    {
-        _ = EndPendingAsync(matchId, "game.expired");
-    }
-
-    // Test hook: simulate the 30s invite timer firing.
-    internal Task ExpireInviteForTestAsync(long matchId) => EndPendingAsync(matchId, "game.expired");
 
     // Test-only: synchronously drive a turn-timeout for the current turn generation,
     // mirroring what the real TurnTimer callback does. Lets tests exercise AFK paths
@@ -317,75 +186,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
         if (!_matches.TryGetValue(matchId, out var match)) return Task.CompletedTask;
         var generation = Interlocked.Read(ref match.TurnGeneration);
         return HandleTurnTimeoutAsync(matchId, generation);
-    }
-
-    [Obsolete("Use DuelOrchestrator after Task 5")]
-    public async Task RespondAsync(long matchId, long targetSession, bool accept)
-    {
-        if (!_matches.TryGetValue(matchId, out var match)) return;
-
-        if (accept)
-        {
-            object[] views;
-            lock (match.Lock)
-            {
-                if (match.Status != "pending") return;
-                if (match.Players[1] != targetSession) return;
-                match.InviteTimer?.Dispose();
-                match.InviteTimer = null;
-                match.Status = "live";
-                match.StartedAt = DateTimeOffset.UtcNow;
-                views = match.Players
-                    .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
-                    .ToArray();
-            }
-            await _publisher.PublishToUsersAsync(
-                RouteSet(match),
-                new
-                {
-                    type = "game.started",
-                    matchId,
-                    gameType = match.GameType,
-                    firstTurn = IsSimultaneous(match) ? (long?)null : CurrentPlayer(match),
-                    turnMs = (int)TurnTimeout.TotalMilliseconds,
-                    penalty = false,
-                    views,
-                });
-            await PublishDuelStateAsync(match, active: true);
-            var startLine = match.Engine.StartFeedLine(match.State, sid => NameOf(match, sid))
-                ?? $"⚔️ {NameOf(match, match.Players[0])} vs {NameOf(match, match.Players[1])} — {GameName(match.GameType)} started";
-            await PublishFeedAsync(match, startLine);
-            StartTurnTimer(match, TurnTimeout);
-        }
-        else
-        {
-            // Only a participant may decline/cancel a pending invite. Match ids are a
-            // guessable sequential counter, so without this any connected user could
-            // cancel someone else's invite.
-            if (match.Players[0] != targetSession && match.Players[1] != targetSession) return;
-            await EndPendingAsync(matchId, "game.declined");
-        }
-    }
-
-    private async Task EndPendingAsync(long matchId, string eventType)
-    {
-        if (!_matches.TryGetValue(matchId, out var match)) return;
-        lock (match.Lock)
-        {
-            if (match.Status != "pending") return;
-            match.Status = "done";
-            match.InviteTimer?.Dispose();
-            match.InviteTimer = null;
-        }
-        await _publisher.PublishToUsersAsync(
-            RouteSet(match),
-            new { type = eventType, matchId });
-        // The pending invite made the channel busy; clear the badge now that it's gone.
-        await PublishDuelStateAsync(match, active: false);
-        foreach (var p in match.Players) RemoveIndex(_userToMatch, p, matchId);
-        RemoveIndex(_stableUserToMatch, match.PlayerOne.UserId, matchId);
-        RemoveIndex(_stableUserToMatch, match.PlayerTwo.UserId, matchId);
-        RemoveMatch(match);
     }
 
     public async Task ActionAsync(long matchId, long sessionId, IReadOnlyDictionary<string, object?> action)
@@ -597,15 +397,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
         // Only an actual participant may forfeit. Match ids are a guessable
         // sequential counter, so identity must resolve to one of the match players.
 
-        // A pending (not-yet-accepted) invite has no result to persist. Cancel it
-        // outright so a disconnect/channel-change while an invite is in flight
-        // doesn't leave both players blocked until the 30s invite timer expires.
-        if (match.Status == "pending")
-        {
-            await EndPendingAsync(matchId, "game.expired");
-            return;
-        }
-
         lock (match.Lock)
         {
             if (match.Status is not ("starting" or "live")) return;
@@ -766,8 +557,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
 
     private static void DisposeTimers(LiveMatch match)
     {
-        match.InviteTimer?.Dispose();
-        match.InviteTimer = null;
         match.TurnTimer?.Dispose();
         match.TurnTimer = null;
     }
@@ -775,8 +564,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private void RemoveRuntime(LiveMatch match)
     {
         DisposeTimers(match);
-        foreach (var sessionId in match.Players)
-            RemoveIndex(_userToMatch, sessionId, match.MatchId);
         RemoveIndex(_stableUserToMatch, match.PlayerOne.UserId, match.MatchId);
         RemoveIndex(_stableUserToMatch, match.PlayerTwo.UserId, match.MatchId);
         RemoveMatch(match);

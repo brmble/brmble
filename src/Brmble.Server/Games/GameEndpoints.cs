@@ -1,13 +1,18 @@
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Events;
+using Brmble.Server.Games.Duels;
+using System.Text.Json;
 
 namespace Brmble.Server.Games;
 
 public static class GameEndpoints
 {
     public record InviteDto(long TargetSessionId, string GameType, Dictionary<string, object?>? Options = null);
-    public record RespondDto(long MatchId, bool Accept);
+    public record RespondDto(long? OfferId, long? MatchId, bool Accept)
+    {
+        public long ResolvedOfferId => OfferId ?? MatchId ?? 0;
+    }
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
@@ -15,7 +20,7 @@ public static class GameEndpoints
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/games/invite", async (InviteDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
             ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
@@ -23,29 +28,24 @@ public static class GameEndpoints
             if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
                 return Results.BadRequest(new { error = "You must be connected to Brmble to start a game." });
             // dto.TargetSessionId is a Mumble session id supplied by the web client.
-            var r = await mgr.InviteAsync(session, dto.TargetSessionId, dto.GameType, dto.Options);
-            if (r.Success) return Results.Ok(new { matchId = r.MatchId });
-            // Emit a stable machine-readable reason code alongside the human text so
-            // the client can branch without regex-matching the message string.
-            var reason = r.Reason switch
-            {
-                InviteRejectReason.Blocked => "blocked",
-                InviteRejectReason.ChannelBusy => "channelBusy",
-                _ => (string?)null,
-            };
-            return Results.BadRequest(new { error = r.Error, reason });
+            var options = ConvertOptions(dto.Options);
+            var r = await orchestrator.CreateChallengeAsync(session, dto.TargetSessionId, dto.GameType, options);
+            if (r.Success) return Results.Ok(new { offerId = r.OfferId, matchId = r.OfferId });
+            return Results.BadRequest(new GameErrorWire(r.Error ?? "The challenge was rejected.", DuelWire.Reason(r.Reason)));
         });
 
         app.MapPost("/games/respond", async (RespondDto dto, HttpContext ctx,
-            ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
+            ICertificateHashExtractor certs, UserRepository users, IDuelOrchestrator orchestrator,
             ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
-            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+            if (!sessions.TryGetSessionByUserId(user.UserId, out _))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
-            await mgr.RespondAsync(dto.MatchId, session, dto.Accept);
-            return Results.Ok();
+            var r = await orchestrator.RespondToOfferAsync(dto.ResolvedOfferId, user.UserId, dto.Accept);
+            return r.Success
+                ? Results.Ok(new { offerId = r.OfferId, reservationId = r.ReservationId })
+                : Results.BadRequest(new GameErrorWire(r.Error ?? "The response was rejected.", DuelWire.Reason(r.Reason)));
         });
 
         app.MapPost("/games/action", async (ActionDto dto, HttpContext ctx,
@@ -126,6 +126,23 @@ public static class GameEndpoints
             "month" => (now.AddMonths(-1), now),
             _ => (DateTimeOffset.UnixEpoch, now),
         };
+    }
+
+    private static IReadOnlyDictionary<string, object?>? ConvertOptions(Dictionary<string, object?>? options)
+    {
+        if (options is null) return null;
+        return options.ToDictionary(x => x.Key, x => x.Value is JsonElement element
+            ? element.ValueKind switch
+            {
+                JsonValueKind.Number when element.TryGetInt64(out var integer) => integer,
+                JsonValueKind.Number => element.GetDouble(),
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => x.Value,
+            }
+            : x.Value);
     }
 
     private static async Task<AuthenticatedChannelRequestUser?> ResolveUserAsync(
