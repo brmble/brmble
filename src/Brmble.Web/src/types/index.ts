@@ -46,6 +46,7 @@ export interface MediaAttachment {
   type: 'image' | 'gif';
   url: string;
   thumbnailUrl?: string;
+  filename?: string;
   width?: number;
   height?: number;
   mimetype?: string;
