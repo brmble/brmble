@@ -199,7 +199,7 @@ public class BrmbleEventBusTests
 
         Assert.IsTrue(blocked.Payloads.Any(payload =>
             JsonDocument.Parse(payload).RootElement.GetProperty("type").GetString() == PaintEventNames.SessionEnded));
-        Assert.AreEqual(64, blocked.Payloads.Count);
+        Assert.AreEqual(65, blocked.Payloads.Count);
     }
 
     [TestMethod]

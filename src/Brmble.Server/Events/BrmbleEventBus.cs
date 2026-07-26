@@ -9,6 +9,7 @@ namespace Brmble.Server.Events;
 
 public class BrmbleEventBus : IBrmbleEventBus
 {
+    private const int SocketQueueCapacity = 64;
     private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
     private readonly ConcurrentDictionary<WebSocket, SocketDelivery> _socketDeliveries = new();
     private readonly ConcurrentDictionary<int, PaintChannelDelivery> _paintChannelDeliveries = new();
@@ -53,10 +54,18 @@ public class BrmbleEventBus : IBrmbleEventBus
         public Task Tail { get; set; } = Task.CompletedTask;
     }
 
+    private sealed record QueuedSocketMessage(
+        ArraySegment<byte> Bytes,
+        bool IsPreview,
+        (string SessionId, long AuthorUserId)? PreviewKey,
+        TaskCompletionSource Completion);
+
     private sealed class SocketDelivery
     {
         public object Gate { get; } = new();
-        public Task Tail { get; set; } = Task.CompletedTask;
+        public LinkedList<QueuedSocketMessage> Queue { get; } = [];
+        public Dictionary<(string, long), LinkedListNode<QueuedSocketMessage>> Previews { get; } = [];
+        public bool Draining { get; set; }
     }
 
     public BrmbleEventBus(
@@ -87,6 +96,7 @@ public class BrmbleEventBus : IBrmbleEventBus
     {
         var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+        var (eventType, previewKey) = GetDeliveryMetadata(message);
 
         var tasks = _clients.Keys.Select(async ws =>
         {
@@ -94,12 +104,16 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    await SendAsync(ws, bytes);
+                    await QueueSend(ws, bytes, eventType, previewKey);
                 }
                 else
                 {
                     RemoveClient(ws);
                 }
+            }
+            catch (WebSocketException ex) when (ex.Data.Contains("SocketQueueFull"))
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -123,7 +137,10 @@ public class BrmbleEventBus : IBrmbleEventBus
         await BroadcastToChannelUnorderedAsync(channelId, message);
     }
 
-    private async Task BroadcastToChannelUnorderedAsync(int channelId, object message)
+    private Task BroadcastToChannelUnorderedAsync(
+        int channelId,
+        object message,
+        TaskCompletionSource? admissionComplete = null)
     {
         var sessions = _channelMembership.GetSessionsInChannel(channelId);
         var userIds = new HashSet<long>();
@@ -136,6 +153,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+        var (eventType, previewKey) = GetDeliveryMetadata(message);
 
         var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
         {
@@ -144,21 +162,26 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    await SendAsync(ws, bytes);
+                    await QueueSend(ws, bytes, eventType, previewKey);
                 }
                 else
                 {
                     RemoveClient(ws);
                 }
             }
+            catch (WebSocketException ex) when (ex.Data.Contains("SocketQueueFull"))
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
                 RemoveClientAndAbort(ws);
             }
-        });
+        }).ToArray();
 
-        await Task.WhenAll(tasks);
+        admissionComplete?.TrySetResult();
+        return Task.WhenAll(tasks);
     }
 
     /// <summary>
@@ -171,11 +194,21 @@ public class BrmbleEventBus : IBrmbleEventBus
         var delivery = _paintChannelDeliveries.GetOrAdd(channelId, _ => new PaintChannelDelivery());
         lock (delivery.Gate)
         {
-            delivery.Tail = delivery.Tail
-                .ContinueWith(_ => BroadcastToChannelUnorderedAsync(channelId, message), CancellationToken.None,
-                    TaskContinuationOptions.None, TaskScheduler.Default)
-                .Unwrap();
-            return delivery.Tail;
+            var admissionComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task broadcast;
+            if (delivery.Tail.IsCompleted)
+            {
+                broadcast = BroadcastToChannelUnorderedAsync(channelId, message, admissionComplete);
+            }
+            else
+            {
+                broadcast = delivery.Tail
+                    .ContinueWith(_ => BroadcastToChannelUnorderedAsync(channelId, message, admissionComplete), CancellationToken.None,
+                        TaskContinuationOptions.None, TaskScheduler.Default)
+                    .Unwrap();
+            }
+            delivery.Tail = admissionComplete.Task;
+            return broadcast;
         }
     }
 
@@ -189,6 +222,7 @@ public class BrmbleEventBus : IBrmbleEventBus
     {
         var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+        var (eventType, previewKey) = GetDeliveryMetadata(message);
 
         var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
         {
@@ -197,12 +231,16 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    await SendAsync(ws, bytes);
+                    await QueueSend(ws, bytes, eventType, previewKey);
                 }
                 else
                 {
                     RemoveClient(ws);
                 }
+            }
+            catch (WebSocketException ex) when (ex.Data.Contains("SocketQueueFull"))
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -216,19 +254,110 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     private void RemoveClientAndAbort(WebSocket ws)
     {
-        RemoveClient(ws);
+        var removed = _clients.TryRemove(ws, out _);
+        _socketDeliveries.TryRemove(ws, out _);
+        if (!removed)
+            return;
+
         try { ws.Abort(); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to abort WebSocket client"); }
     }
 
-    private Task SendAsync(WebSocket ws, ArraySegment<byte> bytes)
+    private static (string? EventType, (string SessionId, long AuthorUserId)? PreviewKey) GetDeliveryMetadata(object message)
+    {
+        var type = message.GetType().GetProperty("type")?.GetValue(message) as string;
+        if (type != PaintEventNames.PreviewUpdated)
+            return (type, null);
+
+        var sessionId = message.GetType().GetProperty("sessionId")?.GetValue(message)?.ToString();
+        var authorUserId = message.GetType().GetProperty("authorUserId")?.GetValue(message);
+        if (string.IsNullOrEmpty(sessionId) || authorUserId is not long author)
+            return (type, null);
+
+        return (type, (sessionId, author));
+    }
+
+    private Task QueueSend(
+        WebSocket ws,
+        ArraySegment<byte> bytes,
+        string? eventType,
+        (string SessionId, long AuthorUserId)? previewKey)
     {
         var delivery = _socketDeliveries.GetOrAdd(ws, _ => new SocketDelivery());
         lock (delivery.Gate)
         {
-            delivery.Tail = delivery.Tail.ContinueWith(_ => SendCoreAsync(ws, bytes), CancellationToken.None,
-                TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
-            return delivery.Tail;
+            if (eventType == PaintEventNames.PreviewUpdated && previewKey is { } key &&
+                delivery.Previews.Remove(key, out var olderPreview))
+            {
+                delivery.Queue.Remove(olderPreview);
+                olderPreview.Value.Completion.TrySetResult();
+            }
+
+            if (delivery.Queue.Count == SocketQueueCapacity)
+            {
+                var oldestPreview = delivery.Queue.First;
+                while (oldestPreview is not null && !oldestPreview.Value.IsPreview)
+                    oldestPreview = oldestPreview.Next;
+                if (oldestPreview is null)
+                {
+                    RemoveClientAndAbort(ws);
+                    var exception = new WebSocketException("WebSocket delivery queue is full.");
+                    exception.Data["SocketQueueFull"] = true;
+                    return Task.FromException(exception);
+                }
+
+                delivery.Queue.Remove(oldestPreview);
+                if (oldestPreview.Value.PreviewKey is { } oldestPreviewKey)
+                    delivery.Previews.Remove(oldestPreviewKey);
+                oldestPreview.Value.Completion.TrySetResult();
+            }
+
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var queued = new QueuedSocketMessage(bytes, eventType == PaintEventNames.PreviewUpdated, previewKey, completion);
+            var node = delivery.Queue.AddLast(queued);
+            if (previewKey is { } preview)
+                delivery.Previews[preview] = node;
+
+            if (!delivery.Draining)
+            {
+                delivery.Draining = true;
+                _ = DrainSocketAsync(ws, delivery);
+            }
+
+            return completion.Task;
+        }
+    }
+
+    private async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
+    {
+        while (true)
+        {
+            QueuedSocketMessage message;
+            lock (delivery.Gate)
+            {
+                if (delivery.Queue.First is not { } first)
+                {
+                    delivery.Draining = false;
+                    return;
+                }
+
+                message = first.Value;
+                delivery.Queue.RemoveFirst();
+                if (message.PreviewKey is { } key)
+                    delivery.Previews.Remove(key);
+            }
+
+            try
+            {
+                await SendCoreAsync(ws, message.Bytes);
+                message.Completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                message.Completion.TrySetException(ex);
+                RemoveClientAndAbort(ws);
+                return;
+            }
         }
     }
 
