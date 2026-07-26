@@ -27,9 +27,9 @@ This change does not include:
 
 When the user right-clicks an image in the chat message list, the message image shows a context menu item labeled **Use as paint background**.
 
-Selecting that action opens the existing **Start collaborative paint** dialog with that image already selected as the source image.
+Selecting that action first shows a confirmation prompt asking whether the user wants to start painting from that image. If the user chooses **No**, nothing happens. If the user chooses **Yes**, the existing **Start collaborative paint** dialog opens with that image already selected as the source image.
 
-The user still chooses participants and clicks **Start paint** to create the session. The right-click action does not immediately create a paint session.
+The user still chooses participants and clicks **Start paint** to create the session. The right-click action and the confirmation prompt do not immediately create a paint session.
 
 If the image cannot be prepared, the user stays in chat and sees an error message explaining that the image could not be used as a paint background.
 
@@ -50,10 +50,12 @@ If the image cannot be prepared, the user stays in chat and sees an error messag
 
 ### 4.2 Prefill the Paint Setup Flow
 
-1. Selecting **Use as paint background** must open the existing collaborative paint setup dialog.
-2. The selected chat image must appear as the dialog's source image immediately.
-3. The dialog must continue to support participant selection and the normal **Start paint** action.
-4. The user must be able to cancel without creating a paint session.
+1. Selecting **Use as paint background** must start by showing a confirmation prompt.
+2. Before the setup dialog opens, the app must ask the user to confirm that they want to use the image as the paint background.
+3. Choosing **No** in that confirmation must do nothing and leave the user in chat.
+4. Choosing **Yes** in that confirmation must open the setup dialog with the selected chat image immediately shown as the source image.
+5. The dialog must continue to support participant selection and the normal **Start paint** action.
+6. The user must be able to cancel without creating a paint session.
 
 #### Implementation Notes
 
@@ -62,6 +64,8 @@ The chat image should be downloaded into a local blob or file representation and
 #### Acceptance Criteria
 
 - Given a usable image attachment, when the user selects **Use as paint background**, then the paint setup dialog opens with that image already selected.
+- Given a usable image attachment, when the user selects **Use as paint background** and then chooses **No** in the confirmation prompt, then nothing happens and no paint session is created.
+- Given a usable image attachment, when the user selects **Use as paint background** and then chooses **Yes** in the confirmation prompt, then the paint setup dialog opens with that image already selected.
 - Given the dialog is open with a preselected image, when the user clicks **Start paint**, then the new session uses that image as the source image.
 - Given the user cancels the dialog, then no paint session is created.
 
@@ -90,8 +94,10 @@ The chat image should be downloaded into a local blob or file representation and
 Add or update tests to verify:
 
 - Right-clicking an image message shows **Use as paint background**.
+- Choosing the action shows a confirmation prompt before any paint setup dialog opens.
+- Choosing **No** in the confirmation prompt makes no change to the current chat state.
+- Choosing **Yes** in the confirmation prompt opens the paint setup dialog with the image preselected.
 - Right-clicking non-image content does not show the action.
-- Choosing the action opens the paint setup dialog with the image preselected.
 - Starting paint from the dialog uses the chosen chat image as the source.
 - Cancelling leaves the user in chat and does not create a session.
 - Image download or preparation failure shows an error and does not create a session.
