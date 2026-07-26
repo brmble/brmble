@@ -1075,6 +1075,12 @@ function App() {
   const [paintBackgroundError, setPaintBackgroundError] =
     useState<string | null>(null);
   const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
+  const activePaintSessionIdRef = useRef<string | null>(null);
+  activePaintSessionIdRef.current = activePaintSessionId;
+  const paintPreparationGenerationRef = useRef(0);
+  const invalidatePaintPreparation = useCallback(() => {
+    paintPreparationGenerationRef.current += 1;
+  }, []);
   const activePaintChannelIdRef = useRef<string | undefined>(undefined);
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
@@ -1087,12 +1093,14 @@ function App() {
   }, [connected]);
 
   useEffect(() => {
+    invalidatePaintPreparation();
     if (!activePaintSessionId) return;
     if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
+      activePaintSessionIdRef.current = null;
       setActivePaintSessionId(null);
       activePaintChannelIdRef.current = undefined;
     }
-  }, [activePaintSessionId, connectionStatus, currentChannelId]);
+  }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -4262,16 +4270,43 @@ const handleConnect = (serverData: SavedServer) => {
   const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
   const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
+  const canStartPaintRef = useRef(false);
+  canStartPaintRef.current = canStartPaint;
+  useEffect(() => {
+    if (!canStartPaint) invalidatePaintPreparation();
+  }, [canStartPaint, invalidatePaintPreparation]);
+  const isCurrentPaintPreparation = useCallback((
+    generation: number,
+    channelId: string | undefined,
+  ) => (
+    generation === paintPreparationGenerationRef.current
+    && channelId === currentChannelIdRef.current
+    && canStartPaintRef.current
+    && activePaintSessionIdRef.current === null
+  ), []);
   const openEmptyPaintSetup = useCallback(() => {
+    invalidatePaintPreparation();
+    if (!canStartPaintRef.current || activePaintSessionIdRef.current !== null) {
+      return;
+    }
     setPaintSetupInitialSource(null);
     setShowPaintSetup(true);
-  }, []);
+  }, [invalidatePaintPreparation]);
   const closePaintSetup = useCallback(() => {
+    invalidatePaintPreparation();
     setShowPaintSetup(false);
     setPaintSetupInitialSource(null);
-  }, []);
+  }, [invalidatePaintPreparation]);
   const handleUseAsPaintBackground = useCallback(
     async (attachment: MediaAttachment) => {
+      if (
+        !canStartPaintRef.current
+        || activePaintSessionIdRef.current !== null
+      ) {
+        return;
+      }
+      const generation = ++paintPreparationGenerationRef.current;
+      const channelId = currentChannelIdRef.current;
       const accepted = await confirm({
         title: 'Use image as paint background?',
         message:
@@ -4279,19 +4314,24 @@ const handleConnect = (serverData: SavedServer) => {
         confirmLabel: 'Yes',
         cancelLabel: 'No',
       });
-      if (!accepted) return;
+      if (!accepted || !isCurrentPaintPreparation(generation, channelId)) {
+        return;
+      }
 
       try {
-        if (!canStartPaint) {
-          throw new Error('Paint setup is no longer available.');
-        }
         const prepared =
           await prepareChatImagePaintSource(attachment);
+        if (!isCurrentPaintPreparation(generation, channelId)) {
+          return;
+        }
         setPaintBackgroundError(null);
         notifQueue.unregister('paint-background-error');
         setPaintSetupInitialSource(prepared);
         setShowPaintSetup(true);
       } catch (reason) {
+        if (!isCurrentPaintPreparation(generation, channelId)) {
+          return;
+        }
         console.error(
           '[Paint] Failed to prepare chat image background:',
           reason,
@@ -4305,7 +4345,7 @@ const handleConnect = (serverData: SavedServer) => {
         notifQueue.register('paint-background-error', 'error');
       }
     },
-    [canStartPaint, notifQueue],
+    [isCurrentPaintPreparation, notifQueue],
   );
   const paintCandidates = paintChannelId === null
     ? []
@@ -4316,13 +4356,17 @@ const handleConnect = (serverData: SavedServer) => {
     await paintApi.join(sessionId);
   }, []);
   const handleOpenPaint = useCallback((sessionId: string) => {
+    invalidatePaintPreparation();
     activePaintChannelIdRef.current = currentChannelId;
+    activePaintSessionIdRef.current = sessionId;
     setActivePaintSessionId(sessionId);
-  }, [currentChannelId]);
+  }, [currentChannelId, invalidatePaintPreparation]);
   const handleClosePaint = useCallback(() => {
+    invalidatePaintPreparation();
     activePaintChannelIdRef.current = undefined;
+    activePaintSessionIdRef.current = null;
     setActivePaintSessionId(null);
-  }, []);
+  }, [invalidatePaintPreparation]);
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
@@ -4374,7 +4418,9 @@ const handleConnect = (serverData: SavedServer) => {
           onAttachSource={paintApi.attachSource}
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
+            invalidatePaintPreparation();
             activePaintChannelIdRef.current = currentChannelId;
+            activePaintSessionIdRef.current = sessionId;
             setActivePaintSessionId(sessionId);
             closePaintSetup();
           }}
@@ -4482,9 +4528,9 @@ const handleConnect = (serverData: SavedServer) => {
                         paintSessionStatuses={paintSessionStatuses}
                         onJoinPaint={handleJoinPaint}
                         onOpenPaint={handleOpenPaint}
-                        onUseAsPaintBackground={
-                          canStartPaint ? handleUseAsPaintBackground : undefined
-                        }
+                        {...(canStartPaint && !activePaintSessionId
+                          ? { onUseAsPaintBackground: handleUseAsPaintBackground }
+                          : {})}
                       />
                     </VerticalSplitPane>
                   </ErrorBoundary>

@@ -53,6 +53,7 @@ describe('ChatPanel image paint background menu', () => {
 
     const imageButton = container.querySelector('.image-attachment');
     expect(imageButton).not.toBeNull();
+    fireEvent.load(container.querySelector('.image-attachment__img')!);
     fireEvent.contextMenu(imageButton!, { clientX: 40, clientY: 50 });
 
     expect(screen.getByRole('button', {
@@ -67,6 +68,28 @@ describe('ChatPanel image paint background menu', () => {
       name: 'Use as paint background',
     }));
     expect(onUseAsPaintBackground).toHaveBeenCalledWith(image);
+  });
+
+  it('does not expose the action until the image has loaded', () => {
+    const { container } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[imageMessage]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(
+      container.querySelector('.image-attachment')!,
+      { clientX: 40, clientY: 50 },
+    );
+
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
   });
 
   it('does not show the action for a plain-text message', () => {

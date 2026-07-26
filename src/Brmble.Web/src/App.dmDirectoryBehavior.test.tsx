@@ -226,6 +226,16 @@ const sharedImage: MediaAttachment = {
   mimetype: 'image/png',
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('DM route Matrix isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -273,6 +283,39 @@ describe('DM route Matrix isolation', () => {
     });
     expect(mockValues.dmChatPanelProps)
       .not.toHaveProperty('onUseAsPaintBackground');
+  });
+
+  it('withholds the chat-image action while a paint session is active', async () => {
+    renderPaintReadyApp();
+
+    await waitFor(() => {
+      expect(mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground).toEqual(expect.any(Function));
+    });
+    const staleAction = mockValues.channelChatPanelProps
+      ?.onUseAsPaintBackground as (attachment: MediaAttachment) => Promise<void>;
+
+    act(() => {
+      (mockValues.channelChatPanelProps?.onOpenPaint as (sessionId: string) => void)(
+        'active-paint-session',
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockValues.channelChatPanelProps)
+        .not.toHaveProperty('onUseAsPaintBackground');
+    });
+
+    act(() => {
+      void staleAction(sharedImage);
+    });
+
+    expect(screen.queryByRole('dialog', {
+      name: 'Use image as paint background?',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
   });
 
   it('does nothing when the user chooses No', async () => {
@@ -382,6 +425,74 @@ describe('DM route Matrix isolation', () => {
     expect(await screen.findByRole('dialog', {
       name: 'Start collaborative paint',
     })).toBeInTheDocument();
+  });
+
+  it('does not reopen setup when a chat-image preparation succeeds after newer header setup is cancelled', async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<File>();
+    paintSourceMocks.prepare.mockReturnValue(pending.promise);
+    renderPaintReadyApp();
+
+    act(() => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (attachment: MediaAttachment) => Promise<void>)(
+        sharedImage,
+      );
+    });
+    await user.click(await screen.findByRole('button', { name: 'Yes' }));
+    await waitFor(() => expect(paintSourceMocks.prepare).toHaveBeenCalledWith(sharedImage));
+
+    act(() => {
+      (mockValues.headerProps?.onStartPaint as () => void)();
+    });
+    expect(await screen.findByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
+
+    await act(async () => {
+      pending.resolve(new File(['prepared'], 'shared.png', { type: 'image/png' }));
+      await pending.promise;
+    });
+
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
+  });
+
+  it('does not report a stale chat-image preparation failure after newer header setup', async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<File>();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    paintSourceMocks.prepare.mockReturnValue(pending.promise);
+    renderPaintReadyApp();
+
+    act(() => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (attachment: MediaAttachment) => Promise<void>)(
+        sharedImage,
+      );
+    });
+    await user.click(await screen.findByRole('button', { name: 'Yes' }));
+    await waitFor(() => expect(paintSourceMocks.prepare).toHaveBeenCalledWith(sharedImage));
+
+    act(() => {
+      (mockValues.headerProps?.onStartPaint as () => void)();
+    });
+
+    await act(async () => {
+      pending.reject(new Error('download failed'));
+      await pending.promise.catch(() => undefined);
+    });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalledWith(
+      '[Paint] Failed to prepare chat image background:',
+      expect.any(Error),
+    );
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {

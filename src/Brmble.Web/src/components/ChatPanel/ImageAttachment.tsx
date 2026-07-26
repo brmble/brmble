@@ -32,7 +32,7 @@ export function ImageAttachment({ attachment, onOpenLightbox, onOpenContextMenu 
       className="image-attachment"
       onClick={() => onOpenLightbox(attachment.url)}
       onContextMenu={(event) => {
-        if (!onOpenContextMenu) return;
+        if (!onOpenContextMenu || !loaded || error) return;
         event.preventDefault();
         event.stopPropagation();
         onOpenContextMenu(
