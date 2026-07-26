@@ -82,4 +82,20 @@ public sealed class PaintValidationTests
 
         Assert.IsNull(result.Color);
     }
+
+    [TestMethod]
+    public void ValidateStrokeInput_Accepts2000PointsAndRejects2001Points()
+    {
+        var accepted = Enumerable.Range(0, 2000)
+            .Select(i => new PaintPoint(i / 2000d, i / 2000d, null)).ToArray();
+        Assert.AreEqual(2000, PaintValidation.ValidateStrokeInput(new PaintStrokeInput(
+            Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Medium, accepted)).Points.Count);
+
+        var rejected = Enumerable.Range(0, 2001)
+            .Select(i => new PaintPoint(i / 2001d, i / 2001d, null)).ToArray();
+        var exception = Assert.ThrowsException<PaintValidationException>(() =>
+            PaintValidation.ValidateStrokeInput(new PaintStrokeInput(
+                Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Medium, rejected)));
+        StringAssert.Contains(exception.Message, "2000");
+    }
 }

@@ -4,6 +4,8 @@ public sealed class PaintValidationException(string message) : Exception(message
 
 public static class PaintValidation
 {
+    public const int MaxPointsPerStroke = 2000;
+
     public static readonly ISet<string> AllowedColors = new HashSet<string>(StringComparer.Ordinal)
     {
         "#ffffff",
@@ -40,6 +42,9 @@ public static class PaintValidation
         {
             throw new PaintValidationException("points must contain at least one point.");
         }
+
+        if (input.Points.Count > MaxPointsPerStroke)
+            throw new PaintValidationException($"points must contain at most {MaxPointsPerStroke} points.");
 
         foreach (var point in input.Points)
         {
