@@ -21,6 +21,7 @@ import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
 import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
 import { PaintSessionView } from './components/Paint/PaintSessionView';
+import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -1069,6 +1070,7 @@ function App() {
   const [showGame, setShowGame] = useState(false);
   const [showPaintSetup, setShowPaintSetup] = useState(false);
   const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
+  const activePaintChannelIdRef = useRef<string | undefined>(undefined);
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
@@ -1078,6 +1080,14 @@ function App() {
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
+
+  useEffect(() => {
+    if (!activePaintSessionId) return;
+    if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
+      setActivePaintSessionId(null);
+      activePaintChannelIdRef.current = undefined;
+    }
+  }, [activePaintSessionId, connectionStatus, currentChannelId]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -4252,6 +4262,17 @@ const handleConnect = (serverData: SavedServer) => {
     : users
       .filter(user => user.channelId === paintChannelId && !user.self)
       .map(user => ({ userId: user.session, name: user.name }));
+  const handleJoinPaint = useCallback(async (sessionId: string) => {
+    await paintApi.join(sessionId);
+  }, []);
+  const handleOpenPaint = useCallback((sessionId: string) => {
+    activePaintChannelIdRef.current = currentChannelId;
+    setActivePaintSessionId(sessionId);
+  }, [currentChannelId]);
+  const handleClosePaint = useCallback(() => {
+    activePaintChannelIdRef.current = undefined;
+    setActivePaintSessionId(null);
+  }, []);
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
@@ -4302,6 +4323,7 @@ const handleConnect = (serverData: SavedServer) => {
           matrixClient={matrixClient.client}
           onAttachSource={paintApi.attachSource}
           onComplete={(sessionId) => {
+            activePaintChannelIdRef.current = currentChannelId;
             setActivePaintSessionId(sessionId);
             setShowPaintSetup(false);
           }}
@@ -4365,46 +4387,52 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            activePaintSessionId ? (
-              <PaintSessionView
-                sessionId={activePaintSessionId}
-                currentUserId={selfSession}
-                matrixClient={matrixClient.client}
-                channelRoomMap={matrixCredentials?.roomMap}
-                onClose={() => setActivePaintSessionId(null)}
-              />
-            ) : showGame ? (
+            showGame && !activePaintSessionId ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
                 <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
-                   <ChatPanel
-                    channelId={currentChannelId || undefined}
-                    channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={channelChatMessages}
-                    currentUsername={username}
-                    onSendMessage={handleSendMessage}
-                    onDismissMessage={handleDismissMessage}
-                    matrixClient={matrixClient.client}
-                    matrixRoomId={channelMatrixRoomId}
-                    readMarkerTs={channelDividerTs}
-                    {...(showChannelConversation ? screenShareViewerProps : {})}
-                    users={users}
-                    disabled={!canSendActiveChannelChat}
-                    topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
-                    onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={matrixCredentials?.userId}
-                    onToggleReaction={handleToggleChannelReaction}
-                     typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
-                     typingTargetId={activeChannelId ?? undefined}
-                     onTypingStart={matrixClient.startTyping}
-                     onTypingStop={matrixClient.stopTyping}
-                     currentUserId={selfSession}
-                     paintSessionStatuses={paintSessionStatuses}
-                     onJoinPaint={(sessionId) => { void paintApi.join(sessionId).then(() => setActivePaintSessionId(sessionId)); }}
-                  />
+                    <VerticalSplitPane
+                      top={activePaintSessionId ? (
+                        <PaintSessionView
+                          sessionId={activePaintSessionId}
+                          matrixClient={matrixClient.client}
+                          channelRoomMap={matrixCredentials?.roomMap}
+                          onClose={handleClosePaint}
+                        />
+                      ) : null}
+                      storageKey="brmble-paint-split"
+                      label="Resize paint and channel chat"
+                    >
+                      <ChatPanel
+                        channelId={currentChannelId || undefined}
+                        channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                        messages={channelChatMessages}
+                        currentUsername={username}
+                        onSendMessage={handleSendMessage}
+                        onDismissMessage={handleDismissMessage}
+                        matrixClient={matrixClient.client}
+                        matrixRoomId={channelMatrixRoomId}
+                        readMarkerTs={channelDividerTs}
+                        {...(showChannelConversation ? screenShareViewerProps : {})}
+                        users={users}
+                        disabled={!canSendActiveChannelChat}
+                        topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
+                        onMessageContextMenu={handleChatMessageContextMenu}
+                        onCopyToClipboard={handleCopyToClipboard}
+                        currentUserMatrixId={matrixCredentials?.userId}
+                        onToggleReaction={handleToggleChannelReaction}
+                        typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
+                        typingTargetId={activeChannelId ?? undefined}
+                        onTypingStart={matrixClient.startTyping}
+                        onTypingStop={matrixClient.stopTyping}
+                        currentUserId={selfSession}
+                        paintSessionStatuses={paintSessionStatuses}
+                        onJoinPaint={handleJoinPaint}
+                        onOpenPaint={handleOpenPaint}
+                      />
+                    </VerticalSplitPane>
                   </ErrorBoundary>
                 </div>
                 <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>

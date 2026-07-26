@@ -33,12 +33,14 @@ public sealed record PaintSource(
     int Height,
     long SizeBytes);
 
+public sealed record PaintInvitee(
+    long UserId,
+    string MatrixUserId);
+
 public sealed record PaintParticipant(
     long UserId,
     int MumbleSessionId,
-    string MatrixUserId,
-    bool Selected,
-    bool Active);
+    string MatrixUserId);
 
 public sealed record PaintStroke(
     Guid Id,
@@ -67,6 +69,8 @@ public sealed record PaintSessionSnapshot(
     string MatrixRoomId,
     string? SourceEventId,
     long HostUserId,
+    long CurrentUserId,
+    bool IsHost,
     PaintSessionStatus Status,
     long Generation,
     long Revision,
@@ -74,6 +78,14 @@ public sealed record PaintSessionSnapshot(
     PaintSource? Source,
     IReadOnlyList<PaintParticipant> Participants,
     IReadOnlyList<PaintStroke> Strokes);
+
+public sealed record PaintSessionSummary(
+    Guid SessionId,
+    int ChannelId,
+    long HostUserId,
+    PaintSessionStatus Status,
+    bool CanJoin,
+    bool IsParticipant);
 
 public static class PaintEventNames
 {

@@ -2,6 +2,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.LiveKit;
+using Brmble.Server.Paint;
 
 namespace Brmble.Server.Mumble;
 
@@ -15,6 +16,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly GameSessionManager _gameSessions;
+    private readonly IPaintParticipationLifecycle _paintParticipation;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -27,6 +29,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
         GameSessionManager gameSessions,
+        IPaintParticipationLifecycle paintParticipation,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -37,6 +40,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _liveKitRevocationScheduler = liveKitRevocationScheduler;
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _gameSessions = gameSessions;
+        _paintParticipation = paintParticipation;
         _logger = logger;
     }
 
@@ -164,6 +168,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
+            await _paintParticipation.HandleSessionDisconnectedAsync(user.SessionId);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
 
             if (_gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
@@ -193,6 +198,9 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         var channelChanged = !_channelMembership.TryGetChannel(user.SessionId, out var previousChannel)
             || previousChannel != channelId;
+        if (channelChanged)
+            await _paintParticipation.HandleSessionChannelChangedAsync(user.SessionId, previousChannel, channelId);
+
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);

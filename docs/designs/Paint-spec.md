@@ -241,11 +241,11 @@ Het doel hiervan is dat de server deelnemers niet stilzwijgend of namens hen laa
 
 ### 6.1 Voorbereiding en deelnemersselectie
 
-De gebruikersstroom begint in `PaintSessionSetupModal`. De host selecteert uit de momenteel aanwezige Brmble-gebruikers welke personen mogen deelnemen. De modal roept de createactie aan met het `channelId` en de geselecteerde `participantUserIds`.
+De gebruikersstroom begint in `PaintSessionSetupModal`. De host selecteert uit de momenteel aanwezige Brmble-gebruikers welke personen mogen worden uitgenodigd. De modal roept de createactie aan met het `channelId` en de geselecteerde huidige Mumble-sessie-ID's als `participantSessionIds`.
 
 De flow wordt geopend vanuit een nieuwe knop **Start paint-sessie** in de header van Brmble. De knop is beschikbaar binnen de context van een actief voice channel; de setupmodal gebruikt dat channel als huidige context en laat de host vervolgens deelnemers en bronafbeelding kiezen.
 
-De createactie mag alleen slagen wanneer de server de host en iedere geselecteerde deelnemer in het gevraagde voice channel aantreft. De server vertaalt de geselecteerde Brmble-user-ID's naar Matrix-ID's.
+De createactie mag alleen slagen wanneer de server de host en iedere geselecteerde Mumble-sessie in het gevraagde voice channel aantreft. De server vertaalt die tijdelijke sessie-ID's onmiddellijk naar persistente Brmble- en Matrix-identiteiten voor de invitee-lijst.
 
 ### 6.2 Aanmaken van sessie en private Matrix-room
 
@@ -653,13 +653,13 @@ Een fout heeft steeds de vorm `{ "code": "...", "message": "...", "requestId": "
 
 #### `POST /paint/sessions`
 
-**Verplicht request:** `channelId` (UUID) en `participantUserIds` (unieke array van UUID's; mag leeg zijn). **Optioneel:** geen. De caller wordt altijd als host en geselecteerde deelnemer toegevoegd, ook als die niet in de array staat. Voorbeeld:
+**Verplicht request:** `channelId` en `participantSessionIds` (unieke array van actuele Mumble-sessie-ID's; mag leeg zijn). **Optioneel:** geen. De caller wordt altijd als host en actieve deelnemer toegevoegd, ook als die niet in de array staat. Geselecteerde sessie-ID's worden alleen gebruikt om invitees te bepalen. Voorbeeld:
 
 ```json
-{ "channelId": "channel-uuid", "participantUserIds": ["user-a", "user-b"] }
+{ "channelId": 5, "participantSessionIds": [102, 103] }
 ```
 
-**Response `201`:** `{ "snapshot": { "…": "PaintSessionSnapshot met source: null en status: pendingSource" } }`. Fouten: `400 INVALID_REQUEST`, `403 CHANNEL_MEMBERSHIP_REQUIRED`, `409 SESSION_CREATE_CONFLICT`, `502 MATRIX_ROOM_CREATE_FAILED` of `MATRIX_INVITE_FAILED`. Validatie: host én alle geselecteerden zijn op het moment van aanmaken aanwezig in het voice channel; duplicaten en onbekende gebruikers zijn niet toegestaan; de invite-lijst bevat precies host plus geselecteerden.
+**Response `201`:** `{ "sessionId": "...", "matrixRoomId": "..." }`. Fouten: `400 INVALID_REQUEST`, `403 CHANNEL_MEMBERSHIP_REQUIRED`, `409 SESSION_CREATE_CONFLICT`, `502 MATRIX_ROOM_CREATE_FAILED` of `MATRIX_INVITE_FAILED`. Validatie: host en alle geselecteerde sessies zijn op het moment van aanmaken aanwezig in het voice channel; duplicaten worden samengevoegd en onbekende of kanaalvreemde sessies zijn niet toegestaan; de invite-lijst bevat precies host plus de opgeloste invitees.
 
 #### `POST /paint/sessions/{id}/source`
 
@@ -717,6 +717,32 @@ Het doel is dat de webfrontend de paintfunctionaliteit via de bestaande native/c
 ---
 
 ## 13. Frontendstatus en reconciliatie
+
+## Follow-up access model
+
+- `participantSessionIds` in the create request are current Mumble session
+  identifiers used only for selection. The server resolves them immediately to
+  persistent authenticated user identities.
+- Invitees are allowed to request participation. They are not participants and
+  cannot fetch a full snapshot, receive canvas events, open the editor, or draw.
+- `GET /paint/sessions/{id}/summary` returns only session status, channel, host,
+  `canJoin`, and `isParticipant`. It never returns the Matrix Paint room, source,
+  participants, strokes, previews, revision, or generation.
+- `GET /paint/sessions/{id}` is participant-only and reports the authenticated
+  requester's `currentUserId` and `isHost`.
+- A participant is bound to the Mumble connection on which `POST /join`
+  succeeded. Disconnecting or leaving the session channel removes that binding.
+  Reconnect and channel re-entry require another explicit `POST /join`.
+- Presence, connection, channel-entry, invitation, and snapshot paths can remove
+  stale participation but cannot add or restore participation.
+- Canvas events are routed only to active participants on their current
+  connection. Invitation summaries and terminal card status are the only Paint
+  state visible before join.
+- The invitation card uses `Join paint` to change participation and `Open paint`
+  to change the workspace. Neither action implies the other.
+- An open editor occupies the upper vertical workspace pane. The connected
+  channel `ChatPanel` remains mounted in the lower pane with its history,
+  live events, composer, and draft state intact.
 
 ### 13.1 `usePaintSession(sessionId)`
 

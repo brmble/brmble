@@ -8,7 +8,7 @@ namespace Brmble.Server.Paint;
 /// <summary>HTTP boundary for the stateful paint session manager.</summary>
 public static class PaintEndpoints
 {
-    public sealed record CreatePaintSessionDto(int ChannelId, IReadOnlyList<long>? ParticipantUserIds);
+    public sealed record CreatePaintSessionDto(int ChannelId, IReadOnlyList<int>? ParticipantSessionIds);
     public sealed record AttachPaintSourceDto(string? SourceEventId);
     public sealed record PaintPointDto(double X, double Y, double? Pressure);
     public sealed record PaintStrokeDto(Guid CorrelationId, long Generation, string? Tool, string? Color, int Width, IReadOnlyList<PaintPointDto>? Points);
@@ -21,7 +21,7 @@ public static class PaintEndpoints
             {
                 if (!presence.TryGetParticipant(user.UserId, out var host) || host.ChannelId != dto.ChannelId)
                     throw new PaintAuthorizationException("Host must be connected to the requested channel.");
-                var result = await manager.CreateAsync(user.UserId, dto.ParticipantUserIds ?? [], cancellationToken);
+                var result = await manager.CreateAsync(user.UserId, dto.ParticipantSessionIds ?? [], cancellationToken);
                 return Results.Ok(result);
             }, context, certificates, users));
 
@@ -32,6 +32,10 @@ public static class PaintEndpoints
                 if (string.IsNullOrWhiteSpace(dto.SourceEventId)) throw new PaintValidationException("sourceEventId is required.");
                 return Results.Ok(await manager.AttachSourceAsync(id, user.UserId, dto.SourceEventId, cancellationToken));
             }, context, certificates, users));
+
+        app.MapGet("/paint/sessions/{id:guid}/summary", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
+            UserRepository users, PaintSessionManager manager) =>
+            await ExecuteAsync(async user => Results.Ok(await manager.SummaryAsync(id, user.UserId)), context, certificates, users));
 
         app.MapGet("/paint/sessions/{id:guid}", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager) =>

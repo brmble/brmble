@@ -7,6 +7,7 @@ public sealed record PaintPresenceParticipant(long UserId, int ChannelId, int Mu
 public interface IPaintPresence
 {
     bool TryGetParticipant(long userId, out PaintPresenceParticipant participant);
+    bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant);
     IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId);
 }
 
@@ -33,5 +34,22 @@ public sealed class SessionMappingPaintPresence(ISessionMappingService sessions,
                 return new PaintPresenceParticipant(mapping.UserId, channelId, sessionId, mapping.MatrixUserId);
             })
             .ToArray();
+    }
+
+    public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
+    {
+        participant = null!;
+        var snapshot = sessions.GetSnapshot();
+        if (!snapshot.TryGetValue(mumbleSessionId, out var mapping)
+            || !mapping.IsBrmbleClient
+            || !membership.TryGetChannel(mumbleSessionId, out var channelId))
+            return false;
+
+        participant = new PaintPresenceParticipant(
+            mapping.UserId,
+            channelId,
+            mumbleSessionId,
+            mapping.MatrixUserId);
+        return true;
     }
 }

@@ -1,5 +1,5 @@
 import bridge from '../bridge';
-import type { PaintSessionSnapshot, PaintStrokeInput } from '../types/paint';
+import type { PaintSessionSnapshot, PaintSessionSummary, PaintStrokeInput } from '../types/paint';
 
 const BRIDGE_REQUEST_TIMEOUT_MS = 15_000;
 let nextRequestId = 1;
@@ -81,7 +81,7 @@ function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
 }
 
 export const paintApi = {
-  async createSession(input: { channelId: number; participantUserIds: number[] }): Promise<CreatedPaintSession> {
+  async createSession(input: { channelId: number; participantSessionIds: number[] }): Promise<CreatedPaintSession> {
     const created = isWebViewBridgeAvailable()
       ? await bridgeRequest<Omit<CreatedPaintSession, 'channelId'>>('paint.create', input)
       : await post<Omit<CreatedPaintSession, 'channelId'>>('/paint/sessions', input);
@@ -101,5 +101,11 @@ export const paintApi = {
     const response = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
     if (!response.ok) throw new Error(response.statusText || 'Request failed.');
     return response.json() as Promise<PaintSessionSnapshot>;
+  },
+  async getSummary(sessionId: string): Promise<PaintSessionSummary> {
+    if (isWebViewBridgeAvailable()) return bridgeRequest<PaintSessionSummary>('paint.request', { action: 'summary', sessionId });
+    const response = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}/summary`, { method: 'GET' });
+    if (!response.ok) throw new Error(response.statusText || 'Request failed.');
+    return response.json() as Promise<PaintSessionSummary>;
   },
 };

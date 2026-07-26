@@ -1,4 +1,21 @@
-.paint-session-card { display:grid; gap:6px; max-width:320px; padding:12px; border:1px solid var(--accent-primary); border-radius:10px; background:var(--bg-secondary); }.paint-session-card button { width:max-content; }
+.paint-session-card {
+  display: grid;
+  gap: var(--space-xs);
+  max-width: 320px;
+  padding: var(--space-sm);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.paint-session-card button {
+  width: max-content;
+}
+
+.paint-session-card [role="alert"] {
+  margin: 0;
+  color: var(--accent-danger);
+}
 
 .paint-session-card--ended,
 .paint-session-card--expired,

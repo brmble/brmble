@@ -42,3 +42,32 @@
 - Pointer release sends one committed stroke containing all captured points in order.
 - Pointer cancellation clears the local in-progress stroke without committing.
 - The local user does not see a duplicate stroke after receiving their own committed-stroke echo, and the locally submitted stroke does not disappear before that echo arrives.
+
+## Revised Opt-in and Split-workspace Check
+
+1. Start three clients in the same channel: host, invited user, and uninvited user.
+2. Host starts Paint and selects only the invited user.
+3. Host sees Paint above the same channel chat and can type and send a message.
+4. Invited and uninvited users see the persistent invitation card in channel chat.
+5. Uninvited user sees no Join or Open action and receives no source, stroke,
+   preview, participant, revision, or generation data.
+6. Invited user sees Join paint but no Open paint.
+7. Invited user clicks Join paint; the editor does not open and an unfinished
+   chat draft remains unchanged.
+8. After join succeeds, the card shows Open paint.
+9. Invited user clicks Open paint and sees the editor above the still-live channel
+   chat; host and participant can draw and chat simultaneously.
+10. Participant closes Paint; only the upper pane disappears and the same channel
+    chat, history, draft, and connection remain.
+11. Participant opens Paint again without another join while the same connection
+    and channel membership remain active.
+12. Participant leaves the voice channel and returns; the card requires Join paint
+    again and neither returning nor presence refresh opens Paint.
+13. Participant disconnects and reconnects; the card requires Join paint again and
+    no snapshot or canvas events arrive before the new explicit join succeeds.
+14. Repeat steps 6-13 for the host after reconnect.
+15. While Paint is open, verify the vertical separator works with pointer drag,
+    ArrowUp, and ArrowDown and that the lower chat composer remains usable.
+16. Verify the layout and action states in Classic and Retro Terminal themes.
+17. Host saves to chat; the image posts once, the session ends once, Paint closes,
+    and the connected channel chat remains visible.

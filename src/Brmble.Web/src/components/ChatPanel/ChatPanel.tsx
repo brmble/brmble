@@ -55,7 +55,8 @@ interface ChatPanelProps {
   onTypingStop?: (targetId: string) => void | Promise<void>;
   currentUserId?: number;
   paintSessionStatuses?: Record<string, PaintSessionStatus>;
-  onJoinPaint?: (sessionId: string) => void;
+  onJoinPaint?: (sessionId: string) => Promise<void> | void;
+  onOpenPaint?: (sessionId: string) => void;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -63,7 +64,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -1007,6 +1008,7 @@ const [replyState, setReplyState] = useState<{
                     users={users}
                     paintSessionStatuses={paintSessionStatuses}
                     onJoinPaint={onJoinPaint}
+                    onOpenPaint={onOpenPaint}
                   />
                 </Fragment>
                 );

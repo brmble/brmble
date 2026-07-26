@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,12 +7,28 @@ import { paintApi } from './api/paint';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
 import { PaintSessionView } from './components/Paint/PaintSessionView';
+import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import type { ChatMessage } from './types';
 import type { PaintSessionSnapshot, PaintSessionStatus } from './types/paint';
 
 const paint = vi.hoisted(() => ({
-  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), join: vi.fn(), end: vi.fn(),
+  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), getSummary: vi.fn(), join: vi.fn(), end: vi.fn(),
 }));
+
+type TestBridge = typeof bridge & {
+  __emit: (event: string, data: unknown) => void;
+  __reset: () => void;
+};
+type PaintFlowMatrixClient =
+  ComponentProps<typeof PaintSessionSetupModal>['matrixClient']
+  & NonNullable<ComponentProps<typeof PaintSessionView>['matrixClient']>;
+type PaintFlowMatrixClientMock = PaintFlowMatrixClient & {
+  getMediaConfig: ReturnType<typeof vi.fn>;
+  joinRoom: ReturnType<typeof vi.fn>;
+  uploadContent: ReturnType<typeof vi.fn>;
+  sendMessage: ReturnType<typeof vi.fn>;
+  getRoom: ReturnType<typeof vi.fn>;
+};
 
 vi.mock('./bridge', () => {
   const handlers = new Map<string, Set<(data: unknown) => void>>();
@@ -70,7 +86,7 @@ beforeAll(() => {
 const initial: PaintSessionSnapshot = {
   sessionId: 'session-1', channelId: 5, hostUserId: 7, matrixRoomId: '!paint:test', sourceEventId: '$source', status: 'active', expiresAt: '',
   source: { matrixRoomId: '!paint:test', sourceEventId: '$source', mxcUrl: 'mxc://test/source', mimeType: 'image/png', width: 1, height: 1, sizeBytes: 1 },
-  participants: [], strokes: [], generation: 0, revision: 1,
+  participants: [], strokes: [], generation: 0, revision: 1, currentUserId: 7, isHost: true,
 };
 
 type VoiceUser = {
@@ -80,7 +96,7 @@ type VoiceUser = {
   self?: boolean;
 };
 
-function PaintFlowApp({ matrixClient, initialUsers = [{ session: 7, name: 'Alice', channelId: 5, self: true }] }: { matrixClient: any; initialUsers?: VoiceUser[] }) {
+function PaintFlowApp({ matrixClient, initialUsers = [{ session: 7, name: 'Alice', channelId: 5, self: true }] }: { matrixClient: PaintFlowMatrixClientMock; initialUsers?: VoiceUser[] }) {
   const [setup, setSetup] = useState(false); const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [users, setUsers] = useState<VoiceUser[]>(initialUsers);
@@ -103,37 +119,51 @@ function PaintFlowApp({ matrixClient, initialUsers = [{ session: 7, name: 'Alice
         setPaintSessionStatuses(prev => ({ ...prev, [event.sessionId!]: event.status! }));
       }
     };
+    const onConnectionStatus = (data: unknown) => {
+      const event = data as { status?: 'connected' | 'reconnecting' };
+      if (event.status) {
+        if (event.status !== 'connected') setSessionId(null);
+      }
+    };
     bridge.on('matrix.message', onMessage);
     bridge.on('userJoined', onUserJoined);
     bridge.on('paint.sessionEnded', onPaintStatus);
     bridge.on('paint.sessionExpired', onPaintStatus);
     bridge.on('paint.sessionUnavailable', onPaintStatus);
+    bridge.on('connection.statusChanged', onConnectionStatus);
     return () => {
       bridge.off('matrix.message', onMessage);
       bridge.off('userJoined', onUserJoined);
       bridge.off('paint.sessionEnded', onPaintStatus);
       bridge.off('paint.sessionExpired', onPaintStatus);
       bridge.off('paint.sessionUnavailable', onPaintStatus);
+      bridge.off('connection.statusChanged', onConnectionStatus);
     };
   }, []);
 
   const currentUserId = users.find(user => user.self)?.session;
 
   return <><header><button onClick={() => setSetup(true)}>Start paint</button></header>
-    {setup && <PaintSessionSetupModal channelId={5} channelRoomId="!channel:test" candidates={[{ userId: 2, name: 'Bob' }]} hostUserId={7} paintApi={paintApi as any} matrixClient={matrixClient} onAttachSource={paint.attachSource} onComplete={id => { setSessionId(id); setSetup(false); }} />}
-    {sessionId && <PaintSessionView sessionId={sessionId} currentUserId={7} matrixClient={matrixClient} channelRoomMap={{ '5': '!channel:test' }} onClose={() => setSessionId(null)} />}
-    <ChatPanel
-      channelId="5"
-      channelName="Paint"
-      messages={messages}
-      currentUsername="Alice"
-      onSendMessage={vi.fn()}
-      matrixClient={matrixClient}
-      users={users}
-      currentUserId={currentUserId}
-      paintSessionStatuses={paintSessionStatuses}
-      onJoinPaint={id => { void paintApi.join(id); }}
-    />
+    {setup && <PaintSessionSetupModal channelId={5} channelRoomId="!channel:test" candidates={[{ userId: 2, name: 'Bob' }]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={paint.attachSource} onComplete={id => { setSessionId(id); setSetup(false); }} />}
+    <VerticalSplitPane
+      top={sessionId ? <PaintSessionView sessionId={sessionId} matrixClient={matrixClient} channelRoomMap={{ '5': '!channel:test' }} onClose={() => setSessionId(null)} /> : null}
+      storageKey="paint-flow-split"
+      label="Resize paint and channel chat"
+    >
+      <ChatPanel
+        channelId="5"
+        channelName="Paint"
+        messages={messages}
+        currentUsername="Alice"
+        onSendMessage={vi.fn()}
+        matrixClient={matrixClient}
+        users={users}
+        currentUserId={currentUserId}
+        paintSessionStatuses={paintSessionStatuses}
+        onJoinPaint={async id => { await paintApi.join(id); }}
+        onOpenPaint={id => setSessionId(id)}
+      />
+    </VerticalSplitPane>
   </>;
 }
 
@@ -144,7 +174,7 @@ function fakeMatrixClient() {
     uploadContent: vi.fn().mockResolvedValue({ content_uri: 'mxc://test/image' }),
     sendMessage: vi.fn().mockResolvedValue({ event_id: '$source' }),
     getRoom: vi.fn((): { timeline: unknown[] } => ({ timeline: [] })),
-  };
+  } as unknown as PaintFlowMatrixClientMock;
 }
 
 function paintInvitationMessage(content: string): ChatMessage {
@@ -159,7 +189,7 @@ function paintInvitationMessage(content: string): ChatMessage {
 
 async function renderPaintInvitationMessage(content: string) {
   await act(async () => {
-    (bridge as any).__emit('matrix.message', {
+    (bridge as TestBridge).__emit('matrix.message', {
       channelId: '5',
       message: paintInvitationMessage(content),
     });
@@ -183,11 +213,22 @@ async function openActivePaintSession(user: ReturnType<typeof userEvent.setup>, 
 }
 
 describe('collaborative paint app flow', () => {
-  beforeEach(() => { vi.clearAllMocks(); (bridge as any).__reset(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (bridge as TestBridge).__reset();
+    paint.getSummary.mockResolvedValue({
+      sessionId: 'session-1',
+      channelId: 5,
+      hostUserId: 7,
+      status: 'active',
+      canJoin: true,
+      isParticipant: false,
+    });
+  });
 
   it('opens setup, attaches after creation, applies events, refreshes gaps, and saves only the committed canvas', async () => {
     const user = userEvent.setup();
-    const matrixClient = { getMediaConfig: vi.fn().mockResolvedValue({}), joinRoom: vi.fn(), uploadContent: vi.fn().mockResolvedValue({ content_uri: 'mxc://test/image' }), sendMessage: vi.fn().mockResolvedValue({ event_id: '$source' }), getRoom: vi.fn(() => ({ timeline: [] })) };
+    const matrixClient = fakeMatrixClient();
     paint.createSession.mockResolvedValue({ sessionId: 'session-1', matrixRoomId: '!paint:test', channelId: 5 });
     paint.attachSource.mockResolvedValue(undefined);
     paint.getSnapshot.mockResolvedValueOnce(initial).mockResolvedValueOnce({ ...initial, revision: 4, strokes: [{ id: 'stroke-1', correlationId: 'c', authorUserId: 7, authorMatrixUserId: '@host:test', sequence: 1, generation: 0, tool: 'pen', color: '#EF4444', width: 6, points: [{ x: .1, y: .2 }], active: true }] });
@@ -201,13 +242,13 @@ describe('collaborative paint app flow', () => {
     expect(paint.createSession.mock.invocationCallOrder[0]).toBeLessThan(paint.attachSource.mock.invocationCallOrder[0]);
 
     await act(async () => {
-      (bridge as any).__emit('paint.previewUpdated', { sessionId: 'session-1', generation: 0, authorUserId: 2, authorMatrixUserId: '@bob:test', input: { correlationId: 'preview', generation: 0, tool: 'pen', color: '#000000', width: 2, points: [{ x: 0, y: 0 }] } });
-      (bridge as any).__emit('paint.strokeCommitted', { sessionId: 'session-1', revision: 2, generation: 0, stroke: { id: 'stroke-1', correlationId: 'commit', authorUserId: 7, authorMatrixUserId: '@host:test', sequence: 1, generation: 0, tool: 'pen', color: '#EF4444', width: 6, points: [{ x: .1, y: .2 }], active: true } });
+      (bridge as TestBridge).__emit('paint.previewUpdated', { sessionId: 'session-1', generation: 0, authorUserId: 2, authorMatrixUserId: '@bob:test', input: { correlationId: 'preview', generation: 0, tool: 'pen', color: '#000000', width: 2, points: [{ x: 0, y: 0 }] } });
+      (bridge as TestBridge).__emit('paint.strokeCommitted', { sessionId: 'session-1', revision: 2, generation: 0, stroke: { id: 'stroke-1', correlationId: 'commit', authorUserId: 7, authorMatrixUserId: '@host:test', sequence: 1, generation: 0, tool: 'pen', color: '#EF4444', width: 6, points: [{ x: .1, y: .2 }], active: true } });
     });
     await waitFor(() => expect(screen.getByTestId('stroke-count')).toHaveTextContent('1'));
     expect(screen.getByTestId('preview-count')).toHaveTextContent('1');
 
-    await act(async () => { (bridge as any).__emit('paint.strokeUndone', { sessionId: 'session-1', revision: 4, generation: 0, undoneStrokeId: 'stroke-1' }); });
+    await act(async () => { (bridge as TestBridge).__emit('paint.strokeUndone', { sessionId: 'session-1', revision: 4, generation: 0, undoneStrokeId: 'stroke-1' }); });
     await waitFor(() => expect(paint.getSnapshot).toHaveBeenCalledTimes(2));
     await user.click(screen.getByRole('button', { name: 'Save to chat' }));
     await waitFor(() => expect(matrixClient.sendMessage).toHaveBeenLastCalledWith(
@@ -310,6 +351,26 @@ describe('collaborative paint app flow', () => {
     expect(paint.end).toHaveBeenCalledTimes(2);
   });
 
+  it('closes without reposting when a lost end response is confirmed by the terminal snapshot', async () => {
+    const user = userEvent.setup();
+    const matrixClient = fakeMatrixClient();
+    render(<PaintFlowApp matrixClient={matrixClient} />);
+    await openActivePaintSession(user, matrixClient);
+    matrixClient.uploadContent.mockReset().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    matrixClient.sendMessage.mockReset().mockResolvedValue({ event_id: '$final' });
+    paint.end.mockReset().mockRejectedValueOnce(new Error('Request timed out'));
+    paint.getSnapshot.mockReset().mockResolvedValue({ ...initial, status: 'ended', revision: 2 });
+
+    await user.click(screen.getByRole('button', { name: 'Save to chat' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    expect(matrixClient.uploadContent).toHaveBeenCalledTimes(1);
+    expect(matrixClient.sendMessage).toHaveBeenCalledTimes(1);
+    expect(paint.end).toHaveBeenCalledTimes(1);
+    expect(paint.getSnapshot).toHaveBeenCalledWith('session-1');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('reuses the same Matrix transaction id and metadata when retrying a timed-out chat post', async () => {
     const user = userEvent.setup();
     const matrixClient = fakeMatrixClient();
@@ -361,35 +422,72 @@ describe('collaborative paint app flow', () => {
 
   it('updates invitation cards when paint terminal events arrive through the app bridge', async () => {
     const matrixClient = fakeMatrixClient();
-    paint.getSnapshot.mockResolvedValue({ status: 'active' });
     render(<PaintFlowApp matrixClient={matrixClient} />);
-    await renderPaintInvitationMessage('[brmble-paint]{"sessionId":"session-1","hostUserId":7,"participantUserIds":[8],"channelId":5,"status":"active"}');
+    await renderPaintInvitationMessage('[brmble-paint]{"version":2,"sessionId":"session-1","channelId":5,"status":"active"}');
 
     expect(await screen.findByRole('button', { name: 'Join paint' })).toBeEnabled();
 
     await act(async () => {
-      (bridge as any).__emit('paint.sessionEnded', { sessionId: 'session-1', status: 'ended', revision: 2, generation: 0 });
+      (bridge as TestBridge).__emit('paint.sessionEnded', { sessionId: 'session-1', status: 'ended', revision: 2, generation: 0 });
     });
 
     expect(screen.queryByRole('button', { name: 'Join paint' })).toBeNull();
     expect(screen.getByText('Session has ended')).toBeInTheDocument();
   });
 
-  it('recalculates invitation eligibility when a selected user joins the voice channel after the paint session starts', async () => {
+  it('keeps chat mounted and requires join then open after reconnect', async () => {
     const user = userEvent.setup();
     const matrixClient = fakeMatrixClient();
-    paint.getSnapshot.mockResolvedValue({ status: 'active' });
-    render(<PaintFlowApp matrixClient={matrixClient} initialUsers={[{ session: 8, name: 'Bob', channelId: 0, self: true }]} />);
-    await renderPaintInvitationMessage('[brmble-paint]{"sessionId":"session-1","hostUserId":7,"participantUserIds":[8],"channelId":5,"status":"active"}');
+    paint.getSummary
+      .mockResolvedValueOnce({
+        sessionId: 'session-1',
+        channelId: 5,
+        hostUserId: 7,
+        status: 'active',
+        canJoin: true,
+        isParticipant: false,
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-1',
+        channelId: 5,
+        hostUserId: 7,
+        status: 'active',
+        canJoin: true,
+        isParticipant: true,
+      });
+    paint.join.mockResolvedValue(undefined);
+    paint.getSnapshot.mockResolvedValue({
+      ...initial,
+      currentUserId: 8,
+      isHost: false,
+    });
+    render(<PaintFlowApp matrixClient={matrixClient} initialUsers={[{ session: 8, name: 'Bob', channelId: 5, self: true }]} />);
+    await renderPaintInvitationMessage('[brmble-paint]{"version":2,"sessionId":"session-1","channelId":5,"status":"active"}');
+    const composer = screen.getByPlaceholderText('Message #Paint');
+    await user.type(composer, 'draft survives');
 
-    expect(await screen.findByText('Not available to you')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Join paint' }));
+
+    expect(paint.join).toHaveBeenCalledWith('session-1');
+    expect(screen.queryByLabelText('Collaborative paint')).toBeNull();
+    expect(composer).toHaveValue('draft survives');
+
+    await user.click(await screen.findByRole('button', { name: 'Open paint' }));
+
+    expect(await screen.findByLabelText('Collaborative paint')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message #Paint')).toBe(composer);
+    expect(composer).toHaveValue('draft survives');
 
     await act(async () => {
-      (bridge as any).__emit('userJoined', { session: 8, name: 'Bob', channelId: 5, self: true });
+      (bridge as TestBridge).__emit('connection.statusChanged', { status: 'reconnecting' });
+    });
+    await waitFor(() => expect(screen.queryByLabelText('Collaborative paint')).toBeNull());
+    await act(async () => {
+      (bridge as TestBridge).__emit('connection.statusChanged', { status: 'connected' });
     });
 
-    expect(await screen.findByRole('button', { name: 'Join paint' })).toBeEnabled();
-    await user.click(screen.getByRole('button', { name: 'Join paint' }));
-    expect(paint.join).toHaveBeenCalledWith('session-1');
+    expect(screen.queryByLabelText('Collaborative paint')).toBeNull();
+    expect(screen.getByPlaceholderText('Message #Paint')).toBe(composer);
+    expect(composer).toHaveValue('draft survives');
   });
 });

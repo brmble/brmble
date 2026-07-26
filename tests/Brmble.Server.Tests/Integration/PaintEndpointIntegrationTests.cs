@@ -27,7 +27,7 @@ public sealed class PaintEndpointIntegrationTests
         var create = await app.Host.PostAsJsonAsync("/paint/sessions", new
         {
             channelId = 5,
-            participantUserIds = new[] { app.BobUserId },
+            participantSessionIds = new[] { app.BobMumbleSessionId },
         });
         create.EnsureSuccessStatusCode();
         var created = await create.Content.ReadFromJsonAsync<CreatePaintSessionResponse>();
@@ -46,18 +46,93 @@ public sealed class PaintEndpointIntegrationTests
         Assert.AreEqual(HttpStatusCode.Accepted, end.StatusCode);
     }
 
+    [TestMethod]
+    public async Task PaintAccess_RequiresExplicitJoinAgainAfterReconnect()
+    {
+        await using var app = await PaintIntegrationFixture.StartAsync();
+        var create = await app.Host.PostAsJsonAsync(
+            "/paint/sessions",
+            new
+            {
+                channelId = 5,
+                participantSessionIds =
+                    new[] { app.BobMumbleSessionId },
+            });
+        create.EnsureSuccessStatusCode();
+        var created = await create.Content
+            .ReadFromJsonAsync<CreatePaintSessionResponse>();
+        Assert.IsNotNull(created);
+        (await app.Host.PostAsJsonAsync(
+            $"/paint/sessions/{created.SessionId}/source",
+            new { sourceEventId = "$source" }))
+            .EnsureSuccessStatusCode();
+
+        var invited = await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
+            $"/paint/sessions/{created.SessionId}/summary");
+        Assert.IsTrue(invited!.CanJoin);
+        Assert.IsFalse(invited.IsParticipant);
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await app.Bob.GetAsync(
+                $"/paint/sessions/{created.SessionId}")).StatusCode);
+
+        (await app.Bob.PostAsync(
+            $"/paint/sessions/{created.SessionId}/join",
+            null)).EnsureSuccessStatusCode();
+        var joined = await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
+            $"/paint/sessions/{created.SessionId}/summary");
+        Assert.IsTrue(joined!.IsParticipant);
+
+        await app.Manager.HandleSessionDisconnectedAsync(
+            app.BobMumbleSessionId);
+        app.ReconnectBobWithSession(app.BobMumbleSessionId + 100);
+
+        var reconnected =
+            await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
+                $"/paint/sessions/{created.SessionId}/summary");
+        Assert.IsTrue(reconnected!.CanJoin);
+        Assert.IsFalse(reconnected.IsParticipant);
+        Assert.AreEqual(
+            HttpStatusCode.Forbidden,
+            (await app.Bob.GetAsync(
+                $"/paint/sessions/{created.SessionId}")).StatusCode);
+
+        (await app.Bob.PostAsync(
+            $"/paint/sessions/{created.SessionId}/join",
+            null)).EnsureSuccessStatusCode();
+        Assert.IsTrue(
+            (await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
+                $"/paint/sessions/{created.SessionId}/summary"))!
+            .IsParticipant);
+    }
+
     private sealed class PaintIntegrationFixture : IAsyncDisposable
     {
         private static readonly byte[] ValidPng = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
         private readonly WebApplication _app;
+        private readonly TestPresence _presence;
         public long BobUserId { get; private init; }
+        public int BobMumbleSessionId { get; private set; }
+        public PaintSessionManager Manager =>
+            _app.Services.GetRequiredService<PaintSessionManager>();
         public HttpClient Host { get; private set; } = null!;
         public HttpClient Bob { get; private set; } = null!;
 
-        private PaintIntegrationFixture(WebApplication app)
+        private PaintIntegrationFixture(WebApplication app, TestPresence presence)
         {
             _app = app;
+            _presence = presence;
+        }
+
+        public void ReconnectBobWithSession(int mumbleSessionId)
+        {
+            var previous = _presence.Participants[BobUserId];
+            _presence.Participants[BobUserId] = previous with
+            {
+                MumbleSessionId = mumbleSessionId,
+            };
+            BobMumbleSessionId = mumbleSessionId;
         }
 
         public static async Task<PaintIntegrationFixture> StartAsync()
@@ -92,7 +167,11 @@ public sealed class PaintEndpointIntegrationTests
             matrix.SourceSender = host.MatrixUserId;
             matrix.Memberships[bob.MatrixUserId] = "join";
 
-            var fixture = new PaintIntegrationFixture(app) { BobUserId = bob.Id };
+            var fixture = new PaintIntegrationFixture(app, presence)
+            {
+                BobUserId = bob.Id,
+                BobMumbleSessionId = 101,
+            };
             fixture.Host = app.GetTestClient();
             fixture.Host.DefaultRequestHeaders.Add("X-Test-Certificate", "host-cert");
             fixture.Bob = app.GetTestClient();
@@ -123,6 +202,11 @@ public sealed class PaintEndpointIntegrationTests
         {
             public Dictionary<long, PaintPresenceParticipant> Participants { get; } = [];
             public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant) => Participants.TryGetValue(userId, out participant!);
+            public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
+            {
+                participant = Participants.Values.SingleOrDefault(value => value.MumbleSessionId == mumbleSessionId)!;
+                return participant is not null;
+            }
             public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(value => value.ChannelId == channelId).ToArray();
         }
 

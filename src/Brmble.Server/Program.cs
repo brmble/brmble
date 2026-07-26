@@ -48,6 +48,8 @@ builder.Services.AddSingleton<IPaintEventPublisher, BrmblePaintEventPublisher>()
 builder.Services.AddSingleton<PaintRateLimiter>();
 builder.Services.AddSingleton<PaintRoomCleanupRepository>();
 builder.Services.AddSingleton<PaintSessionManager>();
+builder.Services.AddSingleton<IPaintParticipationLifecycle>(services =>
+    services.GetRequiredService<PaintSessionManager>());
 builder.Services.AddHostedService<PaintSessionExpirationService>();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");

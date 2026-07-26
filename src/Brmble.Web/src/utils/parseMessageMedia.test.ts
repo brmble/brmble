@@ -6,6 +6,12 @@ describe('parseMessageMedia', () => {
     expect(parsePaintInvitation('[brmble-paint]{"sessionId":"session-1","hostUserId":7,"participantUserIds":[8],"channelId":5,"status":"active"}'))
       .toEqual({ sessionId: 'session-1', hostUserId: 7, participantUserIds: [8], channelId: 5, status: 'active', sourceEventId: undefined, sourcePreview: undefined });
   });
+
+  it('parses version 2 paint invitations without identity or source fields', () => {
+    expect(parsePaintInvitation('[brmble-paint]{"version":2,"sessionId":"session-1","channelId":5,"status":"active","hostUserId":7,"participantUserIds":[8],"sourceEventId":"$source","sourcePreview":"data:image/png;base64,abc"}'))
+      .toEqual({ version: 2, sessionId: 'session-1', channelId: 5, status: 'active' });
+  });
+
   it('returns original text and empty media for plain text', () => {
     const result = parseMessageMedia('hello world');
     expect(result.text).toBe('hello world');

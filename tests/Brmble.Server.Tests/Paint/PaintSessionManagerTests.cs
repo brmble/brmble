@@ -76,6 +76,29 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Summary_InviteeIsEligibleButCannotOpenUntilExplicitJoin()
+    {
+        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
+        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
+
+        var invited = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
+
+        Assert.IsTrue(invited.CanJoin);
+        Assert.IsFalse(invited.IsParticipant);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
+            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId));
+
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+        await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+
+        var joined = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
+        Assert.IsTrue(joined.CanJoin);
+        Assert.IsTrue(joined.IsParticipant);
+        Assert.AreEqual(fixture.BobUserId,
+            (await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId)).CurrentUserId);
+    }
+
+    [TestMethod]
     public async Task Join_RequiresMatrixMembershipBeforeActivatingParticipant()
     {
         var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
@@ -85,6 +108,85 @@ public sealed class PaintSessionManagerTests
             fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
 
         CollectionAssert.Contains(fixture.Matrix.InvitedUsers, fixture.BobMatrixUserId);
+    }
+
+    [TestMethod]
+    public async Task Create_ResolvesSelectedMumbleSessionIdsToPersistentInvitees()
+    {
+        var fixture = PaintSessionFixture.New();
+
+        var created = await fixture.Manager.CreateAsync(
+            fixture.HostUserId,
+            [103]);
+
+        var bob = await fixture.Manager.SummaryAsync(
+            created.SessionId,
+            fixture.BobUserId);
+        Assert.IsTrue(bob.CanJoin);
+        Assert.IsFalse(bob.IsParticipant);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
+            fixture.Manager.SummaryAsync(created.SessionId, 103));
+    }
+
+    [TestMethod]
+    public async Task Disconnect_RemovesParticipationAndReconnectDoesNotRestoreIt()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
+
+        await fixture.Manager.HandleSessionDisconnectedAsync(103);
+        fixture.Presence.Participants[fixture.BobUserId] =
+            new PaintPresenceParticipant(fixture.BobUserId, 9, 203, fixture.BobMatrixUserId);
+
+        var reconnected = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
+        Assert.IsTrue(reconnected.CanJoin);
+        Assert.IsFalse(reconnected.IsParticipant);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
+            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId));
+
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+        var joined = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+        Assert.AreEqual(203, joined.Participant.MumbleSessionId);
+        Assert.IsTrue((await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId)).IsParticipant);
+    }
+
+    [TestMethod]
+    public async Task ChannelExit_RemovesParticipationAndChannelReturnDoesNotRestoreIt()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
+
+        await fixture.Manager.HandleSessionChannelChangedAsync(103, 9, 12);
+        fixture.Presence.Participants[fixture.BobUserId] =
+            new PaintPresenceParticipant(fixture.BobUserId, 9, 103, fixture.BobMatrixUserId);
+
+        Assert.IsFalse((await fixture.Manager.SummaryAsync(
+            fixture.SessionId,
+            fixture.BobUserId)).IsParticipant);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
+            fixture.Manager.CommitStrokeAsync(
+                fixture.SessionId,
+                fixture.BobUserId,
+                new PaintStrokeInput(
+                    Guid.NewGuid(),
+                    0,
+                    PaintTool.Pen,
+                    "#ef4444",
+                    PaintStrokeWidth.Thin,
+                    [new PaintPoint(0.1, 0.2, null)])));
+    }
+
+    [TestMethod]
+    public async Task PermanentCanvasEventsRouteOnlyToCurrentParticipants()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        fixture.Publisher.UserRoutes.Clear();
+
+        await fixture.CommitAliceAsync();
+
+        var route = fixture.Publisher.UserRoutes.Last();
+        CollectionAssert.AreEquivalent(
+            new[] { fixture.HostUserId, fixture.AliceUserId },
+            route.ToArray());
+        Assert.IsFalse(route.Contains(fixture.BobUserId));
     }
 
     [TestMethod]
@@ -117,8 +219,8 @@ public sealed class PaintSessionManagerTests
         await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
 
         var beforeJoin = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.IsTrue(beforeJoin.Participants.Single(participant => participant.UserId == fixture.HostUserId).Active);
-        Assert.IsFalse(beforeJoin.Participants.Single(participant => participant.UserId == fixture.BobUserId).Active);
+        Assert.AreEqual(1, beforeJoin.Participants.Count);
+        Assert.AreEqual(fixture.HostUserId, beforeJoin.Participants.Single().UserId);
         await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.CommitBobAsync());
         await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.Manager.PreviewAsync(fixture.SessionId, fixture.BobUserId,
             new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
@@ -127,7 +229,6 @@ public sealed class PaintSessionManagerTests
         fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
         var joined = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
 
-        Assert.IsTrue(joined.Participant.Active);
         var commit = await fixture.CommitBobAsync();
         Assert.AreEqual(fixture.BobUserId, commit.Stroke.AuthorUserId);
     }
@@ -150,15 +251,16 @@ public sealed class PaintSessionManagerTests
     {
         var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
 
-        var result = await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
+        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
 
         using var invitation = fixture.Publisher.GetLastEvent(PaintEventNames.Invited);
         Assert.AreEqual(fixture.SessionId, invitation.RootElement.GetProperty("sessionId").GetGuid());
         Assert.AreEqual(9, invitation.RootElement.GetProperty("channelId").GetInt32());
         Assert.AreEqual(fixture.HostUserId, invitation.RootElement.GetProperty("hostUserId").GetInt64());
-        Assert.AreEqual(fixture.Matrix.RoomId, invitation.RootElement.GetProperty("matrixRoomId").GetString());
-        Assert.AreEqual(3, invitation.RootElement.GetProperty("participants").GetArrayLength());
-        Assert.AreEqual(result.Source.SourceEventId, invitation.RootElement.GetProperty("source").GetProperty("sourceEventId").GetString());
+        Assert.AreEqual("active", invitation.RootElement.GetProperty("status").GetString());
+        Assert.IsFalse(invitation.RootElement.TryGetProperty("matrixRoomId", out _));
+        Assert.IsFalse(invitation.RootElement.TryGetProperty("participants", out _));
+        Assert.IsFalse(invitation.RootElement.TryGetProperty("source", out _));
     }
 
     [TestMethod]
@@ -374,7 +476,7 @@ public sealed class PaintSessionManagerTests
         public static async Task<PaintSessionFixture> PendingWithTwoParticipantsAsync(PaintRoomCleanupRepository? cleanup = null)
         {
             var fixture = New(cleanup);
-            var create = await fixture.Manager.CreateAsync(1, [2, 3]);
+            var create = await fixture.Manager.CreateAsync(1, [102, 103]);
             fixture.SessionId = create.SessionId;
             return fixture;
         }
@@ -405,7 +507,9 @@ public sealed class PaintSessionManagerTests
             new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
                 [new PaintPoint(0.1, 0.2, null)]));
 
-        private static PaintSessionFixture New(PaintRoomCleanupRepository? cleanup = null)
+        public required FakePresence Presence { get; init; }
+
+        public static PaintSessionFixture New(PaintRoomCleanupRepository? cleanup = null)
         {
             var presence = new FakePresence();
             presence.Participants[1] = new(1, 9, 101, "@host:test");
@@ -420,6 +524,7 @@ public sealed class PaintSessionManagerTests
             {
                 Matrix = matrix,
                 Publisher = publisher,
+                Presence = presence,
                 Cleanup = cleanup ?? new PaintRoomCleanupRepository(database),
             };
             fixture.Manager = new PaintSessionManager(presence, publisher, matrix, new MatrixPaintSourceResolver(matrix), fixture.Cleanup,
@@ -454,6 +559,11 @@ public sealed class PaintSessionManagerTests
     {
         public Dictionary<long, PaintPresenceParticipant> Participants { get; } = [];
         public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant) => Participants.TryGetValue(userId, out participant!);
+        public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
+        {
+            participant = Participants.Values.SingleOrDefault(value => value.MumbleSessionId == mumbleSessionId)!;
+            return participant is not null;
+        }
         public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(p => p.ChannelId == channelId).ToArray();
     }
 
@@ -463,6 +573,7 @@ public sealed class PaintSessionManagerTests
         public List<string> SentTypes { get; } = [];
         public List<string> PermanentEventTypes { get; } = [];
         public List<long> PermanentRevisions { get; } = [];
+        public List<IReadOnlySet<long>> UserRoutes { get; } = [];
         private readonly TaskCompletionSource _blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _blockNextPermanentEvent;
@@ -472,7 +583,11 @@ public sealed class PaintSessionManagerTests
         public void ReleaseBlockedEvent() => _release.TrySetResult();
         public Func<Task>? BeforePermanentPublish { get; set; }
 
-        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => PublishAsync(message);
+        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
+        {
+            UserRoutes.Add(userIds.ToHashSet());
+            return PublishAsync(message);
+        }
         public Task PublishToChannelAsync(int channelId, object message) => PublishAsync(message);
 
         private async Task PublishAsync(object message)

@@ -15,7 +15,7 @@ describe('paintApi browser fallback', () => {
   });
 
   it.each([
-    ['createSession', () => paintApi.createSession({ channelId: 7, participantUserIds: [2] }), '/paint/sessions', 'POST'],
+    ['createSession', () => paintApi.createSession({ channelId: 7, participantSessionIds: [2] }), '/paint/sessions', 'POST'],
     ['attachSource', () => paintApi.attachSource(sessionId, '$source'), '/paint/sessions/session-1/source', 'POST'],
     ['join', () => paintApi.join(sessionId), '/paint/sessions/session-1/join', 'POST'],
     ['leave', () => paintApi.leave(sessionId), '/paint/sessions/session-1/leave', 'POST'],
@@ -25,6 +25,7 @@ describe('paintApi browser fallback', () => {
     ['clear', () => paintApi.clear(sessionId), '/paint/sessions/session-1/clear', 'POST'],
     ['end', () => paintApi.end(sessionId), '/paint/sessions/session-1/end', 'POST'],
     ['getSnapshot', () => paintApi.getSnapshot(sessionId), '/paint/sessions/session-1', 'GET'],
+    ['getSummary', () => paintApi.getSummary(sessionId), '/paint/sessions/session-1/summary', 'GET'],
   ])('uses the Task 4 %s endpoint', async (_operation, invoke, path, method) => {
     await invoke();
 
@@ -35,7 +36,7 @@ describe('paintApi browser fallback', () => {
     const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
     fetchMock.mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }));
 
-    await expect(paintApi.createSession({ channelId: 7, participantUserIds: [2] })).resolves.toEqual({ ...response, channelId: 7 });
+    await expect(paintApi.createSession({ channelId: 7, participantSessionIds: [2] })).resolves.toEqual({ ...response, channelId: 7 });
   });
 });
 
@@ -58,13 +59,13 @@ describe('paintApi WebView bridge', () => {
 
   it('returns the correlated created paint session response', async () => {
     const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
-    const result = paintApi.createSession({ channelId: 7, participantUserIds: [2] });
+    const result = paintApi.createSession({ channelId: 7, participantSessionIds: [2] });
     const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
     const request = postMessage.mock.calls[0][0];
 
     expect(request).toEqual(expect.objectContaining({
       type: 'paint.create',
-      data: expect.objectContaining({ channelId: 7, participantUserIds: [2], requestId: expect.any(Number) }),
+      data: expect.objectContaining({ channelId: 7, participantSessionIds: [2], requestId: expect.any(Number) }),
     }));
 
     bridge._handleMessage({
@@ -75,6 +76,27 @@ describe('paintApi WebView bridge', () => {
     });
 
     await expect(result).resolves.toEqual({ ...response, channelId: 7 });
+  });
+
+  it('requests a summary through the bridge without fetching the snapshot', async () => {
+    const response = { sessionId, channelId: 5, hostUserId: 7, status: 'active', canJoin: true, isParticipant: false };
+    const result = paintApi.getSummary(sessionId);
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+
+    expect(request).toEqual({
+      type: 'paint.request',
+      data: { action: 'summary', sessionId, requestId: expect.any(Number) },
+    });
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: { requestId: request.data.requestId, success: true, body: JSON.stringify(response) },
+      },
+    });
+
+    await expect(result).resolves.toEqual(response);
   });
 
   it.each([

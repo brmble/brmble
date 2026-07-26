@@ -37,6 +37,40 @@ public sealed class PaintServiceTests
     }
 
     [TestMethod]
+    public async Task PaintRequest_ForwardsSummaryAndCorrelatesResponse()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var key = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest("CN=paint-test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        Uri? calledUri = null;
+        var service = new PaintService(
+            bridge,
+            () => certificate,
+            () => "https://api.example.com",
+            (_, uri) =>
+            {
+                calledUri = uri;
+                return Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(
+                    true,
+                    "{\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"canJoin\":true,\"isParticipant\":false}",
+                    200,
+                    null));
+            },
+            (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, null, 200, null)));
+        service.RegisterHandlers(bridge);
+
+        using var request = JsonDocument.Parse("""{ "action": "summary", "sessionId": "11111111-1111-1111-1111-111111111111", "requestId": 8 }""");
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.request", request.RootElement.Clone());
+
+        Assert.IsNotNull(calledUri);
+        Assert.AreEqual("https://api.example.com/paint/sessions/11111111-1111-1111-1111-111111111111/summary", calledUri.ToString());
+        var response = NativeBridgeTestHarness.DrainMessages(bridge).Single(message => message.Type == "paint.response");
+        Assert.IsTrue(response.DataJson.Contains("\"requestId\":8", StringComparison.Ordinal));
+        Assert.IsTrue(response.DataJson.Contains("\"statusCode\":200", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task PaintCreate_ReturnsCorrelatedSessionResult()
     {
         var bridge = NativeBridgeTestHarness.Create();

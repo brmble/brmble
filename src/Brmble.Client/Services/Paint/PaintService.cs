@@ -55,13 +55,18 @@ internal sealed class PaintService : IService
         var requestId = data.TryGetProperty("requestId", out var id) && id.ValueKind == JsonValueKind.Number ? id.GetInt32() : (int?)null;
         var action = data.TryGetProperty("action", out var actionValue) ? actionValue.GetString() : null;
         var sessionId = data.TryGetProperty("sessionId", out var sessionValue) ? sessionValue.GetString() : null;
-        if (action != "snapshot" || string.IsNullOrWhiteSpace(sessionId))
+        if (string.IsNullOrWhiteSpace(sessionId)
+            || action is not ("snapshot" or "summary"))
         {
             SendResponse(requestId, false, null, 0, "Invalid paint request action");
             return;
         }
 
-        var result = await CallAsync(cert => _getAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), $"paint/sessions/{Uri.EscapeDataString(sessionId)}")));
+        var escapedSessionId = Uri.EscapeDataString(sessionId);
+        var path = action == "summary"
+            ? $"paint/sessions/{escapedSessionId}/summary"
+            : $"paint/sessions/{escapedSessionId}";
+        var result = await CallAsync(cert => _getAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path)));
         SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
     }
 

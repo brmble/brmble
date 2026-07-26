@@ -29,13 +29,22 @@ describe('PaintSessionSetupModal', () => {
     await user.upload(screen.getByLabelText('Source image'), new File(['image'], 'source.png', { type: 'image/png' }));
     await user.click(screen.getByRole('button', { name: /start paint/i }));
 
-    expect(paintApi.createSession).toHaveBeenCalledWith({ channelId: 5, participantUserIds: [2] });
+    expect(paintApi.createSession).toHaveBeenCalledWith({ channelId: 5, participantSessionIds: [2] });
     expect(matrixClient.joinRoom).toHaveBeenCalledWith('!paint:server');
     expect(matrixClient.sendMessage).toHaveBeenCalledWith('!paint:server', expect.objectContaining({ msgtype: 'm.image' }));
     expect(attachSource).toHaveBeenCalledWith('session-1', '$source');
     expect(matrixClient.sendMessage).toHaveBeenCalledWith('!channel:server', expect.objectContaining({
       body: expect.stringContaining('[brmble-paint]'),
-      'com.brmble.paint': expect.objectContaining({ sessionId: 'session-1', hostUserId: 7 }),
+      'com.brmble.paint': {
+        version: 2,
+        sessionId: 'session-1',
+        channelId: 5,
+        status: 'active',
+      },
     }));
+    const invitationBody = matrixClient.sendMessage.mock.calls.find(call => call[0] === '!channel:server')?.[1].body;
+    expect(invitationBody).not.toContain('hostUserId');
+    expect(invitationBody).not.toContain('participantUserIds');
+    expect(invitationBody).not.toContain('sourceEventId');
   });
 });

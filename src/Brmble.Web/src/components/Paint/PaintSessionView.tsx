@@ -3,8 +3,9 @@ import { useRef } from 'react';
 import { paintApi } from '../../api/paint';
 import { usePaintSession } from '../../hooks/usePaintSession';
 import { PaintEditor } from './PaintEditor';
+import './PaintSessionView.css';
 
-export function PaintSessionView({ sessionId, currentUserId, matrixClient, channelRoomMap, onClose }: { sessionId: string; currentUserId: number; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; onClose: () => void }) {
+export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; onClose: () => void }) {
   const { snapshot, previews } = usePaintSession(sessionId);
   const saveOperationIdRef = useRef(`save-${sessionId}`);
   const saveTxnIdRef = useRef(`brmble-paint-save-${sessionId}-${saveOperationIdRef.current}`);
@@ -14,7 +15,7 @@ export function PaintSessionView({ sessionId, currentUserId, matrixClient, chann
 
   if (!snapshot) return <section className="paint-session-view" aria-label="Collaborative paint">Loading paint session...</section>;
   const channelRoomId = channelRoomMap?.[String(snapshot.channelId)] ?? null;
-  if (!matrixClient || !channelRoomId) return <section className="paint-session-view" aria-label="Collaborative paint">This paint session's chat channel is unavailable.<button onClick={onClose}>Close</button></section>;
+  if (!matrixClient || !channelRoomId) return <section className="paint-session-view" aria-label="Collaborative paint">This paint session's chat channel is unavailable.<button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
 
   const findPostedSaveEvent = () => {
     const room = matrixClient.getRoom(channelRoomId);
@@ -55,9 +56,20 @@ export function PaintSessionView({ sessionId, currentUserId, matrixClient, chann
       }
     }
 
-    await paintApi.end(sessionId);
+    try {
+      await paintApi.end(sessionId);
+    } catch (endError) {
+      let terminalStateConfirmed = false;
+      try {
+        const { status } = await paintApi.getSnapshot(sessionId);
+        terminalStateConfirmed = status === 'ended' || status === 'expired' || status === 'unavailable';
+      } catch {
+        throw endError;
+      }
+      if (!terminalStateConfirmed) throw endError;
+    }
     onClose();
   };
 
-  return <section className="paint-session-view" aria-label="Collaborative paint"><button onClick={onClose}>Back to chat</button><PaintEditor sessionId={sessionId} paintApi={paintApi} snapshot={snapshot} previews={previews} currentUserId={currentUserId} matrixClient={matrixClient} onSave={saveToChat} /></section>;
+  return <section className="paint-session-view" aria-label="Collaborative paint"><div className="paint-session-view__actions"><button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></div><PaintEditor sessionId={sessionId} paintApi={paintApi} snapshot={snapshot} previews={previews} currentUserId={snapshot.currentUserId ?? snapshot.hostUserId} matrixClient={matrixClient} onSave={saveToChat} /></section>;
 }

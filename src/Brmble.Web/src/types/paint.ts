@@ -37,16 +37,25 @@ export interface PaintParticipant {
   userId: number;
   mumbleSessionId: number;
   matrixUserId: string;
-  selected: boolean;
-  active: boolean;
 }
 
 export type PaintSessionStatus = 'pendingSource' | 'active' | 'ended' | 'expired' | 'unavailable';
+
+export interface PaintSessionSummary {
+  sessionId: string;
+  channelId: number;
+  hostUserId: number;
+  status: PaintSessionStatus;
+  canJoin: boolean;
+  isParticipant: boolean;
+}
 
 export interface PaintSessionSnapshot {
   sessionId: string;
   channelId: number;
   hostUserId: number;
+  currentUserId?: number;
+  isHost?: boolean;
   matrixRoomId: string;
   sourceEventId: string | null;
   status: PaintSessionStatus;

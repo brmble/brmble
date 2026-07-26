@@ -35,6 +35,88 @@ public sealed class PaintEndpointsTests
     [TestMethod]
     public void MapPaintEndpoints_MapsAllContractRoutes()
     {
+        var endpoints = MapRoutesForTest();
+
+        CollectionAssert.IsSubsetOf(new[]
+        {
+            "/paint/sessions", "/paint/sessions/{id:guid}/source", "/paint/sessions/{id:guid}/summary",
+            "/paint/sessions/{id:guid}", "/paint/sessions/{id:guid}/join", "/paint/sessions/{id:guid}/leave",
+            "/paint/sessions/{id:guid}/stroke", "/paint/sessions/{id:guid}/preview", "/paint/sessions/{id:guid}/undo",
+            "/paint/sessions/{id:guid}/clear", "/paint/sessions/{id:guid}/end",
+        }, endpoints.ToArray());
+    }
+
+    [TestMethod]
+    public void MapPaintEndpoints_MapsSummaryRoute()
+    {
+        var endpoints = MapRoutesForTest();
+
+        CollectionAssert.Contains(
+            endpoints.ToArray(),
+            "/paint/sessions/{id:guid}/summary");
+    }
+
+    [TestMethod]
+    public async Task Join_IsIdempotentForCurrentHost()
+    {
+        await using var app = await EndpointFixture.StartAsync();
+
+        var response = await app.Client.PostAsync(
+            $"/paint/sessions/{app.SessionId}/join",
+            null);
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Join_RejectsInviteeWithoutMatrixMembership()
+    {
+        await using var app =
+            await EndpointFixture.StartActiveInviteeAsync();
+
+        var response = await app.Client.PostAsync(
+            $"/paint/sessions/{app.SessionId}/join",
+            null);
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content
+            .ReadFromJsonAsync<PaintErrorDto>();
+        Assert.AreEqual("MATRIX_MEMBERSHIP_REQUIRED", body!.Code);
+    }
+
+    [TestMethod]
+    public async Task Summary_DoesNotExposeParticipantOnlyState()
+    {
+        await using var app = await EndpointFixture.StartActiveInviteeAsync();
+
+        var response = await app.Client.GetAsync(
+            $"/paint/sessions/{app.SessionId}/summary");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.IsTrue(body.GetProperty("canJoin").GetBoolean());
+        Assert.IsFalse(body.GetProperty("isParticipant").GetBoolean());
+        Assert.IsFalse(body.TryGetProperty("matrixRoomId", out _));
+        Assert.IsFalse(body.TryGetProperty("source", out _));
+        Assert.IsFalse(body.TryGetProperty("participants", out _));
+        Assert.IsFalse(body.TryGetProperty("strokes", out _));
+    }
+
+    [TestMethod]
+    public async Task Snapshot_RejectsInviteeBeforeExplicitJoin()
+    {
+        await using var app = await EndpointFixture.StartActiveInviteeAsync();
+
+        var response = await app.Client.GetAsync(
+            $"/paint/sessions/{app.SessionId}");
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
+        Assert.AreEqual("PARTICIPANT_REQUIRED", body!.Code);
+    }
+
+    private static IReadOnlyCollection<string> MapRoutesForTest()
+    {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Services.AddSingleton(new Mock<ICertificateHashExtractor>().Object);
         builder.Services.AddSingleton<UserRepository>();
@@ -43,31 +125,12 @@ public sealed class PaintEndpointsTests
         var app = builder.Build();
 
         app.MapPaintEndpoints();
-
-        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
+        return ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>()
             .Select(endpoint => endpoint.RoutePattern.RawText)
+            .Where(route => route is not null)
+            .Select(route => route!)
             .ToHashSet(StringComparer.Ordinal);
-
-        CollectionAssert.IsSubsetOf(new[]
-        {
-            "/paint/sessions", "/paint/sessions/{id:guid}/source", "/paint/sessions/{id:guid}",
-            "/paint/sessions/{id:guid}/join", "/paint/sessions/{id:guid}/leave", "/paint/sessions/{id:guid}/stroke",
-            "/paint/sessions/{id:guid}/preview", "/paint/sessions/{id:guid}/undo", "/paint/sessions/{id:guid}/clear",
-            "/paint/sessions/{id:guid}/end",
-        }, endpoints.ToArray());
-    }
-
-    [TestMethod]
-    public async Task Join_RejectsUserWithoutMatrixMembership()
-    {
-        await using var app = await EndpointFixture.StartAsync();
-        var response = await app.Client.PostAsJsonAsync($"/paint/sessions/{app.SessionId}/join", new { });
-        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<PaintErrorDto>();
-        Assert.IsNotNull(body);
-        Assert.AreEqual("MATRIX_MEMBERSHIP_REQUIRED", body.Code);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(body.Error));
     }
 
     [TestMethod]
@@ -112,7 +175,7 @@ public sealed class PaintEndpointsTests
         Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.IsTrue(body.TryGetProperty("stroke", out _));
-        Assert.AreEqual(3, body.GetProperty("revision").GetInt64());
+        Assert.AreEqual(2, body.GetProperty("revision").GetInt64());
     }
 
     [TestMethod]
@@ -201,9 +264,28 @@ public sealed class PaintEndpointsTests
             builder.Services.AddSingleton<PaintSessionManager>();
             var app = builder.Build(); app.MapPaintEndpoints(); await app.StartAsync();
             var fixture = new EndpointFixture(app, database, presence, matrix, certificate);
-            var user = await app.Services.GetRequiredService<UserRepository>().Insert("bob-cert", "bob");
-            presence.Participants[user.Id] = new(user.Id, 9, 101, user.MatrixUserId);
-            fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(user.Id, [])).SessionId;
+            var users = app.Services.GetRequiredService<UserRepository>();
+            var host = await users.Insert("bob-cert", "bob");
+            var invitee = await users.Insert("alice-cert", "alice");
+            presence.Participants[host.Id] = new(host.Id, 9, 101, host.MatrixUserId);
+            presence.Participants[invitee.Id] = new(invitee.Id, 9, 102, invitee.MatrixUserId);
+            fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(host.Id, [102])).SessionId;
+            return fixture;
+        }
+
+        public static async Task<EndpointFixture> StartActiveInviteeAsync()
+        {
+            var fixture = await StartAsync();
+            var users =
+                fixture._app.Services.GetRequiredService<UserRepository>();
+            var host = await users.GetByCertHash("bob-cert");
+            var manager =
+                fixture._app.Services.GetRequiredService<PaintSessionManager>();
+            await manager.AttachSourceAsync(
+                fixture.SessionId,
+                host!.Id,
+                "$source");
+            fixture.SetCertificateHash("alice-cert");
             return fixture;
         }
 
@@ -235,6 +317,11 @@ public sealed class PaintEndpointsTests
     {
         public Dictionary<long, PaintPresenceParticipant> Participants { get; } = [];
         public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant) => Participants.TryGetValue(userId, out participant!);
+        public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
+        {
+            participant = Participants.Values.SingleOrDefault(value => value.MumbleSessionId == mumbleSessionId)!;
+            return participant is not null;
+        }
         public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(x => x.ChannelId == channelId).ToArray();
     }
 
@@ -260,6 +347,12 @@ public sealed class PaintEndpointsTests
     private sealed class TestPaintPresence : IPaintPresence
     {
         public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant)
+        {
+            participant = null!;
+            return false;
+        }
+
+        public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
         {
             participant = null!;
             return false;

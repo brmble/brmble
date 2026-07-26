@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PaintPreview, PaintSessionSnapshot, PaintStrokeInput, PaintTool } from '../../types/paint';
 import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint, type MatrixMediaClient } from '../../utils/paintCanvas';
+import { DEFAULT_PAINT_COLOR } from '../../utils/paintPalette';
 import { PaintToolbar } from './PaintToolbar';
 import './PaintEditor.css';
 
@@ -29,12 +30,12 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const cancelledLocalPreviewIdsRef = useRef<Set<string>>(new Set());
   const drawingRef = useRef({ strokes: snapshot.strokes, previews });
   const [tool, setTool] = useState<PaintTool>('pen');
-  const [color, setColor] = useState('#111827');
+  const [color, setColor] = useState<string>(DEFAULT_PAINT_COLOR);
   const [width, setWidth] = useState(6);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const host = snapshot.hostUserId === currentUserId;
+  const host = snapshot.isHost ?? snapshot.hostUserId === currentUserId;
 
   drawingRef.current = { strokes: snapshot.strokes, previews };
 

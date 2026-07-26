@@ -4,6 +4,7 @@ using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
+using Brmble.Server.Paint;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -24,7 +25,8 @@ public class MumbleServerCallbackTests
         IReadOnlyList<TimeSpan>? liveKitRevocationRetryDelays = null,
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null,
-        GameSessionManager? gameSessions = null)
+        GameSessionManager? gameSessions = null,
+        Mock<IPaintParticipationLifecycle>? paintParticipation = null)
     {
         if (mapping is null)
         {
@@ -58,6 +60,7 @@ public class MumbleServerCallbackTests
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
             gameSessions ?? CreateGameSessions(),
+            paintParticipation?.Object ?? new Mock<IPaintParticipationLifecycle>().Object,
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
@@ -447,6 +450,94 @@ public class MumbleServerCallbackTests
         await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
 
         CollectionAssert.AreEqual(new[] { "remove-session", "remove-channel", "remove-participant" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_RevokesPaintBeforeRemovingPresence()
+    {
+        var order = new List<string>();
+        var paint = new Mock<IPaintParticipationLifecycle>();
+        paint.Setup(service => service.HandleSessionDisconnectedAsync(42))
+            .Callback(() => order.Add("paint"))
+            .Returns(Task.CompletedTask);
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(service => service.GetSnapshot()).Returns(
+            new Dictionary<int, SessionMapping>
+            {
+                [42] = new SessionMapping(
+                    "@alice:test",
+                    "Alice",
+                    100L,
+                    "bee"),
+            });
+        mapping.Setup(service => service.RemoveSession(42))
+            .Callback(() => order.Add("mapping"));
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(service => service.Remove(42))
+            .Callback(() => order.Add("channel"));
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(service => service.BroadcastAsync(It.IsAny<object>()))
+            .Returns(Task.CompletedTask);
+        var callback = CreateCallback(
+            [],
+            mapping: mapping.Object,
+            bus: bus.Object,
+            channelMembership: membership.Object,
+            paintParticipation: paint);
+
+        await callback.DispatchUserDisconnected(
+            new MumbleUser("Alice", "abc", 42));
+
+        CollectionAssert.AreEqual(
+            new[] { "paint", "mapping", "channel" },
+            order);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_RevokesPaintOnlyForRealChannelChange()
+    {
+        var paint = new Mock<IPaintParticipationLifecycle>();
+        paint.Setup(service =>
+                service.HandleSessionChannelChangedAsync(42, 5, 10))
+            .Returns(Task.CompletedTask);
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(service => service.TryGetChannel(42, out It.Ref<int>.IsAny))
+            .Returns((int _, out int channelId) =>
+            {
+                channelId = 5;
+                return true;
+            });
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(service => service.GetSnapshot())
+            .Returns(new Dictionary<int, SessionMapping>());
+        var callback = CreateCallback(
+            [],
+            mapping: mapping.Object,
+            channelMembership: membership.Object,
+            paintParticipation: paint);
+
+        await callback.DispatchUserStateChanged(
+            new MumbleUser("Alice", "abc", 42),
+            10);
+
+        paint.Verify(service =>
+            service.HandleSessionChannelChangedAsync(42, 5, 10),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserConnected_DoesNotActivatePaint()
+    {
+        var paint = new Mock<IPaintParticipationLifecycle>();
+        var callback = CreateCallback(
+            [],
+            paintParticipation: paint);
+
+        await callback.DispatchUserConnected(
+            new MumbleUser("Alice", "abc", 42),
+            initialChannelId: 5);
+
+        paint.VerifyNoOtherCalls();
     }
 
     [TestMethod]

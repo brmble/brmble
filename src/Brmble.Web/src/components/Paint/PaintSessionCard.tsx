@@ -1,41 +1,97 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { paintApi } from '../../api/paint';
-import type { PaintSessionStatus } from '../../types/paint';
+import type { PaintSessionStatus, PaintSessionSummary } from '../../types/paint';
 import './PaintSessionCard.css';
-export interface PaintInvitation { sessionId: string; hostUserId: number; participantUserIds: number[]; channelId: number; status: 'active' | 'ended' | 'expired' | 'unavailable'; sourceEventId?: string; sourcePreview?: string; }
+
+export interface PaintInvitation {
+  version?: 2;
+  sessionId: string;
+  hostUserId?: number;
+  participantUserIds?: number[];
+  channelId: number;
+  status: 'active' | 'ended' | 'expired' | 'unavailable';
+  sourceEventId?: string;
+  sourcePreview?: string;
+}
+
 export function PaintSessionCard({
   session,
-  canJoin,
   onJoin,
-  getSnapshot = paintApi.getSnapshot,
+  onOpen,
+  getSummary = paintApi.getSummary,
   liveStatus,
 }: {
   session: PaintInvitation;
-  canJoin: boolean;
-  onJoin: () => void;
-  getSnapshot?: (sessionId: string) => Promise<{ status: PaintSessionStatus }>;
+  onJoin: (sessionId: string) => Promise<void> | void;
+  onOpen: (sessionId: string) => void;
+  getSummary?: (sessionId: string) => Promise<PaintSessionSummary>;
   liveStatus?: PaintSessionStatus;
 }) {
-  const [liveSnapshot, setLiveSnapshot] = useState<{ sessionId: string; status: PaintSessionStatus } | null>(null);
-  useEffect(() => { let disposed = false; void getSnapshot(session.sessionId).then(next => { if (!disposed) setLiveSnapshot({ sessionId: session.sessionId, status: next.status }); }).catch(() => { if (!disposed) setLiveSnapshot({ sessionId: session.sessionId, status: 'unavailable' }); }); return () => { disposed = true; }; }, [getSnapshot, session.sessionId]);
-  const status = liveStatus ?? (liveSnapshot?.sessionId === session.sessionId ? liveSnapshot.status : null);
-  const active = status === 'active';
-  const message = status === null
+  const [summary, setSummary] = useState<PaintSessionSummary | null>(null);
+  const [status, setStatus] = useState<PaintSessionStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const next = await getSummary(session.sessionId);
+    setSummary(next);
+    setStatus(next.status);
+    setError(null);
+  }, [getSummary, session.sessionId]);
+
+  useEffect(() => {
+    let disposed = false;
+    void getSummary(session.sessionId)
+      .then(next => {
+        if (disposed) return;
+        setSummary(next);
+        setStatus(next.status);
+        setError(null);
+      })
+      .catch(() => {
+        if (disposed) return;
+        setSummary(null);
+        setStatus('unavailable');
+      });
+    return () => { disposed = true; };
+  }, [getSummary, session.sessionId]);
+
+  const handleJoin = async () => {
+    setJoining(true);
+    setError(null);
+    try {
+      await onJoin(session.sessionId);
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to join paint.');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const effectiveStatus = liveStatus ?? status;
+  const active = effectiveStatus === 'active';
+  const isParticipant = active && summary?.isParticipant === true;
+  const canJoin = active && summary?.canJoin === true && !isParticipant;
+  const unavailableToViewer = active && summary !== null && !summary.canJoin && !summary.isParticipant;
+  const message = effectiveStatus === null
     ? 'Checking session'
-    : status === 'active'
+    : effectiveStatus === 'active'
       ? 'Session is available'
-      : status === 'ended'
+      : effectiveStatus === 'ended'
         ? 'Session has ended'
-        : status === 'expired'
+        : effectiveStatus === 'expired'
           ? 'Session has expired'
           : 'Session is unavailable';
 
   return (
-    <section className={`paint-session-card paint-session-card--${status ?? 'checking'}`} aria-label="Collaborative paint session">
+    <section className={`paint-session-card paint-session-card--${effectiveStatus ?? 'checking'}`} aria-label="Collaborative paint session">
       <strong>Collaborative paint</strong>
       <span>{message}</span>
-      {active && canJoin && <button type="button" onClick={onJoin}>Join paint</button>}
-      {active && !canJoin && <span>Not available to you</span>}
+      {canJoin && <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleJoin()} disabled={joining}>{joining ? 'Joining...' : 'Join paint'}</button>}
+      {isParticipant && <button type="button" className="btn btn-sm btn-secondary" onClick={() => onOpen(session.sessionId)}>Open paint</button>}
+      {unavailableToViewer && <span>Not available to you</span>}
+      {error && <p role="alert">{error}</p>}
     </section>
   );
 }
