@@ -454,6 +454,7 @@ public sealed class PaintSessionManagerTests
 
         var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
         Assert.AreEqual(PaintSessionStatus.Expired, snapshot.Status);
+        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
         Assert.AreEqual(1, (await fixture.Cleanup.GetPendingAsync()).Count);
     }
 
@@ -628,12 +629,17 @@ public sealed class PaintSessionManagerTests
         public Dictionary<string, string?> Memberships { get; } = [];
         public List<string> InvitedUsers { get; } = [];
         public MatrixPaintRoomCleanupResult DeleteResult { get; set; } = new(true, "delete", null);
+        public int DeleteCalls { get; private set; }
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult(RoomId);
         public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) { InvitedUsers.Add(matrixUserId); return Task.CompletedTask; }
         public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.room.message","content":{"msgtype":"m.image","url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
         public Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.FromResult(Memberships.GetValueOrDefault(matrixUserId));
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137 });
-        public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken) => Task.FromResult(DeleteResult);
+        public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
+        {
+            DeleteCalls++;
+            return Task.FromResult(DeleteResult);
+        }
     }
 
     private sealed class BlockingCleanupRepository : PaintRoomCleanupRepository
