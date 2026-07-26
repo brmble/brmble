@@ -90,6 +90,39 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task BroadcastAsync_SendFailureCompletesQueuedBroadcasts()
+    {
+        var firstSendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failFirstSend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failing = CreateMockWebSocket(WebSocketState.Open);
+        failing.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            WebSocketMessageType.Text,
+            true,
+            It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                firstSendStarted.SetResult();
+                await failFirstSend.Task;
+                throw new WebSocketException("connection reset");
+            });
+        _bus.AddClient(failing.Object, 1L);
+
+        var first = _bus.BroadcastAsync(new { type = "first" });
+        await firstSendStarted.Task;
+        var queuedOne = _bus.BroadcastAsync(new { type = "queued-one" });
+        var queuedTwo = _bus.BroadcastAsync(new { type = "queued-two" });
+
+        failFirstSend.SetResult();
+        var broadcasts = Task.WhenAll(first, queuedOne, queuedTwo);
+        var completed = await Task.WhenAny(broadcasts, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        Assert.AreSame(broadcasts, completed, "Queued broadcasts must not wait indefinitely after a socket send failure.");
+        await broadcasts;
+        failing.Verify(w => w.Abort(), Times.Once);
+    }
+
+    [TestMethod]
     public async Task BroadcastToChannelAsync_PermanentPaintSendError_AbortsAndRemovesClient()
     {
         _channelMembership.Setup(c => c.GetSessionsInChannel(5)).Returns(new List<int> { 10 });

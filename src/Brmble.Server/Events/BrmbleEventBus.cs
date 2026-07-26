@@ -66,6 +66,7 @@ public class BrmbleEventBus : IBrmbleEventBus
         public LinkedList<QueuedSocketMessage> Queue { get; } = [];
         public Dictionary<(string, long), LinkedListNode<QueuedSocketMessage>> Previews { get; } = [];
         public bool Draining { get; set; }
+        public Exception? Failure { get; set; }
     }
 
     public BrmbleEventBus(
@@ -283,9 +284,15 @@ public class BrmbleEventBus : IBrmbleEventBus
         string? eventType,
         (string SessionId, long AuthorUserId)? previewKey)
     {
+        if (!_clients.ContainsKey(ws))
+            return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
+
         var delivery = _socketDeliveries.GetOrAdd(ws, _ => new SocketDelivery());
         lock (delivery.Gate)
         {
+            if (delivery.Failure is not null)
+                return Task.FromException(delivery.Failure);
+
             if (eventType == PaintEventNames.PreviewUpdated && previewKey is { } key &&
                 delivery.Previews.Remove(key, out var olderPreview))
             {
@@ -355,6 +362,15 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 message.Completion.TrySetException(ex);
+                lock (delivery.Gate)
+                {
+                    delivery.Failure = ex;
+                    foreach (var queued in delivery.Queue)
+                        queued.Completion.TrySetException(ex);
+                    delivery.Queue.Clear();
+                    delivery.Previews.Clear();
+                    delivery.Draining = false;
+                }
                 RemoveClientAndAbort(ws);
                 return;
             }
