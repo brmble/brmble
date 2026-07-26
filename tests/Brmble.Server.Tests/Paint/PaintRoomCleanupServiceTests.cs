@@ -94,9 +94,46 @@ public sealed class PaintRoomCleanupServiceTests
         Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
     }
 
+    [TestMethod]
+    public async Task ProcessPending_ContinuesAfterRepositoryReadFailure()
+    {
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        fixture.DropCleanupTable();
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        fixture.Database.Initialize();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!room:test");
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(true, "admin-delete", null));
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task ProcessPending_ContinuesAfterRecordStateWriteFailure()
+    {
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!first:test");
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!second:test");
+        var first = (await fixture.Repository.GetPendingAsync()).Single(record => record.MatrixRoomId == "!first:test");
+        fixture.RejectFailureUpdate(first.Id);
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(false, "admin-delete", "MATRIX_ROOM_DELETE_FAILED"));
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(true, "admin-delete", null));
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.AreEqual(2, fixture.Matrix.DeleteCalls);
+        var pending = (await fixture.Repository.GetPendingAsync()).Single();
+        Assert.AreEqual("!first:test", pending.MatrixRoomId);
+    }
+
     private sealed class PaintRoomCleanupFixture
     {
         public Guid SessionId { get; init; }
+        public required Database Database { get; init; }
         public required PaintRoomCleanupRepository Repository { get; init; }
         public required FakeMatrixPaintService Matrix { get; init; }
         public required CapturingLogger<PaintRoomCleanupService> Logger { get; init; }
@@ -119,12 +156,33 @@ public sealed class PaintRoomCleanupServiceTests
 
             return new PaintRoomCleanupFixture
             {
+                Database = database,
                 Repository = repository,
                 Matrix = matrix,
                 Logger = logger,
                 Service = new PaintRoomCleanupService(repository, matrix, logger),
                 SessionId = sessionId,
             };
+        }
+
+        public void DropCleanupTable() => Execute("DROP TABLE paint_room_cleanup");
+
+        public void RejectFailureUpdate(long recordId) => Execute($"""
+            CREATE TRIGGER reject_cleanup_update
+            BEFORE UPDATE ON paint_room_cleanup
+            WHEN OLD.id = {recordId}
+            BEGIN
+                SELECT RAISE(ABORT, 'state write unavailable');
+            END
+            """);
+
+        private void Execute(string sql)
+        {
+            using var connection = Database.CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
         }
     }
 

@@ -26,7 +26,7 @@ public sealed class PaintEndpointsTests
         {
             "paint.sourceAttached", "paint.invited", "paint.participantJoined", "paint.participantLeft",
             "paint.previewUpdated", "paint.strokeCommitted", "paint.strokeUndone", "paint.canvasCleared",
-            "paint.sessionEnded", "paint.sessionExpired", "paint.sessionUnavailable", "paint.roomCleanupFailed",
+            "paint.sessionEnded", "paint.sessionExpired", "paint.sessionUnavailable",
         };
 
         CollectionAssert.AreEquivalent(expected, PaintEventNames.BroadcastEvents.ToArray());

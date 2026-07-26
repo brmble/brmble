@@ -29,7 +29,8 @@ public class MatrixAppServiceTests
         var settings = Options.Create(new MatrixSettings
         {
             HomeserverUrl = "http://localhost:8008",
-            AppServiceToken = "test-token"
+            AppServiceToken = "test-token",
+            AdminAccessToken = "test-admin-token"
         });
 
         _svc = new MatrixAppService(factory.Object, settings, NullLogger<MatrixAppService>.Instance);
@@ -63,6 +64,18 @@ public class MatrixAppServiceTests
     }
 
     private IReadOnlyList<HttpRequestMessage> SentRequests => _capturedRequests;
+
+    [TestMethod]
+    public async Task DeletePaintRoom_TreatsAuthoritativeMissingRoomAsRemoved()
+    {
+        SetupHttpResponse(HttpStatusCode.NotFound, """{"errcode":"M_NOT_FOUND","error":"Unknown room"}""");
+
+        var result = await _svc.DeletePaintRoomAsync("!removed:server", CancellationToken.None);
+
+        Assert.IsTrue(result.Removed);
+        Assert.AreEqual("admin-delete-already-absent", result.Mode);
+        Assert.IsNull(result.Error);
+    }
 
     [TestMethod]
     public async Task SendMessage_SendsPutWithCorrectPath()

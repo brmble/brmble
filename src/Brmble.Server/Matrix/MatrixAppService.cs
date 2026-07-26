@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Brmble.Server.Paint;
@@ -381,11 +382,29 @@ public class MatrixAppService : IMatrixAppService
             }
 
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound && IsMatrixRoomNotFound(error))
+            {
+                return new(true, "admin-delete-already-absent", null);
+            }
             return new(false, "failed", string.IsNullOrWhiteSpace(error) ? response.ReasonPhrase : error);
         }
         catch (Exception ex)
         {
             return new(false, "failed", ex.Message);
+        }
+    }
+
+    private static bool IsMatrixRoomNotFound(string error)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(error);
+            return document.RootElement.TryGetProperty("errcode", out var code)
+                && code.GetString() == "M_NOT_FOUND";
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

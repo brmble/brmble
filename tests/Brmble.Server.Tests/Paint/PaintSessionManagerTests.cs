@@ -280,21 +280,17 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
-    public async Task End_PublishesTerminalStatusAndCleanupFailureDetails()
+    public async Task End_PublishesTerminalStatusWithoutAttemptingRoomDeletion()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "best-effort-leave", "ROOM_DELETE_UNSUPPORTED");
+        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "best-effort-leave", "{\"access_token\":\"secret\"}");
 
         await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
 
         using var ended = fixture.Publisher.GetLastEvent(PaintEventNames.SessionEnded);
         Assert.AreEqual("ended", ended.RootElement.GetProperty("status").GetString());
-        using var cleanup = fixture.Publisher.GetLastEvent(PaintEventNames.RoomCleanupFailed);
-        Assert.AreEqual(fixture.Matrix.RoomId, cleanup.RootElement.GetProperty("matrixRoomId").GetString());
-        Assert.AreEqual("best-effort-leave", cleanup.RootElement.GetProperty("mode").GetString());
-        Assert.AreEqual("ROOM_DELETE_UNSUPPORTED", cleanup.RootElement.GetProperty("error").GetString());
-        Assert.IsTrue(cleanup.RootElement.TryGetProperty("revision", out _));
-        Assert.IsTrue(cleanup.RootElement.TryGetProperty("generation", out _));
+        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
+        Assert.IsFalse(fixture.Publisher.SentTypes.Contains("paint.roomCleanupFailed"));
     }
 
     [TestMethod]
@@ -314,7 +310,7 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
-    public async Task End_WritesCleanupThenAttemptsRoomDeletion()
+    public async Task End_WritesCleanupForWorkerWithoutAttemptingRoomDeletion()
     {
         var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
         fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "delete", "unavailable");
@@ -325,6 +321,7 @@ public sealed class PaintSessionManagerTests
         Assert.AreEqual(PaintSessionStatus.Ended, result.Status);
         Assert.AreEqual(1, pending.Count);
         Assert.AreEqual(fixture.Matrix.RoomId, pending[0].MatrixRoomId);
+        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
     }
 
     [TestMethod]

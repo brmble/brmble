@@ -3,7 +3,7 @@ import bridge from '../bridge';
 import { paintApi } from '../api/paint';
 import type { PaintParticipant, PaintPermanentEvent, PaintPreview, PaintSessionSnapshot, PaintStroke, PaintStrokeCommittedEvent, PaintStrokeInput, PaintStrokeUndoneEvent } from '../types/paint';
 
-const EVENTS = ['paint.sourceAttached', 'paint.participantJoined', 'paint.participantLeft', 'paint.previewUpdated', 'paint.strokeCommitted', 'paint.strokeUndone', 'paint.canvasCleared', 'paint.sessionEnded', 'paint.sessionExpired', 'paint.sessionUnavailable', 'paint.roomCleanupFailed'] as const;
+const EVENTS = ['paint.sourceAttached', 'paint.participantJoined', 'paint.participantLeft', 'paint.previewUpdated', 'paint.strokeCommitted', 'paint.strokeUndone', 'paint.canvasCleared', 'paint.sessionEnded', 'paint.sessionExpired', 'paint.sessionUnavailable'] as const;
 
 function previewKey(preview: Pick<PaintPreview, 'authorUserId' | 'correlationId'>): string {
   return `${preview.authorUserId}:${preview.correlationId}`;
@@ -119,10 +119,6 @@ export function usePaintSession(sessionId: string) {
         snapshotRef.current = next;
         setSnapshot(next);
         setPreviews([]);
-      },
-      'paint.roomCleanupFailed': data => {
-        const event = data as PaintPermanentEvent;
-        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation }));
       },
     };
     for (const event of EVENTS) bridge.on(event, handlers[event]);

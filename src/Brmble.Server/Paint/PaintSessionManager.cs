@@ -255,7 +255,6 @@ public sealed class PaintSessionManager(
                     new { type = PaintEventNames.SessionEnded, sessionId, status = session.Status, revision, generation }));
             }
             await publish;
-            await TryCleanupAsync(session, roomId, cancellationToken);
             return new PaintSessionEndedResult(PaintSessionStatus.Ended, revision, generation);
         }
         finally
@@ -354,43 +353,6 @@ public sealed class PaintSessionManager(
                 session.TerminalTransitionGate.Release();
             }
         }
-    }
-
-    private async Task TryCleanupAsync(LivePaintSession session, string roomId, CancellationToken cancellationToken)
-    {
-        var pending = (await cleanupRepository.GetPendingAsync(cancellationToken)).LastOrDefault(x => x.MatrixRoomId == roomId);
-        if (pending is null) return;
-        try
-        {
-            var result = await matrixPaintService.DeletePaintRoomAsync(roomId, cancellationToken);
-            if (result.Removed) await cleanupRepository.MarkSucceededAsync(pending.Id, cancellationToken);
-            else
-            {
-                var error = result.Error ?? "Matrix room cleanup failed.";
-                await cleanupRepository.MarkFailedAsync(pending.Id, error, cancellationToken);
-                await PublishCleanupFailureAsync(session, roomId, result.Mode, error);
-            }
-        }
-        catch (Exception exception)
-        {
-            await cleanupRepository.MarkFailedAsync(pending.Id, exception.Message, cancellationToken);
-            await PublishCleanupFailureAsync(session, roomId, "failed", exception.Message);
-        }
-    }
-
-    private async Task PublishCleanupFailureAsync(LivePaintSession session, string roomId, string mode, string error)
-    {
-        Task publish;
-        lock (session.Lock)
-        {
-            session.Revision++;
-            var revision = session.Revision;
-            var generation = session.Generation;
-            var recipients = CurrentParticipantUserIds(session);
-            publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(recipients,
-                new { type = PaintEventNames.RoomCleanupFailed, sessionId = session.SessionId, matrixRoomId = roomId, mode, error, revision, generation }));
-        }
-        await publish;
     }
 
     private static Task EnqueuePermanentPublish(LivePaintSession session, Func<Task> publish)

@@ -100,7 +100,6 @@ public static class PaintEventNames
     public const string SessionEnded = "paint.sessionEnded";
     public const string SessionExpired = "paint.sessionExpired";
     public const string SessionUnavailable = "paint.sessionUnavailable";
-    public const string RoomCleanupFailed = "paint.roomCleanupFailed";
 
     public static readonly IReadOnlyList<string> BroadcastEvents =
     [
@@ -115,6 +114,5 @@ public static class PaintEventNames
         SessionEnded,
         SessionExpired,
         SessionUnavailable,
-        RoomCleanupFailed,
     ];
 }
