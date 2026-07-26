@@ -51,6 +51,7 @@ builder.Services.AddSingleton<PaintSessionManager>();
 builder.Services.AddSingleton<IPaintParticipationLifecycle>(services =>
     services.GetRequiredService<PaintSessionManager>());
 builder.Services.AddHostedService<PaintSessionExpirationService>();
+builder.Services.AddHostedService<PaintRoomCleanupService>();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
 builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();

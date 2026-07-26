@@ -19,7 +19,7 @@ public sealed class PaintRoomCleanupServiceTests
 
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
         CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
-        Assert.IsEmpty(await fixture.Repository.GetPendingAsync());
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
     }
 
     [TestMethod]
@@ -48,7 +48,7 @@ public sealed class PaintRoomCleanupServiceTests
 
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
         CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
-        Assert.IsEmpty(await fixture.Repository.GetPendingAsync());
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
     }
 
     private sealed class PaintRoomCleanupFixture
