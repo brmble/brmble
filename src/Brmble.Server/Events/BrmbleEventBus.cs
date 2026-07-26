@@ -143,46 +143,54 @@ public class BrmbleEventBus : IBrmbleEventBus
         object message,
         TaskCompletionSource? admissionComplete = null)
     {
-        var sessions = _channelMembership.GetSessionsInChannel(channelId);
-        var userIds = new HashSet<long>();
-        var snapshot = _sessionMapping.GetSnapshot();
-        foreach (var sessionId in sessions)
+        try
         {
-            if (snapshot.TryGetValue(sessionId, out var mapping))
-                userIds.Add(mapping.UserId);
+            var sessions = _channelMembership.GetSessionsInChannel(channelId);
+            var userIds = new HashSet<long>();
+            var snapshot = _sessionMapping.GetSnapshot();
+            foreach (var sessionId in sessions)
+            {
+                if (snapshot.TryGetValue(sessionId, out var mapping))
+                    userIds.Add(mapping.UserId);
+            }
+
+            var json = SerializeForWebSocketForTest(message);
+            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+            var (eventType, previewKey) = GetDeliveryMetadata(message);
+
+            var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+            {
+                var ws = kvp.Key;
+                try
+                {
+                    if (ws.State == WebSocketState.Open)
+                    {
+                        await QueueSend(ws, bytes, eventType, previewKey);
+                    }
+                    else
+                    {
+                        RemoveClient(ws);
+                    }
+                }
+                catch (WebSocketException ex) when (ex.Data.Contains("SocketQueueFull"))
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
+                    RemoveClientAndAbort(ws);
+                }
+            }).ToArray();
+
+            admissionComplete?.TrySetResult();
+            return Task.WhenAll(tasks);
         }
-
-        var json = SerializeForWebSocketForTest(message);
-        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
-        var (eventType, previewKey) = GetDeliveryMetadata(message);
-
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+        catch (Exception ex)
         {
-            var ws = kvp.Key;
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                {
-                    await QueueSend(ws, bytes, eventType, previewKey);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
-            }
-            catch (WebSocketException ex) when (ex.Data.Contains("SocketQueueFull"))
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClientAndAbort(ws);
-            }
-        }).ToArray();
-
-        admissionComplete?.TrySetResult();
-        return Task.WhenAll(tasks);
+            admissionComplete?.TrySetResult();
+            return Task.FromException(ex);
+        }
     }
 
     /// <summary>
@@ -284,10 +292,9 @@ public class BrmbleEventBus : IBrmbleEventBus
         string? eventType,
         (string SessionId, long AuthorUserId)? previewKey)
     {
-        if (!_clients.ContainsKey(ws))
+        if (!_clients.ContainsKey(ws) || !_socketDeliveries.TryGetValue(ws, out var delivery))
             return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
 
-        var delivery = _socketDeliveries.GetOrAdd(ws, _ => new SocketDelivery());
         lock (delivery.Gate)
         {
             if (delivery.Failure is not null)
