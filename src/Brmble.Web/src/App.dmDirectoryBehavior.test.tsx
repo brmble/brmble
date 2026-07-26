@@ -313,10 +313,12 @@ describe('DM route Matrix isolation', () => {
     paintSourceMocks.prepare.mockResolvedValue(prepared);
     renderPaintReadyApp();
 
-    void (mockValues.channelChatPanelProps
-      ?.onUseAsPaintBackground as (
-        attachment: MediaAttachment,
-      ) => Promise<void>)(sharedImage);
+    await act(async () => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (
+          attachment: MediaAttachment,
+        ) => Promise<void>)(sharedImage);
+    });
 
     await user.click(await screen.findByRole('button', {
       name: 'Yes',
@@ -331,15 +333,20 @@ describe('DM route Matrix isolation', () => {
 
   it('shows a retryable error and leaves setup closed when preparation fails', async () => {
     const user = userEvent.setup();
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
     paintSourceMocks.prepare.mockRejectedValue(
       new Error('download failed'),
     );
     renderPaintReadyApp();
 
-    void (mockValues.channelChatPanelProps
-      ?.onUseAsPaintBackground as (
-        attachment: MediaAttachment,
-      ) => Promise<void>)(sharedImage);
+    await act(async () => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (
+          attachment: MediaAttachment,
+        ) => Promise<void>)(sharedImage);
+    });
     await user.click(await screen.findByRole('button', {
       name: 'Yes',
     }));
@@ -352,16 +359,22 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByRole('dialog', {
       name: 'Start collaborative paint',
     })).not.toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalledWith(
+      '[Paint] Failed to prepare chat image background:',
+      expect.any(Error),
+    );
     expect(mockValues.notificationQueue.register)
       .toHaveBeenCalledWith('paint-background-error', 'error');
 
     paintSourceMocks.prepare.mockResolvedValue(
       new File(['prepared'], 'shared.png', { type: 'image/png' }),
     );
-    void (mockValues.channelChatPanelProps
-      ?.onUseAsPaintBackground as (
-        attachment: MediaAttachment,
-      ) => Promise<void>)(sharedImage);
+    await act(async () => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (
+          attachment: MediaAttachment,
+        ) => Promise<void>)(sharedImage);
+    });
     await user.click(await screen.findByRole('button', {
       name: 'Yes',
     }));
@@ -452,6 +465,33 @@ describe('DM route Matrix isolation', () => {
     });
 
     expect(mockValues.headerProps?.dmActive).toBe(false);
+  });
+
+  it('requests channel chat access when the active non-root channel is missing from roomMap', async () => {
+    render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('brmble.serviceStatus', {
+        service: 'server',
+        state: 'connected',
+      });
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('server.credentials', {
+        matrix: { homeserverUrl: 'https://example.com', accessToken: 'token', userId: '@me:example.com', roomMap: {} },
+      });
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', {
+        username: 'Me',
+        channelId: 2,
+        channels: [{ id: 2, name: 'Gaming' }],
+        users: [{ session: 7, name: 'Me', self: true, channelId: 2 }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(vi.mocked(bridge.send).mock.calls.some(([type, payload]) =>
+        type === 'chat.getChannelAccess'
+        && (payload as { channelIds?: number[] } | undefined)
+          ?.channelIds?.includes(2))).toBe(true);
+    });
   });
 
   it('routes DMContactList visibility through the shared Messages panel toggle', () => {
