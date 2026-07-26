@@ -2,16 +2,45 @@ using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Data;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Brmble.Server.Paint;
 
 /// <summary>HTTP boundary for the stateful paint session manager.</summary>
 public static class PaintEndpoints
 {
+    private static readonly JsonSerializerOptions PaintJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters =
+        {
+            new PaintStrokeWidthJsonConverter(),
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
+        },
+    };
+
     public sealed record CreatePaintSessionDto(int ChannelId, IReadOnlyList<int>? ParticipantSessionIds);
     public sealed record AttachPaintSourceDto(string? SourceEventId);
     public sealed record PaintPointDto(double X, double Y, double? Pressure);
     public sealed record PaintStrokeDto(Guid CorrelationId, long Generation, string? Tool, string? Color, int Width, IReadOnlyList<PaintPointDto>? Points);
+
+    private sealed class PaintStrokeWidthJsonConverter : JsonConverter<PaintStrokeWidth>
+    {
+        public override PaintStrokeWidth Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var value) || !Enum.IsDefined((PaintStrokeWidth)value))
+                throw new JsonException("Paint stroke width must be 3, 6, or 12.");
+
+            return (PaintStrokeWidth)value;
+        }
+
+        public override void Write(Utf8JsonWriter writer, PaintStrokeWidth value, JsonSerializerOptions options)
+        {
+            if (!Enum.IsDefined(value))
+                throw new JsonException($"Unsupported paint stroke width: {value}.");
+
+            writer.WriteNumberValue((int)value);
+        }
+    }
 
     public static IEndpointRouteBuilder MapPaintEndpoints(this IEndpointRouteBuilder app)
     {
@@ -35,11 +64,11 @@ public static class PaintEndpoints
 
         app.MapGet("/paint/sessions/{id:guid}/summary", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager) =>
-            await ExecuteAsync(async user => Results.Ok(await manager.SummaryAsync(id, user.UserId)), context, certificates, users));
+            await ExecuteAsync(async user => Results.Json(await manager.SummaryAsync(id, user.UserId), PaintJsonOptions), context, certificates, users));
 
         app.MapGet("/paint/sessions/{id:guid}", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager) =>
-            await ExecuteAsync(async user => Results.Ok(await manager.SnapshotAsync(id, user.UserId)), context, certificates, users));
+            await ExecuteAsync(async user => Results.Json(await manager.SnapshotAsync(id, user.UserId), PaintJsonOptions), context, certificates, users));
 
         app.MapPost("/paint/sessions/{id:guid}/join", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager, CancellationToken cancellationToken) =>

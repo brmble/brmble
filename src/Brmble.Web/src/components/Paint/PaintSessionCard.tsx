@@ -69,7 +69,9 @@ export function PaintSessionCard({
     }
   };
 
-  const effectiveStatus = liveStatus ?? status;
+  const effectiveStatus = liveStatus === 'unavailable' && summary !== null
+    ? status
+    : liveStatus ?? status;
   const active = effectiveStatus === 'active';
   const isParticipant = active && summary?.isParticipant === true;
   const canJoin = active && summary?.canJoin === true && !isParticipant;

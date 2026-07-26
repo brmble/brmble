@@ -88,10 +88,31 @@ describe('PaintSessionCard', () => {
   });
 
   it('removes Join paint and shows unavailable copy for unavailable live status', async () => {
-    render(<PaintSessionCard session={activeSession} getSummary={vi.fn().mockResolvedValue(summary())} onJoin={vi.fn()} onOpen={vi.fn()} liveStatus="unavailable" />);
+    const getSummary = vi.fn(() => new Promise<PaintSessionSummary>(() => {}));
+
+    render(<PaintSessionCard session={activeSession} getSummary={getSummary} onJoin={vi.fn()} onOpen={vi.fn()} liveStatus="unavailable" />);
 
     await waitFor(() => expect(screen.getByText('Session is unavailable')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Join paint' })).toBeNull();
+  });
+
+  it('keeps a participant session reopenable when a stale unavailable live status arrives', async () => {
+    const onOpen = vi.fn();
+
+    render(<PaintSessionCard session={activeSession} getSummary={vi.fn().mockResolvedValue(summary({ isParticipant: true }))} onJoin={vi.fn()} onOpen={onOpen} liveStatus="unavailable" />);
+
+    const open = await screen.findByRole('button', { name: 'Open paint' });
+    expect(screen.getByText('Session is available')).toBeInTheDocument();
+    fireEvent.click(open);
+
+    expect(onOpen).toHaveBeenCalledWith('session-1');
+  });
+
+  it('keeps an active invite joinable when a stale unavailable live status arrives', async () => {
+    render(<PaintSessionCard session={activeSession} getSummary={vi.fn().mockResolvedValue(summary())} onJoin={vi.fn()} onOpen={vi.fn()} liveStatus="unavailable" />);
+
+    expect(await screen.findByRole('button', { name: 'Join paint' })).toBeEnabled();
+    expect(screen.getByText('Session is available')).toBeInTheDocument();
   });
 
   it('updates when parent receives a newer live status', async () => {

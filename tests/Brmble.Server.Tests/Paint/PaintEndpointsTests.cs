@@ -96,10 +96,24 @@ public sealed class PaintEndpointsTests
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.IsTrue(body.GetProperty("canJoin").GetBoolean());
         Assert.IsFalse(body.GetProperty("isParticipant").GetBoolean());
+        Assert.AreEqual("active", body.GetProperty("status").GetString());
         Assert.IsFalse(body.TryGetProperty("matrixRoomId", out _));
         Assert.IsFalse(body.TryGetProperty("source", out _));
         Assert.IsFalse(body.TryGetProperty("participants", out _));
         Assert.IsFalse(body.TryGetProperty("strokes", out _));
+    }
+
+    [TestMethod]
+    public async Task Snapshot_SerializesStatusAsFrontendContractString()
+    {
+        await using var app = await EndpointFixture.StartActiveAsync();
+
+        var response = await app.Client.GetAsync(
+            $"/paint/sessions/{app.SessionId}");
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.AreEqual("active", body.GetProperty("status").GetString());
     }
 
     [TestMethod]
