@@ -46,18 +46,21 @@ public static class BrmbleWebSocketHandler
         try
         {
             // Send initial snapshot
-            var snapshot = sessionMapping.GetSnapshot()
-                .ToDictionary(
-                    kvp => kvp.Key.ToString(),
-                    kvp => new
-                    {
-                        matrixUserId = kvp.Value.MatrixUserId,
-                        mumbleName = kvp.Value.MumbleName,
-                        companionId = kvp.Value.CompanionId,
-                        certHash = kvp.Value.CertHash,
-                        isBrmbleClient = kvp.Value.IsBrmbleClient
-                    });
-            await eventBus.AddClientWithInitialMessageAsync(ws, user.Id, new { type = "sessionMappingSnapshot", mappings = snapshot });
+            await eventBus.AddClientWithInitialMessageAsync(ws, user.Id, () =>
+            {
+                var snapshot = sessionMapping.GetSnapshot()
+                    .ToDictionary(
+                        kvp => kvp.Key.ToString(),
+                        kvp => new
+                        {
+                            matrixUserId = kvp.Value.MatrixUserId,
+                            mumbleName = kvp.Value.MumbleName,
+                            companionId = kvp.Value.CompanionId,
+                            certHash = kvp.Value.CertHash,
+                            isBrmbleClient = kvp.Value.IsBrmbleClient
+                        });
+                return new { type = "sessionMappingSnapshot", mappings = snapshot };
+            });
 
             // Read loop until close
             var buffer = new byte[1024];

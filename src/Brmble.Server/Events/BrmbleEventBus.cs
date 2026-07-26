@@ -10,6 +10,7 @@ namespace Brmble.Server.Events;
 public class BrmbleEventBus : IBrmbleEventBus
 {
     private const int SocketQueueCapacity = 64;
+    private readonly object _clientGate = new();
     private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
     private readonly ConcurrentDictionary<WebSocket, SocketDelivery> _socketDeliveries = new();
     private readonly ConcurrentDictionary<int, PaintChannelDelivery> _paintChannelDeliveries = new();
@@ -81,34 +82,47 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public void AddClient(WebSocket ws, long userId)
     {
-        _socketDeliveries.TryAdd(ws, new SocketDelivery());
-        _clients[ws] = userId;
+        lock (_clientGate)
+        {
+            _socketDeliveries.TryAdd(ws, new SocketDelivery());
+            _clients[ws] = userId;
+        }
     }
 
-    public Task AddClientWithInitialMessageAsync(WebSocket ws, long userId, object message)
+    public Task AddClientWithInitialMessageAsync(WebSocket ws, long userId, Func<object> messageFactory)
     {
-        var json = SerializeForWebSocketForTest(message);
-        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
-        var (eventType, previewKey) = GetDeliveryMetadata(message);
-        var delivery = new SocketDelivery();
-        _socketDeliveries[ws] = delivery;
-
-        Task initial;
-        lock (delivery.Gate)
+        lock (_clientGate)
         {
-            delivery.Draining = true;
-            initial = QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: false);
-        }
+            var message = messageFactory();
+            var json = SerializeForWebSocketForTest(message);
+            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+            var (eventType, previewKey) = GetDeliveryMetadata(message);
+            var delivery = new SocketDelivery();
+            _socketDeliveries[ws] = delivery;
 
-        _clients[ws] = userId;
-        StartDrain(ws, delivery);
-        return initial;
+            Task initial;
+            lock (delivery.Gate)
+            {
+                delivery.Draining = true;
+                (initial, _) = QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: false);
+            }
+
+            _clients[ws] = userId;
+            StartDrain(ws, delivery);
+            return initial;
+        }
     }
 
     public void RemoveClient(WebSocket ws)
     {
-        _clients.TryRemove(ws, out _);
-        if (_socketDeliveries.TryRemove(ws, out var delivery))
+        SocketDelivery? delivery;
+        lock (_clientGate)
+        {
+            _clients.TryRemove(ws, out _);
+            _socketDeliveries.TryRemove(ws, out delivery);
+        }
+
+        if (delivery is not null)
         {
             lock (delivery.Gate)
             {
@@ -124,8 +138,13 @@ public class BrmbleEventBus : IBrmbleEventBus
         var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
         var (eventType, previewKey) = GetDeliveryMetadata(message);
+        List<WebSocket> clients;
+        lock (_clientGate)
+        {
+            clients = _clients.Keys.ToList();
+        }
 
-        var tasks = _clients.Keys.Select(async ws =>
+        var tasks = clients.Select(async ws =>
         {
             try
             {
@@ -184,7 +203,13 @@ public class BrmbleEventBus : IBrmbleEventBus
             var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
             var (eventType, previewKey) = GetDeliveryMetadata(message);
 
-            var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+            List<KeyValuePair<WebSocket, long>> clients;
+            lock (_clientGate)
+            {
+                clients = _clients.Where(kvp => userIds.Contains(kvp.Value)).ToList();
+            }
+
+            var tasks = clients.Select(async kvp =>
             {
                 var ws = kvp.Key;
                 try
@@ -258,8 +283,13 @@ public class BrmbleEventBus : IBrmbleEventBus
         var json = SerializeForWebSocketForTest(message);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
         var (eventType, previewKey) = GetDeliveryMetadata(message);
+        List<KeyValuePair<WebSocket, long>> clients;
+        lock (_clientGate)
+        {
+            clients = _clients.Where(kvp => userIds.Contains(kvp.Value)).ToList();
+        }
 
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
+        var tasks = clients.Select(async kvp =>
         {
             var ws = kvp.Key;
             try
@@ -289,8 +319,12 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     private void RemoveClientAndAbort(WebSocket ws)
     {
-        var removed = _clients.TryRemove(ws, out _);
-        _socketDeliveries.TryRemove(ws, out _);
+        bool removed;
+        lock (_clientGate)
+        {
+            removed = _clients.TryRemove(ws, out _);
+            _socketDeliveries.TryRemove(ws, out _);
+        }
         if (!removed)
             return;
 
@@ -318,19 +352,30 @@ public class BrmbleEventBus : IBrmbleEventBus
         string? eventType,
         (string SessionId, long AuthorUserId)? previewKey)
     {
-        if (!_clients.ContainsKey(ws) || !_socketDeliveries.TryGetValue(ws, out var delivery))
-            return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
+        SocketDelivery delivery;
+        lock (_clientGate)
+        {
+            if (!_clients.ContainsKey(ws) || !_socketDeliveries.TryGetValue(ws, out delivery!))
+                return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
+        }
 
+        Task task;
+        bool shouldAbort;
         lock (delivery.Gate)
         {
             if (delivery.Failure is not null)
                 return Task.FromException(delivery.Failure);
 
-            return QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: true);
+            (task, shouldAbort) = QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: true);
         }
+
+        if (shouldAbort)
+            RemoveClientAndAbort(ws);
+
+        return task;
     }
 
-    private Task QueueSendLocked(
+    private (Task Task, bool ShouldAbort) QueueSendLocked(
         WebSocket ws,
         SocketDelivery delivery,
         ArraySegment<byte> bytes,
@@ -352,11 +397,10 @@ public class BrmbleEventBus : IBrmbleEventBus
                 oldestPreview = oldestPreview.Next;
             if (oldestPreview is null)
             {
-                FailDeliveryLocked(delivery, new WebSocketException("WebSocket delivery queue is full."));
-                RemoveClientAndAbort(ws);
                 var exception = new WebSocketException("WebSocket delivery queue is full.");
                 exception.Data["SocketQueueFull"] = true;
-                return Task.FromException(exception);
+                FailDeliveryLocked(delivery, exception);
+                return (Task.FromException(exception), true);
             }
 
             delivery.Queue.Remove(oldestPreview);
@@ -377,7 +421,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             StartDrain(ws, delivery);
         }
 
-        return completion.Task;
+        return (completion.Task, false);
     }
 
     private void StartDrain(WebSocket ws, SocketDelivery delivery)

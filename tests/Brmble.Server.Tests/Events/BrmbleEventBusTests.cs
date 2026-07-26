@@ -180,7 +180,7 @@ public class BrmbleEventBusTests
     {
         var blocked = CreateBlockingSocket();
 
-        var initial = _bus.AddClientWithInitialMessageAsync(blocked.Socket.Object, 1L, new { type = "sessionMappingSnapshot" });
+        var initial = _bus.AddClientWithInitialMessageAsync(blocked.Socket.Object, 1L, () => new { type = "sessionMappingSnapshot" });
         await blocked.FirstSendStarted.Task;
         var broadcast = _bus.BroadcastAsync(new { type = "delta" });
 
@@ -271,7 +271,12 @@ public class BrmbleEventBusTests
         var cleared = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.CanvasCleared });
 
         blocked.ReleaseFirstSend.SetResult();
-        await Task.WhenAll(queued.Append(permanent));
+        await permanent;
+        var queuedBroadcasts = Task.WhenAll(queued);
+        var completed = await Task.WhenAny(queuedBroadcasts, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        Assert.AreSame(queuedBroadcasts, completed, "Queued permanent broadcasts must settle when the socket queue aborts.");
+        await Assert.ThrowsExceptionAsync<WebSocketException>(() => queuedBroadcasts);
         await Assert.ThrowsExceptionAsync<WebSocketException>(() => cleared);
 
         blocked.Socket.Verify(socket => socket.Abort(), Times.Once);
@@ -298,7 +303,7 @@ public class BrmbleEventBusTests
         var completed = await Task.WhenAny(queuedBroadcasts, Task.Delay(TimeSpan.FromSeconds(1)));
 
         Assert.AreSame(queuedBroadcasts, completed, "Queued broadcasts must not wait indefinitely after a full-queue abort.");
-        await queuedBroadcasts;
+        await Assert.ThrowsExceptionAsync<WebSocketException>(() => queuedBroadcasts);
         blocked.Socket.Verify(socket => socket.SendAsync(
             It.IsAny<ArraySegment<byte>>(),
             WebSocketMessageType.Text,
