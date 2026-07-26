@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using Brmble.Server.Events;
 using Brmble.Server.Paint;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -141,6 +143,89 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task BroadcastToChannelAsync_CoalescesQueuedPreviewsBySessionAndAuthor()
+    {
+        RouteChannelFiveToUserOne();
+        var blocked = CreateBlockingSocket();
+        _bus.AddClient(blocked.Socket.Object, 1L);
+        var sessionId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+        var permanent = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.StrokeCommitted });
+        await blocked.FirstSendStarted.Task;
+        var previewOne = _bus.BroadcastToChannelAsync(5, new
+        {
+            type = PaintEventNames.PreviewUpdated,
+            sessionId,
+            authorUserId = 7L,
+            input = new { sequence = 1 },
+        });
+        var previewTwo = _bus.BroadcastToChannelAsync(5, new
+        {
+            type = PaintEventNames.PreviewUpdated,
+            sessionId,
+            authorUserId = 7L,
+            input = new { sequence = 2 },
+        });
+
+        blocked.ReleaseFirstSend.SetResult();
+        await Task.WhenAll(permanent, previewOne, previewTwo);
+
+        Assert.AreEqual(2, blocked.Payloads.Count);
+        using var preview = JsonDocument.Parse(blocked.Payloads.Single(payload =>
+            JsonDocument.Parse(payload).RootElement.GetProperty("type").GetString() == PaintEventNames.PreviewUpdated));
+        Assert.AreEqual(2, preview.RootElement.GetProperty("input").GetProperty("sequence").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task BroadcastToChannelAsync_PreviewCapacityPreservesSessionEnded()
+    {
+        RouteChannelFiveToUserOne();
+        var blocked = CreateBlockingSocket();
+        _bus.AddClient(blocked.Socket.Object, 1L);
+
+        var permanent = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.StrokeCommitted });
+        await blocked.FirstSendStarted.Task;
+        var previews = Enumerable.Range(1, 64).Select(sequence => _bus.BroadcastToChannelAsync(5, new
+        {
+            type = PaintEventNames.PreviewUpdated,
+            sessionId = Guid.NewGuid(),
+            authorUserId = (long)sequence,
+            input = new { sequence },
+        })).ToArray();
+        var ended = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.SessionEnded });
+
+        blocked.ReleaseFirstSend.SetResult();
+        await Task.WhenAll(previews.Append(permanent).Append(ended));
+
+        Assert.IsTrue(blocked.Payloads.Any(payload =>
+            JsonDocument.Parse(payload).RootElement.GetProperty("type").GetString() == PaintEventNames.SessionEnded));
+        Assert.AreEqual(64, blocked.Payloads.Count);
+    }
+
+    [TestMethod]
+    public async Task BroadcastToChannelAsync_PermanentCapacityAbortsSocket()
+    {
+        RouteChannelFiveToUserOne();
+        var blocked = CreateBlockingSocket();
+        _bus.AddClient(blocked.Socket.Object, 1L);
+
+        var permanent = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.StrokeCommitted });
+        await blocked.FirstSendStarted.Task;
+        var queued = Enumerable.Range(1, 64).Select(sequence => _bus.BroadcastToChannelAsync(5, new
+        {
+            type = PaintEventNames.StrokeCommitted,
+            sequence,
+        })).ToArray();
+        var cleared = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.CanvasCleared });
+
+        blocked.ReleaseFirstSend.SetResult();
+        await Task.WhenAll(queued.Append(permanent).Append(cleared));
+
+        blocked.Socket.Verify(socket => socket.Abort(), Times.Once);
+        Assert.IsFalse(_bus.HasConnectedClient(1L));
+    }
+
+    [TestMethod]
     public async Task BroadcastAsync_NoClientsDoesNotThrow()
     {
         await _bus.BroadcastAsync(new { type = "test" });
@@ -251,4 +336,47 @@ public class BrmbleEventBusTests
             .Returns(Task.CompletedTask);
         return mock;
     }
+
+    private void RouteChannelFiveToUserOne()
+    {
+        _channelMembership.Setup(x => x.GetSessionsInChannel(5)).Returns([10]);
+        _sessionMapping.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [10] = new("@user:test", "User", 1L, "bee"),
+        });
+    }
+
+    private static BlockingSocket CreateBlockingSocket()
+    {
+        var socket = CreateMockWebSocket(WebSocketState.Open);
+        var firstSendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstSend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var payloads = new List<string>();
+        var sendCount = 0;
+
+        socket.Setup(webSocket => webSocket.SendAsync(
+                It.IsAny<ArraySegment<byte>>(),
+                WebSocketMessageType.Text,
+                true,
+                It.IsAny<CancellationToken>()))
+            .Returns(async (ArraySegment<byte> bytes, WebSocketMessageType _, bool _, CancellationToken _) =>
+            {
+                if (Interlocked.Increment(ref sendCount) == 1)
+                {
+                    firstSendStarted.SetResult();
+                    await releaseFirstSend.Task;
+                }
+
+                lock (payloads)
+                    payloads.Add(Encoding.UTF8.GetString(bytes));
+            });
+
+        return new BlockingSocket(socket, firstSendStarted, releaseFirstSend, payloads);
+    }
+
+    private sealed record BlockingSocket(
+        Mock<WebSocket> Socket,
+        TaskCompletionSource FirstSendStarted,
+        TaskCompletionSource ReleaseFirstSend,
+        List<string> Payloads);
 }
