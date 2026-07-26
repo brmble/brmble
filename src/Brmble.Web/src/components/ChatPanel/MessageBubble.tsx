@@ -43,7 +43,7 @@ interface MessageBubbleProps {
   isReplyTargetHighlighted?: boolean;
   onReplyClick?: (eventId: string) => void;
   onDismiss?: (messageId: string) => void;
-  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string, reactions?: Record<string, string[]>, redacted?: boolean) => void;
+  onOpenContextMenu?: (x: number, y: number, sender: string, senderMatrixUserId?: string, content?: string, messageId?: string, msgType?: string, reactions?: Record<string, string[]>, redacted?: boolean, attachment?: MediaAttachment) => void;
   reactions?: Record<string, string[]>;
   redacted?: boolean;
   currentUserMatrixId?: string;
@@ -278,6 +278,20 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
                 key={i}
                 attachment={attachment}
                 onOpenLightbox={setLightboxUrl}
+                onOpenContextMenu={(x, y, clickedAttachment) => {
+                  onOpenContextMenu?.(
+                    x,
+                    y,
+                    sender,
+                    senderMatrixUserId,
+                    content,
+                    messageId,
+                    undefined,
+                    reactions,
+                    redacted,
+                    clickedAttachment,
+                  );
+                }}
               />
             ))}
           </div>

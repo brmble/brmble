@@ -5,7 +5,7 @@ import { MessageInput } from './MessageInput';
 import { BrmbleLogo } from '../Header/BrmbleLogo';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
-import type { ChatMessage, MentionableUser } from '../../types';
+import type { ChatMessage, MediaAttachment, MentionableUser } from '../../types';
 import { ScreenShareGrid } from '../ScreenShareGrid';
 import type { ShareInfo, ViewerQuality } from '../../hooks/useScreenShare';
 import type { ScreenShareQuality } from '../../utils/screenShareQuality';
@@ -16,6 +16,7 @@ import { Icon } from '../Icon/Icon';
 import Avatar from '../Avatar/Avatar';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import { buildMessageEditContent, canEditMessage } from '../../utils/matrixMessageEditing';
+import { isPaintSourceAttachment } from '../../utils/chatImagePaintSource';
 import type { PaintSessionStatus } from '../../types/paint';
 import './ChatPanel.css';
 
@@ -57,6 +58,7 @@ interface ChatPanelProps {
   paintSessionStatuses?: Record<string, PaintSessionStatus>;
   onJoinPaint?: (sessionId: string) => Promise<void> | void;
   onOpenPaint?: (sessionId: string) => void;
+  onUseAsPaintBackground?: (attachment: MediaAttachment) => void | Promise<void>;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -64,7 +66,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint, onUseAsPaintBackground }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -180,7 +182,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const messageElMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const hiddenSetRef = useRef<Set<string>>(new Set());
   const replyHighlightTimeoutRef = useRef<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string; reactions?: Record<string, string[]> } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string; reactions?: Record<string, string[]>; attachment?: MediaAttachment } | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
   sender: string;
@@ -994,9 +996,9 @@ const [replyState, setReplyState] = useState<{
                     isReplyTargetHighlighted={highlightedMessageId === item.message.id}
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={onMessageContextMenu ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted) => {
+                    onOpenContextMenu={(onMessageContextMenu || onUseAsPaintBackground) ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted, attachment) => {
                       if (!redacted) {
-                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, reactions });
+                        setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, reactions, attachment });
                       }
                     } : undefined}
                     reactions={item.message.reactions}
@@ -1022,6 +1024,21 @@ const [replyState, setReplyState] = useState<{
             y={contextMenu.y}
             items={((): ContextMenuItem[] => {
               const items: ContextMenuItem[] = [];
+              if (
+                contextMenu.attachment
+                && onUseAsPaintBackground
+                && isPaintSourceAttachment(contextMenu.attachment)
+              ) {
+                items.push({
+                  type: 'item',
+                  label: 'Use as paint background',
+                  onClick: () => {
+                    void onUseAsPaintBackground(contextMenu.attachment!);
+                    setContextMenu(null);
+                  },
+                });
+                items.push({ type: 'divider' });
+              }
               // Only show reactions menu when Matrix room ID is present (Matrix-backed chat)
               if (contextMenu.messageId && onToggleReaction && channelId && matrixRoomId) {
                 items.push({

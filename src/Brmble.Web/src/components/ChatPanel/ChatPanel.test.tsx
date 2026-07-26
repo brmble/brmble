@@ -19,6 +19,128 @@ beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
+describe('ChatPanel image paint background menu', () => {
+  const image = {
+    type: 'image' as const,
+    url: 'https://matrix.example/shared.png',
+    filename: 'shared.png',
+    mimetype: 'image/png',
+    size: 123,
+  };
+  const imageMessage = {
+    id: '$image',
+    channelId: '42',
+    sender: 'Alice',
+    content: '',
+    timestamp: new Date(),
+    msgType: 'm.image',
+    media: [image],
+  };
+
+  it('shows the image action and preserves normal message actions', async () => {
+    const user = userEvent.setup();
+    const onUseAsPaintBackground = vi.fn();
+    const { container } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[imageMessage]}
+        onSendMessage={() => {}}
+        onCopyToClipboard={() => {}}
+        onUseAsPaintBackground={onUseAsPaintBackground}
+      />,
+    );
+
+    const imageButton = container.querySelector('.image-attachment');
+    expect(imageButton).not.toBeNull();
+    fireEvent.contextMenu(imageButton!, { clientX: 40, clientY: 50 });
+
+    expect(screen.getByRole('button', {
+      name: 'Use as paint background',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reply' }))
+      .toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {
+      name: 'Use as paint background',
+    }));
+    expect(onUseAsPaintBackground).toHaveBeenCalledWith(image);
+  });
+
+  it('does not show the action for a plain-text message', () => {
+    render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          ...imageMessage,
+          id: '$text',
+          content: 'hello',
+          msgType: 'm.text',
+          media: undefined,
+        }]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('hello'), {
+      clientX: 40,
+      clientY: 50,
+    });
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
+  });
+
+  it('does not show the action for a redacted image message', () => {
+    render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{ ...imageMessage, redacted: true }]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('Message deleted'), {
+      clientX: 40,
+      clientY: 50,
+    });
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
+  });
+
+  it('removes the action when the image is unavailable', () => {
+    const { container } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[imageMessage]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.error(container.querySelector('.image-attachment__img')!);
+    fireEvent.contextMenu(screen.getByText('Failed to load image'), {
+      clientX: 40,
+      clientY: 50,
+    });
+
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
+  });
+});
+
 describe('ChatPanel typing indicator', () => {
   it('renders the typing indicator above the composer when text is present', () => {
     render(
