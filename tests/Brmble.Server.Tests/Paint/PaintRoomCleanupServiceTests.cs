@@ -18,6 +18,7 @@ public sealed class PaintRoomCleanupServiceTests
         await fixture.Service.ProcessPendingAsync(CancellationToken.None);
 
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
         Assert.IsEmpty(await fixture.Repository.GetPendingAsync());
     }
 
@@ -32,6 +33,7 @@ public sealed class PaintRoomCleanupServiceTests
 
         var pending = (await fixture.Repository.GetPendingAsync()).Single();
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
         Assert.AreEqual(1, pending.Attempts);
         Assert.AreEqual("MATRIX_ROOM_DELETE_FAILED", pending.LastError);
     }
@@ -45,6 +47,7 @@ public sealed class PaintRoomCleanupServiceTests
         await fixture.Service.ProcessPendingAsync(CancellationToken.None);
 
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
         Assert.IsEmpty(await fixture.Repository.GetPendingAsync());
     }
 
@@ -82,6 +85,7 @@ public sealed class PaintRoomCleanupServiceTests
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public Queue<MatrixPaintRoomCleanupResult> Results { get; } = [];
+        public List<string> DeletedRoomIds { get; } = [];
         public int DeleteCalls { get; private set; }
 
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -93,6 +97,7 @@ public sealed class PaintRoomCleanupServiceTests
         public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
         {
             DeleteCalls++;
+            DeletedRoomIds.Add(roomId);
             return Task.FromResult(Results.Dequeue());
         }
     }
