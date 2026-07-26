@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
+import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
@@ -75,6 +75,7 @@ import { gameDisplayName } from './utils/games';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
+import { prepareChatImagePaintSource } from './utils/chatImagePaintSource';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1069,6 +1070,10 @@ function App() {
   const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
   const [showPaintSetup, setShowPaintSetup] = useState(false);
+  const [paintSetupInitialSource, setPaintSetupInitialSource] =
+    useState<File | null>(null);
+  const [paintBackgroundError, setPaintBackgroundError] =
+    useState<string | null>(null);
   const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
   const activePaintChannelIdRef = useRef<string | undefined>(undefined);
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
@@ -4257,6 +4262,51 @@ const handleConnect = (serverData: SavedServer) => {
   const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
   const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
+  const openEmptyPaintSetup = useCallback(() => {
+    setPaintSetupInitialSource(null);
+    setShowPaintSetup(true);
+  }, []);
+  const closePaintSetup = useCallback(() => {
+    setShowPaintSetup(false);
+    setPaintSetupInitialSource(null);
+  }, []);
+  const handleUseAsPaintBackground = useCallback(
+    async (attachment: MediaAttachment) => {
+      const accepted = await confirm({
+        title: 'Use image as paint background?',
+        message:
+          'Open Start collaborative paint with this image selected?',
+        confirmLabel: 'Yes',
+        cancelLabel: 'No',
+      });
+      if (!accepted) return;
+
+      try {
+        if (!canStartPaint) {
+          throw new Error('Paint setup is no longer available.');
+        }
+        const prepared =
+          await prepareChatImagePaintSource(attachment);
+        setPaintBackgroundError(null);
+        notifQueue.unregister('paint-background-error');
+        setPaintSetupInitialSource(prepared);
+        setShowPaintSetup(true);
+      } catch (reason) {
+        console.error(
+          '[Paint] Failed to prepare chat image background:',
+          reason,
+        );
+        setPaintSetupInitialSource(null);
+        setShowPaintSetup(false);
+        setPaintBackgroundError(
+          "This image couldn't be prepared. "
+          + 'Try again from the chat image.',
+        );
+        notifQueue.register('paint-background-error', 'error');
+      }
+    },
+    [canStartPaint, notifQueue],
+  );
   const paintCandidates = paintChannelId === null
     ? []
     : users
@@ -4308,7 +4358,7 @@ const handleConnect = (serverData: SavedServer) => {
         deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
         isMaximized={isMaximized}
-        onStartPaint={() => setShowPaintSetup(true)}
+        onStartPaint={openEmptyPaintSetup}
         canStartPaint={canStartPaint}
         activePaintSessionId={activePaintSessionId}
       />
@@ -4322,12 +4372,13 @@ const handleConnect = (serverData: SavedServer) => {
           paintApi={paintApi}
           matrixClient={matrixClient.client}
           onAttachSource={paintApi.attachSource}
+          initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             activePaintChannelIdRef.current = currentChannelId;
             setActivePaintSessionId(sessionId);
-            setShowPaintSetup(false);
+            closePaintSetup();
           }}
-          onClose={() => setShowPaintSetup(false)}
+          onClose={closePaintSetup}
         />
       )}
       
@@ -4431,6 +4482,9 @@ const handleConnect = (serverData: SavedServer) => {
                         paintSessionStatuses={paintSessionStatuses}
                         onJoinPaint={handleJoinPaint}
                         onOpenPaint={handleOpenPaint}
+                        onUseAsPaintBackground={
+                          canStartPaint ? handleUseAsPaintBackground : undefined
+                        }
                       />
                     </VerticalSplitPane>
                   </ErrorBoundary>
@@ -4598,6 +4652,24 @@ const handleConnect = (serverData: SavedServer) => {
       )}
 
       <div className="notification-stack">
+        {paintBackgroundError
+          && notifQueue.isVisible('paint-background-error')
+          && (
+            <Notification
+              status="error"
+              position="top-right"
+              visible={true}
+              title="Paint background unavailable"
+              detail={paintBackgroundError}
+              onDismiss={() => {
+                notifQueue.unregister('paint-background-error');
+                setPaintBackgroundError(null);
+              }}
+              onExited={() => {
+                notifQueue.unregister('paint-background-error');
+              }}
+            />
+          )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"

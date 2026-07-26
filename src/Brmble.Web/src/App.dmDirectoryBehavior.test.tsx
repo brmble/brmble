@@ -1,9 +1,24 @@
-import { act, render, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
-import type { ChatMessage } from './types';
+import type { ChatMessage, MediaAttachment } from './types';
+
+const paintSourceMocks = vi.hoisted(() => ({
+  prepare: vi.fn(),
+}));
+
+vi.mock('./utils/chatImagePaintSource', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('./utils/chatImagePaintSource')
+  >();
+  return {
+    ...actual,
+    prepareChatImagePaintSource: paintSourceMocks.prepare,
+  };
+});
 
 const mockValues = vi.hoisted(() => {
   let dmChatPanelProps: Record<string, unknown> | undefined;
@@ -67,10 +82,22 @@ const mockValues = vi.hoisted(() => {
     roomQuality: undefined as string | undefined, shareQualities: new Map<number, string>(), viewerQualities: new Map<number, string>(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
     disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), setViewerQuality: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
-  const notificationQueue = { register: vi.fn(), unregister: vi.fn(), isVisible: vi.fn(() => false), visibleCount: 0, totalCount: 0 };
+  const notificationQueueIds = new Set<string>();
+  const notificationQueue = {
+    register: vi.fn((id: string) => {
+      notificationQueueIds.add(id);
+    }),
+    unregister: vi.fn((id: string) => {
+      notificationQueueIds.delete(id);
+    }),
+    isVisible: vi.fn((id: string) => notificationQueueIds.has(id)),
+    visibleCount: 0,
+    totalCount: 0,
+  };
 
   return {
-    matrixClient, dmStore, unreadTracker, idleActions, screenShare, notificationQueue,
+    matrixClient, dmStore, unreadTracker, idleActions, screenShare,
+    notificationQueue, notificationQueueIds,
     get dmChatPanelProps() { return dmChatPanelProps; },
     setDmChatPanelProps: (props: Record<string, unknown> | undefined) => { dmChatPanelProps = props; },
     get channelChatPanelProps() { return channelChatPanelProps; },
@@ -110,7 +137,13 @@ vi.mock('./components/ChatPanel/ChatPanel', () => ({
   ChatPanel: (props: Record<string, unknown>) => {
     if (props.isDM) mockValues.setDmChatPanelProps(props);
     else mockValues.setChannelChatPanelProps(props);
-    return <section />;
+    return (
+      <section
+        data-testid={
+          props.isDM ? 'dm-chat-panel' : 'channel-chat-panel'
+        }
+      />
+    );
   },
 }));
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => <section /> }));
@@ -152,9 +185,57 @@ function renderConnectedApp() {
   return view;
 }
 
+function renderPaintReadyApp() {
+  const view = render(
+    <ServiceStatusProvider>
+      <App />
+    </ServiceStatusProvider>,
+  );
+  act(() => {
+    (bridge as unknown as {
+      __emit: (event: string, data?: unknown) => void;
+    }).__emit('server.credentials', {
+      matrix: {
+        homeserverUrl: 'https://example.com',
+        accessToken: 'token',
+        userId: '@me:example.com',
+        roomMap: { '1': '!general:example.com' },
+      },
+    });
+    (bridge as unknown as {
+      __emit: (event: string, data?: unknown) => void;
+    }).__emit('voice.connected', {
+      username: 'Me',
+      channelId: 1,
+      channels: [{ id: 1, name: 'General' }],
+      users: [{
+        session: 7,
+        name: 'Me',
+        self: true,
+        channelId: 1,
+      }],
+    });
+  });
+  return view;
+}
+
+const sharedImage: MediaAttachment = {
+  type: 'image',
+  url: 'https://matrix.example/shared.png',
+  filename: 'shared.png',
+  mimetype: 'image/png',
+};
+
 describe('DM route Matrix isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    paintSourceMocks.prepare.mockReset();
+    mockValues.notificationQueueIds.clear();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn().mockReturnValue('blob:setup-preview'),
+      revokeObjectURL: vi.fn(),
+    });
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
     mockValues.setDmChatPanelProps(undefined);
@@ -179,6 +260,115 @@ describe('DM route Matrix isolation', () => {
     mockValues.unreadTracker.getRoomUnread.mockReturnValue({ notificationCount: 0, highlightCount: 0, fullyReadEventId: null });
     mockValues.unreadTracker.getMarkerTimestamp.mockReturnValue(null);
     mockValues.matrixClient.client.getRoom.mockReturnValue(undefined);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('offers chat-image paint setup only on the normal channel panel', async () => {
+    renderPaintReadyApp();
+
+    await waitFor(() => {
+      expect(mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground).toEqual(expect.any(Function));
+    });
+    expect(mockValues.dmChatPanelProps)
+      .not.toHaveProperty('onUseAsPaintBackground');
+  });
+
+  it('does nothing when the user chooses No', async () => {
+    const user = userEvent.setup();
+    renderPaintReadyApp();
+    const channelChat = screen.getByTestId('channel-chat-panel');
+
+    await act(async () => {
+      void (mockValues.channelChatPanelProps
+        ?.onUseAsPaintBackground as (
+          attachment: MediaAttachment,
+        ) => Promise<void>)(sharedImage);
+    });
+
+    expect(await screen.findByRole('dialog', {
+      name: 'Use image as paint background?',
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'No' }));
+
+    expect(paintSourceMocks.prepare).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
+    expect(screen.getByTestId('channel-chat-panel')).toBe(channelChat);
+  });
+
+  it('prepares after Yes and opens setup with the exact chat image', async () => {
+    const user = userEvent.setup();
+    const prepared = new File(
+      ['prepared'],
+      'shared.png',
+      { type: 'image/png' },
+    );
+    paintSourceMocks.prepare.mockResolvedValue(prepared);
+    renderPaintReadyApp();
+
+    void (mockValues.channelChatPanelProps
+      ?.onUseAsPaintBackground as (
+        attachment: MediaAttachment,
+      ) => Promise<void>)(sharedImage);
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Yes',
+    }));
+
+    expect(paintSourceMocks.prepare).toHaveBeenCalledWith(sharedImage);
+    expect(await screen.findByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).toBeInTheDocument();
+    expect(screen.getByText('shared.png')).toBeInTheDocument();
+  });
+
+  it('shows a retryable error and leaves setup closed when preparation fails', async () => {
+    const user = userEvent.setup();
+    paintSourceMocks.prepare.mockRejectedValue(
+      new Error('download failed'),
+    );
+    renderPaintReadyApp();
+
+    void (mockValues.channelChatPanelProps
+      ?.onUseAsPaintBackground as (
+        attachment: MediaAttachment,
+      ) => Promise<void>)(sharedImage);
+    await user.click(await screen.findByRole('button', {
+      name: 'Yes',
+    }));
+
+    expect(await screen.findByRole('alert'))
+      .toHaveTextContent('Paint background unavailable');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "This image couldn't be prepared. Try again from the chat image.",
+    );
+    expect(screen.queryByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).not.toBeInTheDocument();
+    expect(mockValues.notificationQueue.register)
+      .toHaveBeenCalledWith('paint-background-error', 'error');
+
+    paintSourceMocks.prepare.mockResolvedValue(
+      new File(['prepared'], 'shared.png', { type: 'image/png' }),
+    );
+    void (mockValues.channelChatPanelProps
+      ?.onUseAsPaintBackground as (
+        attachment: MediaAttachment,
+      ) => Promise<void>)(sharedImage);
+    await user.click(await screen.findByRole('button', {
+      name: 'Yes',
+    }));
+
+    expect(await screen.findByRole('dialog', {
+      name: 'Start collaborative paint',
+    })).toBeInTheDocument();
   });
 
   it('omits Matrix state from an online Mumble DM route', () => {
