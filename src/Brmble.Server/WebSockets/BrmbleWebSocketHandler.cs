@@ -47,8 +47,6 @@ public static class BrmbleWebSocketHandler
             await eventBus.BroadcastAsync(CreateUserMappingAddedPayload(currentSessionId, currentMapping, hash));
         }
 
-        eventBus.AddClient(ws, user.Id);
-
         try
         {
             // Send initial snapshot
@@ -66,6 +64,7 @@ public static class BrmbleWebSocketHandler
             var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
             var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
             await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, context.RequestAborted);
+            eventBus.AddClient(ws, user.Id);
 
             // Read loop until close
             var buffer = new byte[1024];

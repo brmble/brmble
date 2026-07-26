@@ -288,6 +288,31 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task RemoveClient_CompletesQueuedBroadcastsAndStopsDrain()
+    {
+        var blocked = CreateBlockingSocket();
+        _bus.AddClient(blocked.Socket.Object, 1L);
+
+        var inFlight = _bus.BroadcastAsync(new { type = "in-flight" });
+        await blocked.FirstSendStarted.Task;
+        var queuedOne = _bus.BroadcastAsync(new { type = "queued-one" });
+        var queuedTwo = _bus.BroadcastAsync(new { type = "queued-two" });
+
+        _bus.RemoveClient(blocked.Socket.Object);
+        blocked.ReleaseFirstSend.SetResult();
+        var broadcasts = Task.WhenAll(inFlight, queuedOne, queuedTwo);
+        var completed = await Task.WhenAny(broadcasts, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        Assert.AreSame(broadcasts, completed, "Queued broadcasts must settle when a client is removed.");
+        await broadcasts;
+        blocked.Socket.Verify(socket => socket.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            WebSocketMessageType.Text,
+            true,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
     public async Task BroadcastAsync_NoClientsDoesNotThrow()
     {
         await _bus.BroadcastAsync(new { type = "test" });

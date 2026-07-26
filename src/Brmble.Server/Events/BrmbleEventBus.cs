@@ -81,14 +81,20 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public void AddClient(WebSocket ws, long userId)
     {
-        _clients[ws] = userId;
         _socketDeliveries.TryAdd(ws, new SocketDelivery());
+        _clients[ws] = userId;
     }
 
     public void RemoveClient(WebSocket ws)
     {
         _clients.TryRemove(ws, out _);
-        _socketDeliveries.TryRemove(ws, out _);
+        if (_socketDeliveries.TryRemove(ws, out var delivery))
+        {
+            lock (delivery.Gate)
+            {
+                FailDeliveryLocked(delivery, new WebSocketException("WebSocket client is no longer connected."));
+            }
+        }
     }
 
     public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
