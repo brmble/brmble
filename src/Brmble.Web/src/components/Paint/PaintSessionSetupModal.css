@@ -1,1 +1,47 @@
-.paint-setup-backdrop { position:fixed; inset:0; display:grid; place-items:center; background:var(--bg-overlay); z-index:300; }.paint-setup-modal { display:grid; gap:12px; min-width:320px; padding:20px; border-radius:12px; background:var(--bg-primary); color:var(--text-primary); }.paint-setup-modal label { display:flex; gap:8px; align-items:center; }.paint-setup-modal [role=alert] { color:var(--accent-danger-text); }
+.paint-setup-modal {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: calc(var(--space-3xl) * 5);
+  max-width: min(90vw, calc(var(--space-3xl) * 8));
+  padding: var(--space-lg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.paint-setup-modal label {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.paint-setup-source {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.paint-setup-source__preview {
+  width: 100%;
+  max-height: calc(var(--space-3xl) * 4);
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  background: var(--bg-surface);
+}
+
+.paint-setup-source__name {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paint-setup-modal [role='alert'] {
+  color: var(--accent-danger-text);
+}
+
+.paint-setup-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
