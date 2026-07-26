@@ -307,6 +307,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                     oldestPreview = oldestPreview.Next;
                 if (oldestPreview is null)
                 {
+                    FailDeliveryLocked(delivery, new WebSocketException("WebSocket delivery queue is full."));
                     RemoveClientAndAbort(ws);
                     var exception = new WebSocketException("WebSocket delivery queue is full.");
                     exception.Data["SocketQueueFull"] = true;
@@ -335,6 +336,16 @@ public class BrmbleEventBus : IBrmbleEventBus
         }
     }
 
+    private static void FailDeliveryLocked(SocketDelivery delivery, Exception failure)
+    {
+        delivery.Failure ??= failure;
+        foreach (var queued in delivery.Queue)
+            queued.Completion.TrySetException(delivery.Failure);
+        delivery.Queue.Clear();
+        delivery.Previews.Clear();
+        delivery.Draining = false;
+    }
+
     private async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
     {
         while (true)
@@ -342,6 +353,9 @@ public class BrmbleEventBus : IBrmbleEventBus
             QueuedSocketMessage message;
             lock (delivery.Gate)
             {
+                if (delivery.Failure is not null)
+                    return;
+
                 if (delivery.Queue.First is not { } first)
                 {
                     delivery.Draining = false;
@@ -364,12 +378,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                 message.Completion.TrySetException(ex);
                 lock (delivery.Gate)
                 {
-                    delivery.Failure = ex;
-                    foreach (var queued in delivery.Queue)
-                        queued.Completion.TrySetException(ex);
-                    delivery.Queue.Clear();
-                    delivery.Previews.Clear();
-                    delivery.Draining = false;
+                    FailDeliveryLocked(delivery, ex);
                 }
                 RemoveClientAndAbort(ws);
                 return;

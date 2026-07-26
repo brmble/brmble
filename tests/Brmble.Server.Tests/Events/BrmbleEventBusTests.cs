@@ -260,6 +260,34 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task BroadcastAsync_FullPermanentQueueStopsDrainAndCompletesQueuedBroadcasts()
+    {
+        var blocked = CreateBlockingSocket();
+        _bus.AddClient(blocked.Socket.Object, 1L);
+
+        var inFlight = _bus.BroadcastAsync(new { type = "in-flight" });
+        await blocked.FirstSendStarted.Task;
+        var queued = Enumerable.Range(1, 64)
+            .Select(sequence => _bus.BroadcastAsync(new { type = "queued", sequence }))
+            .ToArray();
+
+        var overflow = _bus.BroadcastAsync(new { type = "overflow" });
+        await Assert.ThrowsExceptionAsync<WebSocketException>(() => overflow);
+
+        blocked.ReleaseFirstSend.SetResult();
+        var queuedBroadcasts = Task.WhenAll(queued.Append(inFlight));
+        var completed = await Task.WhenAny(queuedBroadcasts, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        Assert.AreSame(queuedBroadcasts, completed, "Queued broadcasts must not wait indefinitely after a full-queue abort.");
+        await queuedBroadcasts;
+        blocked.Socket.Verify(socket => socket.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            WebSocketMessageType.Text,
+            true,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
     public async Task BroadcastAsync_NoClientsDoesNotThrow()
     {
         await _bus.BroadcastAsync(new { type = "test" });
