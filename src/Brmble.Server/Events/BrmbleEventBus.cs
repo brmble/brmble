@@ -85,6 +85,26 @@ public class BrmbleEventBus : IBrmbleEventBus
         _clients[ws] = userId;
     }
 
+    public Task AddClientWithInitialMessageAsync(WebSocket ws, long userId, object message)
+    {
+        var json = SerializeForWebSocketForTest(message);
+        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+        var (eventType, previewKey) = GetDeliveryMetadata(message);
+        var delivery = new SocketDelivery();
+        _socketDeliveries[ws] = delivery;
+
+        Task initial;
+        lock (delivery.Gate)
+        {
+            delivery.Draining = true;
+            initial = QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: false);
+        }
+
+        _clients[ws] = userId;
+        StartDrain(ws, delivery);
+        return initial;
+    }
+
     public void RemoveClient(WebSocket ws)
     {
         _clients.TryRemove(ws, out _);
@@ -306,48 +326,62 @@ public class BrmbleEventBus : IBrmbleEventBus
             if (delivery.Failure is not null)
                 return Task.FromException(delivery.Failure);
 
-            if (eventType == PaintEventNames.PreviewUpdated && previewKey is { } key &&
-                delivery.Previews.Remove(key, out var olderPreview))
-            {
-                delivery.Queue.Remove(olderPreview);
-                olderPreview.Value.Completion.TrySetResult();
-            }
-
-            if (delivery.Queue.Count == SocketQueueCapacity)
-            {
-                var oldestPreview = delivery.Queue.First;
-                while (oldestPreview is not null && !oldestPreview.Value.IsPreview)
-                    oldestPreview = oldestPreview.Next;
-                if (oldestPreview is null)
-                {
-                    FailDeliveryLocked(delivery, new WebSocketException("WebSocket delivery queue is full."));
-                    RemoveClientAndAbort(ws);
-                    var exception = new WebSocketException("WebSocket delivery queue is full.");
-                    exception.Data["SocketQueueFull"] = true;
-                    return Task.FromException(exception);
-                }
-
-                delivery.Queue.Remove(oldestPreview);
-                if (oldestPreview.Value.PreviewKey is { } oldestPreviewKey)
-                    delivery.Previews.Remove(oldestPreviewKey);
-                oldestPreview.Value.Completion.TrySetResult();
-            }
-
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var queued = new QueuedSocketMessage(bytes, eventType == PaintEventNames.PreviewUpdated, previewKey, completion);
-            var node = delivery.Queue.AddLast(queued);
-            if (previewKey is { } preview)
-                delivery.Previews[preview] = node;
-
-            if (!delivery.Draining)
-            {
-                delivery.Draining = true;
-                _ = DrainSocketAsync(ws, delivery);
-            }
-
-            return completion.Task;
+            return QueueSendLocked(ws, delivery, bytes, eventType, previewKey, startDrain: true);
         }
     }
+
+    private Task QueueSendLocked(
+        WebSocket ws,
+        SocketDelivery delivery,
+        ArraySegment<byte> bytes,
+        string? eventType,
+        (string SessionId, long AuthorUserId)? previewKey,
+        bool startDrain)
+    {
+        if (eventType == PaintEventNames.PreviewUpdated && previewKey is { } key &&
+            delivery.Previews.Remove(key, out var olderPreview))
+        {
+            delivery.Queue.Remove(olderPreview);
+            olderPreview.Value.Completion.TrySetResult();
+        }
+
+        if (delivery.Queue.Count == SocketQueueCapacity)
+        {
+            var oldestPreview = delivery.Queue.First;
+            while (oldestPreview is not null && !oldestPreview.Value.IsPreview)
+                oldestPreview = oldestPreview.Next;
+            if (oldestPreview is null)
+            {
+                FailDeliveryLocked(delivery, new WebSocketException("WebSocket delivery queue is full."));
+                RemoveClientAndAbort(ws);
+                var exception = new WebSocketException("WebSocket delivery queue is full.");
+                exception.Data["SocketQueueFull"] = true;
+                return Task.FromException(exception);
+            }
+
+            delivery.Queue.Remove(oldestPreview);
+            if (oldestPreview.Value.PreviewKey is { } oldestPreviewKey)
+                delivery.Previews.Remove(oldestPreviewKey);
+            oldestPreview.Value.Completion.TrySetResult();
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queued = new QueuedSocketMessage(bytes, eventType == PaintEventNames.PreviewUpdated, previewKey, completion);
+        var node = delivery.Queue.AddLast(queued);
+        if (previewKey is { } preview)
+            delivery.Previews[preview] = node;
+
+        if (startDrain && !delivery.Draining)
+        {
+            delivery.Draining = true;
+            StartDrain(ws, delivery);
+        }
+
+        return completion.Task;
+    }
+
+    private void StartDrain(WebSocket ws, SocketDelivery delivery)
+        => _ = DrainSocketAsync(ws, delivery);
 
     private static void FailDeliveryLocked(SocketDelivery delivery, Exception failure)
     {

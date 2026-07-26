@@ -176,6 +176,25 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task AddClientWithInitialMessageAsync_SerializesBroadcastsAfterInitialMessage()
+    {
+        var blocked = CreateBlockingSocket();
+
+        var initial = _bus.AddClientWithInitialMessageAsync(blocked.Socket.Object, 1L, new { type = "sessionMappingSnapshot" });
+        await blocked.FirstSendStarted.Task;
+        var broadcast = _bus.BroadcastAsync(new { type = "delta" });
+
+        blocked.ReleaseFirstSend.SetResult();
+        await Task.WhenAll(initial, broadcast);
+
+        Assert.AreEqual(2, blocked.Payloads.Count);
+        using var first = JsonDocument.Parse(blocked.Payloads[0]);
+        using var second = JsonDocument.Parse(blocked.Payloads[1]);
+        Assert.AreEqual("sessionMappingSnapshot", first.RootElement.GetProperty("type").GetString());
+        Assert.AreEqual("delta", second.RootElement.GetProperty("type").GetString());
+    }
+
+    [TestMethod]
     public async Task BroadcastToChannelAsync_CoalescesQueuedPreviewsBySessionAndAuthor()
     {
         RouteChannelFiveToUserOne();

@@ -1,6 +1,4 @@
 using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 
@@ -8,8 +6,6 @@ namespace Brmble.Server.WebSockets;
 
 public static class BrmbleWebSocketHandler
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     public static async Task HandleAsync(HttpContext context)
     {
         if (!context.WebSockets.IsWebSocketRequest)
@@ -61,10 +57,7 @@ public static class BrmbleWebSocketHandler
                         certHash = kvp.Value.CertHash,
                         isBrmbleClient = kvp.Value.IsBrmbleClient
                     });
-            var snapshotJson = JsonSerializer.Serialize(new { type = "sessionMappingSnapshot", mappings = snapshot }, JsonOptions);
-            var snapshotBytes = Encoding.UTF8.GetBytes(snapshotJson);
-            await ws.SendAsync(snapshotBytes, WebSocketMessageType.Text, true, context.RequestAborted);
-            eventBus.AddClient(ws, user.Id);
+            await eventBus.AddClientWithInitialMessageAsync(ws, user.Id, new { type = "sessionMappingSnapshot", mappings = snapshot });
 
             // Read loop until close
             var buffer = new byte[1024];
