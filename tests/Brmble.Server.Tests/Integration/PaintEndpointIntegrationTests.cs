@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
@@ -17,6 +18,11 @@ namespace Brmble.Server.Tests.Integration;
 [TestClass]
 public sealed class PaintEndpointIntegrationTests
 {
+    private static readonly JsonSerializerOptions PaintJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
+
     private sealed record CreatePaintSessionResponse(Guid SessionId);
 
     [TestMethod]
@@ -68,7 +74,7 @@ public sealed class PaintEndpointIntegrationTests
             .EnsureSuccessStatusCode();
 
         var invited = await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
-            $"/paint/sessions/{created.SessionId}/summary");
+            $"/paint/sessions/{created.SessionId}/summary", PaintJsonOptions);
         Assert.IsTrue(invited!.CanJoin);
         Assert.IsFalse(invited.IsParticipant);
         Assert.AreEqual(
@@ -80,7 +86,7 @@ public sealed class PaintEndpointIntegrationTests
             $"/paint/sessions/{created.SessionId}/join",
             null)).EnsureSuccessStatusCode();
         var joined = await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
-            $"/paint/sessions/{created.SessionId}/summary");
+            $"/paint/sessions/{created.SessionId}/summary", PaintJsonOptions);
         Assert.IsTrue(joined!.IsParticipant);
 
         await app.Manager.HandleSessionDisconnectedAsync(
@@ -89,7 +95,7 @@ public sealed class PaintEndpointIntegrationTests
 
         var reconnected =
             await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
-                $"/paint/sessions/{created.SessionId}/summary");
+                $"/paint/sessions/{created.SessionId}/summary", PaintJsonOptions);
         Assert.IsTrue(reconnected!.CanJoin);
         Assert.IsFalse(reconnected.IsParticipant);
         Assert.AreEqual(
@@ -102,7 +108,7 @@ public sealed class PaintEndpointIntegrationTests
             null)).EnsureSuccessStatusCode();
         Assert.IsTrue(
             (await app.Bob.GetFromJsonAsync<PaintSessionSummary>(
-                $"/paint/sessions/{created.SessionId}/summary"))!
+                $"/paint/sessions/{created.SessionId}/summary", PaintJsonOptions))!
             .IsParticipant);
     }
 
