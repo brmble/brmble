@@ -219,7 +219,8 @@ public class BrmbleEventBusTests
         var cleared = _bus.BroadcastToChannelAsync(5, new { type = PaintEventNames.CanvasCleared });
 
         blocked.ReleaseFirstSend.SetResult();
-        await Task.WhenAll(queued.Append(permanent).Append(cleared));
+        await Task.WhenAll(queued.Append(permanent));
+        await Assert.ThrowsExceptionAsync<WebSocketException>(() => cleared);
 
         blocked.Socket.Verify(socket => socket.Abort(), Times.Once);
         Assert.IsFalse(_bus.HasConnectedClient(1L));
