@@ -160,6 +160,21 @@ describe('PaintEditor', () => {
     }));
   });
 
+  it('caps an oversized gesture at 2,000 points', () => {
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 3000, height: 3000 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 0, clientY: 0, pointerId: 1 });
+    for (let coordinate = 1; coordinate <= 2000; coordinate++) {
+      fireEvent.pointerMove(canvas, { clientX: coordinate, clientY: coordinate, pointerId: 1 });
+    }
+    fireEvent.pointerUp(canvas, { clientX: 2001, clientY: 2001, pointerId: 1 });
+
+    expect(paintApi.commitStroke.mock.calls[0][1].points).toHaveLength(2000);
+  });
+
   it('does not commit a cancelled pointer gesture', () => {
     const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);

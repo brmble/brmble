@@ -14,6 +14,7 @@ type Api = {
 };
 
 export const PAINT_PREVIEW_THROTTLE_MS = 50;
+export const PAINT_MAX_POINTS_PER_STROKE = 2000;
 
 export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], currentUserId, matrixClient, onSave }: { sessionId: string; paintApi: Api; snapshot: PaintSessionSnapshot; previews?: PaintPreview[]; currentUserId: number; matrixClient?: MatrixMediaClient; onSave?: (png: Blob) => Promise<void> }) {
   const sourceRef = useRef<HTMLCanvasElement>(null);
@@ -96,6 +97,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   });
 
   const appendPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (points.current.length >= PAINT_MAX_POINTS_PER_STROKE) return;
     const point = normalizeCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
     const last = points.current.at(-1);
     if (!last || last.x !== point.x || last.y !== point.y) {
