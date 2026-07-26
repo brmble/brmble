@@ -8,6 +8,9 @@ public sealed class PaintRoomCleanupService(
     IMatrixPaintService matrix,
     ILogger<PaintRoomCleanupService>? logger = null) : BackgroundService
 {
+    private const string MatrixDeleteFailureType = "MATRIX_ROOM_DELETE_FAILED";
+    private const string ExceptionMode = "exception";
+
     public async Task ProcessPendingAsync(CancellationToken cancellationToken)
     {
         foreach (var record in await repository.GetPendingAsync(cancellationToken))
@@ -27,17 +30,25 @@ public sealed class PaintRoomCleanupService(
                     continue;
                 }
 
-                var error = result.Error ?? "MATRIX_ROOM_DELETE_FAILED";
+                var error = result.Error ?? MatrixDeleteFailureType;
                 await repository.MarkFailedAsync(record.Id, error[..Math.Min(error.Length, 256)], cancellationToken);
+                logger?.LogWarning(
+                    "Paint cleanup failed: {SessionId} {RoomId} {Attempt} {Mode} {FailureType}",
+                    record.SessionId,
+                    record.MatrixRoomId,
+                    record.Attempts + 1,
+                    result.Mode,
+                    MatrixDeleteFailureType);
             }
             catch (Exception ex)
             {
                 await repository.MarkFailedAsync(record.Id, ex.GetType().Name, cancellationToken);
                 logger?.LogWarning(
-                    "Paint cleanup threw: {SessionId} {RoomId} {Attempt} {ExceptionType}",
+                    "Paint cleanup threw: {SessionId} {RoomId} {Attempt} {Mode} {FailureType}",
                     record.SessionId,
                     record.MatrixRoomId,
                     record.Attempts + 1,
+                    ExceptionMode,
                     ex.GetType().Name);
             }
         }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Brmble.Server.Data;
 using Brmble.Server.Paint;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Paint;
@@ -39,6 +40,48 @@ public sealed class PaintRoomCleanupServiceTests
     }
 
     [TestMethod]
+    public async Task ProcessPending_LogsSafeContextForFailedCleanupResult()
+    {
+        const string rawMatrixResponse = "{\"errcode\":\"M_FORBIDDEN\",\"error\":\"access token secret\"}";
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!room:test");
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(false, "admin-delete", rawMatrixResponse));
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        var entry = fixture.Logger.Entries.Single();
+        Assert.AreEqual(LogLevel.Warning, entry.Level);
+        Assert.AreEqual(fixture.SessionId, entry.Properties["SessionId"]);
+        Assert.AreEqual("!room:test", entry.Properties["RoomId"]);
+        Assert.AreEqual("admin-delete", entry.Properties["Mode"]);
+        Assert.AreEqual(1, entry.Properties["Attempt"]);
+        Assert.AreEqual("MATRIX_ROOM_DELETE_FAILED", entry.Properties["FailureType"]);
+        Assert.IsFalse(entry.Message.Contains(rawMatrixResponse, StringComparison.Ordinal));
+        Assert.IsFalse(entry.Properties.Values.OfType<string>().Any(value => value.Contains(rawMatrixResponse, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task ProcessPending_LogsSafeContextForCleanupException()
+    {
+        const string rawExceptionMessage = "Matrix returned: {\"access_token\":\"secret\"}";
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!room:test");
+        fixture.Matrix.ExceptionToThrow = new InvalidOperationException(rawExceptionMessage);
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        var entry = fixture.Logger.Entries.Single();
+        Assert.AreEqual(LogLevel.Warning, entry.Level);
+        Assert.AreEqual(fixture.SessionId, entry.Properties["SessionId"]);
+        Assert.AreEqual("!room:test", entry.Properties["RoomId"]);
+        Assert.AreEqual("exception", entry.Properties["Mode"]);
+        Assert.AreEqual(1, entry.Properties["Attempt"]);
+        Assert.AreEqual(nameof(InvalidOperationException), entry.Properties["FailureType"]);
+        Assert.IsFalse(entry.Message.Contains(rawExceptionMessage, StringComparison.Ordinal));
+        Assert.IsFalse(entry.Properties.Values.OfType<string>().Any(value => value.Contains(rawExceptionMessage, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task ProcessPending_HandlesRecordPersistedBeforeServiceConstruction()
     {
         var fixture = await PaintRoomCleanupFixture.NewAsync(recordBeforeServiceConstruction: true);
@@ -56,6 +99,7 @@ public sealed class PaintRoomCleanupServiceTests
         public Guid SessionId { get; init; }
         public required PaintRoomCleanupRepository Repository { get; init; }
         public required FakeMatrixPaintService Matrix { get; init; }
+        public required CapturingLogger<PaintRoomCleanupService> Logger { get; init; }
         public required PaintRoomCleanupService Service { get; init; }
 
         public static async Task<PaintRoomCleanupFixture> NewAsync(bool recordBeforeServiceConstruction = false)
@@ -65,6 +109,7 @@ public sealed class PaintRoomCleanupServiceTests
             database.Initialize();
             var repository = new PaintRoomCleanupRepository(database);
             var matrix = new FakeMatrixPaintService();
+            var logger = new CapturingLogger<PaintRoomCleanupService>();
             var sessionId = Guid.NewGuid();
 
             if (recordBeforeServiceConstruction)
@@ -76,17 +121,38 @@ public sealed class PaintRoomCleanupServiceTests
             {
                 Repository = repository,
                 Matrix = matrix,
-                Service = new PaintRoomCleanupService(repository, matrix),
+                Logger = logger,
+                Service = new PaintRoomCleanupService(repository, matrix, logger),
                 SessionId = sessionId,
             };
         }
     }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<LogEntry> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var properties = state is IEnumerable<KeyValuePair<string, object?>> values
+                ? values.ToDictionary(value => value.Key, value => value.Value)
+                : [];
+            Entries.Add(new LogEntry(logLevel, properties, formatter(state, exception)));
+        }
+    }
+
+    private sealed record LogEntry(LogLevel Level, IReadOnlyDictionary<string, object?> Properties, string Message);
 
     private sealed class FakeMatrixPaintService : IMatrixPaintService
     {
         public Queue<MatrixPaintRoomCleanupResult> Results { get; } = [];
         public List<string> DeletedRoomIds { get; } = [];
         public int DeleteCalls { get; private set; }
+        public Exception? ExceptionToThrow { get; set; }
 
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -98,6 +164,7 @@ public sealed class PaintRoomCleanupServiceTests
         {
             DeleteCalls++;
             DeletedRoomIds.Add(roomId);
+            if (ExceptionToThrow is not null) throw ExceptionToThrow;
             return Task.FromResult(Results.Dequeue());
         }
     }
