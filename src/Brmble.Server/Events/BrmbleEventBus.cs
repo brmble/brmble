@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Events;
 
@@ -12,6 +13,7 @@ public class BrmbleEventBus : IBrmbleEventBus
     private readonly ILogger<BrmbleEventBus> _logger;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ISessionMappingService _sessionMapping;
+    private readonly int _socketQueueCapacity;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private sealed record QueuedMessage(ArraySegment<byte> Bytes, TaskCompletionSource Completion);
@@ -32,11 +34,18 @@ public class BrmbleEventBus : IBrmbleEventBus
     public BrmbleEventBus(
         ILogger<BrmbleEventBus> logger,
         IChannelMembershipService channelMembership,
-        ISessionMappingService sessionMapping)
+        ISessionMappingService sessionMapping,
+        IOptions<EventBusSettings> settings)
     {
         _logger = logger;
         _channelMembership = channelMembership;
         _sessionMapping = sessionMapping;
+        _socketQueueCapacity = settings.Value.SocketQueueCapacity;
+        if (_socketQueueCapacity < 1)
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                _socketQueueCapacity,
+                $"{nameof(EventBusSettings.SocketQueueCapacity)} must be at least 1.");
     }
 
     public void RemoveClient(WebSocket ws)
@@ -227,6 +236,8 @@ public class BrmbleEventBus : IBrmbleEventBus
     /// Enqueues a payload for a single socket. The returned task completes once the
     /// payload has actually been written to the socket, preserving the back-pressure
     /// the callers relied on when they awaited <see cref="WebSocket.SendAsync"/> directly.
+    /// A client that has stopped draining is disconnected once its queue is full, rather
+    /// than being allowed to accumulate payloads without bound.
     /// </summary>
     private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes)
     {
@@ -235,15 +246,37 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool startDrain;
+        Exception? overflow = null;
         lock (delivery.Gate)
         {
             if (delivery.Failure is not null)
                 return Task.FromException(delivery.Failure);
 
-            delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
-            startDrain = !delivery.Draining;
-            if (startDrain)
-                delivery.Draining = true;
+            if (delivery.Queue.Count >= _socketQueueCapacity)
+            {
+                overflow = new WebSocketException(
+                    $"WebSocket delivery queue is full ({_socketQueueCapacity} payloads).");
+                FailDeliveryLocked(delivery, overflow);
+                startDrain = false;
+            }
+            else
+            {
+                delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
+                startDrain = !delivery.Draining;
+                if (startDrain)
+                    delivery.Draining = true;
+            }
+        }
+
+        if (overflow is not null)
+        {
+            // Events have been skipped, so the client can no longer be brought up to date
+            // incrementally. Drop the connection and let it reconnect onto a fresh snapshot.
+            _logger.LogWarning(
+                "WebSocket client exceeded its delivery queue capacity of {Capacity}; disconnecting to force a resync.",
+                _socketQueueCapacity);
+            RemoveClientAndAbort(ws);
+            return Task.FromException(overflow);
         }
 
         // Started outside the gate so the first send does not run under the lock.
@@ -251,6 +284,23 @@ public class BrmbleEventBus : IBrmbleEventBus
             _ = DrainSocketAsync(ws, delivery);
 
         return completion.Task;
+    }
+
+    /// <summary>
+    /// Removes a client and tears down its socket. Aborting also fails whatever send is
+    /// currently in flight, which a plain removal cannot reach.
+    /// </summary>
+    private void RemoveClientAndAbort(WebSocket ws)
+    {
+        RemoveClient(ws);
+        try
+        {
+            ws.Abort();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to abort WebSocket client");
+        }
     }
 
     private static async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)

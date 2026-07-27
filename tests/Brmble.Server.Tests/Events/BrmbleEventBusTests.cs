@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Brmble.Server.Events;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -20,10 +21,20 @@ public class BrmbleEventBusTests
     {
         _channelMembership = new Mock<IChannelMembershipService>();
         _sessionMapping = new Mock<ISessionMappingService>();
-        _bus = new BrmbleEventBus(
+        _bus = CreateBus();
+    }
+
+    private BrmbleEventBus CreateBus(int? socketQueueCapacity = null)
+    {
+        var settings = new EventBusSettings();
+        if (socketQueueCapacity is { } capacity)
+            settings = new EventBusSettings { SocketQueueCapacity = capacity };
+
+        return new BrmbleEventBus(
             NullLogger<BrmbleEventBus>.Instance,
             _channelMembership.Object,
-            _sessionMapping.Object);
+            _sessionMapping.Object,
+            Options.Create(settings));
     }
 
     [TestMethod]
@@ -310,6 +321,83 @@ public class BrmbleEventBusTests
             It.IsAny<WebSocketMessageType>(),
             It.IsAny<bool>(),
             It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task BroadcastAsync_FullQueueDisconnectsSlowClientAndLeavesOthersHealthy()
+    {
+        // A client that stops draining must not grow its queue without bound. It is
+        // disconnected so it reconnects and resyncs from a fresh snapshot, and that must
+        // not disturb delivery to anyone else or fault the broadcast callers.
+        var bus = CreateBus(socketQueueCapacity: 2);
+        var release = new TaskCompletionSource();
+        var slow = CreateMockWebSocket(WebSocketState.Open);
+        slow.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .Returns(() => release.Task);
+        // Abort tears down the in-flight send, as a real socket would.
+        slow.Setup(w => w.Abort())
+            .Callback(() => release.TrySetException(new WebSocketException("aborted")));
+
+        var healthyPayloads = new List<string>();
+        var healthy = CreateRecordingWebSocket(healthyPayloads);
+
+        await bus.AddClientAsync(slow.Object, 1L);
+        await bus.AddClientAsync(healthy.Object, 2L);
+
+        // One send in flight plus two queued fills the capacity; the fourth overflows.
+        var broadcasts = new List<Task>();
+        for (var i = 0; i < 4; i++)
+            broadcasts.Add(bus.BroadcastAsync(new { type = $"event{i}" }));
+
+        await Task.WhenAll(broadcasts).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsFalse(bus.HasConnectedClient(1L), "The overflowing client must be disconnected.");
+        slow.Verify(w => w.Abort(), Times.Once);
+
+        Assert.IsTrue(bus.HasConnectedClient(2L), "A healthy client must survive another client overflowing.");
+        CollectionAssert.AreEqual(
+            new[] { "event0", "event1", "event2", "event3" },
+            healthyPayloads,
+            "A healthy client must receive every broadcast regardless of another client overflowing.");
+    }
+
+    [TestMethod]
+    public async Task BroadcastAsync_FullQueueDoesNotThrowToTheCaller()
+    {
+        // Callers such as the auth and LiveKit endpoints await broadcasts without guarding
+        // them. An overflowing client must never surface as a failed request for someone else.
+        var bus = CreateBus(socketQueueCapacity: 1);
+        var release = new TaskCompletionSource();
+        var slow = CreateMockWebSocket(WebSocketState.Open);
+        slow.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .Returns(() => release.Task);
+        slow.Setup(w => w.Abort())
+            .Callback(() => release.TrySetException(new WebSocketException("aborted")));
+
+        await bus.AddClientAsync(slow.Object, 1L);
+
+        var broadcasts = new List<Task>();
+        for (var i = 0; i < 3; i++)
+            broadcasts.Add(bus.BroadcastAsync(new { type = $"event{i}" }));
+
+        // Must complete, not fault.
+        await Task.WhenAll(broadcasts).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
+    public void Constructor_RejectsNonPositiveQueueCapacity()
+    {
+        // A misconfigured capacity of zero would overflow on the first send and disconnect
+        // every client, so fail at startup rather than at runtime.
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => CreateBus(socketQueueCapacity: 0));
     }
 
     private static Mock<WebSocket> CreateRecordingWebSocket(List<string> recorded)
