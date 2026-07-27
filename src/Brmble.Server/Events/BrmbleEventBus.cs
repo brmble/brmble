@@ -8,10 +8,26 @@ namespace Brmble.Server.Events;
 public class BrmbleEventBus : IBrmbleEventBus
 {
     private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
+    private readonly ConcurrentDictionary<WebSocket, SocketDelivery> _deliveries = new();
     private readonly ILogger<BrmbleEventBus> _logger;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ISessionMappingService _sessionMapping;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    private sealed record QueuedMessage(ArraySegment<byte> Bytes, TaskCompletionSource Completion);
+
+    /// <summary>
+    /// Per-socket send queue. <see cref="WebSocket.SendAsync"/> permits only one
+    /// outstanding call per socket, so every send is funnelled through a single
+    /// drain loop guarded by <see cref="Gate"/>.
+    /// </summary>
+    private sealed class SocketDelivery
+    {
+        public object Gate { get; } = new();
+        public LinkedList<QueuedMessage> Queue { get; } = new();
+        public bool Draining { get; set; }
+        public Exception? Failure { get; set; }
+    }
 
     public BrmbleEventBus(
         ILogger<BrmbleEventBus> logger,
@@ -23,9 +39,86 @@ public class BrmbleEventBus : IBrmbleEventBus
         _sessionMapping = sessionMapping;
     }
 
-    public void AddClient(WebSocket ws, long userId) => _clients[ws] = userId;
+    public void RemoveClient(WebSocket ws)
+    {
+        _clients.TryRemove(ws, out _);
+        if (!_deliveries.TryRemove(ws, out var delivery))
+            return;
 
-    public void RemoveClient(WebSocket ws) => _clients.TryRemove(ws, out _);
+        lock (delivery.Gate)
+        {
+            FailDeliveryLocked(delivery, new WebSocketException("WebSocket client is no longer connected."));
+        }
+    }
+
+    /// <summary>
+    /// Releases everything still queued for a socket. Callers awaiting those sends are
+    /// faulted rather than left waiting on a socket that will never drain. The send
+    /// already in flight is not tracked here and completes on its own.
+    /// </summary>
+    private static void FailDeliveryLocked(SocketDelivery delivery, Exception failure)
+    {
+        delivery.Failure ??= failure;
+        while (delivery.Queue.Count > 0)
+        {
+            var message = delivery.Queue.First!.Value;
+            delivery.Queue.RemoveFirst();
+            message.Completion.TrySetException(delivery.Failure);
+        }
+
+        delivery.Draining = false;
+    }
+
+    /// <summary>
+    /// Registers a client, optionally queuing an initial payload as part of the same step.
+    /// The socket is published to <see cref="_clients"/> before the payload is built, so a
+    /// broadcast racing the build queues behind the payload rather than being dropped for a
+    /// client that is not yet visible. The payload is then placed at the head of the queue so
+    /// it still arrives first. A mutation the payload already reflects may therefore be
+    /// delivered twice, which these events tolerate; losing it entirely would not be.
+    /// Registering and sending separately would reintroduce both hazards, which is why this
+    /// is the only way to add a client. Returns a task that completes once the initial
+    /// payload has been written, or a completed task when there is none.
+    /// </summary>
+    public Task AddClientAsync(WebSocket ws, long userId, Func<object>? initialMessage = null)
+    {
+        var delivery = new SocketDelivery();
+        if (initialMessage is not null)
+        {
+            // Claim the drain up front so broadcasts arriving during the build queue
+            // without starting to send ahead of the initial payload.
+            delivery.Draining = true;
+        }
+
+        _deliveries[ws] = delivery;
+        _clients[ws] = userId;
+
+        if (initialMessage is null)
+            return Task.CompletedTask;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
+            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            lock (delivery.Gate)
+            {
+                delivery.Queue.AddFirst(new QueuedMessage(bytes, completion));
+            }
+
+            _ = DrainSocketAsync(ws, delivery);
+            return completion.Task;
+        }
+        catch
+        {
+            // Nothing was queued ahead of the broadcasts that may have arrived during the
+            // build, and the client has no snapshot to make sense of them. Drop it entirely
+            // and fault those sends rather than leaving a half-registered client behind.
+            RemoveClient(ws);
+            throw;
+        }
+    }
 
     public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
 
@@ -40,8 +133,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+                    await QueueSendAsync(ws, bytes);
                 }
                 else
                 {
@@ -79,8 +171,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+                    await QueueSendAsync(ws, bytes);
                 }
                 else
                 {
@@ -115,8 +206,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+                    await QueueSendAsync(ws, bytes);
                 }
                 else
                 {
@@ -131,5 +221,68 @@ public class BrmbleEventBus : IBrmbleEventBus
         });
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Enqueues a payload for a single socket. The returned task completes once the
+    /// payload has actually been written to the socket, preserving the back-pressure
+    /// the callers relied on when they awaited <see cref="WebSocket.SendAsync"/> directly.
+    /// </summary>
+    private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes)
+    {
+        if (!_deliveries.TryGetValue(ws, out var delivery))
+            return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool startDrain;
+        lock (delivery.Gate)
+        {
+            if (delivery.Failure is not null)
+                return Task.FromException(delivery.Failure);
+
+            delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
+            startDrain = !delivery.Draining;
+            if (startDrain)
+                delivery.Draining = true;
+        }
+
+        // Started outside the gate so the first send does not run under the lock.
+        if (startDrain)
+            _ = DrainSocketAsync(ws, delivery);
+
+        return completion.Task;
+    }
+
+    private static async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
+    {
+        while (true)
+        {
+            QueuedMessage message;
+            lock (delivery.Gate)
+            {
+                if (delivery.Failure is not null)
+                    return;
+
+                if (delivery.Queue.Count == 0)
+                {
+                    delivery.Draining = false;
+                    return;
+                }
+
+                message = delivery.Queue.First!.Value;
+                delivery.Queue.RemoveFirst();
+            }
+
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await ws.SendAsync(message.Bytes, WebSocketMessageType.Text, true, cts.Token);
+                message.Completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                message.Completion.TrySetException(ex);
+            }
+        }
     }
 }
