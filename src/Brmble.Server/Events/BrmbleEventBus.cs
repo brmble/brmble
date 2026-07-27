@@ -312,7 +312,12 @@ public class BrmbleEventBus : IBrmbleEventBus
         }
     }
 
-    private static async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
+    /// <summary>
+    /// Writes queued payloads one at a time. A failed send means the socket is broken for
+    /// everything behind it too, so the whole delivery is failed and the client torn down
+    /// here rather than retried payload by payload or left for a caller to notice.
+    /// </summary>
+    private async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
     {
         while (true)
         {
@@ -341,6 +346,23 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 message.Completion.TrySetException(ex);
+                bool alreadyFailed;
+                lock (delivery.Gate)
+                {
+                    // An overflow or an explicit removal may have failed this delivery
+                    // already, and whoever did that has torn the socket down. Doing it
+                    // again here would abort a socket that is already gone.
+                    alreadyFailed = delivery.Failure is not null;
+                    FailDeliveryLocked(delivery, ex);
+                }
+
+                if (!alreadyFailed)
+                {
+                    _logger.LogDebug(ex, "WebSocket send failed; disconnecting the client");
+                    RemoveClientAndAbort(ws);
+                }
+
+                return;
             }
         }
     }

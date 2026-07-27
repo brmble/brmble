@@ -422,6 +422,41 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task BroadcastAsync_SendFailureTearsDownTheClientWithoutRetryingTheRestOfTheQueue()
+    {
+        // A socket that fails a send is broken for every payload behind it. The drain must
+        // fail the whole delivery rather than walking the queue and burning a five second
+        // timeout per payload, and it must tear the socket down itself instead of relying
+        // on a caller noticing the fault.
+        var bus = CreateBus(socketQueueCapacity: 10);
+        var ws = CreateMockWebSocket(WebSocketState.Open);
+        ws.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new WebSocketException("socket is broken"));
+
+        await bus.AddClientAsync(ws.Object, 1L);
+
+        var broadcasts = new List<Task>();
+        for (var i = 0; i < 3; i++)
+            broadcasts.Add(bus.BroadcastAsync(new { type = $"event{i}" }));
+
+        await Task.WhenAll(broadcasts).WaitAsync(TimeSpan.FromSeconds(5));
+
+        ws.Verify(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()),
+            Times.Once,
+            "Payloads queued behind a failed send must not each be retried against the broken socket.");
+        Assert.IsFalse(bus.HasConnectedClient(1L), "A client whose send failed must be deregistered by the drain.");
+        ws.Verify(w => w.Abort(), Times.Once);
+    }
+
+    [TestMethod]
     public void Constructor_RejectsNonPositiveQueueCapacity()
     {
         // A misconfigured capacity of zero would overflow on the first send and disconnect
