@@ -113,6 +113,13 @@ public class BrmbleEventBus : IBrmbleEventBus
 
             lock (delivery.Gate)
             {
+                // Broadcasts arriving during the build may have overflowed the queue and
+                // dropped this client. Queuing the snapshot behind a failed delivery would
+                // never drain, leaving the registration awaiting a payload that can no
+                // longer be sent, so surface the failure instead.
+                if (delivery.Failure is not null)
+                    return Task.FromException(delivery.Failure);
+
                 delivery.Queue.AddFirst(new QueuedMessage(bytes, completion));
             }
 
@@ -272,8 +279,10 @@ public class BrmbleEventBus : IBrmbleEventBus
         {
             // Events have been skipped, so the client can no longer be brought up to date
             // incrementally. Drop the connection and let it reconnect onto a fresh snapshot.
+            _clients.TryGetValue(ws, out var userId);
             _logger.LogWarning(
-                "WebSocket client exceeded its delivery queue capacity of {Capacity}; disconnecting to force a resync.",
+                "WebSocket client for user {UserId} exceeded its delivery queue capacity of {Capacity}; disconnecting to force a resync.",
+                userId,
                 _socketQueueCapacity);
             RemoveClientAndAbort(ws);
             return Task.FromException(overflow);
@@ -303,7 +312,12 @@ public class BrmbleEventBus : IBrmbleEventBus
         }
     }
 
-    private static async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
+    /// <summary>
+    /// Writes queued payloads one at a time. A failed send means the socket is broken for
+    /// everything behind it too, so the whole delivery is failed and the client torn down
+    /// here rather than retried payload by payload or left for a caller to notice.
+    /// </summary>
+    private async Task DrainSocketAsync(WebSocket ws, SocketDelivery delivery)
     {
         while (true)
         {
@@ -332,6 +346,23 @@ public class BrmbleEventBus : IBrmbleEventBus
             catch (Exception ex)
             {
                 message.Completion.TrySetException(ex);
+                bool alreadyFailed;
+                lock (delivery.Gate)
+                {
+                    // An overflow or an explicit removal may have failed this delivery
+                    // already, and whoever did that has torn the socket down. Doing it
+                    // again here would abort a socket that is already gone.
+                    alreadyFailed = delivery.Failure is not null;
+                    FailDeliveryLocked(delivery, ex);
+                }
+
+                if (!alreadyFailed)
+                {
+                    _logger.LogDebug(ex, "WebSocket send failed; disconnecting the client");
+                    RemoveClientAndAbort(ws);
+                }
+
+                return;
             }
         }
     }
