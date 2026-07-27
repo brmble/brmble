@@ -1,0 +1,39 @@
+.vertical-split-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.vertical-split-pane__top {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: calc(var(--space-3xl) * 2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.vertical-split-pane__bottom {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.vertical-split-pane__divider {
+  flex: none;
+  height: var(--space-2xs);
+  background: var(--border-subtle);
+  cursor: row-resize;
+  transition: background var(--transition-fast);
+}
+
+.vertical-split-pane__divider:hover,
+.vertical-split-pane__divider:active,
+.vertical-split-pane__divider:focus-visible {
+  background: var(--accent-primary);
+}

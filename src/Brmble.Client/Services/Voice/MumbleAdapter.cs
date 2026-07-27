@@ -2710,11 +2710,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     break;
 
                 default:
-                    // Forward all minigame server events verbatim to the bridge.
-                    // A prefix match means future game event names (game.invited,
-                    // game.started, game.stateUpdated, game.ended, game.declined,
-                    // game.actionRejected, game.error, ...) need no client change.
-                    if (type is not null && type.StartsWith("game.", StringComparison.Ordinal))
+                    // Forward server-owned game and paint events verbatim. Prefix
+                    // matching keeps the native bridge aligned with their canonical
+                    // server contracts as event variants are added.
+                    if (type is not null && (type.StartsWith("game.", StringComparison.Ordinal) || type.StartsWith("paint.", StringComparison.Ordinal)))
                     {
                         _bridge?.Send(type, System.Text.Json.JsonSerializer.Deserialize<object>(json));
                         _bridge?.NotifyUiThread();

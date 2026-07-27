@@ -522,6 +522,8 @@ describe('useMatrixClient', () => {
 
     const last = result.current.activeMessages[result.current.activeMessages.length - 1];
     expect(last.media?.[0].url).toBe('https://matrix.example.com/_matrix/media/v3/download/example/oversized');
+    expect(last.media?.[0].filename).toBe('oversized.png');
+    expect(last.media?.[0].mimetype).toBe('image/png');
     expect(last.mumbleDelivery).toBe('too-large');
   });
 

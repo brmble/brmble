@@ -27,6 +27,32 @@ export interface ParsedMessage {
   media: MediaAttachment[];
 }
 
+export interface PaintInvitationMetadata {
+  version?: 2;
+  sessionId: string;
+  hostUserId?: number;
+  participantUserIds?: number[];
+  channelId: number;
+  status: 'active' | 'ended' | 'expired' | 'unavailable';
+  sourceEventId?: string;
+  sourcePreview?: string;
+}
+
+/** Paint invitations are stored in Matrix message content when available and serialized in plain text for chat history fallbacks. */
+export function parsePaintInvitation(message: string): PaintInvitationMetadata | null {
+  const match = message.match(/^\[brmble-paint\]([\s\S]+)$/);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(match[1]) as Partial<PaintInvitationMetadata> & { version?: number };
+    if (!value.sessionId || typeof value.channelId !== 'number') return null;
+    if (value.version === 2) {
+      return { version: 2, sessionId: value.sessionId, channelId: value.channelId, status: value.status ?? 'active' };
+    }
+    if (typeof value.hostUserId !== 'number' || !Array.isArray(value.participantUserIds)) return null;
+    return { sessionId: value.sessionId, hostUserId: value.hostUserId, participantUserIds: value.participantUserIds, channelId: value.channelId, status: value.status ?? 'active', sourceEventId: value.sourceEventId, sourcePreview: value.sourcePreview };
+  } catch { return null; }
+}
+
 export function parseMessageMedia(message: string): ParsedMessage {
   const media: MediaAttachment[] = [];
   let text = message;

@@ -1,0 +1,5 @@
+.paint-toolbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:10px; background:var(--bg-secondary); border-radius:10px; }
+.paint-toolbar button { border:1px solid var(--border-subtle); background:var(--bg-primary); color:var(--text-primary); border-radius:6px; padding:5px 8px; cursor:pointer; }
+.paint-toolbar button.active { outline:2px solid var(--accent-primary); }
+.paint-swatches { display:flex; gap:5px; }.paint-swatches button { width:22px; height:22px; padding:0; border-radius:50%; }
+.paint-swatches .paint-swatch-white { background:var(--bg-primary); }.paint-swatches .paint-swatch-ink { background:var(--text-primary); }.paint-swatches .paint-swatch-red { background:var(--accent-danger); }.paint-swatches .paint-swatch-amber { background:var(--accent-warning); }.paint-swatches .paint-swatch-green { background:var(--accent-success); }.paint-swatches .paint-swatch-blue { background:var(--accent-info); }

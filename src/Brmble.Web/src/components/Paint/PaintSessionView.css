@@ -1,0 +1,16 @@
+.paint-session-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-sm);
+}
+
+.paint-session-view__actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+}

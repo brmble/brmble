@@ -4,6 +4,7 @@ using Brmble.Server.Events;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Brmble.Server.Paint;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -39,6 +40,7 @@ public class MumbleIceServiceTests
                 new Mock<Brmble.Server.Games.IGamePresence>().Object,
                 new Mock<Brmble.Server.Games.IGameEventPublisher>().Object,
                 Brmble.Server.Tests.Games.GameTestHelpers.NewRepo()),
+            new Mock<IPaintParticipationLifecycle>().Object,
             NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });
