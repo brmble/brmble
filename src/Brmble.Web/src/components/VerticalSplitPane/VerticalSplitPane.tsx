@@ -54,6 +54,8 @@ export function VerticalSplitPane({
     const handlePointerUp = () => {
       document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('blur', handlePointerUp);
       setSplitPercent(current => {
         localStorage.setItem(storageKey, String(current));
         return current;
@@ -62,6 +64,8 @@ export function VerticalSplitPane({
 
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('blur', handlePointerUp);
   }, [storageKey]);
 
   return (

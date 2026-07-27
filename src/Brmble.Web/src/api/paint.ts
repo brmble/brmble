@@ -34,7 +34,12 @@ function bridgeRequest<T>(event: string, payload: Record<string, unknown>): Prom
       const response = data as BridgeResponse;
       if (response.requestId !== requestId) return;
       cleanup();
-      if (response.success && response.body) {
+      if (response.success) {
+        // Mutations legitimately return no content (204 / empty body).
+        if (!response.body) {
+          resolve(undefined as T);
+          return;
+        }
         try {
           resolve(JSON.parse(response.body) as T);
         } catch (error) {

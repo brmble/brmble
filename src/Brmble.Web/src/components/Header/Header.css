@@ -57,7 +57,7 @@
 }
 
 .header-paint-button {
-  margin-right: 10px;
+  margin-right: var(--space-xs);
 }
 
 .window-controls {
