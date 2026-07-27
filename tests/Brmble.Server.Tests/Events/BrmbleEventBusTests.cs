@@ -252,27 +252,64 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
-    public async Task AddClientAsync_QueuesSnapshotBeforePublishingClient()
+    public async Task AddClientAsync_DeliversSnapshotBeforeLaterBroadcasts()
     {
-        // Registering the client and then sending the snapshot as two separate steps lets a
-        // broadcast slip in between, so the client can observe a mutation before the snapshot
-        // it amends. The snapshot must be queued before the client is visible to broadcasts.
         var recorded = new List<string>();
         var ws = CreateRecordingWebSocket(recorded);
-        var connectedDuringFactory = true;
 
-        await _bus.AddClientAsync(ws.Object, 1L, () =>
-        {
-            connectedDuringFactory = _bus.HasConnectedClient(1L);
-            return new { type = "sessionMappingSnapshot" };
-        });
+        await _bus.AddClientAsync(ws.Object, 1L, () => new { type = "sessionMappingSnapshot" });
         await _bus.BroadcastAsync(new { type = "userMappingAdded" });
 
-        Assert.IsFalse(connectedDuringFactory, "Client must not be broadcast-visible before its snapshot is queued.");
         CollectionAssert.AreEqual(
             new[] { "sessionMappingSnapshot", "userMappingAdded" },
             recorded,
             "The snapshot must be the first payload the client receives.");
+    }
+
+    [TestMethod]
+    public async Task AddClientAsync_DoesNotDropBroadcastsRacingTheSnapshotCapture()
+    {
+        // The snapshot is captured from live state, so a mutation broadcast during the
+        // capture may or may not be reflected in it. The client must be registered before
+        // the capture, so that such a broadcast queues behind the snapshot instead of being
+        // dropped for a client that is not yet visible to broadcasts. Redelivering a
+        // mutation the snapshot already contains is harmless; losing it is not.
+        var recorded = new List<string>();
+        var ws = CreateRecordingWebSocket(recorded);
+        Task racing = Task.CompletedTask;
+
+        await _bus.AddClientAsync(ws.Object, 1L, () =>
+        {
+            // BroadcastAsync enqueues synchronously before returning its task, so by the
+            // time this assignment completes the payload is queued for this socket.
+            racing = _bus.BroadcastAsync(new { type = "userMappingAdded" });
+            return new { type = "sessionMappingSnapshot" };
+        });
+        await racing.WaitAsync(TimeSpan.FromSeconds(2));
+
+        CollectionAssert.AreEqual(
+            new[] { "sessionMappingSnapshot", "userMappingAdded" },
+            recorded,
+            "A broadcast racing the snapshot capture must be delivered after the snapshot, not dropped.");
+    }
+
+    [TestMethod]
+    public async Task AddClientAsync_FailingSnapshotFactoryUnregistersTheClient()
+    {
+        var ws = CreateMockWebSocket(WebSocketState.Open);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => _bus.AddClientAsync(ws.Object, 1L, () => throw new InvalidOperationException("boom")));
+
+        Assert.IsFalse(_bus.HasConnectedClient(1L), "A client whose snapshot failed must not stay registered.");
+
+        // The bus must remain usable and must not try to send to the abandoned socket.
+        await _bus.BroadcastAsync(new { type = "test" });
+        ws.Verify(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static Mock<WebSocket> CreateRecordingWebSocket(List<string> recorded)

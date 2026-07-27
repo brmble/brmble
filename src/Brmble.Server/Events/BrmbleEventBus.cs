@@ -24,7 +24,7 @@ public class BrmbleEventBus : IBrmbleEventBus
     private sealed class SocketDelivery
     {
         public object Gate { get; } = new();
-        public Queue<QueuedMessage> Queue { get; } = new();
+        public LinkedList<QueuedMessage> Queue { get; } = new();
         public bool Draining { get; set; }
         public Exception? Failure { get; set; }
     }
@@ -60,55 +60,64 @@ public class BrmbleEventBus : IBrmbleEventBus
     {
         delivery.Failure ??= failure;
         while (delivery.Queue.Count > 0)
-            delivery.Queue.Dequeue().Completion.TrySetException(delivery.Failure);
+        {
+            var message = delivery.Queue.First!.Value;
+            delivery.Queue.RemoveFirst();
+            message.Completion.TrySetException(delivery.Failure);
+        }
+
         delivery.Draining = false;
     }
 
     /// <summary>
     /// Registers a client, optionally queuing an initial payload as part of the same step.
-    /// The payload is enqueued before the socket is published to <see cref="_clients"/>, so
-    /// any broadcast that can observe the client is necessarily queued behind it. Registering
-    /// and sending separately would let a broadcast overtake the payload it amends, which is
-    /// why this is the only way to add a client. Returns a task that completes once the
-    /// initial payload has been written, or a completed task when there is none.
+    /// The socket is published to <see cref="_clients"/> before the payload is built, so a
+    /// broadcast racing the build queues behind the payload rather than being dropped for a
+    /// client that is not yet visible. The payload is then placed at the head of the queue so
+    /// it still arrives first. A mutation the payload already reflects may therefore be
+    /// delivered twice, which these events tolerate; losing it entirely would not be.
+    /// Registering and sending separately would reintroduce both hazards, which is why this
+    /// is the only way to add a client. Returns a task that completes once the initial
+    /// payload has been written, or a completed task when there is none.
     /// </summary>
     public Task AddClientAsync(WebSocket ws, long userId, Func<object>? initialMessage = null)
     {
         var delivery = new SocketDelivery();
-        _deliveries[ws] = delivery;
-
-        Task initial = Task.CompletedTask;
         if (initialMessage is not null)
         {
-            try
-            {
-                var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
-                var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
-                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                lock (delivery.Gate)
-                {
-                    delivery.Queue.Enqueue(new QueuedMessage(bytes, completion));
-                    delivery.Draining = true;
-                }
-
-                initial = completion.Task;
-            }
-            catch
-            {
-                // The client was never published to _clients, so RemoveClient will never run
-                // for it. Drop the delivery here or it leaks for the lifetime of the process.
-                _deliveries.TryRemove(ws, out _);
-                throw;
-            }
+            // Claim the drain up front so broadcasts arriving during the build queue
+            // without starting to send ahead of the initial payload.
+            delivery.Draining = true;
         }
 
+        _deliveries[ws] = delivery;
         _clients[ws] = userId;
 
-        if (initialMessage is not null)
-            _ = DrainSocketAsync(ws, delivery);
+        if (initialMessage is null)
+            return Task.CompletedTask;
 
-        return initial;
+        try
+        {
+            var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
+            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            lock (delivery.Gate)
+            {
+                delivery.Queue.AddFirst(new QueuedMessage(bytes, completion));
+            }
+
+            _ = DrainSocketAsync(ws, delivery);
+            return completion.Task;
+        }
+        catch
+        {
+            // Nothing was queued ahead of the broadcasts that may have arrived during the
+            // build, and the client has no snapshot to make sense of them. Drop it entirely
+            // and fault those sends rather than leaving a half-registered client behind.
+            RemoveClient(ws);
+            throw;
+        }
     }
 
     public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
@@ -231,7 +240,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             if (delivery.Failure is not null)
                 return Task.FromException(delivery.Failure);
 
-            delivery.Queue.Enqueue(new QueuedMessage(bytes, completion));
+            delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
             startDrain = !delivery.Draining;
             if (startDrain)
                 delivery.Draining = true;
@@ -260,7 +269,8 @@ public class BrmbleEventBus : IBrmbleEventBus
                     return;
                 }
 
-                message = delivery.Queue.Dequeue();
+                message = delivery.Queue.First!.Value;
+                delivery.Queue.RemoveFirst();
             }
 
             try
