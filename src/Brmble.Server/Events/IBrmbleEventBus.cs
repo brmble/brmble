@@ -4,7 +4,7 @@ namespace Brmble.Server.Events;
 
 public interface IBrmbleEventBus
 {
-    void AddClient(WebSocket ws, long userId);
+    Task AddClientAsync(WebSocket ws, long userId, Func<object>? initialMessage = null);
     void RemoveClient(WebSocket ws);
     bool HasConnectedClient(long userId);
     Task BroadcastAsync(object message);
