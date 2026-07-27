@@ -324,6 +324,35 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task AddClientAsync_QueueOverflowDuringSnapshotBuildFaultsRegistration()
+    {
+        // The client is registered before the snapshot is built, so broadcasts arriving
+        // during the build can overflow its queue and drop it. Registration must observe
+        // that and fault instead of queuing a snapshot behind a failed delivery, which
+        // would never drain and would hang the WebSocket request forever.
+        var bus = CreateBus(socketQueueCapacity: 1);
+        var ws = CreateMockWebSocket(WebSocketState.Open);
+        ws.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .Returns(() => new TaskCompletionSource().Task);
+
+        var registration = bus.AddClientAsync(ws.Object, 1L, () =>
+        {
+            // Capacity is 1 and nothing is draining yet, so the second broadcast overflows.
+            _ = bus.BroadcastAsync(new { type = "event0" });
+            _ = bus.BroadcastAsync(new { type = "event1" });
+            return new { type = "sessionMappingSnapshot" };
+        });
+
+        await Assert.ThrowsExceptionAsync<WebSocketException>(
+            () => registration.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsFalse(bus.HasConnectedClient(1L), "An overflowed client must not stay registered.");
+    }
+
+    [TestMethod]
     public async Task BroadcastAsync_FullQueueDisconnectsSlowClientAndLeavesOthersHealthy()
     {
         // A client that stops draining must not grow its queue without bound. It is
