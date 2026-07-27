@@ -80,17 +80,27 @@ public class BrmbleEventBus : IBrmbleEventBus
         Task initial = Task.CompletedTask;
         if (initialMessage is not null)
         {
-            var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
-            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            lock (delivery.Gate)
+            try
             {
-                delivery.Queue.Enqueue(new QueuedMessage(bytes, completion));
-                delivery.Draining = true;
-            }
+                var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
+                var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            initial = completion.Task;
+                lock (delivery.Gate)
+                {
+                    delivery.Queue.Enqueue(new QueuedMessage(bytes, completion));
+                    delivery.Draining = true;
+                }
+
+                initial = completion.Task;
+            }
+            catch
+            {
+                // The client was never published to _clients, so RemoveClient will never run
+                // for it. Drop the delivery here or it leaks for the lifetime of the process.
+                _deliveries.TryRemove(ws, out _);
+                throw;
+            }
         }
 
         _clients[ws] = userId;
