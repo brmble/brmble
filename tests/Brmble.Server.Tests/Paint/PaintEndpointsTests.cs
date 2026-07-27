@@ -342,6 +342,7 @@ public sealed class PaintEndpointsTests
     private sealed class TestPublisher : IPaintEventPublisher
     {
         public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => Task.CompletedTask;
+        public Task PublishPreviewToUsersAsync(IReadOnlySet<long> userIds, Guid sessionId, long authorUserId, object message) => Task.CompletedTask;
         public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
     }
 

@@ -195,7 +195,8 @@ public sealed class PaintSessionManager(
             session.Previews[userId] = input;
             recipients = CurrentParticipantUserIds(session);
         }
-        await publisher.PublishToUsersAsync(recipients, new { type = PaintEventNames.PreviewUpdated, sessionId, generation,
+        await publisher.PublishPreviewToUsersAsync(recipients, sessionId, participant.UserId,
+            new { type = PaintEventNames.PreviewUpdated, sessionId, generation,
             authorUserId = participant.UserId, authorMatrixUserId = participant.MatrixUserId, input });
         return new PaintPreviewResult(true, generation);
     }

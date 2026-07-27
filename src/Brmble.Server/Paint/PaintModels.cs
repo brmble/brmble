@@ -1,11 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace Brmble.Server.Paint;
 
+[JsonConverter(typeof(PaintToolJsonConverter))]
 public enum PaintTool
 {
     Pen,
     Eraser,
 }
 
+[JsonConverter(typeof(PaintStrokeWidthJsonConverter))]
 public enum PaintStrokeWidth
 {
     Thin = 3,
@@ -13,6 +17,7 @@ public enum PaintStrokeWidth
     Wide = 12,
 }
 
+[JsonConverter(typeof(PaintSessionStatusJsonConverter))]
 public enum PaintSessionStatus
 {
     PendingSource,

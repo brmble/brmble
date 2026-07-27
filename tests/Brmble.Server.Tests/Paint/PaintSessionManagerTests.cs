@@ -586,6 +586,9 @@ public sealed class PaintSessionManagerTests
             UserRoutes.Add(userIds.ToHashSet());
             return PublishAsync(message);
         }
+        public Task PublishPreviewToUsersAsync(IReadOnlySet<long> userIds, Guid sessionId, long authorUserId, object message)
+            => PublishToUsersAsync(userIds, message);
+
         public Task PublishToChannelAsync(int channelId, object message) => PublishAsync(message);
 
         private async Task PublishAsync(object message)

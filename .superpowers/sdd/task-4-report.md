@@ -1,84 +1,119 @@
-# Task 4 Report: Paint API, WebSocket Events, and Desktop Bridge
+# Task 4 Report: Workspace State App Integration
 
-## Status
+## Implementation Summary
 
-Completed and committed as `feat: expose paint api and bridge`.
-
-## Delivered
-
-- Added `MapPaintEndpoints()` with all ten `/paint/sessions` routes, certificate identity resolution, request DTO conversion, status codes, and stable `{ code, error }` failures.
-- Wired paint endpoints into the server startup pipeline; Task 3 paint DI registrations were already present and retained.
-- Added ordered per-channel delivery for permanent canonical `paint.*` events. Preview events remain on the normal channel path, while normal send timeout/removal prevents permanent events from being silently skipped for slow sockets.
-- Added `PaintService` to relay all mutation commands over the existing mTLS request helpers and correlate `paint.request` snapshot reads through `paint.response`.
-- Wired desktop startup registration and forwarded server `paint.*` WebSocket messages through `MumbleAdapter`.
-- Added coverage for canonical names, endpoint route registration, paint WebSocket forwarding, and snapshot request correlation.
+- Connected `useScreenShare` remote lifecycle state to the workspace reducer through `REMOTE_WATCH_COUNT_CHANGED`.
+- Consumed pending viewer shares when calculating the LiveKit connecting state.
+- Kept both chat panels mounted and applied workspace foreground state through ARIA visibility and pointer-event behavior.
+- Added Messages-panel reflow classes and the shared `--messages-rail-width` token composition.
+- Routed header and shortcut Messages toggles through one App callback.
+- Disconnected viewers before user-initiated Matrix channel or server selection so previous-channel attempts are cancelled before selection state changes.
 
 ## TDD Evidence
 
-### RED
+1. Added the pending-viewer lifecycle App integration test before App consumed `remoteWatchCount`.
+2. Ran `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts`.
+3. The new test failed as expected: it observed `DMContactList.visible` remain `true` instead of collapsing to `false` while the viewer attempt was pending.
+4. Implemented the App reducer dispatch and re-ran the suite successfully.
+5. Added a follow-up App test proving an active remote watch collapses Messages without changing the selected channel foreground.
 
-`dotnet test Brmble.slnx --filter "PaintEndpointsTests|PaintServiceTests|MumbleAdapterParseTests"`
+## Test Results
 
-Observed expected compile failures before runtime implementation:
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
+  - Passed: 179 tests in 4 files.
+  - The suite retains an expected pre-existing stderr line from the mocked rejected viewer-connect test: `Screen share error: viewer failed`.
+- `npm.cmd run build`
+  - Passed: TypeScript project build and Vite production build.
+- `git diff --check`
+  - Passed with no whitespace errors.
 
-- `Brmble.Client.Services.Paint` namespace / `PaintService` did not exist.
-- `MapPaintEndpoints` did not exist.
+## Files Changed
 
-### GREEN
+- `src/Brmble.Web/src/App.tsx`
+- `src/Brmble.Web/src/App.css`
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+- `.superpowers/sdd/task-4-report.md`
 
-`dotnet test Brmble.slnx --filter "PaintEndpointsTests|PaintServiceTests|MumbleAdapterParseTests"`
+## Self-Review
 
-Passed: 2 server tests and 48 client tests.
+- Remote-watch changes dispatch only the reducer event that updates `remoteWatchCount` and the Messages panel state; foreground selection remains reducer-owned and untouched by lifecycle events.
+- Channel and server selection call the existing `disconnectViewer()` reference before updating the selected channel, while the existing channel-change effect remains as a defensive cleanup path.
+- Local broadcasting remains excluded because `remoteWatchCount` originates from `watchingShares` plus `pendingViewerShares`, not local publishing state.
+- Blocking screens remain structurally unchanged; workspace rendering applies once the connected content is visible.
+- DM rail controls and icons were deliberately not added because they belong to Task 5.
 
-## Final Verification
+## Concerns
 
-- `dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj`: 407 passed.
-- `dotnet test tests/Brmble.Client.Tests/Brmble.Client.Tests.csproj`: 268 passed.
-- `git diff --check`: passed.
+None.
 
-## Scope
-
-Only Task 4 source and test files plus this report were staged. Existing unrelated changes under `.opencode`, `Brmble-Run.bat`, and `docs/` were not modified or staged.
-
-## Fix Loop: Active-Source Endpoint Fixture
-
-### Fix
-
-- Updated `PaintEndpointsTests.EndpointFixture.TestMatrix` to return a valid 1x1 PNG payload from `DownloadMediaAsync`.
-- Kept the mocked Matrix image metadata size aligned with the payload so `MatrixPaintSourceResolver` and `ImageMetadataReader` can validate the active source before the stroke request.
-- Retained the canonical `paint.response` failure assertion and endpoint status/revision coverage.
-
-### Verification
-
-`dotnet test Brmble.slnx --filter "PaintEndpointsTests|PaintServiceTests|MumbleAdapterParseTests"`
-
-Passed: 4 server tests and 49 client tests. Other solution test projects matched zero tests for this filter. The build emitted one pre-existing CS0108 warning in `AuthEndpointsCompanionTests.cs`; no test failures occurred.
-
-## Fix Loop: Remaining Review Findings
+## Review Follow-up: Acceptance Coverage
 
 ### Fixes
 
-- Permanent paint WebSocket send failures now remove and actively abort the affected socket instead of leaving it connected but unsubscribed.
-- Paint body endpoints now deserialize request bodies explicitly, so missing or malformed JSON returns the stable `400 { code, error }` shape with `code: INVALID_REQUEST` rather than default minimal-API binding output.
-- Added regression coverage for permanent paint send failure abort behavior and malformed/missing stroke request bodies.
+- Added focused App integration coverage for remote-watch count transitions, including multiple watches and a duplicate final-watch update.
+- Added coverage that local sharing alone leaves Messages open, manual Messages intent persists during an active remote watch, and the final remote-watch end reopens Messages after a manual close.
+- Added coverage that viewer cleanup occurs before channel-specific discovery after channel selection and that clearing a stale remote-watch count reopens Messages without changing channel foreground.
+- Added coverage that a selected DM remains foreground through remote-watch start/end, and that an unread-DM badge update does not navigate away from a selected channel.
 
-### Verification
+### Tests
 
-`dotnet test Brmble.slnx --filter "PaintEndpointsTests|PaintServiceTests|MumbleAdapterParseTests|BrmbleEventBusTests"`
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
+  - Passed: 185 tests in 4 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
 
-Passed: 15 server tests and 49 client tests. Other solution test projects matched zero tests for this filter. The build emitted one pre-existing CS0108 warning in `AuthEndpointsCompanionTests.cs`; no test failures occurred.
+### Files
 
-## Fix Loop: Final Review Findings
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+- `.superpowers/sdd/task-4-report.md`
+
+### Concerns
+
+- No App production change was needed. Invalid-contact fallback remains covered by reducer-level tests; this App harness does not expose a practical contact-removal interaction without broadening the mock surface.
+
+## Re-review Follow-up: Task 4 Coverage
 
 ### Fixes
 
-- Restricted `paint.response` emission to correlated `paint.request` snapshot handling; failed fire-and-forget mutations now remain silent.
-- Returned the stable `401 { code, error }` envelope for unauthenticated paint requests with `code: UNAUTHENTICATED`.
-- Preserved specific participant authorization codes and mapped unmatched paint authorization failures to `PAINT_FORBIDDEN`.
-- Added regression coverage for unauthenticated error envelopes, generic authorization fallback, and mutation-failure silence.
+- Corrected the duplicate final-watch case to repeat the final `remoteWatchCount = 0` render and verify Messages stays expanded.
+- Scoped channel-switch cleanup ordering to the explicit post-selection cleanup call, then verified cleared pending/watch state reopens Messages without changing the channel foreground.
+- Captured the existing `DMContactList` App mock callback and covered selected-contact closure while watching, proving the App dispatches the channel fallback.
+- Added native `voice.toggleDmScreen` coverage that alternates with the Header action against the same Messages panel state.
 
-### Verification
+### Tests
 
-`dotnet test Brmble.slnx --filter "PaintEndpointsTests|PaintServiceTests|MumbleAdapterParseTests|BrmbleEventBusTests"`
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
+  - Passed: 187 tests in 4 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
 
-Passed: 17 server tests and 49 client tests. Other solution test projects matched zero tests for this filter. The build emitted one pre-existing CS0108 warning in `AuthEndpointsCompanionTests.cs`; no test failures occurred.
+### Files
+
+- `src/Brmble.Web/src/App.screenShareStart.test.ts`
+- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+- `.superpowers/sdd/task-4-report.md`
+
+### Concerns
+
+- No production code changes were needed, so no build was required.
+
+## Integration Finding Fix: DMContactList Visibility Toggle
+
+### Fixes
+
+- Added the forward-compatible `onToggleVisibility: () => void` prop to `DMContactList`.
+- Passed App's existing `toggleMessagesPanel` callback into `DMContactList`, matching Header and bridge shortcut behavior.
+- Kept panel-local controls out of the UI for Task 5; the callback is read harmlessly until then.
+- Added App regression coverage and updated direct component test renders.
+
+### Tests
+
+- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx src/components/DMContactList/DMContactList.test.tsx`
+  - Passed: 197 tests in 5 files.
+  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+- `npm.cmd run build`
+  - Passed: TypeScript project build and Vite production build.
+
+### Concerns
+
+- None.
