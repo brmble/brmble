@@ -168,7 +168,10 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            await _paintParticipation.HandleSessionDisconnectedAsync(user.SessionId);
+            DispatchPaintParticipation(
+                () => _paintParticipation.HandleSessionDisconnectedAsync(user.SessionId),
+                "disconnect",
+                user.SessionId);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
 
             if (_gameSessions.TryGetActiveMatch(user.SessionId, out var matchId))
@@ -199,7 +202,10 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var channelChanged = !_channelMembership.TryGetChannel(user.SessionId, out var previousChannel)
             || previousChannel != channelId;
         if (channelChanged)
-            await _paintParticipation.HandleSessionChannelChangedAsync(user.SessionId, previousChannel, channelId);
+            DispatchPaintParticipation(
+                () => _paintParticipation.HandleSessionChannelChangedAsync(user.SessionId, previousChannel, channelId),
+                "channel change",
+                user.SessionId);
 
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
@@ -258,6 +264,21 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             _logger.LogDebug(ex, "getCertificateListAsync failed for session {Session}", user.SessionId);
             return user;
         }
+    }
+
+    private void DispatchPaintParticipation(Func<Task> operation, string operationName, int sessionId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await operation();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Paint participation {Operation} failed for Mumble session {Session}", operationName, sessionId);
+            }
+        });
     }
 
     // Mappers — no cert hash in Ice User state; OG clients are never Brmble clients

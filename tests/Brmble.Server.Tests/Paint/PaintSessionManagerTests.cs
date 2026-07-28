@@ -505,6 +505,21 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task End_DeletesPersistedCleanupWhenHostValidationFailsBeforeTerminalTransition()
+    {
+        var cleanup = new BlockingCleanupRepository();
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
+
+        var end = fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+        await cleanup.WaitUntilRecordPendingAsync();
+        fixture.Presence.Participants[fixture.HostUserId] = new(fixture.HostUserId, 9, 201, fixture.HostMatrixUserId);
+        cleanup.ReleaseRecordPending();
+
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => end);
+        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
     public async Task Expire_DoesNotWinWhenActivityResumesDuringCleanupPersistence()
     {
         var cleanup = new BlockingCleanupRepository();

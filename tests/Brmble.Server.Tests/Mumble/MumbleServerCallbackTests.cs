@@ -453,12 +453,13 @@ public class MumbleServerCallbackTests
     }
 
     [TestMethod]
-    public async Task DispatchUserDisconnected_RevokesPaintBeforeRemovingPresence()
+    public async Task DispatchUserDisconnected_DispatchesPaintWithoutBlockingPresenceRemoval()
     {
         var order = new List<string>();
+        var paintObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var paint = new Mock<IPaintParticipationLifecycle>();
         paint.Setup(service => service.HandleSessionDisconnectedAsync(42))
-            .Callback(() => order.Add("paint"))
+            .Callback(() => { order.Add("paint"); paintObserved.SetResult(); })
             .Returns(Task.CompletedTask);
         var mapping = new Mock<ISessionMappingService>();
         mapping.Setup(service => service.GetSnapshot()).Returns(
@@ -487,10 +488,33 @@ public class MumbleServerCallbackTests
 
         await callback.DispatchUserDisconnected(
             new MumbleUser("Alice", "abc", 42));
+        await paintObserved.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
-        CollectionAssert.AreEqual(
-            new[] { "paint", "mapping", "channel" },
-            order);
+        CollectionAssert.Contains(order, "paint");
+        CollectionAssert.Contains(order, "mapping");
+        CollectionAssert.Contains(order, "channel");
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_DoesNotWaitForPaintParticipationFanOut()
+    {
+        var pendingPaint = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var paint = new Mock<IPaintParticipationLifecycle>();
+        paint.Setup(service => service.HandleSessionDisconnectedAsync(42)).Returns(pendingPaint.Task);
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(service => service.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new SessionMapping("@alice:test", "Alice", 100L, "bee"),
+        });
+        mapping.Setup(service => service.RemoveSession(42));
+        var callback = CreateCallback([], mapping: mapping.Object, paintParticipation: paint);
+
+        var dispatch = callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+        Assert.AreSame(dispatch, await Task.WhenAny(dispatch, Task.Delay(TimeSpan.FromSeconds(1))));
+        mapping.Verify(service => service.RemoveSession(42), Times.Once);
+
+        pendingPaint.SetResult();
+        await dispatch;
     }
 
     [TestMethod]
@@ -523,6 +547,28 @@ public class MumbleServerCallbackTests
         paint.Verify(service =>
             service.HandleSessionChannelChangedAsync(42, 5, 10),
             Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_DoesNotWaitForPaintParticipationFanOut()
+    {
+        var pendingPaint = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var paint = new Mock<IPaintParticipationLifecycle>();
+        paint.Setup(service => service.HandleSessionChannelChangedAsync(42, 5, 10)).Returns(pendingPaint.Task);
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(service => service.TryGetChannel(42, out It.Ref<int>.IsAny))
+            .Returns((int _, out int channelId) => { channelId = 5; return true; });
+        membership.Setup(service => service.Update(42, 10));
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(service => service.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        var callback = CreateCallback([], mapping: mapping.Object, channelMembership: membership.Object, paintParticipation: paint);
+
+        var dispatch = callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+        Assert.AreSame(dispatch, await Task.WhenAny(dispatch, Task.Delay(TimeSpan.FromSeconds(1))));
+        membership.Verify(service => service.Update(42, 10), Times.Once);
+
+        pendingPaint.SetResult();
+        await dispatch;
     }
 
     [TestMethod]

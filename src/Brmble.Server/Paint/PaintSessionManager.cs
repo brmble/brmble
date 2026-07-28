@@ -275,11 +275,19 @@ public sealed class PaintSessionManager(
 
             long revision, generation;
             Task publish;
-            lock (session.Lock)
+            try
             {
-                RequireCurrentHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
-                publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
-                    new { type = PaintEventNames.SessionEnded, sessionId, status = session.Status, revision, generation }));
+                lock (session.Lock)
+                {
+                    RequireCurrentHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+                    publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
+                        new { type = PaintEventNames.SessionEnded, sessionId, status = session.Status, revision, generation }));
+                }
+            }
+            catch
+            {
+                await cleanupRepository.DeletePendingAsync(sessionId, roomId, cancellationToken);
+                throw;
             }
             await publish;
             return new PaintSessionEndedResult(PaintSessionStatus.Ended, revision, generation);
