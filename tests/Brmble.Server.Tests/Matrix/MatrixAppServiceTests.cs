@@ -256,6 +256,24 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task CreatePaintRoom_RetainsBotPowerForLaterReinvites()
+    {
+        var svc = CreateServiceReturning("""{"room_id":"!paint:server"}""");
+
+        await svc.CreatePaintRoom("Paint in General", ["@alice:server"]);
+        await svc.InvitePaintUser("!paint:server", "@alice:server");
+
+        using var createPayload = JsonDocument.Parse(SentRequests.First().Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+        var powerLevels = createPayload.RootElement.GetProperty("initial_state")
+            .EnumerateArray().Single(state => state.GetProperty("type").GetString() == "m.room.power_levels")
+            .GetProperty("content");
+        Assert.AreEqual(100, powerLevels.GetProperty("users").GetProperty("@brmble:localhost").GetInt32());
+        var reinvite = SentRequests.Last();
+        StringAssert.Contains(reinvite.RequestUri!.AbsolutePath, "/rooms/%21paint%3Aserver/invite");
+        StringAssert.Contains(reinvite.RequestUri.Query, "user_id=%40brmble%3Alocalhost");
+    }
+
+    [TestMethod]
     public async Task DeletePaintRoom_ReportsMissingAdminTokenAsTerminal()
     {
         var factory = new Mock<IHttpClientFactory>();

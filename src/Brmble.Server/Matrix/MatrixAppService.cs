@@ -95,7 +95,7 @@ public class MatrixAppService : IMatrixAppService
             {
                 new { type = "m.room.join_rules", content = new { join_rule = "invite" } },
                 new { type = "m.room.history_visibility", content = new { history_visibility = "invited" } },
-                new { type = "m.room.power_levels", content = new { users_default = 0, invite = 50 } },
+                new { type = "m.room.power_levels", content = new { users_default = 0, invite = 50, users = new Dictionary<string, int> { [_botUserId] = 100 } } },
             },
         });
         var response = await SendRequest(HttpMethod.Post, url, body);

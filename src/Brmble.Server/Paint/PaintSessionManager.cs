@@ -152,6 +152,11 @@ public sealed class PaintSessionManager(
                 throw new PaintAuthorizationException("Your voice connection changed; join paint again.");
             if (IsCurrentParticipant(session, userId, out var existing))
                 return new PaintParticipantChangeResult(existing, session.Revision, session.Generation);
+            if (session.Participants.Remove(userId))
+            {
+                ReleaseOpenSessionSlot(userId);
+                session.Previews.Remove(userId);
+            }
             ReserveOpenSessionSlot(userId);
             participant = new PaintParticipant(userId, confirmed.MumbleSessionId, invitee.MatrixUserId);
             session.Participants[userId] = participant; session.Previews.Remove(userId); session.Revision++; Touch(session);

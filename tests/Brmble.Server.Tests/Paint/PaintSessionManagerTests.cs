@@ -134,6 +134,28 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Join_ReplacesStaleParticipantWithoutLeakingTheirOpenSessionSlot()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        fixture.Presence.Participants[fixture.AliceUserId] = new(fixture.AliceUserId, 9, 202, fixture.AliceMatrixUserId);
+        fixture.Matrix.Memberships[fixture.AliceMatrixUserId] = "join";
+
+        var replacement = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.AliceUserId);
+        Assert.AreEqual(202, replacement.Participant.MumbleSessionId);
+        await fixture.Manager.LeaveAsync(fixture.SessionId, fixture.AliceUserId);
+
+        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
+        for (var hostUserId = 4L; hostUserId <= 6; hostUserId++)
+        {
+            var session = await fixture.Manager.CreateAsync(hostUserId, [202]);
+            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
+            await fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId);
+        }
+    }
+
+    [TestMethod]
     public async Task CommitStroke_RejectsStrokeBeyondSessionRetentionLimit()
     {
         const int maxStrokesPerSession = 500;
