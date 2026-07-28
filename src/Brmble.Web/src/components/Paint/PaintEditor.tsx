@@ -212,11 +212,11 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="paint-actions">
-        <button onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
+        <button type="button" className="btn btn-secondary" onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
-          <button onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
-          <button onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
-          <button onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
+          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
+          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
+          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
         </>}
       </div>
     </section>

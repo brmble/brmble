@@ -336,6 +336,16 @@ describe('PaintEditor', () => {
     expect(screen.queryByRole('button', { name: /save to chat/i })).toBeNull();
   });
 
+  it('uses shared button semantics for paint actions', () => {
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
+
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('type', 'button');
+    expect(screen.getByRole('button', { name: 'Undo' })).toHaveClass('btn', 'btn-secondary');
+    expect(screen.getByRole('button', { name: 'Clear' })).toHaveClass('btn', 'btn-danger');
+    expect(screen.getByRole('button', { name: 'End' })).toHaveClass('btn', 'btn-danger');
+    expect(screen.getByRole('button', { name: 'Save to chat' })).toHaveClass('btn', 'btn-primary');
+  });
+
   it('redraws committed strokes and previews after the source image loads', async () => {
     const matrixClient = { getAccessToken: () => 'token', mxcUrlToHttp: () => 'https://matrix/source' };
     const strokes = [{ ...activeSnapshot.strokes[0], id: 'stroke-1', authorUserId: 1, authorMatrixUserId: '@one:server', sequence: 1, active: true, correlationId: 'one', generation: 0, tool: 'pen' as const, width: 2, points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }];

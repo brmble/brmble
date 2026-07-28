@@ -6,7 +6,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PaintSessionSetupModal } from './PaintSessionSetupModal';
 
@@ -190,6 +190,36 @@ describe('PaintSessionSetupModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(paintApi.createSession).not.toHaveBeenCalled();
     expect(matrixClient.uploadContent).not.toHaveBeenCalled();
+  });
+
+  it('focuses the cancel action and closes on Escape or overlay click', async () => {
+    const user = userEvent.setup();
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <PaintSessionSetupModal channelId={5} channelRoomId="!channel:server" candidates={[]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={attachSource} onClose={onClose} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledOnce();
+
+    rerender(<PaintSessionSetupModal channelId={5} channelRoomId="!channel:server" candidates={[]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={attachSource} onClose={onClose} />);
+    fireEvent.click(screen.getByTestId('paint-setup-overlay'));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps Tab focus within the setup dialog', async () => {
+    const user = userEvent.setup();
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    render(<PaintSessionSetupModal channelId={5} channelRoomId="!channel:server" candidates={[]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={attachSource} />);
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    screen.getByLabelText('Source image').focus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+
+    expect(screen.getByRole('button', { name: 'Start paint' })).toHaveFocus();
   });
 
   it('revokes the selected source preview URL on replacement and unmount', async () => {

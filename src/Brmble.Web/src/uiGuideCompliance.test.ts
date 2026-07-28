@@ -54,6 +54,8 @@ const inlineStyleAllowList = [
   /^style=\{\{\s*'--grad-center':\s*`url\(#\$\{[^`]+\}-grad-center\)`,\s*'--grad-inner':\s*`url\(#\$\{[^`]+\}-grad-inner\)`,\s*'--grad-middle':\s*`url\(#\$\{[^`]+\}-grad-middle\)`,\s*'--grad-outer':\s*`url\(#\$\{[^`]+\}-grad-outer\)`,\s*\}\s*as CSSProperties\}$/,
 ];
 
+const paintToolbarSwatchStyle = /^style=\{\{\s*'--paint-swatch-color':\s*value\s*\}\s*as CSSProperties\}$/;
+
 const filesToScan = collectFiles(sourceRoot).filter((file) => {
   const rel = toPosix(relative(sourceRoot, file));
   if (excludedFiles.has(rel)) return false;
@@ -133,13 +135,18 @@ function findInlineStyleViolations(): string[] {
       }
 
       const expression = normalizeStyleExpression(expressionLines.join(' '));
-      if (!inlineStyleAllowList.some((pattern) => pattern.test(expression))) {
+      if (!isAllowedInlineStyle(rel, expression)) {
         violations.push(`${rel}:${index + 1}: ${expression}`);
       }
     }
   }
 
   return violations;
+}
+
+function isAllowedInlineStyle(relativePath: string, expression: string): boolean {
+  return inlineStyleAllowList.some((pattern) => pattern.test(expression))
+    || (relativePath === 'components/Paint/PaintToolbar.tsx' && paintToolbarSwatchStyle.test(expression));
 }
 
 function findNativeSelectViolations(): string[] {
@@ -264,6 +271,14 @@ describe('UI guide compliance', () => {
 
   test('static visual styles live in CSS classes instead of inline style props', () => {
     expect(findInlineStyleViolations()).toEqual([]);
+  });
+
+  test('limits the fixed-palette swatch style exception to PaintToolbar', () => {
+    const swatchStyle = "style={{ '--paint-swatch-color': value } as CSSProperties}";
+
+    expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', swatchStyle)).toBe(true);
+    expect(isAllowedInlineStyle('components/Example.tsx', swatchStyle)).toBe(false);
+    expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', "style={{ color: value }}")).toBe(false);
   });
 
   test('tooltips use Tooltip instead of native title attributes', () => {

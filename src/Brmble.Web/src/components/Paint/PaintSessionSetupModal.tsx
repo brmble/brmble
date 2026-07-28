@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MsgType, type MatrixClient } from 'matrix-js-sdk';
 import './PaintSessionSetupModal.css';
 
@@ -42,6 +42,8 @@ export function PaintSessionSetupModal({
   onComplete,
   onClose,
 }: PaintSessionSetupModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(
     () => initialSourceFile ?? null,
@@ -59,6 +61,10 @@ export function PaintSessionSetupModal({
     setPreviewUrl(nextUrl);
     return () => URL.revokeObjectURL(nextUrl);
   }, [file]);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
 
   const start = async () => {
     if (!file) {
@@ -123,13 +129,32 @@ export function PaintSessionSetupModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" data-testid="paint-setup-overlay" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="paint-setup-modal glass-panel animate-slide-up"
         role="dialog"
         aria-modal="true"
         aria-label="Start collaborative paint"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose?.();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []);
+          if (!focusable.length) return;
+          const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+          const nextIndex = event.shiftKey
+            ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+            : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+          if (nextIndex !== currentIndex) {
+            event.preventDefault();
+            focusable[nextIndex].focus();
+          }
+        }}
       >
         <div className="modal-header">
           <h2 className="heading-title modal-title">
@@ -172,7 +197,7 @@ export function PaintSessionSetupModal({
         )}
         {error && <p role="alert">{error}</p>}
         <div className="paint-setup-footer">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
+          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
           <button

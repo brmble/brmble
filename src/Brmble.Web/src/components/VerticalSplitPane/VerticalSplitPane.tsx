@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './VerticalSplitPane.css';
 
 interface VerticalSplitPaneProps {
@@ -26,6 +26,7 @@ export function VerticalSplitPane({
   topClassName,
 }: VerticalSplitPaneProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const releaseDragRef = useRef<(() => void) | null>(null);
   const [splitPercent, setSplitPercent] = useState(() => {
     const stored = localStorage.getItem(storageKey);
     const parsed = stored ? Number(stored) : DEFAULT_SPLIT;
@@ -38,9 +39,12 @@ export function VerticalSplitPane({
     localStorage.setItem(storageKey, String(clamped));
   }, [storageKey]);
 
+  useEffect(() => () => releaseDragRef.current?.(), []);
+
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    releaseDragRef.current?.();
     const root = rootRef.current;
     if (!root) return;
 
@@ -52,20 +56,26 @@ export function VerticalSplitPane({
     };
 
     const handlePointerUp = () => {
-      document.removeEventListener('pointermove', handlePointerMove);
-      document.removeEventListener('pointerup', handlePointerUp);
-      document.removeEventListener('pointercancel', handlePointerUp);
-      window.removeEventListener('blur', handlePointerUp);
+      releaseDragRef.current?.();
       setSplitPercent(current => {
         localStorage.setItem(storageKey, String(current));
         return current;
       });
     };
 
+    const releaseDrag = () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('blur', handlePointerUp);
+      if (releaseDragRef.current === releaseDrag) releaseDragRef.current = null;
+    };
+
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
     document.addEventListener('pointercancel', handlePointerUp);
     window.addEventListener('blur', handlePointerUp);
+    releaseDragRef.current = releaseDrag;
   }, [storageKey]);
 
   return (

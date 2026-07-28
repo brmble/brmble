@@ -51,8 +51,8 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
         {onStartPaint && (
           <Tooltip content={activePaintSessionId ? 'A collaborative paint session is active' : 'Start collaborative paint'} position="bottom" align="end">
             <span className="tooltip-wrapper">
-              <button type="button" className="header-paint-button" onClick={onStartPaint} disabled={!canStartPaint}>
-                Paint
+              <button type="button" className="btn btn-ghost btn-icon header-paint-button" aria-label="Start collaborative paint" onClick={onStartPaint} disabled={!canStartPaint || Boolean(activePaintSessionId)}>
+                <Icon name="palette" />
               </button>
             </span>
           </Tooltip>

@@ -30,4 +30,22 @@ describe('PaintToolbar', () => {
     expect(onColor).toHaveBeenNthCalledWith(2, '#4ec9ff');
     expect(onWidth).toHaveBeenCalledWith(12);
   });
+
+  it('renders each swatch with its fixed drawing color', () => {
+    render(
+      <PaintToolbar
+        tool="pen"
+        color="#111827"
+        width={6}
+        onTool={vi.fn()}
+        onColor={vi.fn()}
+        onWidth={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Color White' }))
+      .toHaveStyle({ '--paint-swatch-color': '#ffffff' });
+    expect(screen.getByRole('button', { name: 'Color Blue' }))
+      .toHaveStyle({ '--paint-swatch-color': '#4ec9ff' });
+  });
 });
