@@ -76,6 +76,147 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task CommitStroke_ReusedCorrelationAfterClearCreatesCurrentGenerationStroke()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        var correlationId = Guid.NewGuid();
+
+        var first = await fixture.Manager.CommitStrokeAsync(fixture.SessionId, fixture.AliceUserId,
+            new PaintStrokeInput(correlationId, 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
+                [new PaintPoint(0.1, 0.2, null)]));
+        var clear = await fixture.Manager.ClearAsync(fixture.SessionId, fixture.HostUserId);
+        var retry = await fixture.Manager.CommitStrokeAsync(fixture.SessionId, fixture.AliceUserId,
+            new PaintStrokeInput(correlationId, clear.Generation, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
+                [new PaintPoint(0.1, 0.2, null)]));
+
+        Assert.AreNotEqual(first.Stroke.Id, retry.Stroke.Id);
+        Assert.AreEqual(clear.Generation, retry.Stroke.Generation);
+    }
+
+    [TestMethod]
+    public async Task ExpireInactive_RemovesTerminalSessionAfterRetentionWindow()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+        fixture.Now = fixture.Now.AddMinutes(5);
+
+        await fixture.Manager.ExpireInactiveForTestAsync();
+
+        await Assert.ThrowsExceptionAsync<PaintNotFoundException>(() =>
+            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId));
+    }
+
+    [TestMethod]
+    public async Task Join_ConcurrentDuplicateJoinDoesNotLeakOpenSessionSlot()
+    {
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+        fixture.Matrix.BlockMembershipRequests(2);
+
+        var firstJoin = fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+        var secondJoin = fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+        await fixture.Matrix.WaitUntilMembershipRequestsBlockedAsync();
+        fixture.Matrix.ReleaseMembershipRequests();
+        await Task.WhenAll(firstJoin, secondJoin);
+        await fixture.Manager.LeaveAsync(fixture.SessionId, fixture.BobUserId);
+
+        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
+        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
+
+        for (var hostUserId = 4L; hostUserId <= 6; hostUserId++)
+        {
+            var session = await fixture.Manager.CreateAsync(hostUserId, [103]);
+            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
+            await fixture.Manager.JoinAsync(session.SessionId, fixture.BobUserId);
+        }
+    }
+
+    [TestMethod]
+    public async Task CommitStroke_RejectsStrokeBeyondSessionRetentionLimit()
+    {
+        const int maxStrokesPerSession = 500;
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+
+        for (var i = 0; i < maxStrokesPerSession; i++)
+        {
+            await fixture.CommitAliceAsync();
+            fixture.Now = fixture.Now.AddSeconds(1);
+        }
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() => fixture.CommitAliceAsync());
+    }
+
+    [TestMethod]
+    public async Task Create_RejectsHostWithTooManyOpenSessions()
+    {
+        const int maxOpenSessionsPerUser = 3;
+        var fixture = PaintSessionFixture.New();
+
+        for (var i = 0; i < maxOpenSessionsPerUser; i++)
+            await fixture.Manager.CreateAsync(fixture.HostUserId, []);
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.CreateAsync(fixture.HostUserId, []));
+    }
+
+    [TestMethod]
+    public async Task Disconnect_AfterTerminalTransitionDoesNotFreeAnActiveSessionSlot()
+    {
+        const int maxOpenSessionsPerUser = 3;
+        var fixture = PaintSessionFixture.New();
+        var endedSession = await fixture.Manager.CreateAsync(fixture.HostUserId, []);
+        await fixture.Manager.EndAsync(endedSession.SessionId, fixture.HostUserId);
+
+        fixture.Presence.Participants[fixture.HostUserId] =
+            new PaintPresenceParticipant(fixture.HostUserId, 9, 201, fixture.HostMatrixUserId);
+        for (var i = 0; i < maxOpenSessionsPerUser; i++)
+            await fixture.Manager.CreateAsync(fixture.HostUserId, []);
+
+        await fixture.Manager.HandleSessionDisconnectedAsync(101);
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+            fixture.Manager.CreateAsync(fixture.HostUserId, []));
+    }
+
+    [TestMethod]
+    public async Task Join_RejectsParticipantWithTooManyOpenSessions()
+    {
+        const int maxOpenSessionsPerUser = 3;
+        var fixture = PaintSessionFixture.New();
+        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
+        fixture.Presence.Participants[7] = new(7, 9, 107, fixture.HostMatrixUserId);
+        fixture.Matrix.Memberships[fixture.AliceMatrixUserId] = "join";
+
+        for (var hostUserId = 4L; hostUserId <= 7; hostUserId++)
+        {
+            var session = await fixture.Manager.CreateAsync(hostUserId, [102]);
+            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
+
+            if (hostUserId < 4 + maxOpenSessionsPerUser)
+                await fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId);
+            else
+                await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
+                    fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId));
+        }
+    }
+
+    [TestMethod]
+    public async Task CommitStroke_RejectsCommitBeyondRateLimit()
+    {
+        const int commitsPerSecond = 20;
+        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+
+        for (var i = 0; i < commitsPerSecond; i++)
+            await fixture.CommitAliceAsync();
+
+        await Assert.ThrowsExceptionAsync<PaintConflictException>(() => fixture.CommitAliceAsync());
+    }
+
+    [TestMethod]
     public async Task Summary_InviteeIsEligibleButCannotOpenUntilExplicitJoin()
     {
         var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
@@ -630,10 +771,29 @@ public sealed class PaintSessionManagerTests
         public List<string> InvitedUsers { get; } = [];
         public MatrixPaintRoomCleanupResult DeleteResult { get; set; } = new(true, "delete", null);
         public int DeleteCalls { get; private set; }
+        private int _blockedMembershipRequestCount;
+        private int _membershipRequestTarget;
+        private readonly TaskCompletionSource _membershipRequestsBlocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseMembershipRequests = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BlockMembershipRequests(int requestCount) => _membershipRequestTarget = requestCount;
+        public Task WaitUntilMembershipRequestsBlockedAsync() => _membershipRequestsBlocked.Task;
+        public void ReleaseMembershipRequests() => _releaseMembershipRequests.TrySetResult();
+
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult(RoomId);
         public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) { InvitedUsers.Add(matrixUserId); return Task.CompletedTask; }
         public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.room.message","content":{"msgtype":"m.image","url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
-        public Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.FromResult(Memberships.GetValueOrDefault(matrixUserId));
+        public async Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken)
+        {
+            if (_membershipRequestTarget > 0)
+            {
+                if (Interlocked.Increment(ref _blockedMembershipRequestCount) == _membershipRequestTarget)
+                    _membershipRequestsBlocked.TrySetResult();
+                await _releaseMembershipRequests.Task;
+            }
+
+            return Memberships.GetValueOrDefault(matrixUserId);
+        }
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137 });
         public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
         {

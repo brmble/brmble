@@ -25,7 +25,12 @@ public sealed class PaintSessionManager(
     Func<DateTimeOffset>? utcNow = null) : IPaintParticipationLifecycle
 {
     private static readonly TimeSpan SessionTimeout = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan TerminalSessionRetention = TimeSpan.FromMinutes(5);
+    private const int MaxStrokesPerSession = 500;
+    private const int MaxOpenSessionsPerUser = 3;
     private readonly ConcurrentDictionary<Guid, LivePaintSession> _sessions = [];
+    private readonly Dictionary<long, int> _openSessionCounts = [];
+    private readonly object _openSessionCountsLock = new();
     private readonly Func<DateTimeOffset> _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
 
     private sealed class LivePaintSession
@@ -43,6 +48,7 @@ public sealed class PaintSessionManager(
         public long NextSequence;
         public DateTimeOffset LastActivity;
         public long ActivityVersion;
+        public DateTimeOffset? TerminalAt;
         public readonly List<PaintStroke> Strokes = [];
         public readonly Dictionary<(long UserId, Guid CorrelationId), PaintStroke> IdempotentCommits = [];
         public readonly Dictionary<long, PaintStrokeInput> Previews = [];
@@ -71,10 +77,19 @@ public sealed class PaintSessionManager(
             [host.UserId] = new PaintParticipant(host.UserId, host.MumbleSessionId, host.MatrixUserId),
         };
 
-        var roomId = await matrixPaintService.CreatePaintRoomAsync($"Paint {host.ChannelId}", invitees.Values.Select(p => p.MatrixUserId).ToArray(), cancellationToken);
-        var sessionId = Guid.NewGuid();
-        _sessions[sessionId] = new LivePaintSession { SessionId = sessionId, ChannelId = host.ChannelId, HostUserId = hostUserId, MatrixRoomId = roomId, Invitees = invitees, Participants = participants, LastActivity = _utcNow() };
-        return new CreatePaintSessionResult(sessionId, roomId);
+        ReserveOpenSessionSlot(hostUserId);
+        try
+        {
+            var roomId = await matrixPaintService.CreatePaintRoomAsync($"Paint {host.ChannelId}", invitees.Values.Select(p => p.MatrixUserId).ToArray(), cancellationToken);
+            var sessionId = Guid.NewGuid();
+            _sessions[sessionId] = new LivePaintSession { SessionId = sessionId, ChannelId = host.ChannelId, HostUserId = hostUserId, MatrixRoomId = roomId, Invitees = invitees, Participants = participants, LastActivity = _utcNow() };
+            return new CreatePaintSessionResult(sessionId, roomId);
+        }
+        catch
+        {
+            ReleaseOpenSessionSlot(hostUserId);
+            throw;
+        }
     }
 
     public async Task<PaintSourceAttachedResult> AttachSourceAsync(Guid sessionId, long userId, string sourceEventId, CancellationToken cancellationToken = default)
@@ -135,6 +150,9 @@ public sealed class PaintSessionManager(
                 || confirmed.ChannelId != session.ChannelId
                 || confirmed.MumbleSessionId != current.MumbleSessionId)
                 throw new PaintAuthorizationException("Your voice connection changed; join paint again.");
+            if (IsCurrentParticipant(session, userId, out var existing))
+                return new PaintParticipantChangeResult(existing, session.Revision, session.Generation);
+            ReserveOpenSessionSlot(userId);
             participant = new PaintParticipant(userId, confirmed.MumbleSessionId, invitee.MatrixUserId);
             session.Participants[userId] = participant; session.Previews.Remove(userId); session.Revision++; Touch(session);
             revision = session.Revision; generation = session.Generation;
@@ -154,6 +172,7 @@ public sealed class PaintSessionManager(
             RequireOpen(session);
             participant = RequireCurrentParticipant(session, userId);
             session.Participants.Remove(userId);
+            ReleaseOpenSessionSlot(userId);
             session.Previews.Remove(userId); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
             var recipients = CurrentParticipantUserIds(session);
             publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(recipients,
@@ -172,6 +191,8 @@ public sealed class PaintSessionManager(
             if (input.Generation != session.Generation) throw new PaintConflictException("Canvas generation is stale.");
             var valid = PaintValidation.ValidateStrokeInput(input);
             if (session.IdempotentCommits.TryGetValue((userId, valid.CorrelationId), out stroke!)) return new PaintStrokeCommittedResult(stroke, session.Revision, session.Generation);
+            if (!rateLimiter.TryAcquireCommit(sessionId, userId, _utcNow())) throw new PaintConflictException("Stroke commit rate limit exceeded.");
+            if (session.Strokes.Count >= MaxStrokesPerSession) throw new PaintConflictException("Paint session stroke limit reached.");
             stroke = new PaintStroke(Guid.NewGuid(), valid.CorrelationId, userId, participant.MatrixUserId, ++session.NextSequence, session.Generation, valid.Tool, valid.Color, valid.Width, valid.Points, true);
             session.Strokes.Add(stroke); session.IdempotentCommits[(userId, valid.CorrelationId)] = stroke; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
             var recipients = CurrentParticipantUserIds(session);
@@ -224,7 +245,7 @@ public sealed class PaintSessionManager(
         var session = GetSession(sessionId); long revision, generation; Task publish;
         lock (session.Lock)
         {
-            RequireCurrentHost(session, userId); RequireActive(session); session.Generation++; session.Previews.Clear(); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+            RequireCurrentHost(session, userId); RequireActive(session); session.Generation++; session.Previews.Clear(); session.Strokes.Clear(); session.IdempotentCommits.Clear(); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
             var recipients = CurrentParticipantUserIds(session);
             publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(recipients,
                 new { type = PaintEventNames.CanvasCleared, sessionId, revision, generation }));
@@ -251,7 +272,7 @@ public sealed class PaintSessionManager(
             Task publish;
             lock (session.Lock)
             {
-                RequireCurrentHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+                RequireCurrentHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
                 publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
                     new { type = PaintEventNames.SessionEnded, sessionId, status = session.Status, revision, generation }));
             }
@@ -322,7 +343,13 @@ public sealed class PaintSessionManager(
                 long activityVersion;
                 lock (session.Lock)
                 {
-                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired || session.LastActivity + SessionTimeout > _utcNow()) continue;
+                    if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired)
+                    {
+                        if (session.TerminalAt is not null && session.TerminalAt.Value + TerminalSessionRetention <= _utcNow())
+                            _sessions.TryRemove(session.SessionId, out _);
+                        continue;
+                    }
+                    if (session.LastActivity + SessionTimeout > _utcNow()) continue;
                     roomId = session.MatrixRoomId; activityVersion = session.ActivityVersion;
                 }
 
@@ -337,7 +364,7 @@ public sealed class PaintSessionManager(
                         expiryCancelled = true;
                     else
                     {
-                        session.Status = PaintSessionStatus.Expired; session.Revision++; revision = session.Revision; generation = session.Generation;
+                        session.Status = PaintSessionStatus.Expired; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; revision = session.Revision; generation = session.Generation;
                         publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
                             new { type = PaintEventNames.SessionExpired, sessionId = session.SessionId, status = session.Status, revision, generation }));
                     }
@@ -392,10 +419,12 @@ public sealed class PaintSessionManager(
             Task publish = Task.CompletedTask;
             lock (session.Lock)
             {
+                if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired) continue;
                 participant = session.Participants.Values.FirstOrDefault(candidate => candidate.MumbleSessionId == mumbleSessionId);
                 if (participant is null) continue;
 
                 session.Participants.Remove(participant.UserId);
+                ReleaseOpenSessionSlot(participant.UserId);
                 session.Previews.Remove(participant.UserId);
                 session.Revision++;
                 Touch(session);
@@ -410,6 +439,31 @@ public sealed class PaintSessionManager(
     }
 
     private LivePaintSession GetSession(Guid sessionId) => _sessions.TryGetValue(sessionId, out var session) ? session : throw new PaintNotFoundException("Paint session was not found.");
+    private void ReserveOpenSessionSlot(long userId)
+    {
+        lock (_openSessionCountsLock)
+        {
+            var count = _openSessionCounts.GetValueOrDefault(userId);
+            if (count >= MaxOpenSessionsPerUser) throw new PaintConflictException("You have reached the open paint session limit.");
+            _openSessionCounts[userId] = count + 1;
+        }
+    }
+
+    private void ReleaseOpenSessionSlots(LivePaintSession session)
+    {
+        foreach (var userId in session.Participants.Keys)
+            ReleaseOpenSessionSlot(userId);
+    }
+
+    private void ReleaseOpenSessionSlot(long userId)
+    {
+        lock (_openSessionCountsLock)
+        {
+            var count = _openSessionCounts.GetValueOrDefault(userId);
+            if (count <= 1) _openSessionCounts.Remove(userId);
+            else _openSessionCounts[userId] = count - 1;
+        }
+    }
     private static PaintInvitee GetInvitee(LivePaintSession session, long userId) => session.Invitees.TryGetValue(userId, out var invitee) ? invitee : throw new PaintAuthorizationException("You are not selected for this paint session.");
     private bool IsCurrentParticipant(LivePaintSession session, long userId, out PaintParticipant participant)
     {
