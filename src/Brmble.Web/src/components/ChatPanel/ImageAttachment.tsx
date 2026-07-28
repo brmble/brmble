@@ -5,9 +5,14 @@ import './ImageAttachment.css';
 interface ImageAttachmentProps {
   attachment: MediaAttachment;
   onOpenLightbox: (url: string) => void;
+  onOpenContextMenu?: (
+    x: number,
+    y: number,
+    attachment: MediaAttachment,
+  ) => void;
 }
 
-export function ImageAttachment({ attachment, onOpenLightbox }: ImageAttachmentProps) {
+export function ImageAttachment({ attachment, onOpenLightbox, onOpenContextMenu }: ImageAttachmentProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
 
@@ -26,6 +31,16 @@ export function ImageAttachment({ attachment, onOpenLightbox }: ImageAttachmentP
       type="button"
       className="image-attachment"
       onClick={() => onOpenLightbox(attachment.url)}
+      onContextMenu={(event) => {
+        if (!onOpenContextMenu || !loaded || error) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenContextMenu(
+          event.clientX,
+          event.clientY,
+          attachment,
+        );
+      }}
     >
       {!loaded && <div className="image-attachment__placeholder" />}
       <img

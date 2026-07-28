@@ -129,6 +129,7 @@ Required environment:
 |---|---|
 | `MATRIX_SERVER_NAME` | Public Matrix domain. Should match the host clients reach (e.g. `chat.example.com`). Matrix user IDs become `@<id>:<MATRIX_SERVER_NAME>`. Cannot be changed after first start without resetting `/data`. |
 | `MATRIX_APPSERVICE_TOKEN` | Shared secret between the bundled Matrix homeserver and the Brmble backend. Generate with `openssl rand -hex 32`. Keep stable across restarts. |
+| `Matrix__AdminAccessToken` | Required to permanently delete Matrix paint rooms after sessions end. Supply a Synapse admin access token; without it cleanup is recorded as terminal and the server logs an operator warning. |
 
 Optional environment:
 

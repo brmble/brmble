@@ -10,6 +10,7 @@ using Brmble.Client.Services.Certificate;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Voice;
 using Brmble.Client.Services.Games;
+using Brmble.Client.Services.Paint;
 using Brmble.Client.Services.Update;
 using Brmble.Client.Services.Idle;
 using Brmble.Client.Overlay;
@@ -28,6 +29,7 @@ static class Program
     private static CertificateService? _certService;
     private static MumbleAdapter? _mumbleClient;
     private static GameService? _gameService;
+    private static PaintService? _paintService;
     private static UpdateService? _updateService;
     private static IdleService? _idleService;
     private static CompanionOverlayRelay? _overlayRelay;
@@ -381,6 +383,15 @@ static class Program
                 MumbleAdapter.GetChannelRequestViaBcTls);
             _gameService.Initialize(_bridge);
             _gameService.RegisterHandlers(_bridge);
+
+            _paintService = new PaintService(
+                _bridge,
+                () => _certService?.GetExportableCertificate(),
+                () => _mumbleClient?.ApiUrl,
+                MumbleAdapter.GetChannelRequestViaBcTls,
+                MumbleAdapter.PostChannelRequestViaBcTls);
+            _paintService.Initialize(_bridge);
+            _paintService.RegisterHandlers(_bridge);
 
             // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
             EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;

@@ -6,6 +6,7 @@ public class MatrixSettings
 {
     [Required] public string HomeserverUrl { get; init; } = null!;
     [Required] public string AppServiceToken { get; init; } = null!;
+    public string? AdminAccessToken { get; init; }
     public string ServerDomain { get; set; } = "localhost";
     /// <summary>
     /// Public URL clients use to reach Matrix via YARP proxy.

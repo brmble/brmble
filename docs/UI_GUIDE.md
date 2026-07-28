@@ -165,6 +165,45 @@ Rules:
 3. Content area stops propagation: `onClick={(e) => e.stopPropagation()}`
 4. Title is always `h2.heading-title.modal-title`
 
+### Collaborative Paint Pattern
+
+Reference: `components/Paint/`
+
+Collaborative paint opens above channel chat and keeps the chat pane mounted. The header entry
+point is an icon-only `btn btn-ghost btn-icon` using the `palette` icon. It is disabled whenever
+the user cannot start paint **or** a paint session is already active; wrap the disabled button in
+`Tooltip` so its active-session explanation remains available.
+
+The paint editor uses the standard button classes: Undo is `btn-secondary`, Clear and End are
+`btn-danger`, and Save to chat is `btn-primary`. Every action button uses `type="button"`.
+
+Paint colors are a deliberate exception to the theme-color rule: swatches display the exact,
+fixed palette value sent with the stroke so collaborators see the color that will be drawn.
+Set each swatch's `--paint-swatch-color` from `PAINT_COLORS` and use that property for its
+background. Do not substitute theme surface or accent tokens for a swatch's displayed color.
+The fixed palette is White (`#ffffff`), Ink (`#111827`), Red (`#ef4444`), Amber (`#f59e0b`),
+Green (`#22c55e`), and Blue (`#4ec9ff`); supported stroke widths are 3px, 6px, and 12px.
+
+The paint setup dialog follows the shared modal shell and adds these accessibility requirements:
+
+1. Move focus to the Cancel button on open and keep Tab / Shift+Tab focus within the dialog.
+2. Escape and overlay click call the same cancel/close callback; the dialog content stops overlay propagation.
+3. Cancel remains a visible `btn-secondary` button and Start paint is the `btn-primary` action.
+4. Keep `role="dialog"`, `aria-modal="true"`, and an accessible dialog label.
+
+### Vertical Split Pane Pattern
+
+Reference: `components/VerticalSplitPane/VerticalSplitPane.tsx`
+
+Use `VerticalSplitPane` when an optional top surface (such as paint) shares a vertical workspace
+with a persistent lower surface (such as chat). Pass `top={null}` to hide the upper pane without
+unmounting the lower content. Provide a descriptive `label` for the horizontal separator and a
+stable `storageKey` so the 20-80% split persists locally.
+
+The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer drags must release
+their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
+duplicate this listener lifecycle in a consumer.
+
 ### Minigame Modal Pattern
 
 Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,

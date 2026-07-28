@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
+import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
@@ -19,6 +19,9 @@ import { useCompanionOverlayPublisher } from './hooks/useCompanionOverlayPublish
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
+import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
+import { PaintSessionView } from './components/Paint/PaintSessionView';
+import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -70,6 +73,9 @@ import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
+import { paintApi } from './api/paint';
+import type { PaintSessionStatus } from './types/paint';
+import { prepareChatImagePaintSource } from './utils/chatImagePaintSource';
 import './App.css';
 
 export interface ScreenShareEndedNotification {
@@ -1063,6 +1069,20 @@ function App() {
   const [requestChannelOpen, setRequestChannelOpen] = useState(false);
   const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
+  const [showPaintSetup, setShowPaintSetup] = useState(false);
+  const [paintSetupInitialSource, setPaintSetupInitialSource] =
+    useState<File | null>(null);
+  const [paintBackgroundError, setPaintBackgroundError] =
+    useState<string | null>(null);
+  const [activePaintSessionId, setActivePaintSessionId] = useState<string | null>(null);
+  const activePaintSessionIdRef = useRef<string | null>(null);
+  activePaintSessionIdRef.current = activePaintSessionId;
+  const paintPreparationGenerationRef = useRef(0);
+  const invalidatePaintPreparation = useCallback(() => {
+    paintPreparationGenerationRef.current += 1;
+  }, []);
+  const activePaintChannelIdRef = useRef<string | undefined>(undefined);
+  const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
   const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
@@ -1071,6 +1091,16 @@ function App() {
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
+
+  useEffect(() => {
+    invalidatePaintPreparation();
+    if (!activePaintSessionId) return;
+    if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
+      activePaintSessionIdRef.current = null;
+      setActivePaintSessionId(null);
+      activePaintChannelIdRef.current = undefined;
+    }
+  }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -2905,6 +2935,23 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const update = (data: unknown) => {
+      const event = data as { sessionId?: string; status?: PaintSessionStatus };
+      if (!event.sessionId || !event.status) return;
+      setPaintSessionStatuses(prev => ({ ...prev, [event.sessionId!]: event.status! }));
+    };
+
+    bridge.on('paint.sessionEnded', update);
+    bridge.on('paint.sessionExpired', update);
+    bridge.on('paint.sessionUnavailable', update);
+    return () => {
+      bridge.off('paint.sessionEnded', update);
+      bridge.off('paint.sessionExpired', update);
+      bridge.off('paint.sessionUnavailable', update);
+    };
+  }, []);
+
+  useEffect(() => {
     bridge.send('cert.requestStatus');
     bridge.send('profiles.list');
   }, []);
@@ -4220,6 +4267,107 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
+  const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
+  const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
+  const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
+  const canStartPaintRef = useRef(false);
+  canStartPaintRef.current = canStartPaint;
+  useEffect(() => {
+    if (!canStartPaint) invalidatePaintPreparation();
+  }, [canStartPaint, invalidatePaintPreparation]);
+  const isCurrentPaintPreparation = useCallback((
+    generation: number,
+    channelId: string | undefined,
+  ) => (
+    generation === paintPreparationGenerationRef.current
+    && channelId === currentChannelIdRef.current
+    && canStartPaintRef.current
+    && activePaintSessionIdRef.current === null
+  ), []);
+  const openEmptyPaintSetup = useCallback(() => {
+    invalidatePaintPreparation();
+    if (!canStartPaintRef.current || activePaintSessionIdRef.current !== null) {
+      return;
+    }
+    setPaintSetupInitialSource(null);
+    setShowPaintSetup(true);
+  }, [invalidatePaintPreparation]);
+  const closePaintSetup = useCallback(() => {
+    invalidatePaintPreparation();
+    setShowPaintSetup(false);
+    setPaintSetupInitialSource(null);
+  }, [invalidatePaintPreparation]);
+  const handleUseAsPaintBackground = useCallback(
+    async (attachment: MediaAttachment) => {
+      if (
+        !canStartPaintRef.current
+        || activePaintSessionIdRef.current !== null
+      ) {
+        return;
+      }
+      const generation = ++paintPreparationGenerationRef.current;
+      const channelId = currentChannelIdRef.current;
+      const accepted = await confirm({
+        title: 'Use image as paint background?',
+        message:
+          'Open Start collaborative paint with this image selected?',
+        confirmLabel: 'Yes',
+        cancelLabel: 'No',
+      });
+      if (!accepted || !isCurrentPaintPreparation(generation, channelId)) {
+        return;
+      }
+
+      try {
+        const prepared =
+          await prepareChatImagePaintSource(attachment);
+        if (!isCurrentPaintPreparation(generation, channelId)) {
+          return;
+        }
+        setPaintBackgroundError(null);
+        notifQueue.unregister('paint-background-error');
+        setPaintSetupInitialSource(prepared);
+        setShowPaintSetup(true);
+      } catch (reason) {
+        if (!isCurrentPaintPreparation(generation, channelId)) {
+          return;
+        }
+        console.error(
+          '[Paint] Failed to prepare chat image background:',
+          reason,
+        );
+        setPaintSetupInitialSource(null);
+        setShowPaintSetup(false);
+        setPaintBackgroundError(
+          "This image couldn't be prepared. "
+          + 'Try again from the chat image.',
+        );
+        notifQueue.register('paint-background-error', 'error');
+      }
+    },
+    [isCurrentPaintPreparation, notifQueue],
+  );
+  const paintCandidates = paintChannelId === null
+    ? []
+    : users
+      .filter(user => user.channelId === paintChannelId && !user.self)
+      .map(user => ({ userId: user.session, name: user.name }));
+  const handleJoinPaint = useCallback(async (sessionId: string) => {
+    await paintApi.join(sessionId);
+  }, []);
+  const handleOpenPaint = useCallback((sessionId: string) => {
+    invalidatePaintPreparation();
+    activePaintChannelIdRef.current = currentChannelId;
+    activePaintSessionIdRef.current = sessionId;
+    setActivePaintSessionId(sessionId);
+  }, [currentChannelId, invalidatePaintPreparation]);
+  const handleClosePaint = useCallback(() => {
+    invalidatePaintPreparation();
+    activePaintChannelIdRef.current = undefined;
+    activePaintSessionIdRef.current = null;
+    setActivePaintSessionId(null);
+  }, [invalidatePaintPreparation]);
+
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
       <WindowResizeHandles />
@@ -4254,8 +4402,31 @@ const handleConnect = (serverData: SavedServer) => {
         deafOnCooldown={deafOnCooldown}
         onToggleGame={() => setShowGame(prev => !prev)}
         isMaximized={isMaximized}
+        onStartPaint={openEmptyPaintSetup}
+        canStartPaint={canStartPaint}
+        activePaintSessionId={activePaintSessionId}
       />
       </ErrorBoundary>
+      {showPaintSetup && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client && (
+        <PaintSessionSetupModal
+          channelId={paintChannelId}
+          channelRoomId={paintChannelRoomId}
+          candidates={paintCandidates}
+          hostUserId={selfSession}
+          paintApi={paintApi}
+          matrixClient={matrixClient.client}
+          onAttachSource={paintApi.attachSource}
+          initialSourceFile={paintSetupInitialSource}
+          onComplete={(sessionId) => {
+            invalidatePaintPreparation();
+            activePaintChannelIdRef.current = currentChannelId;
+            activePaintSessionIdRef.current = sessionId;
+            setActivePaintSessionId(sessionId);
+            closePaintSetup();
+          }}
+          onClose={closePaintSetup}
+        />
+      )}
       
       <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
         <ErrorBoundary label="Sidebar">
@@ -4313,35 +4484,56 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            showGame ? (
+            showGame && !activePaintSessionId ? (
               <NeonDGame onClose={() => setShowGame(false)} />
             ) : (
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
                 <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
-                   <ChatPanel
-                    channelId={currentChannelId || undefined}
-                    channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                    messages={channelChatMessages}
-                    currentUsername={username}
-                    onSendMessage={handleSendMessage}
-                    onDismissMessage={handleDismissMessage}
-                    matrixClient={matrixClient.client}
-                    matrixRoomId={channelMatrixRoomId}
-                    readMarkerTs={channelDividerTs}
-                    {...(showChannelConversation ? screenShareViewerProps : {})}
-                    users={users}
-                    disabled={!canSendActiveChannelChat}
-                    topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
-                    onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={matrixCredentials?.userId}
-                    onToggleReaction={handleToggleChannelReaction}
-                     typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
-                     typingTargetId={activeChannelId ?? undefined}
-                     onTypingStart={matrixClient.startTyping}
-                     onTypingStop={matrixClient.stopTyping}
-                  />
+                    <VerticalSplitPane
+                      top={activePaintSessionId ? (
+                        <PaintSessionView
+                          key={activePaintSessionId}
+                          sessionId={activePaintSessionId}
+                          matrixClient={matrixClient.client}
+                          channelRoomMap={matrixCredentials?.roomMap}
+                          onClose={handleClosePaint}
+                        />
+                      ) : null}
+                      storageKey="brmble-paint-split"
+                      label="Resize paint and channel chat"
+                    >
+                      <ChatPanel
+                        channelId={currentChannelId || undefined}
+                        channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
+                        messages={channelChatMessages}
+                        currentUsername={username}
+                        onSendMessage={handleSendMessage}
+                        onDismissMessage={handleDismissMessage}
+                        matrixClient={matrixClient.client}
+                        matrixRoomId={channelMatrixRoomId}
+                        readMarkerTs={channelDividerTs}
+                        {...(showChannelConversation ? screenShareViewerProps : {})}
+                        users={users}
+                        disabled={!canSendActiveChannelChat}
+                        topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
+                        onMessageContextMenu={handleChatMessageContextMenu}
+                        onCopyToClipboard={handleCopyToClipboard}
+                        currentUserMatrixId={matrixCredentials?.userId}
+                        onToggleReaction={handleToggleChannelReaction}
+                        typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
+                        typingTargetId={activeChannelId ?? undefined}
+                        onTypingStart={matrixClient.startTyping}
+                        onTypingStop={matrixClient.stopTyping}
+                        currentUserId={selfSession}
+                        paintSessionStatuses={paintSessionStatuses}
+                        onJoinPaint={handleJoinPaint}
+                        onOpenPaint={handleOpenPaint}
+                        {...(canStartPaint && !activePaintSessionId
+                          ? { onUseAsPaintBackground: handleUseAsPaintBackground }
+                          : {})}
+                      />
+                    </VerticalSplitPane>
                   </ErrorBoundary>
                 </div>
                 <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
@@ -4368,6 +4560,7 @@ const handleConnect = (serverData: SavedServer) => {
                     typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
                     onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
                     onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
+                    paintSessionStatuses={paintSessionStatuses}
                   />
                   </ErrorBoundary>
                 </div>
@@ -4506,6 +4699,24 @@ const handleConnect = (serverData: SavedServer) => {
       )}
 
       <div className="notification-stack">
+        {paintBackgroundError
+          && notifQueue.isVisible('paint-background-error')
+          && (
+            <Notification
+              status="error"
+              position="top-right"
+              visible={true}
+              title="Paint background unavailable"
+              detail={paintBackgroundError}
+              onDismiss={() => {
+                notifQueue.unregister('paint-background-error');
+                setPaintBackgroundError(null);
+              }}
+              onExited={() => {
+                notifQueue.unregister('paint-background-error');
+              }}
+            />
+          )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"

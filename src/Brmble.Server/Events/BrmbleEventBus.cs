@@ -16,7 +16,10 @@ public class BrmbleEventBus : IBrmbleEventBus
     private readonly int _socketQueueCapacity;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    private sealed record QueuedMessage(ArraySegment<byte> Bytes, TaskCompletionSource Completion);
+    private sealed record QueuedMessage(
+        ArraySegment<byte> Bytes,
+        TaskCompletionSource Completion,
+        string? CoalesceKey);
 
     /// <summary>
     /// Per-socket send queue. <see cref="WebSocket.SendAsync"/> permits only one
@@ -27,6 +30,12 @@ public class BrmbleEventBus : IBrmbleEventBus
     {
         public object Gate { get; } = new();
         public LinkedList<QueuedMessage> Queue { get; } = new();
+
+        /// <summary>
+        /// Queued payloads that a later payload may supersede, indexed by coalesce key.
+        /// </summary>
+        public Dictionary<string, LinkedListNode<QueuedMessage>> Coalescable { get; } = [];
+
         public bool Draining { get; set; }
         public Exception? Failure { get; set; }
     }
@@ -61,6 +70,41 @@ public class BrmbleEventBus : IBrmbleEventBus
     }
 
     /// <summary>
+    /// Drops any queued payload sharing <paramref name="coalesceKey"/>, completing its caller
+    /// as though it had been sent. The newer payload fully supersedes it, which is what the
+    /// caller asserts by supplying a key.
+    /// </summary>
+    private static void SupersedeQueuedLocked(SocketDelivery delivery, string? coalesceKey)
+    {
+        if (coalesceKey is null || !delivery.Coalescable.Remove(coalesceKey, out var existing))
+            return;
+
+        delivery.Queue.Remove(existing);
+        existing.Value.Completion.TrySetResult();
+    }
+
+    /// <summary>
+    /// Frees a slot in a full queue by dropping the oldest coalescable payload, so a client
+    /// sending superseded updates is throttled rather than disconnected. Returns false when
+    /// nothing may be dropped, leaving the caller to disconnect.
+    /// </summary>
+    private static bool TryDropOldestCoalescableLocked(SocketDelivery delivery)
+    {
+        for (var node = delivery.Queue.First; node is not null; node = node.Next)
+        {
+            if (node.Value.CoalesceKey is not { } key)
+                continue;
+
+            delivery.Queue.Remove(node);
+            delivery.Coalescable.Remove(key);
+            node.Value.Completion.TrySetResult();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Releases everything still queued for a socket. Callers awaiting those sends are
     /// faulted rather than left waiting on a socket that will never drain. The send
     /// already in flight is not tracked here and completes on its own.
@@ -75,6 +119,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             message.Completion.TrySetException(delivery.Failure);
         }
 
+        delivery.Coalescable.Clear();
         delivery.Draining = false;
     }
 
@@ -120,7 +165,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                 if (delivery.Failure is not null)
                     return Task.FromException(delivery.Failure);
 
-                delivery.Queue.AddFirst(new QueuedMessage(bytes, completion));
+                delivery.Queue.AddFirst(new QueuedMessage(bytes, completion, CoalesceKey: null));
             }
 
             _ = DrainSocketAsync(ws, delivery);
@@ -138,35 +183,19 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
 
-    public async Task BroadcastAsync(object message)
+    public Task BroadcastAsync(object message)
     {
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Keys.Select(async ws =>
-        {
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                {
-                    await QueueSendAsync(ws, bytes);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
-            }
-        });
+        var tasks = _clients.Keys
+            .Select(ws => SendToClient(ws, bytes, default))
+            .ToArray();
 
-        await Task.WhenAll(tasks);
+        return Task.WhenAll(tasks);
     }
 
-    public async Task BroadcastToChannelAsync(int channelId, object message)
+    public Task BroadcastToChannelAsync(int channelId, object message)
     {
         var sessions = _channelMembership.GetSessionsInChannel(channelId);
         var userIds = new HashSet<long>();
@@ -180,28 +209,45 @@ public class BrmbleEventBus : IBrmbleEventBus
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
-        {
-            var ws = kvp.Key;
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                {
-                    await QueueSendAsync(ws, bytes);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
-            }
-        });
+        var tasks = _clients
+            .Where(kvp => userIds.Contains(kvp.Value))
+            .Select(kvp => SendToClient(kvp.Key, bytes, default))
+            .ToArray();
 
-        await Task.WhenAll(tasks);
+        return Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Enqueues a payload for one client and returns a task tracking its delivery.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT an async method. Ordered broadcasts rely on the payload being
+    /// enqueued before this returns, so that admission order matches call order. Making this
+    /// async, or awaiting anything before <see cref="QueueSendAsync"/>, would silently break
+    /// channel ordering without failing any test that does not race two broadcasts.
+    /// </remarks>
+    private Task SendToClient(WebSocket ws, ArraySegment<byte> bytes, EventDeliveryOptions options)
+    {
+        if (ws.State != WebSocketState.Open)
+        {
+            RemoveClient(ws);
+            return Task.CompletedTask;
+        }
+
+        return AwaitSendAsync(ws, QueueSendAsync(ws, bytes, options));
+    }
+
+    private async Task AwaitSendAsync(WebSocket ws, Task send)
+    {
+        try
+        {
+            await send.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
+            RemoveClient(ws);
+        }
     }
 
     public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync()
@@ -210,33 +256,17 @@ public class BrmbleEventBus : IBrmbleEventBus
         return Task.FromResult(ids);
     }
 
-    public async Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message)
+    public Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message, EventDeliveryOptions options = default)
     {
         var json = JsonSerializer.Serialize(message, JsonOptions);
         var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
 
-        var tasks = _clients.Where(kvp => userIds.Contains(kvp.Value)).Select(async kvp =>
-        {
-            var ws = kvp.Key;
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                {
-                    await QueueSendAsync(ws, bytes);
-                }
-                else
-                {
-                    RemoveClient(ws);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to send to WebSocket client, removing");
-                RemoveClient(ws);
-            }
-        });
+        var tasks = _clients
+            .Where(kvp => userIds.Contains(kvp.Value))
+            .Select(kvp => SendToClient(kvp.Key, bytes, options))
+            .ToArray();
 
-        await Task.WhenAll(tasks);
+        return Task.WhenAll(tasks);
     }
 
     /// <summary>
@@ -246,7 +276,7 @@ public class BrmbleEventBus : IBrmbleEventBus
     /// A client that has stopped draining is disconnected once its queue is full, rather
     /// than being allowed to accumulate payloads without bound.
     /// </summary>
-    private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes)
+    private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes, EventDeliveryOptions options)
     {
         if (!_deliveries.TryGetValue(ws, out var delivery))
             return Task.FromException(new WebSocketException("WebSocket client is no longer connected."));
@@ -259,7 +289,9 @@ public class BrmbleEventBus : IBrmbleEventBus
             if (delivery.Failure is not null)
                 return Task.FromException(delivery.Failure);
 
-            if (delivery.Queue.Count >= _socketQueueCapacity)
+            SupersedeQueuedLocked(delivery, options.CoalesceKey);
+
+            if (delivery.Queue.Count >= _socketQueueCapacity && !TryDropOldestCoalescableLocked(delivery))
             {
                 overflow = new WebSocketException(
                     $"WebSocket delivery queue is full ({_socketQueueCapacity} payloads).");
@@ -268,7 +300,10 @@ public class BrmbleEventBus : IBrmbleEventBus
             }
             else
             {
-                delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
+                var node = delivery.Queue.AddLast(new QueuedMessage(bytes, completion, options.CoalesceKey));
+                if (options.CoalesceKey is { } key)
+                    delivery.Coalescable[key] = node;
+
                 startDrain = !delivery.Draining;
                 if (startDrain)
                     delivery.Draining = true;
@@ -335,6 +370,8 @@ public class BrmbleEventBus : IBrmbleEventBus
 
                 message = delivery.Queue.First!.Value;
                 delivery.Queue.RemoveFirst();
+                if (message.CoalesceKey is { } draining)
+                    delivery.Coalescable.Remove(draining);
             }
 
             try

@@ -142,6 +142,30 @@ public class Database
             CREATE INDEX IF NOT EXISTS ix_gmp_match_id ON game_match_participants(match_id);
             """);
 
+        conn.Execute("""
+            CREATE TABLE IF NOT EXISTS paint_room_cleanup (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                matrix_room_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                next_attempt_at TEXT NOT NULL
+            );
+            """);
+
+        // Migrate paint cleanup work created before retries were scheduled.
+        var hasCleanupRetryTime = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('paint_room_cleanup') WHERE name='next_attempt_at'");
+        if (hasCleanupRetryTime == 0)
+            conn.Execute("ALTER TABLE paint_room_cleanup ADD COLUMN next_attempt_at TEXT");
+        conn.Execute("UPDATE paint_room_cleanup SET next_attempt_at = updated_at WHERE next_attempt_at IS NULL");
+        // Retain the newest legacy record before making room cleanup idempotent.
+        conn.Execute("DELETE FROM paint_room_cleanup WHERE id NOT IN (SELECT MAX(id) FROM paint_room_cleanup GROUP BY matrix_room_id)");
+        conn.Execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_paint_room_cleanup_matrix_room_id ON paint_room_cleanup(matrix_room_id)");
+
         // Migrate existing deployments: add matrix_access_token if the column is missing
         var hasMatrixToken = conn.ExecuteScalar<int>(
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
