@@ -27,6 +27,8 @@ public interface IMatrixAppService
     Task<JsonElement> GetRoomEvent(string roomId, string eventId);
     Task<string?> GetRoomMembership(string roomId, string matrixUserId);
     Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken);
+    Task<byte[]> DownloadMedia(string mxcUrl, long maxBytes, CancellationToken cancellationToken)
+        => DownloadMedia(mxcUrl, cancellationToken);
     Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken);
 }
 
@@ -49,6 +51,10 @@ public class MatrixAppService : IMatrixAppService
         _serverDomain = settings.Value.ServerDomain;
         _botUserId = $"@brmble:{_serverDomain}";
         _logger = logger;
+        if (string.IsNullOrWhiteSpace(_adminAccessToken))
+        {
+            _logger.LogWarning("Matrix admin access token is not configured. Paint room cleanup cannot delete rooms and will be terminal. Configure Matrix__AdminAccessToken.");
+        }
     }
 
     public async Task SendMessage(string roomId, string displayName, string text)
@@ -89,6 +95,7 @@ public class MatrixAppService : IMatrixAppService
             {
                 new { type = "m.room.join_rules", content = new { join_rule = "invite" } },
                 new { type = "m.room.history_visibility", content = new { history_visibility = "invited" } },
+                new { type = "m.room.power_levels", content = new { users_default = 0, invite = 50 } },
             },
         });
         var response = await SendRequest(HttpMethod.Post, url, body);
@@ -341,32 +348,47 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
-    public async Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken)
+    public Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken)
+        => DownloadMedia(mxcUrl, long.MaxValue, cancellationToken);
+
+    public async Task<byte[]> DownloadMedia(string mxcUrl, long maxBytes, CancellationToken cancellationToken)
     {
         var uri = new Uri(mxcUrl);
         var mediaId = uri.AbsolutePath.Trim('/');
-        var url = $"{_homeserverUrl}/_matrix/media/v3/download/{Uri.EscapeDataString(uri.Host)}/{mediaId}";
+        var url = $"{_homeserverUrl}/_matrix/media/v3/download/{Uri.EscapeDataString(uri.Authority)}/{mediaId}";
         var client = _httpClientFactory.CreateClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _appServiceToken);
-        var response = await client.SendAsync(request, cancellationToken);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (response.Content.Headers.ContentLength is long declaredLength && declaredLength > maxBytes)
+        {
+            throw new InvalidDataException("Matrix media exceeds the permitted size.");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var bytes = new MemoryStream();
+        var buffer = new byte[81920];
+        long totalBytes = 0;
+        int read;
+        while ((read = await stream.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            totalBytes += read;
+            if (totalBytes > maxBytes)
+            {
+                throw new InvalidDataException("Matrix media exceeds the permitted size.");
+            }
+            bytes.Write(buffer, 0, read);
+        }
+
+        return bytes.ToArray();
     }
 
     public async Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_adminAccessToken))
         {
-            try
-            {
-                await LeaveRoomAsBotAsync(roomId, cancellationToken);
-                return new(false, "best-effort-leave", "ROOM_DELETE_UNSUPPORTED");
-            }
-            catch (Exception ex)
-            {
-                return new(false, "failed", ex.Message);
-            }
+            return new(false, "admin-token-missing", "MATRIX_ADMIN_TOKEN_MISSING", true);
         }
 
         var client = _httpClientFactory.CreateClient();

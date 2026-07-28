@@ -4,6 +4,7 @@ namespace Brmble.Server.Paint;
 
 public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintService)
 {
+    public const long MaxSourceImageBytes = 10 * 1024 * 1024;
     private static readonly HashSet<string> SupportedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/png",
@@ -22,6 +23,7 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         {
             throw new PaintValidationException("source event is missing media url.");
         }
+        ValidateMxcUrl(mxcUrl, matrixRoomId);
 
         var mimeType = TryGetNestedString(content, "info", "mimetype") ?? "application/octet-stream";
         if (string.Equals(mimeType, "image/svg+xml", StringComparison.OrdinalIgnoreCase))
@@ -39,14 +41,32 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
             throw new PaintValidationException("source image type is invalid.");
         }
 
-        var bytes = await matrixPaintService.DownloadMediaAsync(mxcUrl, cancellationToken);
+        var declaredSizeBytes = TryGetNestedInt64(content, "info", "size");
+        if (declaredSizeBytes is < 0 or > MaxSourceImageBytes)
+        {
+            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = await matrixPaintService.DownloadMediaAsync(mxcUrl, MaxSourceImageBytes, cancellationToken);
+        }
+        catch (InvalidDataException)
+        {
+            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
+        }
+        if (bytes.LongLength > MaxSourceImageBytes)
+        {
+            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
+        }
         var metadata = ImageMetadataReader.Read(bytes, mimeType);
         if (metadata.Width > 4096 || metadata.Height > 4096)
         {
             throw new PaintValidationException("source image dimensions exceed 4096x4096.");
         }
 
-        var sizeBytes = TryGetNestedInt64(content, "info", "size") ?? bytes.LongLength;
+        var sizeBytes = declaredSizeBytes ?? bytes.LongLength;
         return new PaintSource(
             matrixRoomId,
             sourceEventId,
@@ -55,6 +75,27 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
             metadata.Width,
             metadata.Height,
             sizeBytes);
+    }
+
+    private static void ValidateMxcUrl(string mxcUrl, string matrixRoomId)
+    {
+        if (!Uri.TryCreate(mxcUrl, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, "mxc", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(uri.Host)
+            || string.IsNullOrWhiteSpace(uri.AbsolutePath.Trim('/'))
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            throw new PaintValidationException("source media url must be a valid mxc:// URI.");
+        }
+
+        var separator = matrixRoomId.IndexOf(':');
+        if (separator < 1 || separator == matrixRoomId.Length - 1
+            || !string.Equals(uri.Authority, matrixRoomId[(separator + 1)..], StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PaintValidationException("source media must be hosted by the local Matrix server.");
+        }
     }
 
     private static void ValidateRoomEvent(string matrixRoomId, string hostMatrixUserId, JsonElement roomEvent)
@@ -113,12 +154,17 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
     private static long? TryGetNestedInt64(JsonElement element, string propertyName, string nestedPropertyName)
     {
         var child = GetOptionalObject(element, propertyName);
-        if (child is null || !child.Value.TryGetProperty(nestedPropertyName, out var nested) || nested.ValueKind != JsonValueKind.Number)
+        if (child is null || !child.Value.TryGetProperty(nestedPropertyName, out var nested))
         {
             return null;
         }
 
-        return nested.TryGetInt64(out var value) ? value : null;
+        if (nested.ValueKind != JsonValueKind.Number || !nested.TryGetInt64(out var value))
+        {
+            throw new PaintValidationException("source image size must be an integer.");
+        }
+
+        return value;
     }
 
     private static JsonElement? GetOptionalObject(JsonElement element, string propertyName)

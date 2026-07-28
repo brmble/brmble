@@ -9,7 +9,9 @@ public sealed class PaintRoomCleanupService(
     ILogger<PaintRoomCleanupService>? logger = null) : BackgroundService
 {
     private const string MatrixDeleteFailureType = "MATRIX_ROOM_DELETE_FAILED";
+    private const string MatrixAdminTokenMissingFailureType = "MATRIX_ADMIN_TOKEN_MISSING";
     private const string ExceptionMode = "exception";
+    private const int MaxCleanupAttempts = 5;
 
     public async Task ProcessPendingAsync(CancellationToken cancellationToken)
     {
@@ -48,7 +50,8 @@ public sealed class PaintRoomCleanupService(
             }
 
             var error = result.Error ?? MatrixDeleteFailureType;
-            await RecordFailureAsync(record, error[..Math.Min(error.Length, 256)], result.Mode, MatrixDeleteFailureType, cancellationToken);
+            await RecordFailureAsync(record, error[..Math.Min(error.Length, 256)], result.Mode,
+                error == MatrixAdminTokenMissingFailureType ? error : MatrixDeleteFailureType, result.Terminal, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -56,7 +59,7 @@ public sealed class PaintRoomCleanupService(
         }
         catch (Exception ex)
         {
-            await RecordFailureAsync(record, ex.GetType().Name, ExceptionMode, ex.GetType().Name, cancellationToken);
+            await RecordFailureAsync(record, ex.GetType().Name, ExceptionMode, ex.GetType().Name, false, cancellationToken);
         }
     }
 
@@ -65,11 +68,20 @@ public sealed class PaintRoomCleanupService(
         string error,
         string mode,
         string failureType,
+        bool terminal,
         CancellationToken cancellationToken)
     {
         try
         {
-            await repository.MarkFailedAsync(record.Id, error, cancellationToken);
+            var attempt = record.Attempts + 1;
+            if (terminal || failureType == MatrixAdminTokenMissingFailureType || attempt >= MaxCleanupAttempts)
+            {
+                await repository.MarkTerminalAsync(record.Id, error, cancellationToken);
+            }
+            else
+            {
+                await repository.MarkFailedAsync(record.Id, error, DateTimeOffset.UtcNow.Add(BackoffFor(attempt)), cancellationToken);
+            }
             logger?.LogWarning(
                 "Paint cleanup failed: {SessionId} {RoomId} {Attempt} {Mode} {FailureType}",
                 record.SessionId,
@@ -93,6 +105,9 @@ public sealed class PaintRoomCleanupService(
                 ex.GetType().Name);
         }
     }
+
+    private static TimeSpan BackoffFor(int attempt)
+        => TimeSpan.FromMinutes(Math.Min(60, 1 << Math.Min(attempt - 1, 6)));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

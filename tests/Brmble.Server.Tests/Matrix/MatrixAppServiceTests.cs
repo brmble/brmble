@@ -250,7 +250,29 @@ public class MatrixAppServiceTests
         StringAssert.Contains(body, @"""invite"":[""@alice:server"",""@bob:server""]");
         StringAssert.Contains(body, @"""join_rule"":""invite""");
         StringAssert.Contains(body, @"""history_visibility"":""invited""");
+        StringAssert.Contains(body, "m.room.power_levels");
+        StringAssert.Contains(body, @"""invite"":50");
         Assert.IsFalse(SentRequests.Any(r => r.RequestUri!.AbsolutePath.Contains("/join/")));
+    }
+
+    [TestMethod]
+    public async Task DeletePaintRoom_ReportsMissingAdminTokenAsTerminal()
+    {
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient(It.IsAny<string>()))
+            .Returns(new HttpClient(_mockHandler.Object));
+        var service = new MatrixAppService(factory.Object, Options.Create(new MatrixSettings
+        {
+            HomeserverUrl = "http://localhost:8008",
+            AppServiceToken = "test-token",
+        }), NullLogger<MatrixAppService>.Instance);
+
+        var result = await service.DeletePaintRoomAsync("!room:server", CancellationToken.None);
+
+        Assert.IsFalse(result.Removed);
+        Assert.AreEqual("admin-token-missing", result.Mode);
+        Assert.AreEqual("MATRIX_ADMIN_TOKEN_MISSING", result.Error);
+        Assert.IsTrue(result.Terminal);
     }
 
     [TestMethod]
@@ -262,5 +284,25 @@ public class MatrixAppServiceTests
 
         var request = _capturedRequests.Single();
         Assert.AreEqual("/_matrix/media/v3/download/media.example.org/abc123", request.RequestUri!.AbsolutePath);
+    }
+
+    [TestMethod]
+    public async Task DownloadMedia_PreservesMxcServerAuthorityIncludingPortInDownloadPath()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "media");
+
+        await _svc.DownloadMedia("mxc://media.example.org:8448/abc123", CancellationToken.None);
+
+        var request = _capturedRequests.Single();
+        Assert.AreEqual("/_matrix/media/v3/download/media.example.org%3A8448/abc123", request.RequestUri!.AbsolutePath);
+    }
+
+    [TestMethod]
+    public async Task DownloadMedia_RejectsResponseBytesAboveTheSpecifiedLimit()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, "media");
+
+        await Assert.ThrowsExceptionAsync<InvalidDataException>(() =>
+            _svc.DownloadMedia("mxc://media.example.org/abc123", 1, CancellationToken.None));
     }
 }

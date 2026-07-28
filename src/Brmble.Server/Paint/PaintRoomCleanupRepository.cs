@@ -3,7 +3,7 @@ using Dapper;
 
 namespace Brmble.Server.Paint;
 
-public sealed record PaintRoomCleanupRecord(long Id, Guid SessionId, string MatrixRoomId, string Status, int Attempts, string? LastError, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public sealed record PaintRoomCleanupRecord(long Id, Guid SessionId, string MatrixRoomId, string Status, int Attempts, string? LastError, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset NextAttemptAt);
 
 public class PaintRoomCleanupRepository(Database database)
 {
@@ -11,8 +11,9 @@ public class PaintRoomCleanupRepository(Database database)
     {
         using var connection = database.CreateConnection();
         await connection.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO paint_room_cleanup (session_id, matrix_room_id, status, created_at, updated_at)
-            VALUES (@SessionId, @MatrixRoomId, 'pending', @Now, @Now)
+            INSERT INTO paint_room_cleanup (session_id, matrix_room_id, status, created_at, updated_at, next_attempt_at)
+            VALUES (@SessionId, @MatrixRoomId, 'pending', @Now, @Now, @Now)
+            ON CONFLICT(matrix_room_id) DO NOTHING
             """, new { SessionId = sessionId.ToString(), MatrixRoomId = matrixRoomId, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
     }
 
@@ -31,10 +32,19 @@ public class PaintRoomCleanupRepository(Database database)
         await connection.ExecuteAsync(new CommandDefinition("UPDATE paint_room_cleanup SET status = 'succeeded', last_error = NULL, updated_at = @Now WHERE id = @Id", new { Id = id, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
     }
 
-    public async Task MarkFailedAsync(long id, string error, CancellationToken cancellationToken = default)
+    public Task MarkFailedAsync(long id, string error, CancellationToken cancellationToken = default)
+        => MarkFailedAsync(id, error, DateTimeOffset.UtcNow.AddMinutes(1), cancellationToken);
+
+    public async Task MarkFailedAsync(long id, string error, DateTimeOffset nextAttemptAt, CancellationToken cancellationToken = default)
     {
         using var connection = database.CreateConnection();
-        await connection.ExecuteAsync(new CommandDefinition("UPDATE paint_room_cleanup SET status = 'pending', attempts = attempts + 1, last_error = @Error, updated_at = @Now WHERE id = @Id", new { Id = id, Error = error, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("UPDATE paint_room_cleanup SET status = 'pending', attempts = attempts + 1, last_error = @Error, updated_at = @Now, next_attempt_at = @NextAttemptAt WHERE id = @Id", new { Id = id, Error = error, Now = DateTimeOffset.UtcNow, NextAttemptAt = nextAttemptAt }, cancellationToken: cancellationToken));
+    }
+
+    public async Task MarkTerminalAsync(long id, string error, CancellationToken cancellationToken = default)
+    {
+        using var connection = database.CreateConnection();
+        await connection.ExecuteAsync(new CommandDefinition("UPDATE paint_room_cleanup SET status = 'terminal', attempts = attempts + 1, last_error = @Error, updated_at = @Now WHERE id = @Id", new { Id = id, Error = error, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
     }
 
     public async Task<IReadOnlyList<PaintRoomCleanupRecord>> GetPendingAsync(CancellationToken cancellationToken = default)
@@ -42,11 +52,13 @@ public class PaintRoomCleanupRepository(Database database)
         using var connection = database.CreateConnection();
         var rows = await connection.QueryAsync<PaintRoomCleanupRow>(new CommandDefinition("""
             SELECT id Id, session_id SessionId, matrix_room_id MatrixRoomId, status Status, attempts Attempts,
-                   last_error LastError, created_at CreatedAt, updated_at UpdatedAt
-            FROM paint_room_cleanup WHERE status = 'pending' ORDER BY id
-            """, cancellationToken: cancellationToken));
+                   last_error LastError, created_at CreatedAt, updated_at UpdatedAt, next_attempt_at NextAttemptAt
+            FROM paint_room_cleanup
+            WHERE status = 'pending' AND next_attempt_at <= @Now
+            ORDER BY id
+            """, new { Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
         return rows.Select(r => new PaintRoomCleanupRecord(r.Id, Guid.Parse(r.SessionId), r.MatrixRoomId, r.Status, r.Attempts, r.LastError,
-            DateTimeOffset.Parse(r.CreatedAt), DateTimeOffset.Parse(r.UpdatedAt))).ToArray();
+            DateTimeOffset.Parse(r.CreatedAt), DateTimeOffset.Parse(r.UpdatedAt), DateTimeOffset.Parse(r.NextAttemptAt))).ToArray();
     }
 
     private sealed class PaintRoomCleanupRow
@@ -59,5 +71,6 @@ public class PaintRoomCleanupRepository(Database database)
         public string? LastError { get; init; }
         public required string CreatedAt { get; init; }
         public required string UpdatedAt { get; init; }
+        public required string NextAttemptAt { get; init; }
     }
 }

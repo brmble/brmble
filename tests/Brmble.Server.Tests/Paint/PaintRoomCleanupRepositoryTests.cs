@@ -19,11 +19,37 @@ public sealed class PaintRoomCleanupRepositoryTests
         await repository.RecordPendingAsync(sessionId, "!paint:test");
         var pending = await repository.GetPendingAsync();
         await repository.MarkFailedAsync(pending.Single().Id, "unavailable");
-        var failed = (await repository.GetPendingAsync()).Single();
-        await repository.MarkSucceededAsync(failed.Id);
+        await repository.MarkSucceededAsync(pending.Single().Id);
 
-        Assert.AreEqual(1, failed.Attempts);
-        Assert.AreEqual("unavailable", failed.LastError);
+        Assert.AreEqual(0, (await repository.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task RecordPendingAsync_DeduplicatesCleanupRecordsForTheSameRoom()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"brmble-cleanup-{Guid.NewGuid():N}.db");
+        var database = new Database($"Data Source={path}");
+        database.Initialize();
+        var repository = new PaintRoomCleanupRepository(database);
+
+        await repository.RecordPendingAsync(Guid.NewGuid(), "!paint:test");
+        await repository.RecordPendingAsync(Guid.NewGuid(), "!paint:test");
+
+        Assert.AreEqual(1, (await repository.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task MarkFailedAsync_SchedulesTheNextAttemptInsteadOfRetryingImmediately()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"brmble-cleanup-{Guid.NewGuid():N}.db");
+        var database = new Database($"Data Source={path}");
+        database.Initialize();
+        var repository = new PaintRoomCleanupRepository(database);
+
+        await repository.RecordPendingAsync(Guid.NewGuid(), "!paint:test");
+        var pending = (await repository.GetPendingAsync()).Single();
+        await repository.MarkFailedAsync(pending.Id, "unavailable");
+
         Assert.AreEqual(0, (await repository.GetPendingAsync()).Count);
     }
 }

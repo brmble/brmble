@@ -20,6 +20,9 @@ public sealed class MatrixPaintService(IMatrixAppService matrixAppService) : IMa
     public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken)
         => matrixAppService.DownloadMedia(mxcUrl, cancellationToken);
 
+    public Task<byte[]> DownloadMediaAsync(string mxcUrl, long maxBytes, CancellationToken cancellationToken)
+        => matrixAppService.DownloadMedia(mxcUrl, maxBytes, cancellationToken);
+
     public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
         => matrixAppService.DeletePaintRoomAsync(roomId, cancellationToken);
 }

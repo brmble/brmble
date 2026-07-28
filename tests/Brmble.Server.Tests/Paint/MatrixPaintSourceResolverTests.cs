@@ -161,6 +161,69 @@ public sealed class MatrixPaintSourceResolverTests
     }
 
     [DataTestMethod]
+    [DataRow("https://server/source")]
+    [DataRow("mxc://other-server/source")]
+    [DataRow("mxc://server/")]
+    public async Task ResolveAsync_RejectsMalformedOrNonLocalMxcUrls(string url)
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            MxcUrl = url,
+            MediaBytes = ImageFixtures.Png1x1,
+            SizeBytes = ImageFixtures.Png1x1.Length,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveAsync_RejectsMediaWhoseDeclaredSizeExceedsTheLimit()
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            MediaBytes = ImageFixtures.Png1x1,
+            SizeBytes = 10 * 1024 * 1024 + 1,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ResolveAsync_RejectsDownloadedMediaWhoseBytesExceedTheLimit()
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            MediaBytes = ImageFixtures.OversizedPng,
+            SizeBytes = 1,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
+    [DataTestMethod]
+    [DataRow("\"12\"")]
+    [DataRow("1.5")]
+    [DataRow("9223372036854775808")]
+    public async Task ResolveAsync_RejectsMalformedNonIntegralOrOutOfRangeDeclaredSize(string size)
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            RawEvent = $"{{\"room_id\":\"!paint:server\",\"sender\":\"@host:test\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://server/source\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{size}}}}}}}",
+            MediaBytes = ImageFixtures.Png1x1,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
+    [DataTestMethod]
     [DataRow("[]")]
     [DataRow("\"invalid\"")]
     public async Task ResolveAsync_RejectsNonObjectOptionalInfoWithPaintValidationError(string info)
@@ -250,6 +313,8 @@ public sealed class MatrixPaintSourceResolverTests
             0x1F, 0x15, 0xC4, 0x89
         ];
 
+        public static readonly byte[] OversizedPng = CreateOversizedPng();
+
         public static readonly byte[] Png5000x1 =
         [
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -270,5 +335,12 @@ public sealed class MatrixPaintSourceResolverTests
             0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
             0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B
         ];
+
+        private static byte[] CreateOversizedPng()
+        {
+            var bytes = new byte[10 * 1024 * 1024 + 1];
+            Array.Copy(Png1x1, bytes, Png1x1.Length);
+            return bytes;
+        }
     }
 }

@@ -32,11 +32,36 @@ public sealed class PaintRoomCleanupServiceTests
 
         await fixture.Service.ProcessPendingAsync(CancellationToken.None);
 
-        var pending = (await fixture.Repository.GetPendingAsync()).Single();
         Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
         CollectionAssert.AreEqual(new[] { "!room:test" }, fixture.Matrix.DeletedRoomIds);
-        Assert.AreEqual(1, pending.Attempts);
-        Assert.AreEqual("MATRIX_ROOM_DELETE_FAILED", pending.LastError);
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task ProcessPending_MarksCleanupTerminalWhenTheAttemptCapIsReached()
+    {
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!room:test");
+        fixture.SetCleanupAttempts("!room:test", 4);
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(false, "failed", "MATRIX_ROOM_DELETE_FAILED"));
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task ProcessPending_MarksMissingAdminTokenFailureTerminal()
+    {
+        var fixture = await PaintRoomCleanupFixture.NewAsync();
+        await fixture.Repository.RecordPendingAsync(fixture.SessionId, "!room:test");
+        fixture.Matrix.Results.Enqueue(new MatrixPaintRoomCleanupResult(false, "admin-token-missing", "MATRIX_ADMIN_TOKEN_MISSING"));
+
+        await fixture.Service.ProcessPendingAsync(CancellationToken.None);
+
+        Assert.AreEqual(1, fixture.Matrix.DeleteCalls);
+        Assert.AreEqual(0, (await fixture.Repository.GetPendingAsync()).Count);
     }
 
     [TestMethod]
@@ -175,6 +200,8 @@ public sealed class PaintRoomCleanupServiceTests
                 SELECT RAISE(ABORT, 'state write unavailable');
             END
             """);
+
+        public void SetCleanupAttempts(string roomId, int attempts) => Execute($"UPDATE paint_room_cleanup SET attempts = {attempts} WHERE matrix_room_id = '{roomId}'");
 
         private void Execute(string sql)
         {
