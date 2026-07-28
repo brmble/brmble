@@ -40,8 +40,7 @@ public static class BrmbleWebSocketHandler
         {
             await InitializeAcceptedClientAsync(
                 ws, user.Id, hash, sessionMapping, eventBus, activeSessions,
-                context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
-                context.RequestAborted);
+                context.RequestServices.GetRequiredService<IDuelSnapshotProvider>());
 
             // Read loop until close
             var buffer = new byte[1024];
@@ -65,18 +64,22 @@ public static class BrmbleWebSocketHandler
         }
     }
 
-    internal static async Task InitializeAcceptedClientAsync(
+    /// <summary>
+    /// Registers an accepted socket and hands it its initial payloads. The mapping mutation
+    /// and its announcement run inside the registration window, so the joining client is
+    /// already visible to broadcasts and misses nothing that happens while its snapshots are
+    /// being built. It is excluded from the announcement itself because its own snapshot
+    /// already carries that mapping.
+    /// </summary>
+    internal static Task InitializeAcceptedClientAsync(
         WebSocket socket,
         long userId,
         string certHash,
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
         IActiveBrmbleSessions activeSessions,
-        IDuelSnapshotProvider snapshots,
-        CancellationToken cancellationToken)
-    {
-        eventBus.AddPausedClient(socket, userId);
-        try
+        IDuelSnapshotProvider snapshots) =>
+        eventBus.AddClientAsync(socket, userId, async () =>
         {
             if (sessionMapping.TryGetMappingByUserId(userId, out var sessionId, out var mapping))
             {
@@ -88,46 +91,33 @@ public static class BrmbleWebSocketHandler
             }
 
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);
-            await InitializeClientAsync(
-                socket, eventBus, snapshots, queueSessionId, sessionMapping.GetSnapshot(), cancellationToken);
-        }
-        catch
-        {
-            eventBus.RemoveClient(socket);
-            throw;
-        }
-    }
+            return await BuildInitialPayloadsAsync(snapshots, queueSessionId, sessionMapping.GetSnapshot());
+        });
 
-    internal static async Task InitializeClientAsync(
-        WebSocket socket,
-        IBrmbleEventBus eventBus,
+    /// <summary>
+    /// Builds the payloads a freshly registered client needs before it can interpret any
+    /// subsequent event: the session mapping snapshot, plus the duel queue snapshot when the
+    /// user has a Mumble session.
+    /// </summary>
+    internal static async Task<IReadOnlyList<object>> BuildInitialPayloadsAsync(
         IDuelSnapshotProvider snapshots,
         long sessionId,
-        IReadOnlyDictionary<int, SessionMapping> mappings,
-        CancellationToken cancellationToken)
+        IReadOnlyDictionary<int, SessionMapping> mappings)
     {
-        try
-        {
-            var snapshot = mappings.ToDictionary(
-                kvp => kvp.Key.ToString(),
-                kvp => new
-                {
-                    matrixUserId = kvp.Value.MatrixUserId,
-                    mumbleName = kvp.Value.MumbleName,
-                    companionId = kvp.Value.CompanionId,
-                    certHash = kvp.Value.CertHash,
-                    isBrmbleClient = kvp.Value.IsBrmbleClient,
-                });
-            var initial = new List<object> { new { type = "sessionMappingSnapshot", mappings = snapshot } };
-            if (sessionId != 0)
-                initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
-            await eventBus.CompleteInitializationAsync(socket, initial, cancellationToken);
-        }
-        catch
-        {
-            eventBus.RemoveClient(socket);
-            throw;
-        }
+        var snapshot = mappings.ToDictionary(
+            kvp => kvp.Key.ToString(),
+            kvp => new
+            {
+                matrixUserId = kvp.Value.MatrixUserId,
+                mumbleName = kvp.Value.MumbleName,
+                companionId = kvp.Value.CompanionId,
+                certHash = kvp.Value.CertHash,
+                isBrmbleClient = kvp.Value.IsBrmbleClient,
+            });
+        var initial = new List<object> { new { type = "sessionMappingSnapshot", mappings = snapshot } };
+        if (sessionId != 0)
+            initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
+        return initial;
     }
 
     internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new
