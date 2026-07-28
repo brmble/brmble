@@ -38,6 +38,12 @@ describe('paintApi browser fallback', () => {
 
     await expect(paintApi.createSession({ channelId: 7, participantSessionIds: [2] })).resolves.toEqual({ ...response, channelId: 7 });
   });
+
+  it('accepts an empty successful mutation response', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(paintApi.clear(sessionId)).resolves.toBeUndefined();
+  });
 });
 
 describe('paintApi WebView bridge', () => {

@@ -29,6 +29,7 @@ function createHarness() {
       matrixRoomId: '!paint:server',
       channelId: 5,
     }),
+    leave: vi.fn().mockResolvedValue(undefined),
   };
   const matrixClient = {
     getMediaConfig: vi.fn().mockResolvedValue({
@@ -220,5 +221,31 @@ describe('PaintSessionSetupModal', () => {
 
     view.unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks the Matrix upload limit before creating a paint session', async () => {
+    const user = userEvent.setup();
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    matrixClient.getMediaConfig.mockResolvedValue({ 'm.upload.size': 1 });
+    render(<PaintSessionSetupModal channelId={5} channelRoomId="!channel:server" candidates={[]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={attachSource} />);
+
+    await user.upload(screen.getByLabelText('Source image'), new File(['too large'], 'source.png', { type: 'image/png' }));
+    await user.click(screen.getByRole('button', { name: 'Start paint' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('exceeds the Matrix upload limit');
+    expect(paintApi.createSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves a created session when source setup later fails', async () => {
+    const user = userEvent.setup();
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    matrixClient.uploadContent.mockRejectedValue(new Error('Upload failed'));
+    render(<PaintSessionSetupModal channelId={5} channelRoomId="!channel:server" candidates={[]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={attachSource} />);
+
+    await user.upload(screen.getByLabelText('Source image'), new File(['image'], 'source.png', { type: 'image/png' }));
+    await user.click(screen.getByRole('button', { name: 'Start paint' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
+    expect(paintApi.leave).toHaveBeenCalledWith('session-1');
   });
 });

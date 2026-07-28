@@ -13,6 +13,10 @@ function sortStrokes(strokes: PaintStroke[]): PaintStroke[] {
   return [...strokes].sort((left, right) => left.sequence - right.sequence);
 }
 
+function isOlderVersion(next: Pick<PaintSessionSnapshot, 'generation' | 'revision'>, current: Pick<PaintSessionSnapshot, 'generation' | 'revision'>): boolean {
+  return next.generation < current.generation || (next.generation === current.generation && next.revision < current.revision);
+}
+
 function unavailableSnapshot(sessionId: string, event: PaintPermanentEvent): PaintSessionSnapshot {
   return {
     sessionId,
@@ -33,20 +37,71 @@ function unavailableSnapshot(sessionId: string, event: PaintPermanentEvent): Pai
 export function usePaintSession(sessionId: string) {
   const [snapshot, setSnapshot] = useState<PaintSessionSnapshot | null>(null);
   const [previews, setPreviews] = useState<PaintPreview[]>([]);
+  const [error, setError] = useState<{ sessionId: string; value: Error } | null>(null);
   const snapshotRef = useRef<PaintSessionSnapshot | null>(null);
   const unavailableSessionIdRef = useRef<string | null>(null);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
+  const refreshSessionIdRef = useRef<string | null>(null);
+  const refreshQueuedRef = useRef(false);
+  const eventFloorRef = useRef<Pick<PaintPermanentEvent, 'generation' | 'revision'> | null>(null);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
-  const refresh = useCallback(async () => {
-    const next = await paintApi.getSnapshot(sessionId);
-    if (unavailableSessionIdRef.current === sessionId) return;
-    snapshotRef.current = next;
-    setSnapshot(next);
-    setPreviews([]);
+  const refresh = useCallback((): Promise<void> => {
+    if (sessionIdRef.current !== sessionId) return Promise.resolve();
+    if (refreshPromiseRef.current && refreshSessionIdRef.current === sessionId) {
+      refreshQueuedRef.current = true;
+      return refreshPromiseRef.current;
+    }
+    const request = paintApi.getSnapshot(sessionId).then(next => {
+      if (sessionIdRef.current !== sessionId) return;
+      if (unavailableSessionIdRef.current === sessionId) return;
+      const current = snapshotRef.current;
+      const eventFloor = eventFloorRef.current;
+      if (current && isOlderVersion(next, current)) return;
+      if (!current && eventFloor && isOlderVersion(next, eventFloor)) {
+        refreshQueuedRef.current = true;
+        return;
+      }
+      snapshotRef.current = next;
+      setSnapshot(next);
+      setPreviews([]);
+      setError(null);
+    }).catch(reason => {
+      if (sessionIdRef.current !== sessionId) return;
+      const nextError = reason instanceof Error ? reason : new Error('Unable to load paint session.');
+      if (!snapshotRef.current) setError({ sessionId, value: nextError });
+      throw nextError;
+    });
+    refreshPromiseRef.current = request;
+    refreshSessionIdRef.current = sessionId;
+    const settle = () => {
+      if (sessionIdRef.current !== sessionId || refreshPromiseRef.current !== request || refreshSessionIdRef.current !== sessionId) return;
+      refreshPromiseRef.current = null;
+      refreshSessionIdRef.current = null;
+      if (!refreshQueuedRef.current) return;
+      refreshQueuedRef.current = false;
+      void refresh().catch(() => {});
+    };
+    void request.then(settle, settle);
+    return request;
   }, [sessionId]);
 
   const refreshInBackground = useCallback(() => {
     void refresh().catch(() => {});
   }, [refresh]);
+
+  useEffect(() => {
+    snapshotRef.current = null;
+    unavailableSessionIdRef.current = null;
+    refreshPromiseRef.current = null;
+    refreshSessionIdRef.current = null;
+    refreshQueuedRef.current = false;
+    eventFloorRef.current = null;
+    setSnapshot(null);
+    setPreviews([]);
+    setError(null);
+  }, [sessionId]);
 
   useEffect(() => { refreshInBackground(); }, [refreshInBackground]);
 
@@ -55,6 +110,12 @@ export function usePaintSession(sessionId: string) {
     const acceptPermanent = (event: PaintPermanentEvent, apply: (current: PaintSessionSnapshot) => PaintSessionSnapshot) => {
       if (!isCurrentSession(event)) return;
       const current = snapshotRef.current;
+      if (!current) {
+        const floor = eventFloorRef.current;
+        if (!floor || !isOlderVersion(event, floor)) eventFloorRef.current = event;
+        refreshInBackground();
+        return;
+      }
       if (!current || event.generation < current.generation) return;
       if (event.revision !== current.revision + 1) {
         if (event.revision > current.revision + 1) refreshInBackground();
@@ -125,5 +186,8 @@ export function usePaintSession(sessionId: string) {
     return () => { for (const event of EVENTS) bridge.off(event, handlers[event]); };
   }, [refreshInBackground, sessionId]);
 
-  return { snapshot, strokes: snapshot?.strokes ?? [], previews, refresh };
+  const currentSnapshot = snapshot?.sessionId === sessionId ? snapshot : null;
+  const currentPreviews = currentSnapshot ? previews.filter(preview => preview.sessionId === sessionId) : [];
+  const currentError = error?.sessionId === sessionId ? error.value : null;
+  return { snapshot: currentSnapshot, strokes: currentSnapshot?.strokes ?? [], previews: currentPreviews, error: currentError, refresh };
 }

@@ -6,14 +6,14 @@ import { PaintEditor } from './PaintEditor';
 import './PaintSessionView.css';
 
 export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; onClose: () => void }) {
-  const { snapshot, previews } = usePaintSession(sessionId);
+  const { snapshot, previews, error, refresh } = usePaintSession(sessionId);
   const saveOperationIdRef = useRef(`save-${sessionId}`);
   const saveTxnIdRef = useRef(`brmble-paint-save-${sessionId}-${saveOperationIdRef.current}`);
   const saveFileRef = useRef<File | null>(null);
   const uploadedImageRef = useRef<{ contentUri: string; size: number } | null>(null);
   const postedImageRef = useRef<{ contentUri: string; eventId?: string; size: number } | null>(null);
 
-  if (!snapshot) return <section className="paint-session-view" aria-label="Collaborative paint">Loading paint session...</section>;
+  if (!snapshot) return <section className="paint-session-view" aria-label="Collaborative paint">{error ? <><p role="alert">{error.message}</p><button type="button" className="btn btn-sm btn-secondary" onClick={() => void refresh().catch(() => {})}>Retry</button></> : 'Loading paint session...'}</section>;
   const channelRoomId = channelRoomMap?.[String(snapshot.channelId)] ?? null;
   if (!matrixClient || !channelRoomId) return <section className="paint-session-view" aria-label="Collaborative paint">This paint session's chat channel is unavailable.<button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
 

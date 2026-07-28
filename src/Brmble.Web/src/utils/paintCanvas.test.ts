@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { normalizeCanvasPoint, applyPaintStrokeToContext, loadPaintSourceImage } from './paintCanvas';
+import { normalizeCanvasPoint, applyPaintStrokeToContext, composePaintPng, loadPaintSourceImage } from './paintCanvas';
 
 describe('paintCanvas', () => {
   it('normalizes pointer coordinates into clamped unit canvas space', () => {
@@ -37,6 +37,33 @@ describe('paintCanvas', () => {
     });
 
     expect(operations).toContain('destination-out');
+  });
+
+  it('keeps the source layer intact when composing an erased annotation into a PNG', async () => {
+    const compositionOperations: string[] = [];
+    const annotationOperations: string[] = [];
+    const compositionContext = {
+      drawImage: vi.fn(),
+      set globalCompositeOperation(value: string) { compositionOperations.push(value); },
+    } as unknown as CanvasRenderingContext2D;
+    const annotationContext = {
+      beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+      set globalCompositeOperation(value: string) { annotationOperations.push(value); },
+      set strokeStyle(_value: string) {}, set lineWidth(_value: number) {}, lineCap: 'round', lineJoin: 'round',
+    } as unknown as CanvasRenderingContext2D;
+    const output = { width: 0, height: 0, getContext: vi.fn(() => compositionContext), toBlob: (callback: BlobCallback) => callback(new Blob(['png'])) } as unknown as HTMLCanvasElement;
+    const annotations = { width: 0, height: 0, getContext: vi.fn(() => annotationContext) } as unknown as HTMLCanvasElement;
+    vi.spyOn(document, 'createElement').mockReturnValueOnce(output).mockReturnValueOnce(annotations);
+
+    await composePaintPng({} as CanvasImageSource, 100, 50, [{
+      id: 'eraser', correlationId: 'eraser', authorUserId: 1, authorMatrixUserId: '@me:server', sequence: 1,
+      generation: 0, tool: 'eraser', width: 4, points: [{ x: 0.2, y: 0.2 }], active: true,
+    }]);
+
+    expect(annotationOperations).toContain('destination-out');
+    expect(compositionOperations).not.toContain('destination-out');
+    expect(compositionContext.drawImage).toHaveBeenNthCalledWith(1, expect.anything(), 0, 0, 100, 50);
+    expect(compositionContext.drawImage).toHaveBeenNthCalledWith(2, annotations, 0, 0, 100, 50);
   });
 
   it('downloads source media through the authenticated Matrix media route', async () => {

@@ -277,6 +277,58 @@ describe('PaintEditor', () => {
     expect(lineTo).toHaveBeenCalledTimes(2);
   });
 
+  it('removes an optimistic stroke and reports a rejected commit', async () => {
+    const stroke = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke,
+    } as unknown as CanvasRenderingContext2D);
+    const paintApi = { ...fakePaintApi(), commitStroke: vi.fn().mockRejectedValue(new Error('Stroke rejected')) };
+    const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Stroke rejected');
+    const rejectedCorrelationId = paintApi.commitStroke.mock.calls[0][1].correlationId;
+    stroke.mockClear();
+    rerender(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={{ ...activeSnapshot, revision: 1 }} previews={[{
+      sessionId: 'session-1', authorUserId: 1, authorMatrixUserId: '@alice:server', correlationId: rejectedCorrelationId,
+      generation: 0, tool: 'pen' as const, color: '#111827', width: 6, points: [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.2 }],
+    }]} currentUserId={1} />);
+    expect(stroke).not.toHaveBeenCalled();
+  });
+
+  it.each(['Undo', 'Clear', 'End'])('reports a failed %s mutation', async (action) => {
+    const paintApi = { ...fakePaintApi(), [action.toLowerCase()]: vi.fn().mockRejectedValue(new Error(`${action} rejected`)) };
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    await userEvent.click(screen.getByRole('button', { name: action }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(`${action} rejected`);
+  });
+
+  it('drops pending local strokes when the server advances the generation', () => {
+    const stroke = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke,
+    } as unknown as CanvasRenderingContext2D);
+    const paintApi = { ...fakePaintApi(), commitStroke: vi.fn(() => new Promise(() => {})) };
+    const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+    stroke.mockClear();
+    rerender(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={{ ...activeSnapshot, generation: 1, revision: 1 }} currentUserId={1} />);
+
+    expect(stroke).not.toHaveBeenCalled();
+  });
+
   it('hides host-only actions from participants', () => {
     render(<PaintEditor sessionId="session-1" paintApi={{ commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() }} snapshot={activeSnapshot} currentUserId={2} />);
 

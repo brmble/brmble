@@ -19,6 +19,7 @@ type PaintSessionSetupModalProps = {
       channelId: number;
       participantSessionIds: number[];
     }): Promise<Created>;
+    leave(sessionId: string): Promise<unknown>;
   };
   matrixClient: Matrix;
   onAttachSource(
@@ -67,17 +68,18 @@ export function PaintSessionSetupModal({
 
     setSaving(true);
     setError(null);
+    let created: Created | null = null;
 
     try {
-      const created = await paintApi.createSession({
-        channelId,
-        participantSessionIds: selected,
-      });
       const config = await matrixClient.getMediaConfig();
       const limit = config['m.upload.size'];
       if (limit && file.size > limit) {
         throw new Error('The source image exceeds the Matrix upload limit.');
       }
+      created = await paintApi.createSession({
+        channelId,
+        participantSessionIds: selected,
+      });
       await matrixClient.joinRoom(created.matrixRoomId);
       const uploaded = await matrixClient.uploadContent(file, {
         type: file.type,
@@ -103,6 +105,13 @@ export function PaintSessionSetupModal({
       } as never);
       onComplete?.(created.sessionId);
     } catch (reason) {
+      if (created) {
+        try {
+          await paintApi.leave(created.sessionId);
+        } catch {
+          // Preserve the setup error; the server-side expiry remains a fallback cleanup.
+        }
+      }
       setError(
         reason instanceof Error
           ? reason.message

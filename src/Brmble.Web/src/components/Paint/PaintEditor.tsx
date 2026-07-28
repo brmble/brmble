@@ -29,6 +29,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const pendingLocalCommitIdsRef = useRef<Set<string>>(new Set());
   const pendingLocalStrokesRef = useRef<Map<string, PaintStrokeInput>>(new Map());
   const cancelledLocalPreviewIdsRef = useRef<Set<string>>(new Set());
+  const generationRef = useRef(snapshot.generation);
   const drawingRef = useRef({ strokes: snapshot.strokes, previews });
   const [tool, setTool] = useState<PaintTool>('pen');
   const [color, setColor] = useState<string>(DEFAULT_PAINT_COLOR);
@@ -82,6 +83,20 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       }
     }
   }, [currentUserId, snapshot.strokes]);
+
+  useEffect(() => {
+    if (generationRef.current === snapshot.generation) return;
+    generationRef.current = snapshot.generation;
+    pendingLocalCommitIdsRef.current.clear();
+    pendingLocalStrokesRef.current.clear();
+    cancelledLocalPreviewIdsRef.current.clear();
+    points.current = [];
+    correlationId.current = null;
+    activePointerId.current = null;
+    localStrokeRef.current = null;
+    lastPreviewAtRef.current = null;
+    redraw();
+  }, [snapshot.generation]);
 
   useEffect(() => {
     redraw();
@@ -148,7 +163,13 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const committedInput = buildInput();
     pendingLocalCommitIdsRef.current.add(committedInput.correlationId);
     pendingLocalStrokesRef.current.set(committedInput.correlationId, committedInput);
-    void paintApi.commitStroke(sessionId, committedInput);
+    void Promise.resolve(paintApi.commitStroke(sessionId, committedInput)).catch(reason => {
+      pendingLocalCommitIdsRef.current.delete(committedInput.correlationId);
+      pendingLocalStrokesRef.current.delete(committedInput.correlationId);
+      cancelledLocalPreviewIdsRef.current.add(committedInput.correlationId);
+      redraw();
+      setError(reason instanceof Error ? reason.message : 'Unable to commit stroke. Please try again.');
+    });
     resetGesture(event.pointerId);
   };
 
@@ -177,6 +198,11 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     }
   };
 
+  const runMutation = (operation: () => Promise<unknown> | void, fallback: string) => {
+    setError(null);
+    void Promise.resolve(operation()).catch(reason => setError(reason instanceof Error ? reason.message : fallback));
+  };
+
   return (
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
@@ -186,10 +212,10 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="paint-actions">
-        <button onClick={() => void paintApi.undo(sessionId)}>Undo</button>
+        <button onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
-          <button onClick={() => void paintApi.clear(sessionId)}>Clear</button>
-          <button onClick={() => void paintApi.end(sessionId)}>End</button>
+          <button onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
+          <button onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
           <button onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
         </>}
       </div>

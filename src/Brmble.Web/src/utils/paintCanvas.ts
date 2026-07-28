@@ -62,7 +62,13 @@ export async function composePaintPng(sourceImage: CanvasImageSource, width: num
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas is unavailable.');
+  const annotations = document.createElement('canvas');
+  annotations.width = width;
+  annotations.height = height;
+  const annotationContext = annotations.getContext('2d');
+  if (!annotationContext) throw new Error('Canvas is unavailable.');
   ctx.drawImage(sourceImage, 0, 0, width, height);
-  for (const stroke of strokes) applyPaintStrokeToContext(ctx, width, height, stroke);
+  for (const stroke of strokes) applyPaintStrokeToContext(annotationContext, width, height, stroke);
+  ctx.drawImage(annotations, 0, 0, width, height);
   return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Unable to encode PNG.')), 'image/png'));
 }

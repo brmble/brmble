@@ -63,7 +63,9 @@ async function post<T>(path: string, payload: Record<string, unknown>): Promise<
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(response.statusText || 'Request failed.');
-  return response.json() as Promise<T>;
+  if (response.status === 204) return undefined as T;
+  const body = await response.text();
+  return body ? JSON.parse(body) as T : undefined as T;
 }
 
 async function mutate(event: string, path: string, payload: Record<string, unknown>): Promise<void> {
