@@ -31,4 +31,24 @@ public sealed class PaintRateLimiter
             return true;
         }
     }
+
+    /// <summary>
+    /// Drops every per-user window for a session. Must be called when the session is evicted,
+    /// otherwise each (session, user) pair leaks a dictionary entry and its queue for the
+    /// lifetime of the process — this limiter is registered as a singleton.
+    /// </summary>
+    public void EvictSession(Guid sessionId)
+    {
+        lock (_lock)
+        {
+            EvictSession(_previewRequests, sessionId);
+            EvictSession(_commitRequests, sessionId);
+        }
+    }
+
+    private static void EvictSession(Dictionary<(Guid SessionId, long UserId), Queue<DateTimeOffset>> requestsByUser, Guid sessionId)
+    {
+        foreach (var key in requestsByUser.Keys.Where(key => key.SessionId == sessionId).ToArray())
+            requestsByUser.Remove(key);
+    }
 }

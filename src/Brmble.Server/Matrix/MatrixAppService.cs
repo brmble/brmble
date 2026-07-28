@@ -392,7 +392,7 @@ public class MatrixAppService : IMatrixAppService
         }
 
         var client = _httpClientFactory.CreateClient();
-        var request = new HttpRequestMessage(HttpMethod.Delete, $"{_homeserverUrl}/_synapse/admin/v2/rooms/{Uri.EscapeDataString(roomId)}");
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"{_homeserverUrl}/_synapse/admin/v2/rooms/{Uri.EscapeDataString(roomId)}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _adminAccessToken);
 
         try
@@ -409,6 +409,12 @@ public class MatrixAppService : IMatrixAppService
                 return new(true, "admin-delete-already-absent", null);
             }
             return new(false, "failed", string.IsNullOrWhiteSpace(error) ? response.ReasonPhrase : error);
+        }
+        // Shutdown is not a cleanup failure. Reporting it as one would let the caller burn a
+        // retry attempt per host restart and eventually mark the record terminal, leaking the room.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -169,7 +169,7 @@ public sealed class PaintRoomCleanupServiceTests
             var path = Path.Combine(Path.GetTempPath(), $"brmble-cleanup-service-{Guid.NewGuid():N}.db");
             var database = new Database($"Data Source={path}");
             database.Initialize();
-            var repository = new PaintRoomCleanupRepository(database);
+            var repository = new PaintRoomCleanupRepository(database, TimeSpan.Zero);
             var matrix = new FakeMatrixPaintService();
             var logger = new CapturingLogger<PaintRoomCleanupService>();
             var sessionId = Guid.NewGuid();

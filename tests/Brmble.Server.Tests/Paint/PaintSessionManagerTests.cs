@@ -701,7 +701,7 @@ public sealed class PaintSessionManagerTests
                 Matrix = matrix,
                 Publisher = publisher,
                 Presence = presence,
-                Cleanup = cleanup ?? new PaintRoomCleanupRepository(database),
+                Cleanup = cleanup ?? new PaintRoomCleanupRepository(database, TimeSpan.Zero),
             };
             fixture.Manager = new PaintSessionManager(presence, publisher, matrix, new MatrixPaintSourceResolver(matrix), fixture.Cleanup,
                 new PaintRateLimiter(), () => fixture.Now);
@@ -717,7 +717,7 @@ public sealed class PaintSessionManagerTests
         }
 
         private FailingCleanupRepository(Database database)
-            : base(database)
+            : base(database, TimeSpan.Zero)
         {
             database.Initialize();
         }

@@ -4493,6 +4493,7 @@ const handleConnect = (serverData: SavedServer) => {
                     <VerticalSplitPane
                       top={activePaintSessionId ? (
                         <PaintSessionView
+                          key={activePaintSessionId}
                           sessionId={activePaintSessionId}
                           matrixClient={matrixClient.client}
                           channelRoomMap={matrixCredentials?.roomMap}

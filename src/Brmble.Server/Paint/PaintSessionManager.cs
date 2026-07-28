@@ -22,7 +22,8 @@ public sealed class PaintSessionManager(
     MatrixPaintSourceResolver sourceResolver,
     PaintRoomCleanupRepository cleanupRepository,
     PaintRateLimiter rateLimiter,
-    Func<DateTimeOffset>? utcNow = null) : IPaintParticipationLifecycle
+    Func<DateTimeOffset>? utcNow = null,
+    ILogger<PaintSessionManager>? logger = null) : IPaintParticipationLifecycle
 {
     private static readonly TimeSpan SessionTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan TerminalSessionRetention = TimeSpan.FromMinutes(5);
@@ -286,7 +287,7 @@ public sealed class PaintSessionManager(
             }
             catch
             {
-                await cleanupRepository.DeletePendingAsync(sessionId, roomId, cancellationToken);
+                await CompensateCleanupRecordAsync(sessionId, roomId);
                 throw;
             }
             await publish;
@@ -359,7 +360,10 @@ public sealed class PaintSessionManager(
                     if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired)
                     {
                         if (session.TerminalAt is not null && session.TerminalAt.Value + TerminalSessionRetention <= _utcNow())
+                        {
                             _sessions.TryRemove(session.SessionId, out _);
+                            rateLimiter.EvictSession(session.SessionId);
+                        }
                         continue;
                     }
                     if (session.LastActivity + SessionTimeout > _utcNow()) continue;
@@ -384,7 +388,7 @@ public sealed class PaintSessionManager(
                 }
                 if (expiryCancelled)
                 {
-                    await cleanupRepository.DeletePendingAsync(session.SessionId, roomId, cancellationToken);
+                    await CompensateCleanupRecordAsync(session.SessionId, roomId);
                     continue;
                 }
                 await publish;
@@ -393,6 +397,25 @@ public sealed class PaintSessionManager(
             {
                 session.TerminalTransitionGate.Release();
             }
+        }
+    }
+
+    /// <summary>
+    /// Removes a cleanup record written ahead of a terminal transition that did not happen.
+    /// Deliberately does not take the caller's cancellation token: the common reason for the
+    /// transition to fail is the request being aborted, and compensation must still run in that
+    /// case. Failures are logged rather than thrown so they cannot mask the original exception —
+    /// a surviving row only delays the room's deletion until the grace period elapses.
+    /// </summary>
+    private async Task CompensateCleanupRecordAsync(Guid sessionId, string roomId)
+    {
+        try
+        {
+            await cleanupRepository.DeletePendingAsync(sessionId, roomId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to remove pending paint room cleanup record for session {SessionId} room {RoomId}; the room may be deleted despite the session remaining active.", sessionId, roomId);
         }
     }
 

@@ -5,16 +5,29 @@ namespace Brmble.Server.Paint;
 
 public sealed record PaintRoomCleanupRecord(long Id, Guid SessionId, string MatrixRoomId, string Status, int Attempts, string? LastError, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset NextAttemptAt);
 
-public class PaintRoomCleanupRepository(Database database)
+public class PaintRoomCleanupRepository(Database database, TimeSpan? pendingGracePeriod = null)
 {
+    /// <summary>
+    /// Grace period before a newly recorded cleanup row becomes eligible for the sweeper.
+    /// The row is written *before* the session's terminal state transition, so that a crash
+    /// between the two cannot leak the Matrix room. That ordering means the sweeper must not
+    /// be able to observe the row until the caller has had a chance to compensate
+    /// (<see cref="DeletePendingAsync"/>) if the transition is rejected or cancelled.
+    /// Without this delay the sweeper could delete the room of a still-live session.
+    /// </summary>
+    public static readonly TimeSpan DefaultPendingGracePeriod = TimeSpan.FromMinutes(1);
+
+    private readonly TimeSpan _pendingGracePeriod = pendingGracePeriod ?? DefaultPendingGracePeriod;
+
     public virtual async Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
     {
         using var connection = database.CreateConnection();
+        var now = DateTimeOffset.UtcNow;
         await connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO paint_room_cleanup (session_id, matrix_room_id, status, created_at, updated_at, next_attempt_at)
-            VALUES (@SessionId, @MatrixRoomId, 'pending', @Now, @Now, @Now)
+            VALUES (@SessionId, @MatrixRoomId, 'pending', @Now, @Now, @NextAttemptAt)
             ON CONFLICT(matrix_room_id) DO NOTHING
-            """, new { SessionId = sessionId.ToString(), MatrixRoomId = matrixRoomId, Now = DateTimeOffset.UtcNow }, cancellationToken: cancellationToken));
+            """, new { SessionId = sessionId.ToString(), MatrixRoomId = matrixRoomId, Now = now, NextAttemptAt = now + _pendingGracePeriod }, cancellationToken: cancellationToken));
     }
 
     public virtual async Task DeletePendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)

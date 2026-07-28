@@ -14,6 +14,18 @@ export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onCl
   const postedImageRef = useRef<{ contentUri: string; eventId?: string; size: number } | null>(null);
 
   if (!snapshot) return <section className="paint-session-view" aria-label="Collaborative paint">{error ? <><p role="alert">{error.message}</p><button type="button" className="btn btn-sm btn-secondary" onClick={() => void refresh().catch(() => {})}>Retry</button></> : 'Loading paint session...'}</section>;
+
+  // Must precede the channel-room check: the synthesised `unavailable` snapshot carries
+  // channelId 0, which has no room mapping and would otherwise report the wrong reason.
+  if (snapshot.status === 'ended' || snapshot.status === 'expired' || snapshot.status === 'unavailable') {
+    const reason = snapshot.status === 'ended'
+      ? 'This paint session has ended.'
+      : snapshot.status === 'expired'
+        ? 'This paint session expired after inactivity.'
+        : 'You no longer have access to this paint session.';
+    return <section className="paint-session-view" aria-label="Collaborative paint"><p role="alert">{reason}</p><button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
+  }
+
   const channelRoomId = channelRoomMap?.[String(snapshot.channelId)] ?? null;
   if (!matrixClient || !channelRoomId) return <section className="paint-session-view" aria-label="Collaborative paint">This paint session's chat channel is unavailable.<button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
 
@@ -70,6 +82,8 @@ export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onCl
     }
     onClose();
   };
+
+  if (snapshot.status === 'pendingSource') return <section className="paint-session-view" aria-label="Collaborative paint">Waiting for the host to add an image...<button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
 
   return <section className="paint-session-view" aria-label="Collaborative paint"><div className="paint-session-view__actions"><button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></div><PaintEditor sessionId={sessionId} paintApi={paintApi} snapshot={snapshot} previews={previews} currentUserId={snapshot.currentUserId ?? snapshot.hostUserId} matrixClient={matrixClient} onSave={saveToChat} /></section>;
 }

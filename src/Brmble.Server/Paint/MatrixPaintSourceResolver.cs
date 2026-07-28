@@ -61,6 +61,12 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
             throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
         }
         var metadata = ImageMetadataReader.Read(bytes, mimeType);
+        // Dimensions are read as signed 32-bit ints straight from attacker-controlled headers,
+        // so a declared width of 0xFFFFFFFF arrives here as -1 and would pass an upper bound alone.
+        if (metadata.Width <= 0 || metadata.Height <= 0)
+        {
+            throw new PaintValidationException("source image dimensions are invalid.");
+        }
         if (metadata.Width > 4096 || metadata.Height > 4096)
         {
             throw new PaintValidationException("source image dimensions exceed 4096x4096.");
