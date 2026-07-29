@@ -1,5 +1,6 @@
 using Brmble.Server.Data;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -243,5 +244,30 @@ public class GameRepositoryTests
         Assert.AreEqual(1001L, samples[0].DurationMs);
         Assert.AreEqual("draw", samples[0].Outcome);
         Assert.AreEqual(endedAt, samples[0].EndedAt);
+    }
+
+    [TestMethod]
+    public async Task GetDurationSamples_RoundTripsEndedAtAsUtcRegardlessOfAmbientCulture()
+    {
+        var (repo, db) = GameTestHelpers.NewRepoWithDb();
+        var endedAt = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await GameTestHelpers.InsertMatchAsync(db, "rps", "bo3", 2, "decided", 1000, endedAt);
+
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        IReadOnlyList<DurationSample> samples;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture =
+                new System.Globalization.CultureInfo("ar-SA");
+            samples = await repo.GetDurationSamplesAsync("rps", "bo3", 2, null);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+
+        Assert.AreEqual(1, samples.Count);
+        Assert.AreEqual(endedAt, samples[0].EndedAt);
+        Assert.AreEqual(TimeSpan.Zero, samples[0].EndedAt.Offset);
     }
 }

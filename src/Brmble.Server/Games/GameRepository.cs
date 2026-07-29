@@ -151,6 +151,10 @@ public class GameRepository : IDurationSampleRepository
         string gameType, string format, int rulesetVersion, long? elapsedGreaterThanMs)
     {
         using var conn = _db.CreateConnection();
+        // ended_at is TEXT. Ordering lexicographically is only equivalent to chronological
+        // ordering because every writer stores it via DateTimeOffset.ToString("o") normalised
+        // to UTC, i.e. a fixed-width "yyyy-MM-ddTHH:mm:ss.fffffff+00:00" string. Any writer
+        // that stores a non-UTC offset (or a different width) breaks this ORDER BY.
         var rows = await conn.QueryAsync("""
             SELECT id AS MatchId, duration_ms AS DurationMs, outcome AS Outcome, ended_at AS EndedAt
             FROM game_matches
@@ -164,6 +168,9 @@ public class GameRepository : IDurationSampleRepository
             (long)row.MatchId,
             (long)row.DurationMs,
             (string)row.Outcome,
-            DateTimeOffset.Parse((string)row.EndedAt))).ToList();
+            DateTimeOffset.Parse(
+                (string)row.EndedAt,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind))).ToList();
     }
 }
