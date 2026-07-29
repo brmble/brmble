@@ -65,6 +65,30 @@ describe('DuelQueueModal', () => {
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 
+  it('falls back to the user id, not the user-id session lookup, when a player has no session', () => {
+    render(<DuelQueueModal
+      snapshot={snapshot({
+        active: {
+          matchId: 3,
+          status: 'live',
+          startedAt: '2026-07-25T12:00:00Z',
+          players: [
+            { userId: 22, sessionId: 0, displayName: '', ready: false },
+            { userId: 2, sessionId: 22, displayName: '', ready: false },
+          ],
+          gameType: 'rps',
+          format: 'bo5',
+          rulesetVersion: 2,
+          remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true },
+        },
+      })}
+      resolveName={resolveName}
+      onClose={vi.fn()}
+    />);
+
+    expect(screen.getByRole('region', { name: 'Active duel' })).toHaveTextContent('Player 22 vs Bob');
+  });
+
   it.each(['starting', 'live'] as const)('renders an %s active duel', (status) => {
     render(<DuelQueueModal
       snapshot={snapshot({

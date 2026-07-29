@@ -7,15 +7,19 @@ import styles from './DuelQueueModal.module.css';
 
 interface DuelQueueModalProps {
   snapshot: DuelQueueSnapshot;
-  resolveName: (userId: number) => string;
+  /** Resolves a voice **session** id to a display name (see App's resolveGamePlayerName). */
+  resolveName: (sessionId: number) => string;
   onClose: () => void;
 }
 
-function playerName(player: DuelPlayer, resolveName: (userId: number) => string): string {
-  return player.displayName.trim() || resolveName(player.sessionId || player.userId);
+function playerName(player: DuelPlayer, resolveName: (sessionId: number) => string): string {
+  // resolveName only knows the session id space; a player without a live session
+  // (sessionId 0) can't be looked up there, so fall back to the user id.
+  return player.displayName.trim()
+    || (player.sessionId ? resolveName(player.sessionId) : `Player ${player.userId}`);
 }
 
-function pairLabel(players: DuelPlayer[], resolveName: (userId: number) => string): string {
+function pairLabel(players: DuelPlayer[], resolveName: (sessionId: number) => string): string {
   return players.map(player => playerName(player, resolveName)).join(' vs ');
 }
 
@@ -103,7 +107,7 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
               <span className={styles.meta}>{gameDisplayName(snapshot.readyCheck.gameType)} · {snapshot.readyCheck.format} · v{snapshot.readyCheck.rulesetVersion}</span>
               <div className={styles.readyPlayers}>
                 {snapshot.readyCheck.players.map(player => (
-                  <span key={player.userId || player.sessionId}>
+                  <span key={`${player.userId}:${player.sessionId}`}>
                     {playerName(player, resolveName)} <strong>{player.ready ? 'Ready' : 'Waiting'}</strong>
                   </span>
                 ))}

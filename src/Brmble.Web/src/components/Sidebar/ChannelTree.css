@@ -113,11 +113,14 @@
 }
 
 .channel-duel-icon {
+  /* Component-specific hit-target size — spacing tokens must not be reused for
+     element dimensions (UI_GUIDE §12 rule 3). */
+  --duel-badge-size: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: var(--space-xl);
-  min-height: var(--space-xl);
+  min-width: var(--duel-badge-size);
+  min-height: var(--duel-badge-size);
   color: var(--accent-primary);
   margin-left: var(--space-2xs);
   padding: 0;

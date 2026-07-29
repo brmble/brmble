@@ -4,6 +4,9 @@ import * as gamesApi from '../../api/games';
 
 export type DuelQueueSnapshot = gamesApi.DuelQueueSnapshot;
 
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30_000;
+
 export interface RematchOffer {
   offerId: number;
   sourceMatchId: number;
@@ -81,6 +84,7 @@ export function useDuelQueueState(): DuelQueueState {
   }>());
   const recoveryStatusRef = useRef(new Map<number, 'recovering' | 'recovered'>());
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const requestSnapshotRef = useRef<() => Promise<void>>(async () => {});
 
@@ -88,6 +92,7 @@ export function useDuelQueueState(): DuelQueueState {
     if (retryTimerRef.current != null) clearTimeout(retryTimerRef.current);
     retryTimerRef.current = null;
     inFlightRef.current = null;
+    retryAttemptRef.current = 0;
     requestEpochRef.current++;
   }, []);
 
@@ -128,10 +133,16 @@ export function useDuelQueueState(): DuelQueueState {
     request = (async () => {
       const scheduleRetry = () => {
         if (mountedRef.current && requestEpochRef.current === epoch && retryTimerRef.current == null) {
+          // Exponential backoff (1s, 2s, 4s … capped at 30s). A persistently
+          // failing or mismatched snapshot must not become permanent 1Hz
+          // polling for the whole session. Reset by cancelRecovery() on the
+          // next voice.* event and by a successful recovery below.
+          const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retryAttemptRef.current);
+          retryAttemptRef.current++;
           retryTimerRef.current = setTimeout(() => {
             retryTimerRef.current = null;
             void requestSnapshotRef.current();
-          }, 1000);
+          }, delay);
         }
       };
       try {
@@ -143,6 +154,7 @@ export function useDuelQueueState(): DuelQueueState {
           return;
         }
         const { snapshot, generatedAt } = validated;
+        retryAttemptRef.current = 0;
         currentChannelIdRef.current = snapshot.channelId;
         deniedChannelIdsRef.current.delete(snapshot.channelId);
         versionsRef.current.set(snapshot.channelId, {
@@ -180,6 +192,11 @@ export function useDuelQueueState(): DuelQueueState {
         recoveryBaselinesRef.current.delete(channelId);
         recoveryStatusRef.current.set(channelId, 'recovering');
       }
+      // Recover from here rather than from a caller's own 'voice.connected'
+      // handler: bridge handler ordering is not guaranteed, and a caller-issued
+      // request would be discarded by cancelRecovery()'s epoch bump above,
+      // leaving recovery stalled forever. Mirrors handleChannelChanged.
+      void requestSnapshot();
     };
     const handleChannelChanged = (data: unknown) => {
       const d = data as { channelId?: number; previousChannelId?: number };
@@ -265,6 +282,7 @@ export function useDuelQueueState(): DuelQueueState {
     acceptingSnapshotsRef.current = false;
     currentChannelIdRef.current = null;
     deniedChannelIdsRef.current.clear();
+    versionsRef.current.clear();
     recoveryBaselinesRef.current.clear();
     recoveryStatusRef.current.clear();
     setByChannel(new Map());

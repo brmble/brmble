@@ -833,6 +833,28 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
   id: 'server-removal';
 }
 
+/**
+ * Remaining milliseconds until an ISO expiry, for a Notification `countdownMs`
+ * bar. Returns undefined when the expiry is absent or unparseable so the bar is
+ * omitted entirely — passing NaN would emit `animationDuration: "NaNms"`, an
+ * invalid CSS value that leaves the bar permanently full.
+ */
+function countdownUntil(expiresAt: string | undefined | null): number | undefined {
+  if (!expiresAt) return undefined;
+  const expiry = Date.parse(expiresAt);
+  if (!Number.isFinite(expiry)) return undefined;
+  return Math.max(0, expiry - Date.now());
+}
+
+
+/**
+ * Titles for rejected duel queue commands surfaced as an error notification.
+ */
+const DUEL_COMMAND_ERROR_TITLES: Record<string, string> = {
+  ready: 'Ready check failed',
+  respondOffer: 'Rematch response failed',
+  requestRematch: 'Rematch request failed',
+};
 
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
@@ -999,9 +1021,35 @@ function App() {
     .map(snapshot => snapshot.readyCheck)
     .find(check => check?.players.some(player => player.sessionId === selfSession && !player.ready)) ?? null;
   const readySubmissionRef = useRef<number | null>(null);
+  // Memoized per offer identity: countdownUntil() reads Date.now(), so computing
+  // it inline during render would hand <Notification> a new animationDuration on
+  // every unrelated App re-render and restart the CSS countdown animation.
+  const readyCountdownMs = useMemo(
+    () => countdownUntil(readyCheck?.expiresAt),
+    // Identity is part of the key on purpose: a new reservation/offer must get a
+    // fresh countdown even in the unlikely case the expiry string repeats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readyCheck?.reservationId, readyCheck?.expiresAt],
+  );
+  const rematchCountdownMs = useMemo(
+    () => countdownUntil(duelQueue.incomingRematch?.expiresAt),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [duelQueue.incomingRematch?.offerId, duelQueue.incomingRematch?.expiresAt],
+  );
   const rematchSubmissionRef = useRef<number | null>(null);
   const [submittedReadyId, setSubmittedReadyId] = useState<number | null>(null);
   const [submittedRematchId, setSubmittedRematchId] = useState<number | null>(null);
+  // Outgoing rematch *requests* are locked locally the same way ready/accept are:
+  // duelQueue.outgoingRematch only arrives once the server answers, so without
+  // this a double-click would POST games/rematch twice.
+  const rematchRequestRef = useRef<number | null>(null);
+  const [requestedRematchMatchId, setRequestedRematchMatchId] = useState<number | null>(null);
+  const requestRematch = useCallback((sourceMatchId: number) => {
+    if (rematchRequestRef.current === sourceMatchId) return;
+    rematchRequestRef.current = sourceMatchId;
+    setRequestedRematchMatchId(sourceMatchId);
+    duelQueue.requestRematch(sourceMatchId);
+  }, [duelQueue.requestRematch]);
   const submitReady = useCallback((ready: boolean) => {
     if (!readyCheck || readySubmissionRef.current === readyCheck.reservationId) return;
     readySubmissionRef.current = readyCheck.reservationId;
@@ -1039,7 +1087,30 @@ function App() {
       rematchSubmissionRef.current = null;
       setSubmittedRematchId(null);
     }
+    if (error?.operation === 'requestRematch' && rematchRequestRef.current === error.id) {
+      rematchRequestRef.current = null;
+      setRequestedRematchMatchId(null);
+    }
   }, [duelQueue.commandError]);
+  // A rejected duel command (e.g. a stale Ready) must not fail silently: surface
+  // it as a persistent top-right error. Ungated per UI_GUIDE §13 (errors are
+  // never behind optional notification settings). Stable singleton id; dismissal
+  // is tracked by the hook's monotonic revision so the next failure re-shows.
+  const [dismissedCommandErrorRevision, setDismissedCommandErrorRevision] = useState<number | null>(null);
+  const visibleCommandError = duelQueue.commandError && duelQueue.commandError.revision !== dismissedCommandErrorRevision
+    ? duelQueue.commandError
+    : null;
+  useEffect(() => {
+    if (visibleCommandError) notifQueueRef.current.register('game-command-error', 'error');
+    else notifQueueRef.current.unregister('game-command-error');
+  }, [visibleCommandError]);
+  useEffect(() => {
+    const sourceMatchId = gameState.ended?.sourceMatchId ?? null;
+    if (rematchRequestRef.current != null && rematchRequestRef.current !== sourceMatchId) {
+      rematchRequestRef.current = null;
+      setRequestedRematchMatchId(null);
+    }
+  }, [gameState.ended?.sourceMatchId]);
   useEffect(() => {
     if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
     else notifQueueRef.current.unregister('game-ready');
@@ -1792,7 +1863,9 @@ function App() {
       setBrmbleServiceBootstrapTimedOut(false);
       overlayConnectedAtRef.current = Date.now();
       notifQueue.unregister('server-removal');
-      void duelQueueRef.current.requestSnapshot();
+      // Duel queue recovery is owned by useDuelQueueState's own 'voice.connected'
+      // handler — requesting it here would race that handler's epoch bump and
+      // could strand recovery permanently.
       setServerRemovalNotification(null);
       const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
 
@@ -4548,8 +4621,8 @@ const handleConnect = (serverData: SavedServer) => {
             onPick={(pick) => gameState.sendAction({ pick })}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => duelQueue.requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={!!gameState.ended && duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={!!gameState.ended && (duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId || requestedRematchMatchId === gameState.ended.sourceMatchId)}
           />
         ) : (
           <DeathrollModal
@@ -4563,8 +4636,8 @@ const handleConnect = (serverData: SavedServer) => {
             onRoll={gameState.roll}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => duelQueue.requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={!!gameState.ended && duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={!!gameState.ended && (duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId || requestedRematchMatchId === gameState.ended.sourceMatchId)}
           />
         )
       )}
@@ -4578,12 +4651,26 @@ const handleConnect = (serverData: SavedServer) => {
       )}
 
       <div className="notification-stack">
+        {visibleCommandError && notifQueue.isVisible('game-command-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={true}
+            title={DUEL_COMMAND_ERROR_TITLES[visibleCommandError.operation] ?? 'Duel command failed'}
+            detail={visibleCommandError.reason ?? 'The server rejected the request. Try again.'}
+            onDismiss={() => {
+              setDismissedCommandErrorRevision(visibleCommandError.revision);
+              notifQueue.unregister('game-command-error');
+            }}
+            onExited={() => notifQueue.unregister('game-command-error')}
+          />
+        )}
         {readyCheck && notifQueue.isVisible('game-ready') && (
           <Notification
             status="warning"
             position="top-right"
             duration={null}
-            countdownMs={Math.max(0, Date.parse(readyCheck.expiresAt) - Date.now())}
+            countdownMs={readyCountdownMs}
             visible={true}
             title="Ready to play?"
             detail={`${gameDisplayName(readyCheck.gameType)} · ${readyCheck.format}`}
@@ -4605,7 +4692,7 @@ const handleConnect = (serverData: SavedServer) => {
             status="info"
             position="top-right"
             duration={null}
-            countdownMs={Math.max(0, Date.parse(duelQueue.incomingRematch.expiresAt ?? '') - Date.now())}
+            countdownMs={rematchCountdownMs}
             visible={true}
             title="Rematch offered"
             detail={`${gameDisplayName(duelQueue.incomingRematch.gameType)} rematch`}

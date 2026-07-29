@@ -86,10 +86,31 @@ describe('useDuelQueueState', () => {
     emit('voice.connected', { channelId });
   }
 
+  it('recovers on voice.connected without an external snapshot request', async () => {
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await waitFor(() => expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0)));
+  });
+
+  it('recovers when an external request is discarded by the connect handler', async () => {
+    const stale = deferred<DuelQueueSnapshot>();
+    api.getQueueSnapshot
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(snapshot(2, 1, 0));
+    const { result } = renderHook(() => useDuelQueueState());
+    const staleRequest = result.current.requestSnapshot();
+    connect(2);
+    await act(async () => stale.resolve(snapshot(2, 1, 0)));
+    await staleRequest;
+
+    await waitFor(() => expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0)));
+  });
+
   it('applies only newer revisions within a generation and keeps an empty replacement', async () => {
     const { result } = renderHook(() => useDuelQueueState());
-    connect();
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 3, 3));
+    connect();
     await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     emit('game.queueSnapshot', snapshot(2, 3, 3));
@@ -102,8 +123,8 @@ describe('useDuelQueueState', () => {
 
   it('accepts a higher generation with a lower revision and rejects a lower generation', async () => {
     const { result } = renderHook(() => useDuelQueueState());
-    connect();
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 5, 19));
+    connect();
     await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 5, 20, queued));
     emit('game.queueSnapshot', snapshot(2, 6, 1));
@@ -115,8 +136,8 @@ describe('useDuelQueueState', () => {
     const { result } = renderHook(() => useDuelQueueState());
     emit('game.queueSnapshot', snapshot(2, 1, 2, queued));
     expect(result.current.byChannel.size).toBe(0);
-    connect(7);
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(7, 4, 0));
+    connect(7);
     await act(() => result.current.requestSnapshot());
     emit('game.queueSnapshot', snapshot(2, 1, 3, queued));
     emit('game.queueSnapshot', snapshot(7, 4, 1));
@@ -131,16 +152,17 @@ describe('useDuelQueueState', () => {
     expect(result.current.byChannel.has(2)).toBe(false);
     emit('game.queueSnapshot', snapshot(2, 1, 3, queued));
     expect(result.current.byChannel.has(2)).toBe(false);
-    await waitFor(() => expect(api.getQueueSnapshot).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2));
     expect(result.current.byChannel.get(2)).toBeUndefined();
   });
 
   it('allows a channel again after voice returns to it', async () => {
     const { result } = renderHook(() => useDuelQueueState());
-    connect();
     api.getQueueSnapshot
+      .mockResolvedValueOnce(snapshot(2, 1, 0))
       .mockResolvedValueOnce(snapshot(7, 1, 0))
       .mockResolvedValueOnce(snapshot(2, 2, 0));
+    connect();
     emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
     await waitFor(() => expect(result.current.byChannel.has(7)).toBe(true));
     emit('voice.channelChanged', { previousChannelId: 7, channelId: 2 });
@@ -165,8 +187,8 @@ describe('useDuelQueueState', () => {
     connect(2);
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     act(() => result.current.reset());
-    connect(2);
     api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
+    connect(2);
     const request = result.current.requestSnapshot();
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     expect(result.current.byChannel.size).toBe(0);
@@ -181,8 +203,8 @@ describe('useDuelQueueState', () => {
     const t2 = '2026-07-25T12:01:00Z';
     const t3 = '2026-07-25T12:02:00Z';
     const { result } = renderHook(() => useDuelQueueState());
-    connect(2);
     api.getQueueSnapshot.mockReturnValueOnce(firstRecovery.promise);
+    connect(2);
     const firstRequest = result.current.requestSnapshot();
     emit('game.queueSnapshot', snapshot(2, 9, 9, queued, t1));
     expect(result.current.byChannel.size).toBe(0);
@@ -249,19 +271,65 @@ describe('useDuelQueueState', () => {
     expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
   });
 
-  it('schedules only one retry timer per repeated failure', async () => {
+  it('backs off exponentially between repeated recovery failures', async () => {
     vi.useFakeTimers();
     api.getQueueSnapshot.mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useDuelQueueState());
     connect(2);
     await act(() => result.current.requestSnapshot());
     expect(vi.getTimerCount()).toBe(1);
+
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
-    expect(vi.getTimerCount()).toBe(1);
-    await act(() => vi.advanceTimersByTimeAsync(1000));
+
+    // Second retry waits 2s, not another 1s.
+    await act(() => vi.advanceTimersByTimeAsync(1999));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(1));
     expect(api.getQueueSnapshot).toHaveBeenCalledTimes(3);
+
+    // Third retry waits 4s.
+    await act(() => vi.advanceTimersByTimeAsync(3999));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(3);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(4);
     expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('caps recovery backoff at 30s', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot.mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    // 1s + 2s + 4s + 8s + 16s of backoff.
+    for (const delay of [1000, 2000, 4000, 8000, 16_000]) {
+      await act(() => vi.advanceTimersByTimeAsync(delay));
+    }
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(6);
+
+    await act(() => vi.advanceTimersByTimeAsync(29_999));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(6);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(7);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(8);
+  });
+
+  it('restarts backoff after a voice event', async () => {
+    vi.useFakeTimers();
+    api.getQueueSnapshot.mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useDuelQueueState());
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(2);
+
+    connect(2);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(3);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(api.getQueueSnapshot).toHaveBeenCalledTimes(4);
   });
 
   it('retries an old-channel recovery response and accepts the current channel', async () => {
@@ -301,7 +369,9 @@ describe('useDuelQueueState', () => {
 
   it('ignores pushes for a moved-to channel until its automatic recovery completes', async () => {
     const recovery = deferred<DuelQueueSnapshot>();
-    api.getQueueSnapshot.mockReturnValueOnce(recovery.promise);
+    api.getQueueSnapshot
+      .mockReturnValueOnce(new Promise<DuelQueueSnapshot>(() => {}))
+      .mockReturnValueOnce(recovery.promise);
     const { result } = renderHook(() => useDuelQueueState());
     connect(2);
     emit('voice.channelChanged', { previousChannelId: 2, channelId: 7 });
@@ -316,8 +386,8 @@ describe('useDuelQueueState', () => {
     connect(2);
     emit('game.queueSnapshot', snapshot(2, 3, 4, queued));
     act(() => result.current.reset());
-    connect(2);
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 3, 4, queued));
+    connect(2);
     await act(() => result.current.requestSnapshot());
     expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 3, 4, queued));
   });
@@ -327,8 +397,8 @@ describe('useDuelQueueState', () => {
     connect();
     emit('game.queueSnapshot', snapshot(2, 8, 20, queued));
     act(() => result.current.reset());
-    connect();
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0));
+    connect();
     await act(() => result.current.requestSnapshot());
     expect(result.current.byChannel.get(2)).toEqual(snapshot(2, 1, 0));
     emit('game.queueSnapshot', snapshot(2, 1, 0, queued));
@@ -345,8 +415,8 @@ describe('useDuelQueueState', () => {
     connect();
     emit('game.queueSnapshot', snapshot(2, 8, 20, queued, t1));
     act(() => result.current.reset());
-    connect();
     api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0, [], t2));
+    connect();
     await act(() => result.current.requestSnapshot());
 
     emit('game.queueSnapshot', snapshot(2, 8, 20, queued, t1));

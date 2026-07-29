@@ -398,7 +398,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                   onOpenDuelQueue?.(channel.id);
                 }}
               >
-                <Icon name="swords" size={12} stroke="var(--accent-primary)" />
+                <Icon name="swords" size={12} />
               </button>
             </Tooltip>
           )}

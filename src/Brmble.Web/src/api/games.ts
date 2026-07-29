@@ -197,8 +197,6 @@ export async function respondOffer(offerId: number, accept: boolean): Promise<vo
   return unwrap(response);
 }
 
-export const respond = respondOffer;
-
 export async function cancelOffer(offerId: number): Promise<void> {
   if (isWebViewBridgeAvailable()) {
     bridge.send('game.cancelOffer', { offerId });

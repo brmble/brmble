@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
   };
   const duelQueue = {
     byChannel: new Map(), incomingRematch: null as RematchOffer | null, outgoingRematch: null as RematchOffer | null,
-    commandError: null as null | { revision: number; operation: string; id: number },
+    commandError: null as null | { revision: number; operation: string; id: number; reason?: string },
     respondReady: vi.fn(), requestRematch: vi.fn(), respondOffer: vi.fn(), cancelOffer: vi.fn(),
     requestSnapshot: vi.fn().mockResolvedValue(undefined), reset: vi.fn(),
   };
@@ -235,14 +235,15 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.commandError = { revision: 2, operation: 'ready', id: 42 };
     rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
     expect(screen.getByRole('button', { name: 'Ready' })).toBeEnabled();
-    fireEvent.click(screen.getByLabelText('Dismiss notification'));
+    const readyNotification = screen.getByText('Ready to play?').closest('.notification') as HTMLElement;
+    fireEvent.click(within(readyNotification).getByLabelText('Dismiss notification'));
     expect(mocks.duelQueue.respondReady).toHaveBeenLastCalledWith(42, false);
   });
 
-  it('requests recovery on connect and resets both stores on disconnect', () => {
+  it('leaves connect recovery to the duel queue hook and resets both stores on disconnect', () => {
     renderApp();
     act(() => (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { channelId: 7 }));
-    expect(mocks.duelQueue.requestSnapshot).toHaveBeenCalledOnce();
+    expect(mocks.duelQueue.requestSnapshot).not.toHaveBeenCalled();
     act(() => (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected'));
     expect(mocks.gameState.reset).toHaveBeenCalledOnce();
     expect(mocks.duelQueue.reset).toHaveBeenCalledOnce();
@@ -269,6 +270,43 @@ describe('App duel orchestration', () => {
     expect(screen.getByRole('button', { name: 'Submitting' })).toBeDisabled();
   });
 
+  async function flushNotificationFrame() {
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(() => resolve(null))); });
+  }
+
+  it('omits the countdown bar when a rematch offer has no expiry', async () => {
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
+    const { container } = renderApp();
+    await flushNotificationFrame();
+
+    const timer = container.querySelector('.notification__timer') as HTMLElement | null;
+    expect(screen.getByText('Rematch offered')).toBeInTheDocument();
+    expect(timer).toBeNull();
+  });
+
+  it('keeps the rematch countdown bar stable across unrelated re-renders', async () => {
+    const base = 1_700_000_000_000;
+    let now = base;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    mocks.duelQueue.incomingRematch = {
+      offerId: 73,
+      sourceMatchId: 91,
+      gameType: 'rps',
+      expiresAt: new Date(base + 20_000).toISOString(),
+    };
+    const { container, rerender } = renderApp();
+    await flushNotificationFrame();
+    const initial = (container.querySelector('.notification__timer') as HTMLElement).style.animationDuration;
+
+    now = base + 5_000;
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    const after = (container.querySelector('.notification__timer') as HTMLElement).style.animationDuration;
+
+    expect(initial).toBe('20000ms');
+    expect(after).toBe(initial);
+    nowSpy.mockRestore();
+  });
+
   it('unlocks only the matching rejected rematch response', () => {
     mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
     const { rerender } = renderApp();
@@ -292,6 +330,40 @@ describe('App duel orchestration', () => {
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
     mocks.duelQueue.outgoingRematch = null;
     mocks.gameState.ended = null;
+  });
+
+  it('locks a rematch request against double click and unlocks on a correlated error', () => {
+    mocks.gameState.ended = ended;
+    const { rerender } = renderApp();
+
+    const rematch = screen.getByRole('button', { name: 'Rematch' });
+    fireEvent.click(rematch);
+    fireEvent.click(rematch);
+    expect(mocks.duelQueue.requestRematch).toHaveBeenCalledWith(91);
+    expect(mocks.duelQueue.requestRematch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
+
+    mocks.duelQueue.commandError = { revision: 1, operation: 'requestRematch', id: 90 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
+
+    mocks.duelQueue.commandError = { revision: 2, operation: 'requestRematch', id: 91 };
+    rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Rematch' }));
+    expect(mocks.duelQueue.requestRematch).toHaveBeenCalledTimes(2);
+    mocks.gameState.ended = null;
+  });
+
+  it('surfaces a rejected duel command as a dismissible error notification', () => {
+    mocks.duelQueue.commandError = { revision: 1, operation: 'ready', id: 42, reason: 'stale' };
+    renderApp();
+
+    expect(mocks.notificationQueue.register).toHaveBeenCalledWith('game-command-error', 'error');
+    expect(screen.getByText('Ready check failed')).toBeInTheDocument();
+    expect(screen.getByText('stale')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Dismiss notification'));
+    expect(screen.queryByText('Ready check failed')).not.toBeInTheDocument();
   });
 
   it('closes a selected modal when its snapshot is removed', () => {

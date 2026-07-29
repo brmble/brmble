@@ -271,7 +271,20 @@ Ready checks use one persistent top-right `warning` `<Notification>` under the s
 **Ready**; the `×` dismiss affordance declines. Incoming rematches use one persistent top-right
 `info` notification under `game-rematch`, with **Accept** as the single primary action and `×` as
 decline. Both may show a visual-only countdown derived from the server expiry and never own the
-authoritative timeout.
+authoritative timeout. Derive `countdownMs` only from a present, parseable expiry — an absent or
+malformed `expiresAt` must yield `undefined` (no bar), never `NaN`, and the value must be memoized
+per offer/reservation identity so unrelated re-renders don't restart the bar animation.
+
+A rejected duel command (`game.error` correlated to ready / rematch response / rematch request, or
+a direct request rejection) is surfaced as one persistent top-right `error` notification under the
+stable id `game-command-error`. Title names the failed operation (e.g. `Ready check failed`); the
+detail is the server `reason`. It is **not** gated behind optional notification settings — errors
+stay ungated per section 13. Dismissal is tracked by the hook's monotonic `commandError.revision`
+so the next failure re-shows.
+
+Rematch **requests** from the result modal are locked client-side on `sourceMatchId` the same way
+Ready/Accept are locked, because `outgoingRematch` only arrives after the server answers. The lock
+releases on a correlated `requestRematch` error or when the completed match changes.
 
 Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
 **Rematch** action beside **Close**. A pending request disables that action and leaves the result
@@ -1189,3 +1202,4 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 |---|---|---|---|---|---|
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
+| `game-command-error` (App) | `error` | `top-right` | No | `Ready check failed` / `Rematch response failed` / `Rematch request failed` | Server `reason` for the rejected duel command |
