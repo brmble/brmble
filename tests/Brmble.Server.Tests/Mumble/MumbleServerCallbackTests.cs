@@ -5,6 +5,7 @@ using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -60,8 +61,8 @@ public class MumbleServerCallbackTests
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
             gameSessions ?? new Mock<IDuelMatchRunnerRouter>().Object,
-            logger ?? NullLogger<MumbleServerCallback>.Instance,
-            orchestrator);
+            orchestrator ?? new Mock<IDuelOrchestrator>().Object,
+            logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
     [TestMethod]
@@ -179,6 +180,26 @@ public class MumbleServerCallbackTests
         await callback.DispatchChannelRemoved(new MumbleChannel(10, "General"));
 
         handler.Verify(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>()), Times.Once);
+    }
+
+    [TestMethod]
+    public void Construction_WithoutRegisteredDuelOrchestrator_FailsLoudly()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(new Mock<ISessionMappingService>().Object);
+        services.AddSingleton(new Mock<IBrmbleEventBus>().Object);
+        services.AddSingleton(new Mock<IChannelMembershipService>().Object);
+        services.AddSingleton(new ScreenShareTracker());
+        services.AddSingleton(new Mock<ILiveKitParticipantRevocationScheduler>().Object);
+        services.AddSingleton(new LiveKitParticipantTracker());
+        services.AddSingleton(new Mock<IDuelMatchRunnerRouter>().Object);
+        services.AddSingleton<MumbleServerCallback>();
+        // Deliberately no IDuelOrchestrator registration.
+        using var provider = services.BuildServiceProvider();
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => provider.GetRequiredService<MumbleServerCallback>());
     }
 
     [TestMethod]

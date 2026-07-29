@@ -31,6 +31,24 @@ public static class GamesExtensions
         services.AddSingleton<DuelOrchestrator>();
         services.AddSingleton<IDuelOrchestrator>(sp => sp.GetRequiredService<DuelOrchestrator>());
         services.AddSingleton<IDuelSnapshotProvider>(sp => sp.GetRequiredService<DuelOrchestrator>());
+        // DuelOrchestrator subscribes to IDuelMatchRunnerRouter.MatchCompleted in its constructor.
+        // DI singletons are lazy, so without an explicit warm-up the subscription would only be
+        // established on the first resolve (today: transitively via the MumbleServerCallback
+        // singleton), and any match completing before that would be dropped silently.
+        services.AddHostedService<DuelOrchestratorWarmup>();
         return services;
     }
+}
+
+/// <summary>
+/// Forces construction of <see cref="DuelOrchestrator"/> at host startup so that its
+/// MatchCompleted subscription is established deterministically.
+/// </summary>
+internal sealed class DuelOrchestratorWarmup : IHostedService
+{
+    public DuelOrchestratorWarmup(DuelOrchestrator orchestrator) => _ = orchestrator;
+
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

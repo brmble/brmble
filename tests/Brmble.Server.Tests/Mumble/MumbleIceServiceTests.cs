@@ -34,6 +34,7 @@ public class MumbleIceServiceTests
             revocationScheduler,
             new LiveKitParticipantTracker(),
             new Mock<Brmble.Server.Games.Duels.IDuelMatchRunnerRouter>().Object,
+            new Mock<Brmble.Server.Games.Duels.IDuelOrchestrator>().Object,
             NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });

@@ -16,7 +16,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly IDuelMatchRunnerRouter _gameSessions;
-    private readonly IDuelOrchestrator? _duels;
+    private readonly IDuelOrchestrator _duels;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -29,8 +29,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
         IDuelMatchRunnerRouter gameSessions,
-        ILogger<MumbleServerCallback> logger,
-        IDuelOrchestrator? duels = null)
+        IDuelOrchestrator duels,
+        ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
         _sessionMapping = sessionMapping;
@@ -168,10 +168,9 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
         {
-            if (_duels is not null)
-                await TryNotifyDuelsAsync(
-                    () => _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected),
-                    "user disconnect", user.SessionId);
+            await TryNotifyDuelsAsync(
+                () => _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected),
+                "user disconnect", user.SessionId);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
         }
 
@@ -199,7 +198,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         var channelChanged = !_channelMembership.TryGetChannel(user.SessionId, out var previousChannel)
             || previousChannel != channelId;
         var snapshot = _sessionMapping.GetSnapshot();
-        if (channelChanged && snapshot.TryGetValue(user.SessionId, out var mapped) && _duels is not null)
+        if (channelChanged && snapshot.TryGetValue(user.SessionId, out var mapped))
             await TryNotifyDuelsAsync(
                 () => _duels.HandlePresenceLostAsync(mapped.UserId, user.SessionId, DuelCancelReason.LeftChannel),
                 "channel change", user.SessionId);
@@ -229,8 +228,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchChannelRemoved(MumbleChannel channel)
     {
-        if (_duels is not null)
-            await TryNotifyDuelsAsync(() => _duels.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
+        await TryNotifyDuelsAsync(() => _duels.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
     }
 
