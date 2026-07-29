@@ -194,6 +194,7 @@ internal sealed class TestRouter : IDuelMatchRunnerRouter
         Forfeits.Add((matchId, userId, reason));
     }
     public Task CompleteAsync(MatchCompletion completion) => MatchCompleted?.Invoke(completion) ?? Task.CompletedTask;
+    public bool HasCompletionSubscribers => MatchCompleted is not null;
 }
 
 internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
@@ -218,15 +219,18 @@ internal sealed class TestTimeProvider(DateTimeOffset start) : TimeProvider
     private sealed class TestTimer(TestTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset due) : ITimer
     {
         private bool _disposed;
+        private bool _fired;
         private DateTimeOffset _due = due;
         public bool IsDisposed => _disposed;
-        public bool Change(TimeSpan dueTime, TimeSpan period) { _due = owner._now + dueTime; return !_disposed; }
+        public bool Change(TimeSpan dueTime, TimeSpan period) { _due = owner._now + dueTime; _fired = false; return !_disposed; }
         public void Dispose() => _disposed = true;
         public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
         public void FireIfDue(DateTimeOffset now)
         {
-            if (_disposed || now < _due) return;
-            _disposed = true;
+            // Firing does not dispose a one-shot System.Threading.Timer; only an explicit
+            // Dispose does. Modelling that here is what makes undisposed timers observable.
+            if (_disposed || _fired || now < _due) return;
+            _fired = true;
             callback(state);
         }
         public void FireEvenIfDisposed() => callback(state);
@@ -334,6 +338,29 @@ public class DuelOrchestratorTests
         Assert.AreEqual(2, publisher.ChannelPublicationAttempts);
         Assert.AreEqual(2L, publisher.ChannelMessages.Select(x => x.Message)
             .OfType<GameQueueSnapshotEvent>().Last().Revision);
+    }
+
+    [TestMethod]
+    public async Task PersistentlyFailingSnapshotPublication_GivesUpInsteadOfRetryingForever()
+    {
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
+        var (sut, presence, publisher, _) = Create(clock);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        publisher.FailChannelPublications = int.MaxValue;
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, true);
+
+        for (var i = 0; i < 20; i++)
+        {
+            if (sut.DrainSnapshotPublicationsAsync(1).IsCompleted) break;
+            await WaitUntilAsync(() => sut.IsSnapshotRetryWaiting(1));
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        await sut.DrainSnapshotPublicationsAsync(1).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(sut.HasActiveSnapshotWorker(1), "lane worker must terminate after the retry budget is exhausted");
+        Assert.IsTrue(publisher.ChannelPublicationAttempts <= 6,
+            $"expected a bounded number of attempts, saw {publisher.ChannelPublicationAttempts}");
     }
 
     [TestMethod]
@@ -1187,6 +1214,28 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task ExpiredReadyCheck_DisposesItsTimer()
+    {
+        var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(clock);
+        for (var i = 1; i <= 4; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var timedOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        await sut.RespondToOfferAsync(timedOffer.OfferId!.Value, 400, true);
+        await router.CompleteAsync(new MatchCompletion(1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo, router.Starts[0].Configuration, clock.GetUtcNow()));
+        await WaitUntilAsync(() => sut.GetSnapshotForSessionAsync(30).Result.ReadyCheck is not null);
+        var readyTimerIndex = clock.TimerCount - 1;
+
+        clock.Advance(TimeSpan.FromSeconds(15));
+        await WaitUntilAsync(() => sut.GetSnapshotForSessionAsync(30).Result.ReadyCheck is null);
+
+        Assert.IsTrue(clock.IsTimerDisposed(readyTimerIndex),
+            "the ready-check timer must be disposed when the ready check expires");
+    }
+
+    [TestMethod]
     public async Task ReadyTimeoutAtFifteenSeconds_ReleasesPairAndPromotesNext()
     {
         var clock = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero));
@@ -1677,6 +1726,95 @@ public class DuelOrchestratorTests
         Assert.AreEqual(accepted.ReservationId, MessageValue<long?>(requesterEvents[^1], "reservationId"));
         Assert.IsFalse(publisher.UserMessages.Any(x =>
             MessageValue<string>(x.Message, "type") == "game.rematchOffered"));
+    }
+
+    [TestMethod]
+    public async Task Disposal_UnsubscribesFromMatchCompleted()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        Assert.IsTrue(router.HasCompletionSubscribers);
+
+        await sut.DisposeAsync();
+
+        Assert.IsFalse(router.HasCompletionSubscribers);
+    }
+
+    [TestMethod]
+    public async Task Disposal_DisposesLiveOfferAndReadyCheckTimers()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, router) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        Add(presence, 30, 300); Add(presence, 40, 400);
+        router.StartBlock = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var first = await sut.CreateChallengeAsync(10, 20, "test", null);
+        _ = sut.RespondToOfferAsync(first.OfferId!.Value, 200, true);
+        await WaitUntilAsync(() => router.Starts.Count == 1);
+        var liveOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var offerTimerIndex = time.TimerCount - 1;
+
+        await sut.DisposeAsync();
+
+        Assert.IsTrue(time.IsTimerDisposed(offerTimerIndex), "live offer timer should be disposed");
+        for (var i = 0; i < time.TimerCount; i++)
+            Assert.IsTrue(time.IsTimerDisposed(i), $"timer {i} should be disposed");
+        router.StartBlock.TrySetResult();
+        Assert.IsNotNull(liveOffer);
+    }
+
+    [TestMethod]
+    public async Task ChannelRemoved_DropsSnapshotLaneAfterDrain()
+    {
+        var (sut, presence, _, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        await sut.DrainSnapshotPublicationsAsync(1);
+        Assert.AreEqual(1, sut.SnapshotLaneCount);
+
+        await sut.HandleChannelRemovedAsync(1);
+        await sut.DrainSnapshotPublicationsAsync(1);
+        await WaitUntilAsync(() => !sut.HasActiveSnapshotWorker(1));
+
+        Assert.AreEqual(0, sut.SnapshotLaneCount);
+    }
+
+    [TestMethod]
+    public async Task DeclinedChallenge_DisposesOfferTimer()
+    {
+        var time = new TestTimeProvider(new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero));
+        var (sut, presence, _, _) = Create(time);
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        var timerIndex = time.TimerCount;
+
+        var offer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        Assert.AreEqual(timerIndex + 1, time.TimerCount, "challenge should own a disposable expiry timer");
+        await sut.RespondToOfferAsync(offer.OfferId!.Value, 200, false);
+
+        Assert.IsTrue(time.IsTimerDisposed(timerIndex));
+    }
+
+    [TestMethod]
+    public async Task RematchAcceptedWhilePendingPublicationBlocked_PublishesAcceptedExactlyOnce()
+    {
+        var (sut, presence, publisher, router) = Create();
+        Add(presence, 10, 100); Add(presence, 20, 200);
+        await CompleteMatchAsync(sut, router, 91);
+        publisher.BlockType = "game.rematchPending";
+
+        var request = sut.RequestRematchAsync(91, 100);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var offerId = MessageValue<long>(publisher.BlockedMessage!, "offerId");
+        await sut.RespondToOfferAsync(offerId, 200, true);
+        publisher.Release.TrySetResult();
+        await request;
+
+        var acceptedCount = publisher.UserMessages.Count(x =>
+            MessageValue<string>(x.Message, "type") == "game.rematchAccepted"
+            && MessageValue<long>(x.Message, "offerId") == offerId);
+        Assert.AreEqual(1, acceptedCount);
     }
 
     [DataTestMethod]

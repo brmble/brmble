@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
-public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
+public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider, IAsyncDisposable
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(15);
@@ -12,6 +12,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private static readonly TimeSpan SnapshotRetryDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ForfeitRetryDelay = TimeSpan.FromSeconds(1);
     private const int ForfeitAttemptLimit = 3;
+    private const int SnapshotPublicationAttemptLimit = 5;
     private const int CompletedSourceLimit = 1000;
 
     private readonly GameDefinitionCatalog _catalog;
@@ -35,6 +36,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private long _nextOfferId;
     private long _nextReservationId;
     private long _nextAcceptanceSequence;
+    private bool _disposed;
 
     public DuelOrchestrator(
         GameDefinitionCatalog catalog,
@@ -63,6 +65,41 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<DuelOrchestrator>.Instance;
         _runner.MatchCompleted += OnMatchCompletedAsync;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        List<ITimer> timers = [];
+        List<Task> workers = [];
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var offer in _offers.Values)
+            {
+                if (offer.Timer is { } offerTimer) timers.Add(offerTimer);
+                offer.Timer = null;
+            }
+            foreach (var channel in _channels.Values)
+            {
+                if (channel.ReadyCheck?.Timer is not { } readyTimer) continue;
+                timers.Add(readyTimer);
+                channel.ReadyCheck.Timer = null;
+            }
+            foreach (var lane in _snapshotLanes.Values)
+                if (lane.Worker is { } worker) workers.Add(worker);
+        }
+
+        _runner.MatchCompleted -= OnMatchCompletedAsync;
+        foreach (var timer in timers) timer.Dispose();
+        foreach (var worker in workers)
+        {
+            try { await worker; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Duel snapshot worker faulted during orchestrator disposal");
+            }
+        }
     }
 
     public async Task<DuelCommandResult> CreateChallengeAsync(
@@ -105,6 +142,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             _offers.Add(offerId, offer);
             _commitmentsByUserId.Add(inviter.UserId, new(DuelCommitmentKind.Challenge, offerId));
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.Challenge, offerId));
+            offer.Timer = _timeProvider.CreateTimer(
+                _ => _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt),
+                null, OfferLifetime, Timeout.InfiniteTimeSpan);
         }
 
         try
@@ -137,7 +177,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             return Reject("The challenge could not be delivered.", DuelRejectReason.NotPresent);
         }
 
-        _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt);
         return Success(offer.Id, null);
     }
 
@@ -147,6 +186,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
         StartDecision? immediate = null;
         long? acceptedReservationId = null;
         var unavailable = false;
+        var deferOfferResponse = false;
         lock (_gate)
         {
             if (!_offers.TryGetValue(offerId, out offer!))
@@ -196,7 +236,10 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 }
                 Bump(offer.ChannelId, channel);
             }
-        OfferDecisionComplete:;
+        OfferDecisionComplete:
+            // A rematch offer with publication stages still in flight has recorded a terminal
+            // outcome; FinalizeRematchPublicationStageAsync is then the single publisher for it.
+            deferOfferResponse = offer.SourceMatchId is not null && offer.OutstandingPublicationStages > 0;
         }
 
         if (unavailable)
@@ -204,7 +247,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             await PublishCancellationBestEffortAsync(offer, "notPresent");
             return Reject("A player is no longer available.", DuelRejectReason.NotPresent);
         }
-        await PublishOfferResponseBestEffortAsync(offer, accept);
+        if (!deferOfferResponse) await PublishOfferResponseBestEffortAsync(offer, accept);
 
         if (!accept) return Success(offerId, null);
         if (immediate is null) return Success(offerId, acceptedReservationId);
@@ -324,7 +367,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             _commitmentsByUserId.Add(requester.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
             _commitmentsByUserId.Add(target.UserId, new(DuelCommitmentKind.RematchOffer, offerId));
             offer.Timer = _timeProvider.CreateTimer(
-                _ => _ = ExpireRematchOfferEffectAsync(offer.Id, offer.ExpiresAt),
+                _ => _ = ExpireOfferAsync(offer.Id, offer.ExpiresAt),
                 null, OfferLifetime, Timeout.InfiniteTimeSpan);
         }
 
@@ -422,7 +465,6 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                         && PlayerFor(channel.ReadyCheck.Reservation, userId)?.SessionId == oldSessionId)
                     {
                         var removedReady = RemoveReadyCheck(channel, channel.ReadyCheck);
-                        removedReady.Timer?.Dispose();
                         reservations.Add(removedReady.Reservation);
                         channel.Advancing = true;
                         Bump(channelId, channel);
@@ -731,31 +773,23 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
 
     private async Task ExpireOfferAsync(long offerId, DateTimeOffset expiresAt)
     {
-        await Task.Delay(expiresAt - _timeProvider.GetUtcNow(), _timeProvider);
-        Offer? offer = null;
-        lock (_gate)
+        try
         {
-            if (_offers.TryGetValue(offerId, out var current) && current.ExpiresAt == expiresAt)
+            Offer? offer = null;
+            lock (_gate)
             {
-                offer = current;
-                RemoveOffer(current, "expired");
+                if (_offers.TryGetValue(offerId, out var current) && current.ExpiresAt == expiresAt)
+                {
+                    offer = current;
+                    RemoveOffer(current, "expired");
+                }
             }
+            if (offer is not null) await PublishCancellationBestEffortAsync(offer, "expired");
         }
-        if (offer is not null) await PublishCancellationAsync(offer, "expired");
-    }
-
-    private async Task ExpireRematchOfferEffectAsync(long offerId, DateTimeOffset expiresAt)
-    {
-        Offer? offer = null;
-        lock (_gate)
+        catch (Exception ex)
         {
-            if (_offers.TryGetValue(offerId, out var current) && current.ExpiresAt == expiresAt)
-            {
-                offer = current;
-                RemoveOffer(current, "expired");
-            }
+            _logger.LogWarning(ex, "Failed to expire duel offer {OfferId}", offerId);
         }
-        if (offer is not null) await PublishCancellationBestEffortAsync(offer, "expired");
     }
 
     private Task PublishCancellationAsync(Offer offer, string reason) =>
@@ -1033,6 +1067,11 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 : Task.CompletedTask;
     }
 
+    internal int SnapshotLaneCount
+    {
+        get { lock (_gate) return _snapshotLanes.Count; }
+    }
+
     internal bool HasActiveSnapshotWorker(int channelId)
     {
         lock (_gate)
@@ -1056,11 +1095,20 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
 
     private async Task PublishSnapshotsAsync(int channelId, SnapshotLane lane)
     {
+        var consecutiveFailures = 0;
         while (true)
         {
             ChannelSnapshotInput input;
             lock (_gate)
             {
+                if (!_channels.ContainsKey(channelId) && consecutiveFailures > 0)
+                {
+                    // The channel disappeared while we were failing; nothing left worth publishing.
+                    lane.Pending = false;
+                    RetireLane(channelId, lane);
+                    return;
+                }
+
                 lane.Pending = false;
                 input = CaptureSnapshotInput(channelId);
             }
@@ -1070,9 +1118,24 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
                 var snapshot = await BuildSnapshotAsync(input);
                 await _publisher.PublishToChannelAsync(channelId, DuelWire.ToEvent(snapshot));
                 lock (_gate) lane.LastPublished = (input.Generation, input.Revision);
+                consecutiveFailures = 0;
             }
             catch (Exception ex)
             {
+                consecutiveFailures++;
+                if (consecutiveFailures >= SnapshotPublicationAttemptLimit)
+                {
+                    _logger.LogError(ex,
+                        "Failed to publish duel queue snapshot for channel {ChannelId} {Attempts} times; dropping snapshot at generation {Generation} revision {Revision}. Clients must recover via snapshot request.",
+                        channelId, consecutiveFailures, input.Generation, input.Revision);
+                    lock (_gate)
+                    {
+                        lane.Pending = false;
+                        RetireLane(channelId, lane);
+                        return;
+                    }
+                }
+
                 _logger.LogWarning(ex, "Failed to publish duel queue snapshot for channel {ChannelId}; retrying", channelId);
                 Task delay;
                 lock (_gate)
@@ -1089,11 +1152,26 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
             lock (_gate)
             {
                 if (lane.Pending) continue;
-                lane.Worker = null;
-                lane.Idle.TrySetResult();
+                RetireLane(channelId, lane);
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Marks a snapshot lane idle and, when its channel no longer exists, drops the lane so
+    /// removed channels do not retain a lane entry forever. Must be called under <c>_gate</c>.
+    /// </summary>
+    private void RetireLane(int channelId, SnapshotLane lane)
+    {
+        lane.Worker = null;
+        lane.Idle.TrySetResult();
+        if (!_channels.ContainsKey(channelId)
+            && _snapshotLanes.TryGetValue(channelId, out var current)
+            && ReferenceEquals(current, lane)
+            && !lane.Pending
+            && lane.Worker is null)
+            _snapshotLanes.Remove(channelId);
     }
 
     private sealed class SnapshotLane
@@ -1181,6 +1259,8 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider
     private ReadyCheck RemoveReadyCheck(ChannelState channel, ReadyCheck ready)
     {
         channel.ReadyCheck = null;
+        ready.Timer?.Dispose();
+        ready.Timer = null;
         ReleasePair(ready.Reservation);
         return ready;
     }
