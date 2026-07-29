@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Brmble.Server.Games.Duels;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Brmble.Server.Games;
 
@@ -49,6 +50,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private readonly ICompletedMatchSink _completedMatches;
     private readonly IGameTimerFactory _timerFactory;
     private readonly Action<long>? _liveTransitioned;
+    private readonly ILogger<GameSessionManager> _logger;
 
     private readonly ConcurrentDictionary<long, LiveMatch> _matches = new();
     private readonly ConcurrentDictionary<long, long> _stableUserToMatch = new();
@@ -58,18 +60,9 @@ public sealed class GameSessionManager : IDuelMatchRunner
         IEnumerable<IGameEngine> engines,
         IRandomSource rng,
         IGameEventPublisher publisher,
-        ICompletedMatchSink completedMatches)
-        : this(engines, rng, publisher, completedMatches, new GameTimerFactory())
-    {
-    }
-
-    internal GameSessionManager(
-        IEnumerable<IGameEngine> engines,
-        IRandomSource rng,
-        IGameEventPublisher publisher,
         ICompletedMatchSink completedMatches,
-        IGameTimerFactory timerFactory)
-        : this(engines, rng, publisher, completedMatches, timerFactory, null)
+        ILogger<GameSessionManager>? logger = null)
+        : this(engines, rng, publisher, completedMatches, new GameTimerFactory(), logger)
     {
     }
 
@@ -79,7 +72,19 @@ public sealed class GameSessionManager : IDuelMatchRunner
         IGameEventPublisher publisher,
         ICompletedMatchSink completedMatches,
         IGameTimerFactory timerFactory,
-        Action<long>? liveTransitioned)
+        ILogger<GameSessionManager>? logger = null)
+        : this(engines, rng, publisher, completedMatches, timerFactory, null, logger)
+    {
+    }
+
+    internal GameSessionManager(
+        IEnumerable<IGameEngine> engines,
+        IRandomSource rng,
+        IGameEventPublisher publisher,
+        ICompletedMatchSink completedMatches,
+        IGameTimerFactory timerFactory,
+        Action<long>? liveTransitioned,
+        ILogger<GameSessionManager>? logger = null)
     {
         _engines = engines.ToDictionary(e => e.GameType, StringComparer.OrdinalIgnoreCase);
         _rng = rng;
@@ -87,6 +92,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
         _completedMatches = completedMatches;
         _timerFactory = timerFactory;
         _liveTransitioned = liveTransitioned;
+        _logger = logger ?? NullLogger<GameSessionManager>.Instance;
     }
 
     private sealed class LiveMatch
@@ -110,7 +116,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
         // whose generation is stale must bail — Timer.Dispose() doesn't wait for an
         // in-flight callback, so without this a penalty could hit the wrong player.
         public long TurnGeneration;
-        public long OutboundSequence;
         public Task OutboundTail = Task.CompletedTask;
         public readonly object Lock = new();
     }
@@ -227,16 +232,18 @@ public sealed class GameSessionManager : IDuelMatchRunner
     private async Task PublishAdvisoryAsync(Func<Task> publish)
     {
         try { await publish(); }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Advisory game publication failed; continuing.");
+        }
     }
 
     // Called while match.Lock is held so queue order is identical to mutation order.
     // The tail observes failures, allowing later publications to continue.
-    private static Task EnqueueOutbound(LiveMatch match, Func<Task> publish)
+    private Task EnqueueOutbound(LiveMatch match, Func<Task> publish)
     {
-        _ = ++match.OutboundSequence;
         var current = PublishAfterAsync(match.OutboundTail, publish);
-        match.OutboundTail = ObserveFailureAsync(current);
+        match.OutboundTail = ObserveFailureAsync(match.MatchId, current);
         return current;
     }
 
@@ -246,10 +253,13 @@ public sealed class GameSessionManager : IDuelMatchRunner
         await publish();
     }
 
-    private static async Task ObserveFailureAsync(Task publication)
+    private async Task ObserveFailureAsync(long matchId, Task publication)
     {
         try { await publication; }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Outbound publication failed for match {MatchId}; later publications continue.", matchId);
+        }
     }
 
     // Maps a match's Mumble session players to the stable db user ids used for
@@ -725,6 +735,19 @@ public sealed class GameSessionManager : IDuelMatchRunner
             match.Configuration,
             endedAt);
         foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
-            await handler(completion);
+        {
+            // Raised from a finally block: a throwing subscriber must never replace the
+            // original exception, nor stop the remaining subscribers from being notified.
+            try
+            {
+                await handler(completion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Match completion subscriber failed for match {MatchId} in channel {ChannelId}. Duel queue advancement for this channel may be stalled.",
+                    match.MatchId, match.ChannelId);
+            }
+        }
     }
 }

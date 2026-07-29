@@ -193,6 +193,25 @@ public class GameSessionManagerTests
         Assert.AreEqual(replacement.MatchId, current.MatchId);
     }
     [TestMethod]
+    public async Task CompletionSubscriberFailure_DoesNotFaultTheCompletingAction()
+    {
+        var sink = new ManagerSink();
+        var manager = new GameSessionManager([new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), sink);
+        manager.MatchCompleted += _ => throw new InvalidOperationException("orchestrator advance failed");
+
+        var started = await manager.StartAsync(Reservation(93));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsFalse(manager.IsMatchLive(started.MatchId), "runtime state must still be released");
+        Assert.IsFalse(manager.TryGetActiveMatch(10, out _), "player one must not stay committed");
+        Assert.IsFalse(manager.TryGetActiveMatch(20, out _), "player two must not stay committed");
+    }
+
+    [TestMethod]
     public async Task StartAsync_UsesImmutableReservationConfiguration_AndCompletesWithCanonicalMetadata()
     {
         var sink = new ManagerSink();
