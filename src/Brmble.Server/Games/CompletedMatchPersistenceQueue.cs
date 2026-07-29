@@ -57,9 +57,17 @@ public sealed class CompletedMatchPersistenceQueue : BackgroundService, IComplet
             throw new InvalidOperationException("The completed match persistence queue is unavailable.");
     }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // Stop accepting new work so the drain loop can terminate on its own once the
+        // buffer is empty, rather than being torn down mid-queue by the stopping token.
+        _queue.Writer.TryComplete();
+        await base.StopAsync(cancellationToken);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var match in _queue.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var match in _queue.Reader.ReadAllAsync(CancellationToken.None))
         {
             var failureCount = 0;
             while (true)
@@ -69,18 +77,33 @@ public sealed class CompletedMatchPersistenceQueue : BackgroundService, IComplet
                     await _persist(match);
                     break;
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    throw;
-                }
                 catch (Exception ex)
                 {
-                    var delay = RetryDelays[Math.Min(failureCount, RetryDelays.Length - 1)];
                     failureCount++;
+                    if (failureCount > RetryDelays.Length)
+                    {
+                        _logger.LogCritical(ex,
+                            "Permanently dropping completed {GameType} match in channel {ChannelId} ended at {EndedAt} after {Attempts} attempts. Match history and derived stats for this match are lost.",
+                            match.GameType, match.ChannelId, match.EndedAt, failureCount);
+                        break;
+                    }
+
+                    var delay = RetryDelays[failureCount - 1];
                     _logger.LogError(ex,
                         "Failed to persist completed {GameType} match; retrying in {Delay}",
                         match.GameType, delay);
-                    await _schedule.DelayAsync(delay, stoppingToken);
+
+                    try
+                    {
+                        await _schedule.DelayAsync(delay, stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogCritical(ex,
+                            "Dropping completed {GameType} match in channel {ChannelId} ended at {EndedAt} because the host is shutting down mid-retry.",
+                            match.GameType, match.ChannelId, match.EndedAt);
+                        break;
+                    }
                 }
             }
         }

@@ -59,6 +59,58 @@ public class CompletedMatchPersistenceQueueTests
         await queue.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [TestMethod]
+    public async Task PoisonedMatch_IsDroppedSoLaterMatchesStillPersist()
+    {
+        var persistedGameTypes = new List<string>();
+        var secondPersisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var schedule = new RecordingRetrySchedule();
+        var queue = new CompletedMatchPersistenceQueue(
+            match =>
+            {
+                if (match.GameType == "poison") throw new InvalidOperationException("constraint violation");
+                persistedGameTypes.Add(match.GameType);
+                secondPersisted.TrySetResult();
+                return Task.CompletedTask;
+            }, schedule, NullLogger<CompletedMatchPersistenceQueue>.Instance);
+
+        await queue.StartAsync(CancellationToken.None);
+        queue.Enqueue(CreateMatch() with { GameType = "poison" });
+        queue.Enqueue(CreateMatch() with { GameType = "rps" });
+
+        await secondPersisted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await queue.StopAsync(CancellationToken.None);
+
+        CollectionAssert.AreEqual(new[] { "rps" }, persistedGameTypes);
+    }
+
+    [TestMethod]
+    public async Task Shutdown_DuringRetryDelay_StillDrainsRemainingQueuedMatches()
+    {
+        var retryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var persisted = new List<int>();
+        var queue = new CompletedMatchPersistenceQueue(
+            match =>
+            {
+                if (match.ChannelId == 1) throw new InvalidOperationException("database unavailable");
+                lock (persisted) persisted.Add(match.ChannelId);
+                return Task.CompletedTask;
+            },
+            new BlockingRetrySchedule(retryEntered), NullLogger<CompletedMatchPersistenceQueue>.Instance);
+
+        await queue.StartAsync(CancellationToken.None);
+        queue.Enqueue(CreateMatch() with { ChannelId = 1 });
+        queue.Enqueue(CreateMatch() with { ChannelId = 2 });
+        queue.Enqueue(CreateMatch() with { ChannelId = 3 });
+        await retryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await queue.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        CollectionAssert.AreEqual(new[] { 2, 3 }, persisted,
+            "a match stuck in a retry delay must not discard the rest of the queue at shutdown");
+    }
+
+
     private static CompletedMatch CreateMatch() => new(
         "rps", 7, "bo5", 3, "decided", null,
         DateTimeOffset.UtcNow.AddSeconds(-1), DateTimeOffset.UtcNow,
@@ -73,3 +125,4 @@ public class CompletedMatchPersistenceQueueTests
         }
     }
 }
+
