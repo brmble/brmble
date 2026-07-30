@@ -336,6 +336,23 @@ export function useGameState(myUserId: number): GameState {
       setAccepting(false);
     };
 
+    // The offer became a reservation (queued or starting). Clear only the matching
+    // challenge so its buttons can't send commands for an offer that no longer
+    // exists. Deliberately no outcome notification: the ongoing status is rendered
+    // from the queue snapshot instead (see useDuelQueueState). Any self-cancel
+    // marker is left intact so a late game.expired is still swallowed correctly.
+    const handleAccepted = (data: unknown) => {
+      const { offerId } = data as { offerId?: number };
+      if (offerId == null) return;
+      if (incomingInviteRef.current?.offerId === offerId) {
+        setIncomingInvite(null);
+        setAccepting(false);
+      }
+      if (outgoingInviteRef.current?.offerId === offerId) {
+        setOutgoing(null);
+      }
+    };
+
     const handleDeclined = () => resolveOutgoing('declined');
     const handleExpired = () => {
       // A self-initiated cancel produces a server `game.expired`; don't surface it as
@@ -382,6 +399,7 @@ export function useGameState(myUserId: number): GameState {
     bridge.on('game.started', handleStarted);
     bridge.on('game.stateUpdated', handleStateUpdated);
     bridge.on('game.ended', handleEnded);
+    bridge.on('game.accepted', handleAccepted);
     bridge.on('game.declined', handleDeclined);
     bridge.on('game.expired', handleExpired);
     bridge.on('game.actionRejected', handleActionRejected);
@@ -393,6 +411,7 @@ export function useGameState(myUserId: number): GameState {
       bridge.off('game.started', handleStarted);
       bridge.off('game.stateUpdated', handleStateUpdated);
       bridge.off('game.ended', handleEnded);
+      bridge.off('game.accepted', handleAccepted);
       bridge.off('game.declined', handleDeclined);
       bridge.off('game.expired', handleExpired);
       bridge.off('game.actionRejected', handleActionRejected);

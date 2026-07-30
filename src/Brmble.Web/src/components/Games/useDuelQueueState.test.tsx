@@ -1,40 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDuelQueueState, type DuelQueueSnapshot } from './useDuelQueueState';
-import { useGameState } from './useGameState';
+import { api, emit, handlers, resetHarness } from './duelTestHarness';
 
-const { handlers, api } = vi.hoisted(() => ({
-  handlers: new Map<string, ((data: unknown) => void)[]>(),
-  api: {
-    getQueueSnapshot: vi.fn(),
-    respondReady: vi.fn().mockResolvedValue(undefined),
-    requestRematch: vi.fn().mockResolvedValue(undefined),
-    respondOffer: vi.fn().mockResolvedValue(undefined),
-    cancelOffer: vi.fn().mockResolvedValue(undefined),
-    respond: vi.fn().mockResolvedValue(undefined),
-    invite: vi.fn().mockResolvedValue(undefined),
-    sendAction: vi.fn().mockResolvedValue(undefined),
-    forfeit: vi.fn().mockResolvedValue(undefined),
-    GameApiError: class extends Error {},
-  },
-}));
-
-vi.mock('../../bridge', () => ({
-  default: {
-    on: (type: string, handler: (data: unknown) => void) => {
-      handlers.set(type, [...(handlers.get(type) ?? []), handler]);
-    },
-    off: (type: string, handler: (data: unknown) => void) => {
-      handlers.set(type, (handlers.get(type) ?? []).filter(candidate => candidate !== handler));
-    },
-  },
-}));
-
-vi.mock('../../api/games', () => api);
-
-function emit(type: string, data: unknown) {
-  act(() => handlers.get(type)?.forEach(handler => handler(data)));
-}
+vi.mock('../../bridge', async () => ({ default: (await import('./duelTestHarness')).bridge }));
+vi.mock('../../api/games', async () => (await import('./duelTestHarness')).api);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -75,8 +45,7 @@ const queued = [{
 
 describe('useDuelQueueState', () => {
   beforeEach(() => {
-    handlers.clear();
-    vi.clearAllMocks();
+    resetHarness();
     api.getQueueSnapshot.mockReturnValue(new Promise(() => {}));
   });
 
@@ -566,53 +535,5 @@ describe('useDuelQueueState', () => {
     expect(result.current.incomingRematch).toBeNull();
     emit('game.rematchCanceled', { offerId: 10 });
     expect(result.current.outgoingRematch).toBeNull();
-  });
-});
-
-describe('useGameState duel offer contracts', () => {
-  beforeEach(() => {
-    handlers.clear();
-    vi.clearAllMocks();
-  });
-
-  it('uses offerId for responses and cancellation without accepting matchId aliases', () => {
-    const { result } = renderHook(() => useGameState(11));
-    emit('game.invited', { offerId: 5, matchId: 99, from: 22, gameType: 'rps' });
-    act(() => result.current.acceptInvite());
-    expect(api.respondOffer).toHaveBeenCalledWith(5, true);
-
-    emit('game.invitePending', { matchId: 7, target: 22, gameType: 'rps' });
-    act(() => result.current.cancelInvite());
-    expect(api.cancelOffer).not.toHaveBeenCalled();
-    emit('game.invitePending', { offerId: 7, target: 22, gameType: 'rps' });
-    act(() => result.current.cancelInvite());
-    expect(api.cancelOffer).toHaveBeenCalledWith(7);
-    expect(api.forfeit).not.toHaveBeenCalled();
-  });
-
-  it('retains the completed source match id and configuration', () => {
-    const { result } = renderHook(() => useGameState(11));
-    emit('game.started', { matchId: 0, gameType: 'rps', format: 'bestOf3', rulesetVersion: 2, options: { bestOf: 3 }, views: [] });
-    emit('game.ended', { matchId: 0, gameType: 'rps', draw: true });
-    expect(result.current.ended).toMatchObject({
-      matchId: 0,
-      sourceMatchId: 0,
-      gameType: 'rps',
-      format: 'bestOf3',
-      rulesetVersion: 2,
-      options: { bestOf: 3 },
-    });
-  });
-
-  it('prefers canonical configuration on the ended event', () => {
-    const { result } = renderHook(() => useGameState(11));
-    emit('game.started', { matchId: 8, gameType: 'rps', format: 'old', rulesetVersion: 1, options: {}, views: [] });
-    emit('game.ended', { matchId: 8, gameType: 'rps', format: 'bo5', rulesetVersion: 3, options: { bestOf: 5 }, draw: true });
-    expect(result.current.ended).toMatchObject({
-      sourceMatchId: 8,
-      format: 'bo5',
-      rulesetVersion: 3,
-      options: { bestOf: 5 },
-    });
   });
 });
