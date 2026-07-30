@@ -71,6 +71,7 @@ describe('CompanionPicker', () => {
   it('shows duplicate names with uploader context and stable identity', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
+    const onRequestCustomAtlas = vi.fn();
     const duplicateNameGallery = gallery('ready', [
       entry('$alice:test', 'Alice', 2),
       entry('$bob:test', 'Bob', 1),
@@ -81,6 +82,7 @@ describe('CompanionPicker', () => {
         value="floppy"
         gallery={duplicateNameGallery}
         onChange={onChange}
+        onRequestCustomAtlas={onRequestCustomAtlas}
         onUpload={vi.fn()}
       />,
     );
@@ -89,11 +91,8 @@ describe('CompanionPicker', () => {
     expect(screen.getByText('Uploaded by Alice')).toBeVisible();
     await user.click(screen.getByRole('button', { name: /Orbit, uploaded by Bob/ }));
     expect(onChange).toHaveBeenCalledWith('custom:$bob:test');
-    expect(duplicateNameGallery.requestAtlas).toHaveBeenCalledOnce();
-    expect(duplicateNameGallery.requestAtlas).toHaveBeenCalledWith(
-      duplicateNameGallery.entries[1],
-      new Set([duplicateNameGallery.entries[1].atlasCacheKey]),
-    );
+    expect(onRequestCustomAtlas).toHaveBeenCalledWith('custom:$bob:test');
+    expect(duplicateNameGallery.requestAtlas).not.toHaveBeenCalled();
   });
 
   it('omits Custom when the capability is absent', () => {

@@ -82,7 +82,7 @@
   background-size: calc(100% * 8) calc(100% * 9);
   background-position-y: var(--custom-preview-row-position);
   image-rendering: pixelated;
-  animation: custom-companion-preview-cycle var(--custom-preview-cycle) steps(var(--custom-preview-frame-count)) infinite;
+  animation: custom-companion-preview-cycle var(--custom-preview-cycle) steps(var(--custom-preview-frame-step-count)) infinite;
 }
 
 .custom-companion-upload-privacy {
@@ -110,7 +110,7 @@
   }
 
   to {
-    background-position-x: 100%;
+    background-position-x: var(--custom-preview-last-frame-position);
   }
 }
 

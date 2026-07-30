@@ -79,10 +79,13 @@ function RepresentativePreview({
 }) {
   const frameCounts = { 1: 6, 4: 4, 9: 6 } as const;
   const frameCount = frameCounts[row];
+  const lastFramePosition = `${(((frameCount - 1) / (8 - 1)) * 100).toFixed(6)}%`;
   const style = {
     '--custom-preview-image': `url(${objectUrl})`,
     '--custom-preview-row-position': `${((row - 1) / 8) * 100}%`,
     '--custom-preview-frame-count': frameCount,
+    '--custom-preview-frame-step-count': frameCount - 1,
+    '--custom-preview-last-frame-position': lastFramePosition,
     '--custom-preview-cycle': `${frameCount}s`,
   } as CSSProperties;
 

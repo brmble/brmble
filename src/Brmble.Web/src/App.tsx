@@ -1277,6 +1277,10 @@ function App() {
     requestCompanionAtlas(requestedLocalCompanion, renderedAtlasCacheKeys);
   }, [renderedAtlasCacheKeys, requestCompanionAtlas, requestedLocalCompanion]);
 
+  const requestSettingsCompanionAtlas = useCallback((selection: CompanionSelection) => {
+    requestCompanionAtlas(selection, renderedAtlasCacheKeys);
+  }, [renderedAtlasCacheKeys, requestCompanionAtlas]);
+
   useEffect(() => {
     const active = overlaySnapshot.fullCompanion.activeDisplay;
     const localSession = overlaySnapshot.fullCompanion.localUser.session;
@@ -4826,6 +4830,7 @@ const handleConnect = (serverData: SavedServer) => {
         onLiveCompanionChange={handleLiveCompanionChange}
         customCompanionGallery={customCompanionGallery}
         customCompanionMatrixClient={matrixClient.client ?? undefined}
+        onCustomCompanionAtlasRequest={requestSettingsCompanionAtlas}
         liveUsers={users}
         channels={channels}
         onChannelsChange={setChannels}

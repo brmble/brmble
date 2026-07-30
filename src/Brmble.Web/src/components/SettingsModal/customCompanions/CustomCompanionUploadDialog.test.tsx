@@ -144,8 +144,14 @@ describe('CustomCompanionUploadDialog', () => {
       expect(screen.getByText('800 \u00d7 900 px')).toBeVisible();
       expect(screen.getByTestId('companion-preview-row-1')).toBeVisible();
     });
-    expect(screen.getByTestId('companion-preview-row-4')).toBeVisible();
-    expect(screen.getByTestId('companion-preview-row-9')).toBeVisible();
+    const idle = screen.getByTestId('companion-preview-row-1');
+    const message = screen.getByTestId('companion-preview-row-4');
+    const speaking = screen.getByTestId('companion-preview-row-9');
+    expect(message).toBeVisible();
+    expect(speaking).toBeVisible();
+    expect(idle.style.getPropertyValue('--custom-preview-last-frame-position')).toBe('71.428571%');
+    expect(message.style.getPropertyValue('--custom-preview-last-frame-position')).toBe('42.857143%');
+    expect(speaking.style.getPropertyValue('--custom-preview-frame-step-count')).toBe('5');
     expect(screen.getByRole('button', { name: 'Upload sprite' })).toBeEnabled();
   });
 

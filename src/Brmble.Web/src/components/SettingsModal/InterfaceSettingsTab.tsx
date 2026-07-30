@@ -21,6 +21,7 @@ interface InterfaceSettingsTabProps {
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   customCompanionGallery?: CustomCompanionGalleryController;
   customCompanionMatrixClient?: MatrixUploadClient;
+  onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
   onCustomCompanionUploadActivityChange?: (active: boolean) => void;
 }
 
@@ -31,6 +32,7 @@ export function InterfaceSettingsTab({
   onOverlayChange,
   customCompanionGallery,
   customCompanionMatrixClient,
+  onCustomCompanionAtlasRequest,
   onCustomCompanionUploadActivityChange,
 }: InterfaceSettingsTabProps) {
   
@@ -130,6 +132,7 @@ export function InterfaceSettingsTab({
                 value={overlaySettings.myCompanion}
                 gallery={customCompanionGallery}
                 onChange={handleMyCompanionChange}
+                onRequestCustomAtlas={onCustomCompanionAtlasRequest}
                 onUpload={() => setUploadDialogOpen(true)}
               />
             ) : (

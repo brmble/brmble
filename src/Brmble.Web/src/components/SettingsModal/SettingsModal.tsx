@@ -67,6 +67,7 @@ interface SettingsModalProps {
   channelRequestRefreshKey?: number;
   customCompanionGallery?: CustomCompanionGalleryController;
   customCompanionMatrixClient?: MatrixUploadClient;
+  onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
 }
 
 export interface ScreenShareSettings {
@@ -545,6 +546,7 @@ export function SettingsModal(props: SettingsModalProps) {
         onBrmblegotchiChange={handleBrmblegotchiChange}
         customCompanionGallery={props.customCompanionGallery}
         customCompanionMatrixClient={props.customCompanionMatrixClient}
+        onCustomCompanionAtlasRequest={props.onCustomCompanionAtlasRequest}
         onCustomCompanionUploadActivityChange={setCustomCompanionUploadActive}
       />
           )}

@@ -31,6 +31,7 @@ interface CompanionPickerProps {
   value: CompanionSelection;
   gallery: CustomCompanionGalleryController;
   onChange: (value: CompanionSelection) => void;
+  onRequestCustomAtlas?: (value: CompanionSelection) => void;
   onUpload: () => void;
 }
 
@@ -77,11 +78,12 @@ export function CompanionPicker({
   value,
   gallery,
   onChange,
+  onRequestCustomAtlas,
   onUpload,
 }: CompanionPickerProps) {
   const selectCustom = (entry: CustomCompanionEntry) => {
-    void gallery.requestAtlas(entry, new Set([entry.atlasCacheKey])).catch(() => {});
     onChange(entry.id);
+    onRequestCustomAtlas?.(entry.id);
   };
 
   return (

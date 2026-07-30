@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
@@ -111,7 +111,7 @@ const mockValues = vi.hoisted(() => {
     entries: [],
     redactedEventIds: new Set<string>(),
     error: null,
-    requestAtlas: vi.fn(),
+    requestAtlas: vi.fn().mockResolvedValue('blob:atlas'),
     requestThumbnail: vi.fn(),
     releaseAtlas: vi.fn(),
     releaseThumbnail: vi.fn(),
@@ -211,6 +211,17 @@ vi.mock('./hooks/useScreenShare', () => ({ useScreenShare: () => mockValues.scre
 const entry = {
   id: 'custom:$sprite:test' as const,
   eventId: '$sprite:test',
+  roomId: '!gallery:test',
+  name: 'Orbit',
+  mediaUri: 'mxc://test/sprite',
+  mimeType: 'image/png',
+  width: 1536,
+  height: 1872,
+  frameCount: 1,
+  byteSize: 1024,
+  uploaderMatrixUserId: '@alice:example.com',
+  uploaderDisplayName: 'Alice',
+  createdAt: 1,
   atlasCacheKey: '!gallery:test\u0000$sprite:test',
 };
 
@@ -289,7 +300,7 @@ async function openInterfaceSettings(settings: { overlay: OverlaySettings; appea
   fireEvent.click(await screen.findByRole('button', { name: 'Interface' }));
 }
 
-function selectCompanion(label: string) {
+function selectCompanion(label: string | RegExp) {
   const companionSetting = screen.getByText('My Companion').parentElement;
   if (!companionSetting) throw new Error('Missing companion setting');
   const pickerButton = within(companionSetting).queryByRole('button', { name: label });
@@ -306,8 +317,24 @@ describe('App custom companion delivery', () => {
     vi.clearAllMocks();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
     mockValues.notificationQueueIds.clear();
+    Object.assign(mockValues.gallery, {
+      status: 'disabled',
+      entries: [],
+      redactedEventIds: new Set<string>(),
+      error: null,
+    });
+    mockValues.gallery.requestAtlas.mockResolvedValue('blob:atlas');
     (bridge as unknown as { __reset: () => void }).__reset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('persists the server-selected companion without changing other server selections', async () => {
@@ -469,5 +496,37 @@ describe('App custom companion delivery', () => {
 
     expect(serverPayload.companionId).toBe('floppy');
     expect(normalizeCompanionBridgeSelection(serverPayload)).toBe(entry.id);
+  });
+
+  it('retries an already-selected custom companion through App atlas ownership', async () => {
+    const initial: OverlaySettings = {
+      ...DEFAULT_OVERLAY,
+      mode: 'full',
+      myCompanion: entry.id,
+      companionSelectionsByServer: {
+        '!gallery:test': entry.id,
+      },
+    };
+    localStorage.setItem('brmble-settings', JSON.stringify({ overlay: initial }));
+    Object.assign(mockValues.gallery, {
+      status: 'ready',
+      entries: [entry],
+      redactedEventIds: new Set<string>(),
+      error: null,
+    });
+    mockValues.gallery.requestAtlas
+      .mockRejectedValueOnce(new Error('temporary media failure'))
+      .mockResolvedValueOnce('blob:atlas');
+    renderApp();
+
+    act(() => emit('server.credentials', credentials(entry.id)));
+    await waitFor(() => expect(mockValues.gallery.requestAtlas).toHaveBeenCalledTimes(1));
+    mockValues.gallery.requestAtlas.mockClear();
+
+    await openInterfaceSettings({ overlay: initial });
+    selectCompanion(/Orbit, uploaded by Alice/);
+
+    await waitFor(() => expect(mockValues.gallery.requestAtlas).toHaveBeenCalledTimes(1));
+    expect(mockValues.gallery.releaseAtlas).toHaveBeenCalledWith(entry);
   });
 });
