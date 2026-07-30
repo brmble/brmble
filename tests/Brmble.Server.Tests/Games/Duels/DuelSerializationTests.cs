@@ -41,6 +41,57 @@ public sealed class DuelSerializationTests
         StringAssert.Contains(errorJson, "\"reason\":\"alreadyCommitted\"");
     }
 
+    [TestMethod]
+    public void Snapshot_SerializesEstimatedDurationForEveryEntry()
+    {
+        var json = JsonSerializer.Serialize(
+            DuelWire.ToSnapshot(SnapshotWithAllSections()), DuelWire.JsonOptions);
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        var active = root.GetProperty("active").GetProperty("estimatedDuration");
+        Assert.AreEqual("known", active.GetProperty("status").GetString());
+        Assert.AreEqual(30000, active.GetProperty("milliseconds").GetInt64());
+        Assert.AreEqual("fullMedian", active.GetProperty("method").GetString());
+
+        var ready = root.GetProperty("readyCheck").GetProperty("estimatedDuration");
+        Assert.AreEqual("unknown", ready.GetProperty("status").GetString());
+        Assert.AreEqual(3, ready.GetProperty("sampleCount").GetInt32());
+
+        var queued = root.GetProperty("queue")[0].GetProperty("estimatedDuration");
+        Assert.AreEqual(25000, queued.GetProperty("milliseconds").GetInt64());
+        Assert.AreEqual(11, queued.GetProperty("sampleCount").GetInt32());
+    }
+
+    private static DuelQueueSnapshot SnapshotWithAllSections()
+    {
+        var baseline = QueueSnapshotWithUnknownFallback();
+        return baseline with
+        {
+            Active = baseline.Active! with
+            {
+                Remaining = DurationEstimate.Known(12000, 12, EstimateMethod.ConditionalRemaining),
+                EstimatedDuration = DurationEstimate.Known(30000, 12, EstimateMethod.FullMedian),
+            },
+            ReadyCheck = new ReadyCheckSnapshot(
+                103,
+                baseline.GeneratedAt.AddSeconds(20),
+                baseline.Active!.Players,
+                "deathroll",
+                "1v1",
+                1,
+                DurationEstimate.Unknown(3)),
+            Queue = new[]
+            {
+                baseline.Queue[0] with
+                {
+                    EstimatedDuration = DurationEstimate.Known(25000, 11, EstimateMethod.FullMedian),
+                },
+            },
+        };
+    }
+
     private static DuelQueueSnapshot QueueSnapshotWithUnknownFallback()
     {
         var generatedAt = new DateTimeOffset(2026, 7, 25, 14, 30, 0, TimeSpan.Zero);

@@ -76,7 +76,8 @@ public sealed record ActiveDuelWire(
     string GameType,
     string Format,
     int RulesetVersion,
-    DurationEstimateWire Remaining);
+    DurationEstimateWire Remaining,
+    DurationEstimateWire EstimatedDuration);
 
 public sealed record ReadyCheckWire(
     long ReservationId,
@@ -84,7 +85,8 @@ public sealed record ReadyCheckWire(
     IReadOnlyList<DuelPlayerSnapshot> Players,
     string GameType,
     string Format,
-    int RulesetVersion);
+    int RulesetVersion,
+    DurationEstimateWire EstimatedDuration);
 
 public sealed record QueuedDuelWire(
     long ReservationId,
@@ -93,7 +95,8 @@ public sealed record QueuedDuelWire(
     string GameType,
     string Format,
     int RulesetVersion,
-    QueueEtaWire Eta);
+    QueueEtaWire Eta,
+    DurationEstimateWire EstimatedDuration);
 
 public sealed record DuelQueueSnapshotWire(
     int SchemaVersion,
@@ -118,8 +121,19 @@ public sealed record DuelQueueSnapshotWire(
             snapshot.GeneratedAt,
             snapshot.CalculationTimeMs,
             snapshot.Active is null ? null : MapActive(snapshot.Active, status, method),
-            snapshot.ReadyCheck is null ? null : MapReady(snapshot.ReadyCheck),
+            snapshot.ReadyCheck is null ? null : MapReady(snapshot.ReadyCheck, status, method),
             snapshot.Queue.Select(x => MapQueued(x, status, method)).ToArray());
+
+    private static DurationEstimateWire MapEstimate(
+        DurationEstimate estimate,
+        Func<EstimateStatus, string> status,
+        Func<EstimateMethod, string> method) =>
+        new(
+            status(estimate.Status),
+            estimate.Milliseconds,
+            estimate.SampleCount,
+            method(estimate.Method),
+            estimate.Approximate);
 
     private static ActiveDuelWire MapActive(
         ActiveDuelSnapshot active,
@@ -133,21 +147,21 @@ public sealed record DuelQueueSnapshotWire(
             active.GameType,
             active.Format,
             active.RulesetVersion,
-            new DurationEstimateWire(
-                status(active.Remaining.Status),
-                active.Remaining.Milliseconds,
-                active.Remaining.SampleCount,
-                method(active.Remaining.Method),
-                active.Remaining.Approximate));
+            MapEstimate(active.Remaining, status, method),
+            MapEstimate(active.EstimatedDuration, status, method));
 
-    private static ReadyCheckWire MapReady(ReadyCheckSnapshot ready) =>
+    private static ReadyCheckWire MapReady(
+        ReadyCheckSnapshot ready,
+        Func<EstimateStatus, string> status,
+        Func<EstimateMethod, string> method) =>
         new(
             ready.ReservationId,
             ready.ExpiresAt,
             ready.Players,
             ready.GameType,
             ready.Format,
-            ready.RulesetVersion);
+            ready.RulesetVersion,
+            MapEstimate(ready.EstimatedDuration, status, method));
 
     private static QueuedDuelWire MapQueued(
         QueuedDuelSnapshot queued,
@@ -170,7 +184,8 @@ public sealed record DuelQueueSnapshotWire(
                     segment.Format,
                     segment.RulesetVersion,
                     segment.SampleCount,
-                    method(segment.Method))).ToArray()));
+                    method(segment.Method))).ToArray()),
+            MapEstimate(queued.EstimatedDuration, status, method));
 }
 
 public sealed record GameQueueSnapshotEvent(
