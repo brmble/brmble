@@ -71,6 +71,8 @@ import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
+import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
+import { pairLabel } from './components/Games/duelFormatting';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
 
@@ -1027,6 +1029,12 @@ function App() {
         || snapshot.queue.some(entry => entry.players.some(player => player.sessionId === selfSession)))
       .map(snapshot => snapshot.channelId),
   ), [duelQueue.byChannel, selfSession]);
+  const { confirmation: queuedDuelConfirmation, dismiss: dismissQueuedDuelConfirmation } =
+    useQueuedDuelConfirmation(duelQueue.byChannel, selfSession);
+  const visibleQueuedDuelConfirmation =
+    shouldShowOptionalNotification(optionalNotificationSettings, 'notificationDuelQueued')
+      ? queuedDuelConfirmation
+      : null;
   const [selectedDuelChannelId, setSelectedDuelChannelId] = useState<number | null>(null);
   const selectedDuelSnapshot = selectedDuelChannelId == null ? null : duelQueue.byChannel.get(selectedDuelChannelId) ?? null;
   const readyCheck = [...duelQueue.byChannel.values()]
@@ -1127,6 +1135,10 @@ function App() {
     if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
     else notifQueueRef.current.unregister('game-ready');
   }, [readyCheck]);
+  useEffect(() => {
+    if (visibleQueuedDuelConfirmation) notifQueueRef.current.register('game-queued', 'info');
+    else notifQueueRef.current.unregister('game-queued');
+  }, [visibleQueuedDuelConfirmation]);
   useEffect(() => {
     if (duelQueue.incomingRematch) notifQueueRef.current.register('game-rematch', 'info', 2);
     else notifQueueRef.current.unregister('game-rematch');
@@ -4676,6 +4688,21 @@ const handleConnect = (serverData: SavedServer) => {
               notifQueue.unregister('game-command-error');
             }}
             onExited={() => notifQueue.unregister('game-command-error')}
+          />
+        )}
+        {visibleQueuedDuelConfirmation && notifQueue.isVisible('game-queued') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={true}
+            title="Challenge accepted"
+            detail={
+              <>
+                <div>{pairLabel(visibleQueuedDuelConfirmation.players, resolveGamePlayerName)}</div>
+                <div>{gameDisplayName(visibleQueuedDuelConfirmation.gameType)} · {visibleQueuedDuelConfirmation.format}</div>
+              </>
+            }
+            onDismiss={dismissQueuedDuelConfirmation}
           />
         )}
         {readyCheck && notifQueue.isVisible('game-ready') && (

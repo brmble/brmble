@@ -175,6 +175,18 @@ const snapshot = (
 const connectSelf = (channelId: number) => act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void })
   .__emit('voice.connected', { channelId, users: [{ session: selfSession, name: 'Me', self: true, channelId }] }));
 
+/**
+ * A test-harness artefact, not a property of the app. The queue confirmation lands two
+ * render passes after a snapshot: the hook's effect sets the confirmation, then the
+ * registration effect claims a notification slot. In the app that second pass happens
+ * naturally because the real `useNotificationQueue` re-renders on `register`; the mock
+ * here does not, so only it needs prompting.
+ */
+const rerenderApp = (rerender: (ui: React.ReactElement) => void) => {
+  rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+  rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+};
+
 describe('App duel orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -453,5 +465,91 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.byChannel = new Map();
     rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
     expect(screen.queryByRole('dialog', { name: 'Duel activity' })).not.toBeInTheDocument();
+  });
+
+  it('confirms when your accepted challenge enters the queue', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {})]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      queue: [queuedEntry([player(selfSession), player(22)])],
+    })]]);
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Challenge accepted')).toBeInTheDocument();
+    expect(screen.getByText('Player 11 vs Player 22')).toBeInTheDocument();
+  });
+
+  it('does not confirm when the duel goes straight to a ready check', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {})]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: {
+        reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
+        gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+        players: [player(selfSession), player(22)], estimatedDuration: unknownEstimate,
+      },
+    })]]);
+    rerenderApp(rerender);
+
+    expect(screen.queryByText('Challenge accepted')).toBeNull();
+  });
+
+  it('suppresses the queue confirmation when its category is disabled', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {})]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+    act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void })
+      .__emit('settings.current', { settings: { messages: { notificationDuelQueued: false } } }));
+
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      queue: [queuedEntry([player(selfSession), player(22)])],
+    })]]);
+    rerenderApp(rerender);
+
+    expect(screen.queryByText('Challenge accepted')).toBeNull();
+  });
+
+  it('releases the queue confirmation slot when the category is disabled mid-flight', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {})]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      queue: [queuedEntry([player(selfSession), player(22)])],
+    })]]);
+    rerenderApp(rerender);
+    expect(mocks.ids.has('game-queued')).toBe(true);
+
+    act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void })
+      .__emit('settings.current', { settings: { messages: { notificationDuelQueued: false } } }));
+
+    // The registration must actually be released, not merely hidden by the render gate:
+    // a stale entry would hold one of the three visible slots for the rest of the session.
+    expect(mocks.ids.has('game-queued')).toBe(false);
+    expect(screen.queryByText('Challenge accepted')).toBeNull();
+  });
+
+  it('releases the queue confirmation slot when it is dismissed', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {})]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      queue: [queuedEntry([player(selfSession), player(22)])],
+    })]]);
+    rerenderApp(rerender);
+    expect(mocks.ids.has('game-queued')).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('Dismiss notification'));
+
+    // Dismissing unmounts the notification through the render gate, so `onExited` never
+    // runs. Only the registration effect can release the slot; without that the id would
+    // hold one of the three visible slots for the rest of the session.
+    expect(mocks.ids.has('game-queued')).toBe(false);
+    expect(screen.queryByText('Challenge accepted')).toBeNull();
   });
 });
