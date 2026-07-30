@@ -77,6 +77,7 @@ public sealed class DuelDurationEstimator
     public async Task<IReadOnlyList<QueueEtaSnapshot>> BuildEtasAsync(
         ChannelSnapshotInput input, DurationEstimate? activeEstimate = null)
     {
+        var cache = new Dictionary<(string GameType, string Format, int RulesetVersion), DurationEstimate>();
         var accumulated = new List<DurationEstimate>();
         var segments = new List<EtaSegmentSnapshot>();
 
@@ -98,7 +99,7 @@ public sealed class DuelDurationEstimator
                 DurationEstimate.Known(readyWindowMs, int.MaxValue, EstimateMethod.ReadyWindow),
                 input.ReadyCheck.Reservation.Configuration);
             Add(
-                await EstimateDurationAsync(input.ReadyCheck.Reservation.Configuration),
+                await Duration(input.ReadyCheck.Reservation.Configuration),
                 input.ReadyCheck.Reservation.Configuration);
         }
 
@@ -115,10 +116,19 @@ public sealed class DuelDurationEstimator
                 true,
                 segments.ToArray()));
 
-            Add(await EstimateDurationAsync(reservation.Configuration), reservation.Configuration);
+            Add(await Duration(reservation.Configuration), reservation.Configuration);
         }
 
         return result;
+
+        async Task<DurationEstimate> Duration(DuelConfiguration config)
+        {
+            var key = (config.GameType, config.Format, config.RulesetVersion);
+            if (cache.TryGetValue(key, out var cached)) return cached;
+            var estimate = await EstimateDurationAsync(config);
+            cache[key] = estimate;
+            return estimate;
+        }
 
         void Add(DurationEstimate estimate, DuelConfiguration config)
         {

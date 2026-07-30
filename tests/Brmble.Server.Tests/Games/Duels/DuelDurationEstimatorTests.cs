@@ -255,6 +255,33 @@ public sealed class DuelDurationEstimatorTests
             new EtaSegmentSnapshot("other", "other", 1, 10, EstimateMethod.FullMedian)));
     }
 
+    [TestMethod]
+    public async Task BuildEtas_QueriesEachConfigurationGroupOnce()
+    {
+        var repository = new StubDurationRepository(_ => Samples(10_000, 10));
+        var deathroll = Config("deathroll", "1v1", 1);
+        var arena = Config("arena", "bo3", 2);
+        var input = Input(queue: [
+            Reservation(1, deathroll),
+            Reservation(2, arena),
+            Reservation(3, deathroll),
+            Reservation(4, arena),
+        ]);
+
+        await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+
+        var fullQueries = repository.Calls
+            .Where(call => call.ElapsedGreaterThanMs is null)
+            .ToArray();
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                new RepositoryCall("deathroll", "1v1", 1, null),
+                new RepositoryCall("arena", "bo3", 2, null),
+            },
+            fullQueries);
+    }
+
     private static DuelConfiguration Config(
         string gameType = "rps", string format = "bo3", int rulesetVersion = 1) =>
         new(gameType, format, rulesetVersion, new Dictionary<string, object?>(), gameType);
