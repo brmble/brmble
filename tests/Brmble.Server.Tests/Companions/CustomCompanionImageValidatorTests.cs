@@ -35,7 +35,7 @@ public sealed class CustomCompanionImageValidatorTests
     {
         var result = CustomCompanionImageValidator.Validate(PngWithIhdrDimensions(4_096, 2_929));
 
-        Assert.AreEqual(CompanionImageValidationCode.UnsupportedFormat, result.Code);
+        Assert.AreEqual(CompanionImageValidationCode.InvalidImage, result.Code);
     }
 
     [TestMethod]
@@ -52,7 +52,7 @@ public sealed class CustomCompanionImageValidatorTests
     {
         var result = CustomCompanionImageValidator.Validate(SpoofedPngHeader(4_097, 1));
 
-        Assert.AreEqual(CompanionImageValidationCode.UnsupportedFormat, result.Code);
+        Assert.AreEqual(CompanionImageValidationCode.InvalidImage, result.Code);
     }
 
     [TestMethod]
@@ -60,7 +60,7 @@ public sealed class CustomCompanionImageValidatorTests
     {
         var result = CustomCompanionImageValidator.Validate(SpoofedPngWithAnimationMarker());
 
-        Assert.AreEqual(CompanionImageValidationCode.UnsupportedFormat, result.Code);
+        Assert.AreEqual(CompanionImageValidationCode.InvalidImage, result.Code);
     }
 
     [TestMethod]
@@ -73,9 +73,9 @@ public sealed class CustomCompanionImageValidatorTests
     }
 
     [DataTestMethod]
-    [DataRow("animated.webp", CompanionImageValidationCode.UnsupportedFormat)]
-    [DataRow("animated.png", CompanionImageValidationCode.Valid)]
-    public void Validate_UsesSkiaReportedFrameCount(
+    [DataRow("animated.webp", CompanionImageValidationCode.AnimationNotSupported)]
+    [DataRow("animated.png", CompanionImageValidationCode.AnimationNotSupported)]
+    public void Validate_UsesContainerAnimationMarkersWhenCodecFrameReportingIsIncomplete(
         string fixtureName,
         CompanionImageValidationCode expectedCode)
     {
@@ -85,7 +85,7 @@ public sealed class CustomCompanionImageValidatorTests
     }
 
     [DataTestMethod]
-    [DataRow("truncated.png", CompanionImageValidationCode.UnsupportedFormat)]
+    [DataRow("truncated.png", CompanionImageValidationCode.InvalidImage)]
     [DataRow("truncated.webp", CompanionImageValidationCode.InvalidImage)]
     public void Validate_RejectsUndecodableContentWithoutTrustingItsPrefix(
         string fixtureName,

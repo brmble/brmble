@@ -1,9 +1,3 @@
-import beeAtlas from '../../../assets/Sprites/Bee/Bee.webp';
-import engineerAtlas from '../../../assets/Sprites/Engineer/Engineer.webp';
-import floppyAtlas from '../../../assets/Sprites/Floppy/Floppy.webp';
-import patchAtlas from '../../../assets/Sprites/Patch/Patch.webp';
-import pipAtlas from '../../../assets/Sprites/Pip/Pip.webp';
-import retroAtlas from '../../../assets/Sprites/Retro/Retro.webp';
 import { useViewportThumbnail } from '../../../customCompanions/useViewportThumbnail';
 import type { CustomCompanionEntry } from '../../../customCompanions/customCompanionTypes';
 import type { CustomCompanionGalleryController } from '../../../hooks/useCustomCompanionGallery';
@@ -17,14 +11,13 @@ import './CompanionPicker.css';
 const BUILT_INS: Array<{
   id: BuiltInCompanionId;
   label: string;
-  atlas: string;
 }> = [
-  { id: 'bee', label: 'Bee', atlas: beeAtlas },
-  { id: 'engineer', label: 'Engineer', atlas: engineerAtlas },
-  { id: 'floppy', label: 'Floppy', atlas: floppyAtlas },
-  { id: 'patch', label: 'Patch', atlas: patchAtlas },
-  { id: 'pip', label: 'Pip', atlas: pipAtlas },
-  { id: 'retro', label: 'Retro', atlas: retroAtlas },
+  { id: 'bee', label: 'Bee' },
+  { id: 'engineer', label: 'Engineer' },
+  { id: 'floppy', label: 'Floppy' },
+  { id: 'patch', label: 'Patch' },
+  { id: 'pip', label: 'Pip' },
+  { id: 'retro', label: 'Retro' },
 ];
 
 interface CompanionPickerProps {
@@ -103,8 +96,7 @@ export function CompanionPicker({
                 onClick={() => onChange(companion.id)}
               >
                 <span
-                  className="companion-picker-built-in-sprite"
-                  style={{ backgroundImage: `url(${companion.atlas})` }}
+                  className={`companion-picker-built-in-sprite companion-picker-built-in-sprite--${companion.id}`}
                   aria-hidden="true"
                 />
                 <span>{companion.label}</span>

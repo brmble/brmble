@@ -116,6 +116,12 @@ services:
       Ice__Port: "6502"
       Ice__Secret: ""
 
+      # Optional — custom companion gallery limits (defaults shown)
+      CustomCompanions__MaxActivePerUser: "10"
+      CustomCompanions__MaxActiveTotal: "100"
+      CustomCompanions__UploadPermitLimit: "5"
+      CustomCompanions__UploadWindowMinutes: "10"
+
       # Optional — force LiveKit to advertise a specific public IP
       # LIVEKIT_NODE_IP: "203.0.113.10"
 
@@ -140,6 +146,10 @@ Optional environment:
 | `MATRIX_ADMIN_USER` / `MATRIX_ADMIN_PASSWORD` | `brmble-admin` / *(generated)* | Override the auto-created Matrix admin. Generated password is stored in `/data/admin-password`. |
 | `MATRIX_ALLOW_REGISTRATION` | `false` | Set to `true` to allow open Matrix registration after first-run setup. Brmble does not need this — clients register themselves via the appservice. |
 | `CONDUWUIT_STARTUP_TIMEOUT` | `60` | Seconds to wait for the Matrix homeserver on first boot. |
+| `CustomCompanions__MaxActivePerUser` | `10` | Maximum active custom companion uploads owned by one user. |
+| `CustomCompanions__MaxActiveTotal` | `100` | Maximum active custom companion uploads across the server. |
+| `CustomCompanions__UploadPermitLimit` | `5` | Upload attempts allowed per user during the configured upload window. |
+| `CustomCompanions__UploadWindowMinutes` | `10` | Length of the custom companion upload rate-limit window in minutes. |
 
 Ports:
 
@@ -147,6 +157,16 @@ Ports:
 - `7881/tcp` and `50000-50100/udp` — LiveKit RTC. Expose these directly. UDP is what actually carries WebRTC media; TCP `7881` is fallback only.
 
 The first start runs ~30 seconds while the bundled Matrix homeserver initialises and registers the appservice. State after first start lives entirely in the `brmble-data` volume.
+
+### Custom companions
+
+Custom companion uploads must be still PNG or WebP images smaller than 5 MiB encoded. The server must be able to decode the complete image, and rejects images wider or taller than 4,096 px, images above 12,000,000 total pixels, and animated PNG or WebP files. Animation in the source image is not supported in the first release because the client animates the sprite sheet itself.
+
+For predictable animation, prepare an 8 × 9 sheet of equal cells. The preferred sheet size is 1536 × 1872 px, with 3072 × 3744 px as the recommended upper bound. These grid, cell-layout, and visual-correctness rules are guidance; the server enforces file type, encoded size, dimensions, pixel count, frame count, and successful decoding.
+
+Gallery synchronization transfers metadata only. Small thumbnails are fetched lazily for visible and nearby rows, while a full atlas downloads only when that companion is selected or rendered. Full atlases are kept in a global 100 MiB persistent least-recently-used cache that survives client restarts and may evict older entries. Runtime object URLs are short-lived and are released when no longer needed.
+
+Removing a custom companion redacts its Matrix gallery event and resets active selections, but does not guarantee that the underlying Matrix media is erased immediately. In the first release only server moderators can remove gallery entries; uploaders cannot delete their own uploads.
 
 ## Connecting the client
 

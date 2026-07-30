@@ -4,6 +4,13 @@ import type { MatrixClient } from 'matrix-js-sdk';
 import type { MatrixCredentials } from './useMatrixClient';
 import { useCustomCompanionGallery } from './useCustomCompanionGallery';
 import bridge from '../bridge';
+import type {
+  AtlasStoreAdapter,
+  AtlasStoreTransaction,
+  StoredAtlas,
+} from '../customCompanions/customCompanionAtlasStore';
+
+const NativeUrl = globalThis.URL;
 
 const {
   deleteAtlas,
@@ -42,6 +49,34 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+class InMemoryAtlasAdapter implements AtlasStoreAdapter {
+  private records = new Map<string, StoredAtlas>();
+  private tail = Promise.resolve();
+
+  transaction<T>(work: (transaction: AtlasStoreTransaction) => Promise<T>): Promise<T> {
+    const run = this.tail.then(async () => {
+      const copy = new Map(
+        [...this.records].map(([key, value]) => [key, { ...value }]),
+      );
+      const transaction: AtlasStoreTransaction = {
+        get: async key => copy.get(key),
+        getAll: async () => [...copy.values()],
+        put: async record => { copy.set(record.cacheKey, record); },
+        delete: async key => { copy.delete(key); },
+      };
+      const result = await work(transaction);
+      this.records = copy;
+      return result;
+    });
+    this.tail = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  snapshot(): StoredAtlas[] {
+    return [...this.records.values()];
+  }
 }
 
 function event(index: number, overrides: Record<string, unknown> = {}) {
@@ -156,6 +191,53 @@ describe('useCustomCompanionGallery', () => {
     expect(loadThumbnail).not.toHaveBeenCalled();
   });
 
+  it('downloads one full atlas only for the selected row in a 100-entry gallery', async () => {
+    const { client } = setupClient();
+    ensureAtlas.mockResolvedValue(new Blob(['selected-atlas']));
+    const { result } = renderHook(() =>
+      useCustomCompanionGallery(asMatrixClient(client), credentials));
+    await waitFor(() => expect(result.current.entries).toHaveLength(100));
+
+    const selected = result.current.entries[73];
+    await expect(result.current.requestAtlas(selected, new Set())).resolves.toBe('blob:14');
+
+    expect(ensureAtlas).toHaveBeenCalledOnce();
+    expect(ensureAtlas).toHaveBeenCalledWith(selected, new Set());
+    expect(loadThumbnail).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reuses a persistent atlas after restart and evicts the oldest unprotected record', async () => {
+    vi.stubGlobal('URL', NativeUrl);
+    const { CustomCompanionAtlasStore } = await vi.importActual<
+      typeof import('../customCompanions/customCompanionAtlasStore')
+    >('../customCompanions/customCompanionAtlasStore');
+    const adapter = new InMemoryAtlasAdapter();
+    const maxBytes = 104_857_600;
+    const fixture = new Blob([new Uint8Array(5 * 1024 * 1024)], { type: 'image/png' });
+    let now = 0;
+    const firstSession = new CustomCompanionAtlasStore(adapter, maxBytes, () => ++now);
+    for (let index = 0; index < 20; index += 1) {
+      await firstSession.putAtlas(`atlas-${index}`, fixture, new Set());
+    }
+
+    const reopened = new CustomCompanionAtlasStore(adapter, maxBytes, () => ++now);
+    await expect(reopened.getAtlas('atlas-0')).resolves.toHaveProperty(
+      'size',
+      5 * 1024 * 1024,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+
+    await expect(
+      reopened.putAtlas('atlas-20', fixture, new Set(['atlas-0'])),
+    ).resolves.toBe(true);
+    const remaining = adapter.snapshot();
+    expect(remaining.reduce((total, record) => total + record.byteSize, 0))
+      .toBeLessThanOrEqual(maxBytes);
+    expect(remaining.map(record => record.cacheKey)).toContain('atlas-0');
+    expect(remaining.map(record => record.cacheKey)).not.toContain('atlas-1');
+  });
+
   it('re-reads complete current state on sync and converges duplicate delivery', async () => {
     const harness = setupClient([event(1)]);
     const { result } = renderHook(() => useCustomCompanionGallery(asMatrixClient(harness.client), credentials));
@@ -167,6 +249,22 @@ describe('useCustomCompanionGallery', () => {
     harness.room.currentState.getStateEvents.mockReturnValue([event(1), event(2)]);
     act(() => harness.emit('sync', 'SYNCING'));
     await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('ignores gallery events delivered from the wrong room', async () => {
+    const harness = setupClient([event(1)]);
+    const { result } = renderHook(() =>
+      useCustomCompanionGallery(asMatrixClient(harness.client), credentials));
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+
+    act(() => harness.emit(
+      'Room.timeline',
+      event(2, { roomId: '!other:test' }),
+      { roomId: '!other:test' },
+    ));
+
+    expect(result.current.entries.map(entry => entry.eventId)).toEqual(['$sprite-1:test']);
     expect(fetch).not.toHaveBeenCalled();
   });
 

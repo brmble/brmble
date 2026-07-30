@@ -68,10 +68,10 @@ public sealed class CustomCompanionEndpointsTests : IDisposable
     }
 
     [DataTestMethod]
-    [DataRow("truncated.png", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
-    [DataRow("oversized-width.png", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
-    [DataRow("animated.webp", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
-    public async Task Create_CodecUnrecognizedImageReturns415AndWritesNoState(
+    [DataRow("truncated.png", HttpStatusCode.UnprocessableEntity, "invalid_image")]
+    [DataRow("oversized-width.png", HttpStatusCode.UnprocessableEntity, "invalid_image")]
+    [DataRow("animated.webp", HttpStatusCode.UnprocessableEntity, "animated_image_not_supported")]
+    public async Task Create_RecognizedButInvalidImageReturns422AndWritesNoState(
         string fixture,
         HttpStatusCode expectedStatus,
         string expectedCode)

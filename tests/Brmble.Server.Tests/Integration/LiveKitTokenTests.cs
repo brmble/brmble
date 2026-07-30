@@ -46,9 +46,9 @@ public class LiveKitTokenTests : IDisposable
         var sessionMapping = _factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = _factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 1);
 
@@ -72,9 +72,9 @@ public class LiveKitTokenTests : IDisposable
         var sessionMapping = _factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = _factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await _client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 1);
 

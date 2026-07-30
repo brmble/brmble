@@ -60,6 +60,30 @@
   image-rendering: pixelated;
 }
 
+.companion-picker-built-in-sprite--bee {
+  background-image: url('../../../assets/Sprites/Bee/Bee.webp');
+}
+
+.companion-picker-built-in-sprite--engineer {
+  background-image: url('../../../assets/Sprites/Engineer/Engineer.webp');
+}
+
+.companion-picker-built-in-sprite--floppy {
+  background-image: url('../../../assets/Sprites/Floppy/Floppy.webp');
+}
+
+.companion-picker-built-in-sprite--patch {
+  background-image: url('../../../assets/Sprites/Patch/Patch.webp');
+}
+
+.companion-picker-built-in-sprite--pip {
+  background-image: url('../../../assets/Sprites/Pip/Pip.webp');
+}
+
+.companion-picker-built-in-sprite--retro {
+  background-image: url('../../../assets/Sprites/Retro/Retro.webp');
+}
+
 .companion-picker-custom {
   display: grid;
   min-height: 0;

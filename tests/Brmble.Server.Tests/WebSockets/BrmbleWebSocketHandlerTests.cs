@@ -43,4 +43,15 @@ public class BrmbleWebSocketHandlerTests
         Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
         Assert.AreEqual("custom:$sprite:test", payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
     }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_BuiltInKeepsLegacyFieldAndEmptyCustomField()
+    {
+        var mapping = new SessionMapping("@alice:test", "Alice", 42, "floppy");
+
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+
+        Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
+        Assert.IsNull(payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
+    }
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
+import type { CustomCompanionEntry } from './customCompanions/customCompanionTypes';
 import {
   DEFAULT_OVERLAY,
   normalizeCompanionBridgeSelection,
@@ -215,8 +216,8 @@ vi.mock('./hooks/useNotificationQueue', () => ({
 }));
 vi.mock('./hooks/useScreenShare', () => ({ useScreenShare: () => mockValues.screenShare }));
 
-const entry = {
-  id: 'custom:$sprite:test' as const,
+const entry: CustomCompanionEntry = {
+  id: 'custom:$sprite:test',
   eventId: '$sprite:test',
   roomId: '!gallery:test',
   name: 'Orbit',
@@ -233,7 +234,7 @@ const entry = {
 };
 
 function gallery(input?: {
-  entries?: typeof entry[];
+  entries?: CustomCompanionEntry[];
   ready?: string[];
   redacted?: string[];
 }) {
@@ -242,6 +243,18 @@ function gallery(input?: {
     entries: input?.entries ?? [entry],
     readyAtlasCacheKeys: new Set(input?.ready ?? [entry.atlasCacheKey]),
     redactedEventIds: new Set(input?.redacted ?? []),
+  };
+}
+
+function galleryEntry(index: number): CustomCompanionEntry {
+  return {
+    ...entry,
+    id: `custom:$sprite-${index}:test`,
+    eventId: `$sprite-${index}:test`,
+    name: `Sprite ${index}`,
+    mediaUri: `mxc://test/sprite-${index}`,
+    createdAt: index,
+    atlasCacheKey: `!gallery:test\u0000$sprite-${index}:test`,
   };
 }
 
@@ -337,6 +350,7 @@ describe('App custom companion delivery', () => {
       error: null,
     });
     mockValues.gallery.requestAtlas.mockResolvedValue('blob:atlas');
+    mockValues.gallery.requestThumbnail.mockResolvedValue('blob:thumbnail');
     hasPermissionMock.mockReturnValue(false);
     (bridge as unknown as { __reset: () => void }).__reset();
   });
@@ -367,6 +381,92 @@ describe('App custom companion delivery', () => {
         },
       });
     });
+  });
+
+  it('waits for metadata before requesting only the saved custom atlas', async () => {
+    Object.assign(mockValues.gallery, {
+      status: 'loading',
+      entries: [],
+      redactedEventIds: new Set<string>(),
+      error: null,
+    });
+    const view = renderApp();
+
+    act(() => emit('server.credentials', credentials(entry.id)));
+    await waitFor(() => {
+      expect(storedOverlay().companionSelectionsByServer['!gallery:test']).toBe(entry.id);
+    });
+    expect(mockValues.gallery.requestAtlas).not.toHaveBeenCalled();
+
+    Object.assign(mockValues.gallery, {
+      status: 'ready',
+      entries: [entry],
+    });
+    view.rerender(
+      <ServiceStatusProvider>
+        <App />
+      </ServiceStatusProvider>,
+    );
+
+    await waitFor(() => expect(mockValues.gallery.requestAtlas).toHaveBeenCalledOnce());
+    expect(mockValues.gallery.requestAtlas).toHaveBeenCalledWith(
+      entry,
+      new Set([entry.atlasCacheKey]),
+    );
+  });
+
+  it('loads only observed thumbnails and the selected atlas in a 100-entry gallery', async () => {
+    const intersections: Array<() => void> = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      private readonly callback: IntersectionObserverCallback;
+
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback;
+      }
+
+      observe(element: Element) {
+        intersections.push(() => this.callback(
+          [{ isIntersecting: true, target: element } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        ));
+      }
+
+      unobserve() {}
+      disconnect() {}
+    });
+    const entries = Array.from({ length: 100 }, (_, index) => galleryEntry(index));
+    Object.assign(mockValues.gallery, {
+      status: 'ready',
+      entries,
+      redactedEventIds: new Set<string>(),
+      error: null,
+    });
+    const fullOverlay: OverlaySettings = {
+      ...DEFAULT_OVERLAY,
+      mode: 'full',
+    };
+    localStorage.setItem('brmble-settings', JSON.stringify({ overlay: fullOverlay }));
+    renderApp();
+    act(() => {
+      emit('server.credentials', credentials('floppy'));
+      emit('voice.connected', connectedSelf('floppy'));
+    });
+
+    await openInterfaceSettings({ overlay: fullOverlay });
+    await waitFor(() => expect(intersections).toHaveLength(100));
+    expect(mockValues.gallery.requestThumbnail).not.toHaveBeenCalled();
+    expect(mockValues.gallery.requestAtlas).not.toHaveBeenCalled();
+
+    act(() => intersections.slice(0, 3).forEach(intersect => intersect()));
+    await waitFor(() => expect(mockValues.gallery.requestThumbnail).toHaveBeenCalledTimes(3));
+    expect(mockValues.gallery.requestAtlas).not.toHaveBeenCalled();
+
+    selectCompanion(/Sprite 50, uploaded by Alice/);
+    await waitFor(() => expect(mockValues.gallery.requestAtlas).toHaveBeenCalledOnce());
+    expect(mockValues.gallery.requestAtlas).toHaveBeenCalledWith(
+      entries[50],
+      new Set([entries[50].atlasCacheKey]),
+    );
   });
 
   it('restores the modal pre-change overlay when another modal setting changed before the App update', async () => {
@@ -496,6 +596,25 @@ describe('App custom companion delivery', () => {
     expect(resolveCompanionDisplay(entry.id, gallery({ redacted: [entry.eventId] })).companionId).toBe('floppy');
   });
 
+  it('falls back for a custom ID that belongs to another gallery', () => {
+    expect(resolveCompanionDisplay(
+      'custom:$other:test',
+      gallery(),
+    ).companionId).toBe('floppy');
+  });
+
+  it('renders another user custom companion from shared gallery metadata', () => {
+    const remoteSelection = normalizeCompanionBridgeSelection({
+      companionId: 'floppy',
+      customCompanionId: entry.id,
+    });
+
+    expect(resolveCompanionDisplay(remoteSelection, gallery())).toEqual({
+      companionId: entry.id,
+      atlasCacheKey: entry.atlasCacheKey,
+    });
+  });
+
   it('prefers the additive custom field while preserving the legacy floppy field', () => {
     const serverPayload = {
       companionId: 'floppy',
@@ -504,6 +623,10 @@ describe('App custom companion delivery', () => {
 
     expect(serverPayload.companionId).toBe('floppy');
     expect(normalizeCompanionBridgeSelection(serverPayload)).toBe(entry.id);
+  });
+
+  it('accepts legacy-field-only floppy delivery from an older server', () => {
+    expect(normalizeCompanionBridgeSelection({ companionId: 'floppy' })).toBe('floppy');
   });
 
   it('retries an already-selected custom companion through App atlas ownership', async () => {
