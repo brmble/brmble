@@ -292,6 +292,11 @@ async function openInterfaceSettings(settings: { overlay: OverlaySettings; appea
 function selectCompanion(label: string) {
   const companionSetting = screen.getByText('My Companion').parentElement;
   if (!companionSetting) throw new Error('Missing companion setting');
+  const pickerButton = within(companionSetting).queryByRole('button', { name: label });
+  if (pickerButton) {
+    fireEvent.click(pickerButton);
+    return;
+  }
   fireEvent.click(within(companionSetting).getByRole('combobox'));
   fireEvent.click(screen.getByRole('option', { name: label }));
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
@@ -16,6 +16,8 @@ import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
 import type { Channel } from '../../types';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
+import type { MatrixUploadClient } from './customCompanions/CustomCompanionUploadDialog';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
 export type AllBindings = Record<string, string | null>;
@@ -63,6 +65,8 @@ interface SettingsModalProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
   channelRequestRefreshKey?: number;
+  customCompanionGallery?: CustomCompanionGalleryController;
+  customCompanionMatrixClient?: MatrixUploadClient;
 }
 
 export interface ScreenShareSettings {
@@ -121,12 +125,16 @@ export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
   const [activeTab, setActiveTab] = useState<'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [customCompanionUploadActive, setCustomCompanionUploadActive] = useState(false);
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const requestClose = useCallback(() => {
+    if (!customCompanionUploadActive) onClose();
+  }, [customCompanionUploadActive, onClose]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -170,12 +178,12 @@ export function SettingsModal(props: SettingsModalProps) {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !document.querySelector('.key-binding-btn.recording')) {
-        onClose();
+        requestClose();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, requestClose]);
 
   // Flat map of ALL key bindings across all tabs for cross-tab conflict detection
   const allBindings: AllBindings = useMemo(() => ({
@@ -428,7 +436,7 @@ export function SettingsModal(props: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={requestClose}>
       <div ref={modalRef} className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="heading-title modal-title">Settings</h2>
@@ -522,6 +530,9 @@ export function SettingsModal(props: SettingsModalProps) {
         onAppearanceChange={handleAppearanceChange}
         onOverlayChange={handleOverlayChange}
         onBrmblegotchiChange={handleBrmblegotchiChange}
+        customCompanionGallery={props.customCompanionGallery}
+        customCompanionMatrixClient={props.customCompanionMatrixClient}
+        onCustomCompanionUploadActivityChange={setCustomCompanionUploadActive}
       />
           )}
           {activeTab === 'connection' && (
@@ -553,7 +564,7 @@ export function SettingsModal(props: SettingsModalProps) {
         </div>
 
         <div className="settings-footer">
-          <button className="btn btn-primary" onClick={onClose}>
+          <button className="btn btn-primary" disabled={customCompanionUploadActive} onClick={requestClose}>
             Close
           </button>
         </div>

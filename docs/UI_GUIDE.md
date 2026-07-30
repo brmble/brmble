@@ -387,6 +387,23 @@ Rules:
 6. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use `SettingsHelp`. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
 7. Settings `?` help uses `SettingsHelp` from `src/Brmble.Web/src/components/SettingsModal/SettingsHelp.tsx`. Do not create CSS-only `data-tooltip` spans or one-off `?` button markup in settings tabs.
 
+### Companion Picker Pattern
+
+The full companion overlay uses a sectioned picker instead of a flat select. The
+Built-in section remains fixed above an independently scrollable Custom list.
+Every custom row contains a lazy `192 x 234` thumbnail or placeholder, the
+companion name, an uploader hint, and a selected state. Loading, empty,
+unavailable, and ready are distinct states. Upload actions use
+`<Icon name="upload">`. All picker dimensions and spacing use CSS custom
+properties and shared UI tokens.
+
+Custom rows use viewport observation before requesting thumbnails. Gallery
+metadata and opening the picker never preload full atlases. Selecting a custom
+companion requests only that companion's full atlas. Browser and server policy
+enforce PNG/WebP type and server safety limits. An `8 x 9` equal-cell sprite
+sheet remains guidance rather than a browser acceptance rule, and browser
+preview is best-effort.
+
 Settings help example:
 
 ```tsx

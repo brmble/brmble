@@ -1,0 +1,180 @@
+.companion-picker {
+  --companion-picker-thumbnail-width: 3rem;
+  --companion-picker-thumbnail-height: 3.65625rem;
+  --companion-picker-list-max-height: 18rem;
+  --companion-picker-built-in-size: 3rem;
+  --companion-picker-selected-border: var(--accent-primary);
+
+  display: grid;
+  gap: var(--space-md);
+  width: 100%;
+  min-width: 0;
+}
+
+.companion-picker-section {
+  min-width: 0;
+}
+
+.companion-picker-heading {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.companion-picker-built-in-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.companion-picker-built-in {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+  padding: var(--space-xs);
+  border: var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.companion-picker-built-in:hover,
+.companion-picker-built-in--selected {
+  border-color: var(--companion-picker-selected-border);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.companion-picker-built-in-sprite {
+  width: var(--companion-picker-built-in-size);
+  height: var(--companion-picker-built-in-size);
+  background-repeat: no-repeat;
+  background-size: calc(100% * 8) calc(100% * 9);
+  background-position: 0 0;
+  image-rendering: pixelated;
+}
+
+.companion-picker-custom {
+  display: grid;
+  min-height: 0;
+  gap: var(--space-xs);
+}
+
+.companion-picker-custom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.companion-picker-custom-header .btn,
+.companion-picker-empty .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.companion-picker-custom-list {
+  max-height: var(--companion-picker-list-max-height);
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.companion-picker-row {
+  display: grid;
+  grid-template-columns: var(--companion-picker-thumbnail-width) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-xs);
+  border: var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.companion-picker-row:hover,
+.companion-picker-row--selected {
+  border-color: var(--companion-picker-selected-border);
+  background: var(--bg-hover);
+}
+
+.companion-picker-thumbnail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--companion-picker-thumbnail-width);
+  height: var(--companion-picker-thumbnail-height);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  color: var(--text-muted);
+}
+
+.companion-picker-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.companion-picker-copy {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.companion-picker-name,
+.companion-picker-uploader {
+  overflow-wrap: anywhere;
+}
+
+.companion-picker-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.companion-picker-uploader,
+.companion-picker-state {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.companion-picker-state {
+  margin: 0;
+  padding: var(--space-md);
+  text-align: center;
+}
+
+.companion-picker-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-xs);
+}
+
+.companion-picker-selected-icon {
+  color: var(--accent-primary);
+}
+
+@media (max-width: 48rem) {
+  .companion-picker-built-in-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .companion-picker-custom-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
