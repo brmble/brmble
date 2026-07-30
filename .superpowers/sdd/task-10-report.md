@@ -31,4 +31,8 @@
 ## Remaining
 
 - Perform or explicitly defer the manual two-client visual checks; Classic/Retro screenshots are still unavailable in this session because the browser-control Node REPL tooling was not exposed and Playwright is not installed locally.
-- Request review before marking Task 10 complete.
+
+## Review
+
+- PASS: Review of commit `56e9c045` found no blocking bugs or regressions.
+- Residual risks: PNG/WebP marker checks are lightweight container sniffing but backed by full decode before acceptance; shared server factory defaults Matrix gallery/moderation behavior to the happy path, so denial tests must override it explicitly.
