@@ -120,10 +120,11 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const VALID_NS_LEVELS = ['Off', 'Low', 'Moderate', 'High', 'VeryHigh'] as const;
+type SettingsTab = 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare';
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customCompanionUploadActive, setCustomCompanionUploadActive] = useState(false);
   const { servers } = useServerlist();
@@ -135,6 +136,9 @@ export function SettingsModal(props: SettingsModalProps) {
   const requestClose = useCallback(() => {
     if (!customCompanionUploadActive) onClose();
   }, [customCompanionUploadActive, onClose]);
+  const changeActiveTab = useCallback((tab: SettingsTab) => {
+    if (!customCompanionUploadActive) setActiveTab(tab);
+  }, [customCompanionUploadActive]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -446,56 +450,65 @@ export function SettingsModal(props: SettingsModalProps) {
         <div ref={tabsRef} className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveTab('profile')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('profile')}
           >
             Profile
           </button>
           <button
             className={`settings-tab ${activeTab === 'games' ? 'active' : ''}`}
-            onClick={() => setActiveTab('games')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('games')}
           >
             Games
           </button>
           <button 
             className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
-            onClick={() => setActiveTab('audio')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('audio')}
           >
             Audio
           </button>
           <button 
             className={`settings-tab ${activeTab === 'shortcuts' ? 'active' : ''}`}
-            onClick={() => setActiveTab('shortcuts')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('shortcuts')}
           >
             Shortcuts
           </button>
           <button 
             className={`settings-tab ${activeTab === 'messages' ? 'active' : ''}`}
-            onClick={() => setActiveTab('messages')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('messages')}
           >
             Notifications
           </button>
           <button 
             className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}
-            onClick={() => setActiveTab('appearance')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('appearance')}
           >
             Interface
           </button>
           <button
             className={`settings-tab ${activeTab === 'connection' ? 'active' : ''}`}
-            onClick={() => setActiveTab('connection')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('connection')}
           >
             Connection
           </button>
           <button 
             className={`settings-tab ${activeTab === 'screenShare' ? 'active' : ''}`}
-            onClick={() => setActiveTab('screenShare')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('screenShare')}
           >
             Screen Share
           </button>
           {hasAdminPermission && (
             <button
               className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
-              onClick={() => setActiveTab('admin')}
+              disabled={customCompanionUploadActive}
+              onClick={() => changeActiveTab('admin')}
             >
               Admin
             </button>
