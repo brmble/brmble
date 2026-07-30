@@ -39,6 +39,29 @@ public sealed record CustomCompanionCreateRequest(
     string? Name,
     string? MediaUri);
 
+public enum CompanionImageValidationCode
+{
+    Valid,
+    UnsupportedFormat,
+    InvalidImage,
+    UnsafeDimensions,
+    AnimationNotSupported
+}
+
+public sealed record ValidatedCompanionImage(
+    string MimeType,
+    int Width,
+    int Height,
+    int FrameCount);
+
+public sealed record CompanionImageValidationResult(
+    CompanionImageValidationCode Code,
+    ValidatedCompanionImage? Image,
+    bool PixelBufferAllocated = false)
+{
+    public bool IsValid => Code == CompanionImageValidationCode.Valid;
+}
+
 public sealed record CustomCompanionCapability(
     bool Enabled,
     int SchemaVersion,

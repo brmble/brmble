@@ -4,6 +4,7 @@ using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Dapper;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -26,6 +27,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     public Mock<IChannelRequestMumbleService> ChannelRequestMumbleMock { get; } = new();
     public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
+    public Mock<IMatrixAppService> MatrixAppMock { get; } = new();
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
@@ -82,6 +84,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
                 ["Matrix:HomeserverUrl"] = "http://localhost:8008",
                 ["Matrix:AppServiceToken"] = "test-token",
+                ["Matrix:ServerDomain"] = "test",
                 ["LiveKit:ApiKey"] = "test-api-key",
                 ["LiveKit:ApiSecret"] = "testsecret0123456789abcdef01234567890abcdef01234567890abcdef0123",
             });
@@ -93,6 +96,14 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             if (descriptor != null) services.Remove(descriptor);
             var db = new Database(_cs);
             db.Initialize();
+            if (!string.IsNullOrWhiteSpace(_certHash))
+            {
+                using var connection = db.CreateConnection();
+                connection.Execute("""
+                    INSERT INTO users (cert_hash, display_name, matrix_user_id)
+                    VALUES (@CertHash, 'Alice', '@alice:test')
+                    """, new { CertHash = _certHash });
+            }
             services.AddSingleton(db);
 
             var mumbleIceHostedService = services.FirstOrDefault(d =>
@@ -103,12 +114,11 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             // Stub IMatrixAppService so no real HTTP calls are made
             var existing = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
             if (existing != null) services.Remove(existing);
-            var mock = new Mock<IMatrixAppService>();
-            mock.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+            MatrixAppMock.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
                 .ReturnsAsync("stub_matrix_token");
-            mock.Setup(m => m.LoginUser(It.IsAny<string>()))
+            MatrixAppMock.Setup(m => m.LoginUser(It.IsAny<string>()))
                 .ReturnsAsync("stub_matrix_token");
-            services.AddSingleton<IMatrixAppService>(mock.Object);
+            services.AddSingleton<IMatrixAppService>(MatrixAppMock.Object);
 
             // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS so
             // context.Connection.ClientCertificate is always null in tests.

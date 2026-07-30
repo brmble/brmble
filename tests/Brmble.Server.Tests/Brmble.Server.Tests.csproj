@@ -22,4 +22,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Brmble.Server\Brmble.Server.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Companions\Fixtures\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
