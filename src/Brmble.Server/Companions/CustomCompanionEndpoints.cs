@@ -1,5 +1,6 @@
 namespace Brmble.Server.Companions;
 
+using System.Collections.Concurrent;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
@@ -7,6 +8,8 @@ using Brmble.Server.Mumble;
 
 public static class CustomCompanionEndpoints
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> DeletionLocks = new();
+
     public static IEndpointRouteBuilder MapCustomCompanionEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/companions", async (
@@ -38,47 +41,56 @@ public static class CustomCompanionEndpoints
             if (!await aclAuthorization.CanModerateServerAsync(user.Id))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var record = await repository.GetActiveByEventIdAsync(eventId);
-            if (record is null) return Results.NoContent();
-
+            var deletionLock = DeletionLocks.GetOrAdd(eventId, _ => new SemaphoreSlim(1, 1));
+            await deletionLock.WaitAsync(httpContext.RequestAborted);
             try
             {
-                await matrixAppService.RedactRoomEvent(record.RoomId, record.EventId,
-                    "Removed by a Brmble moderator");
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to redact custom companion {EventId}", eventId);
-                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-            }
+                var record = await repository.GetActiveByEventIdAsync(eventId);
+                if (record is null) return Results.NoContent();
 
-            if (!await repository.MarkDeletedAsync(record.EventId, user.Id, DateTimeOffset.UtcNow))
-                return Results.NoContent();
-
-            var affectedUserIds = await repository.ResetSelectionsAsync(record.EventId);
-            foreach (var affectedUserId in affectedUserIds)
-            {
-                if (!sessionMapping.TryGetMappingByUserId(affectedUserId, out var sessionId, out var mapping)
-                    || mapping is null)
+                try
                 {
-                    continue;
+                    await matrixAppService.RedactRoomEvent(record.RoomId, record.EventId,
+                        "Removed by a Brmble moderator");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to redact custom companion {EventId}", eventId);
+                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
                 }
 
-                sessionMapping.TryUpdateCompanionId(sessionId, "floppy");
-                if (channelMembership.TryGetChannel(sessionId, out var channelId))
+                if (!await repository.MarkDeletedAsync(record.EventId, user.Id, DateTimeOffset.UtcNow))
+                    return Results.NoContent();
+
+                var affectedUserIds = await repository.ResetSelectionsAsync(record.EventId);
+                foreach (var affectedUserId in affectedUserIds)
                 {
-                    await eventBus.BroadcastToChannelAsync(channelId, new
+                    if (!sessionMapping.TryGetMappingByUserId(affectedUserId, out var sessionId, out var mapping)
+                        || mapping is null)
                     {
-                        type = "companionChanged",
-                        sessionId,
-                        matrixUserId = mapping.MatrixUserId,
-                        companionId = "floppy",
-                        customCompanionId = (string?)null
-                    });
-                }
-            }
+                        continue;
+                    }
 
-            return Results.NoContent();
+                    sessionMapping.TryUpdateCompanionId(sessionId, "floppy");
+                    if (channelMembership.TryGetChannel(sessionId, out var channelId))
+                    {
+                        await eventBus.BroadcastToChannelAsync(channelId, new
+                        {
+                            type = "companionChanged",
+                            sessionId,
+                            matrixUserId = mapping.MatrixUserId,
+                            companionId = "floppy",
+                            customCompanionId = (string?)null
+                        });
+                    }
+                }
+
+                return Results.NoContent();
+            }
+            finally
+            {
+                deletionLock.Release();
+            }
         });
 
         return app;

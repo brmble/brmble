@@ -1,8 +1,10 @@
 using System.Net;
+using System.Text.Json;
 using Brmble.Server.Companions;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Tests.Integration;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -12,7 +14,7 @@ namespace Brmble.Server.Tests.Companions;
 [TestClass]
 public sealed class CustomCompanionDeletionTests : IDisposable
 {
-    private readonly BrmbleServerFactory _factory = new();
+    private readonly CompanionDeletionFactory _factory = new();
     private readonly HttpClient _client;
 
     public CustomCompanionDeletionTests() => _client = _factory.CreateClient();
@@ -54,6 +56,25 @@ public sealed class CustomCompanionDeletionTests : IDisposable
     }
 
     [TestMethod]
+    public async Task Delete_ActiveRecordBroadcastsFloppyChangeToAffectedUserChannel()
+    {
+        await InsertActiveAsync();
+        _factory.SessionMappingMock.Object.TryAddMatrixUser(42, "@alice:test", "Alice", 1, "custom:$sprite:test");
+        _factory.Services.GetRequiredService<IChannelMembershipService>().Update(42, 7);
+        _factory.AclAuthorizationMock.Setup(service => service.CanModerateServerAsync(1)).ReturnsAsync(true);
+        _factory.MatrixAppMock.Setup(service => service.RedactRoomEvent(
+                "!gallery:test", "$sprite:test", It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.DeleteAsync("/companions/%24sprite%3Atest");
+
+        Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+        _factory.EventBusMock.Verify(bus => bus.BroadcastToChannelAsync(7, It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload) ==
+            "{\"type\":\"companionChanged\",\"sessionId\":42,\"matrixUserId\":\"@alice:test\",\"companionId\":\"floppy\",\"customCompanionId\":null}")), Times.Once);
+    }
+
+    [TestMethod]
     public async Task Delete_AlreadyDeletedRecordIsIdempotentWithoutSecondRedaction()
     {
         await InsertActiveAsync();
@@ -86,6 +107,47 @@ public sealed class CustomCompanionDeletionTests : IDisposable
             .GetActiveByEventIdAsync("$sprite:test"));
     }
 
+    [TestMethod]
+    public async Task Delete_ConcurrentRequestsRedactOnlyOnce()
+    {
+        await InsertActiveAsync();
+        var firstRedactionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRedactionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstRedaction = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var redactionCount = 0;
+        _factory.AclAuthorizationMock.Setup(service => service.CanModerateServerAsync(1)).ReturnsAsync(true);
+        _factory.MatrixAppMock.Setup(service => service.RedactRoomEvent(
+                "!gallery:test", "$sprite:test", It.IsAny<string>()))
+            .Returns(async () =>
+            {
+                if (Interlocked.Increment(ref redactionCount) == 1)
+                {
+                    firstRedactionStarted.TrySetResult();
+                    await allowFirstRedaction.Task;
+                    return;
+                }
+
+                secondRedactionStarted.TrySetResult();
+            });
+
+        var firstDelete = _client.DeleteAsync("/companions/%24sprite%3Atest");
+        await firstRedactionStarted.Task;
+        var secondDelete = _client.DeleteAsync("/companions/%24sprite%3Atest");
+
+        await Task.WhenAny(secondRedactionStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(250)));
+        var secondRedactionRanBeforeFirstCompleted = secondRedactionStarted.Task.IsCompleted;
+        allowFirstRedaction.TrySetResult();
+
+        var responses = await Task.WhenAll(firstDelete, secondDelete);
+
+        Assert.IsFalse(secondRedactionRanBeforeFirstCompleted);
+        CollectionAssert.AreEqual(
+            new[] { HttpStatusCode.NoContent, HttpStatusCode.NoContent },
+            responses.Select(response => response.StatusCode).OrderBy(status => status).ToArray());
+        _factory.MatrixAppMock.Verify(service => service.RedactRoomEvent(
+            "!gallery:test", "$sprite:test", It.IsAny<string>()), Times.Once);
+    }
+
     private async Task InsertActiveAsync()
     {
         var repository = _factory.Services.GetRequiredService<CustomCompanionRepository>();
@@ -95,5 +157,24 @@ public sealed class CustomCompanionDeletionTests : IDisposable
             DateTimeOffset.UtcNow, null, null));
         await _factory.Services.GetRequiredService<Brmble.Server.Auth.UserRepository>()
             .SetCompanionId(1, "custom:$sprite:test");
+    }
+
+    private sealed class CompanionDeletionFactory : BrmbleServerFactory
+    {
+        public Mock<IBrmbleEventBus> EventBusMock { get; } = new();
+
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureServices(services =>
+            {
+                var eventBus = services.FirstOrDefault(descriptor =>
+                    descriptor.ServiceType == typeof(IBrmbleEventBus));
+                if (eventBus is not null) services.Remove(eventBus);
+                EventBusMock.Setup(bus => bus.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()))
+                    .Returns(Task.CompletedTask);
+                services.AddSingleton(EventBusMock.Object);
+            });
+        }
     }
 }
