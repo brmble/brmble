@@ -4828,6 +4828,7 @@ const handleConnect = (serverData: SavedServer) => {
         brmblegotchiEnabled={brmblegotchiEnabled}
         setBrmblegotchiEnabled={setBrmblegotchiEnabled}
         onLiveCompanionChange={handleLiveCompanionChange}
+        customCompanions={matrixCredentials?.customCompanions}
         customCompanionGallery={customCompanionGallery}
         customCompanionMatrixClient={matrixClient.client ?? undefined}
         onCustomCompanionAtlasRequest={requestSettingsCompanionAtlas}

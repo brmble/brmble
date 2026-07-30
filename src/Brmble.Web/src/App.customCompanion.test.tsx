@@ -163,12 +163,19 @@ vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => <sectio
 vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => <section /> }));
 vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
 vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
+vi.mock('./components/SettingsModal/AdminSettingsTab', () => ({
+  AdminSettingsTab: ({ customCompanions }: { customCompanions?: { canModerate: boolean } }) => (
+    <div data-testid="admin-custom-companion-prop">{customCompanions?.canModerate ? 'can-moderate' : 'absent'}</div>
+  ),
+}));
 vi.mock('./hooks/useServerlist', () => ({
   useServerlist: () => ({ servers: [] }),
 }));
+const hasPermissionMock = vi.fn(() => false);
+
 vi.mock('./hooks/usePermissions', () => ({
   Permission: { Ban: 0x20000, Kick: 0x10000 },
-  usePermissions: () => ({ hasPermission: () => false }),
+  usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
 vi.mock('./components/ChannelRequests/MyChannelRequests', () => ({
   MyChannelRequests: () => null,
@@ -330,6 +337,7 @@ describe('App custom companion delivery', () => {
       error: null,
     });
     mockValues.gallery.requestAtlas.mockResolvedValue('blob:atlas');
+    hasPermissionMock.mockReturnValue(false);
     (bridge as unknown as { __reset: () => void }).__reset();
   });
 
@@ -528,5 +536,31 @@ describe('App custom companion delivery', () => {
 
     await waitFor(() => expect(mockValues.gallery.requestAtlas).toHaveBeenCalledTimes(1));
     expect(mockValues.gallery.releaseAtlas).toHaveBeenCalledWith(entry);
+  });
+
+  it('passes the server-advertised custom companion moderation capability into settings', async () => {
+    hasPermissionMock.mockReturnValue(true);
+    renderApp();
+
+    act(() => emit('server.credentials', credentials(entry.id)));
+    await waitFor(() => {
+      expect(vi.mocked(bridge.on)).toHaveBeenCalledWith('settings.current', expect.any(Function));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Admin' }));
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('absent');
+
+    act(() => emit('server.credentials', {
+      matrix: {
+        ...credentials(entry.id).matrix,
+        customCompanions: {
+          ...credentials(entry.id).matrix.customCompanions,
+          canModerate: true,
+        },
+      },
+    }));
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('can-moderate');
   });
 });

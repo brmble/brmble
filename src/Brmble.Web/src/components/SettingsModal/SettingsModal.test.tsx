@@ -44,8 +44,17 @@ vi.mock('../../hooks/usePermissions', () => ({
   usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
 vi.mock('./AdminSettingsTab', () => ({
-  AdminSettingsTab: ({ liveUsers }: { liveUsers: Array<{ session: number; name: string }> }) => (
-    <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
+  AdminSettingsTab: ({
+    liveUsers,
+    customCompanions,
+  }: {
+    liveUsers: Array<{ session: number; name: string }>;
+    customCompanions?: { canModerate: boolean };
+  }) => (
+    <div>
+      <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
+      <div data-testid="admin-custom-companion-prop">{customCompanions?.canModerate ? 'can-moderate' : 'absent'}</div>
+    </div>
   ),
 }));
 vi.mock('../ChannelRequests/MyChannelRequests', () => ({
@@ -107,6 +116,33 @@ describe('SettingsModal tabs', () => {
     );
 
     expect(screen.getByTestId('admin-users-prop')).toHaveTextContent('Alice');
+  });
+
+  it('passes only the advertised custom companion moderation capability into AdminSettingsTab', () => {
+    hasPermissionMock.mockReturnValue(true);
+
+    const { rerender } = render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        customCompanionGallery={emptyCustomCompanionGallery}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('absent');
+
+    rerender(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        customCompanions={{ canModerate: true }}
+        customCompanionGallery={emptyCustomCompanionGallery}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('can-moderate');
   });
 
   it('normalizes legacy screen share settings from native settings', async () => {

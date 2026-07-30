@@ -133,10 +133,6 @@ export function SettingsModal(props: SettingsModalProps) {
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
-  const customCompanions = props.customCompanions
-    ?? (props.customCompanionGallery?.status !== 'disabled' && props.customCompanionGallery
-      ? { canModerate: hasAdminPermission }
-      : undefined);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -579,7 +575,7 @@ export function SettingsModal(props: SettingsModalProps) {
               channels={props.channels ?? []}
               onChannelsChange={props.onChannelsChange}
               liveUsers={props.liveUsers ?? []}
-              customCompanions={customCompanions}
+              customCompanions={props.customCompanions}
               customCompanionGallery={props.customCompanionGallery}
             />
           )}
