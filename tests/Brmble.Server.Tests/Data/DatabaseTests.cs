@@ -109,4 +109,17 @@ public class DatabaseTests
         CollectionAssert.Contains(indexes, "ux_channel_requests_pending_requester_name");
         CollectionAssert.Contains(indexes, "ux_channel_requests_pending_requester_slot");
     }
+
+    [TestMethod]
+    public void Initialize_CreatesCustomCompanionTables()
+    {
+        _db!.Initialize();
+
+        using var connection = _db.CreateConnection();
+        var names = connection.Query<string>(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'custom_companion_%'").ToArray();
+        CollectionAssert.AreEquivalent(
+            new[] { "custom_companion_gallery_room", "custom_companion_gallery" },
+            names);
+    }
 }
