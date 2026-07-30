@@ -60,32 +60,40 @@ export function CompanionSprite({
   const builtInAtlas = BUILT_IN_COMPANIONS.includes(companionId as BuiltInCompanionId)
     ? atlasByCompanion[companionId as BuiltInCompanionId]
     : floppyAtlas;
-  const [atlasUrl, setAtlasUrl] = useState(builtInAtlas);
+  const [customAtlas, setCustomAtlas] = useState<{
+    companionId: CompanionId;
+    cacheKey: string;
+    url: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!companionId.startsWith('custom:') || !atlasCacheKey) {
-      setAtlasUrl(builtInAtlas);
       return;
     }
 
     let active = true;
     let objectUrl: string | null = null;
-    setAtlasUrl(floppyAtlas);
     void getAtlas(atlasCacheKey)
       .then(blob => {
         if (!active || !blob) return;
         objectUrl = URL.createObjectURL(blob);
-        setAtlasUrl(objectUrl);
+        setCustomAtlas({ companionId, cacheKey: atlasCacheKey, url: objectUrl });
       })
       .catch(() => {
-        if (active) setAtlasUrl(floppyAtlas);
+        if (active) setCustomAtlas(null);
       });
 
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [atlasCacheKey, builtInAtlas, companionId]);
+  }, [atlasCacheKey, companionId]);
+
+  const atlasUrl = companionId.startsWith('custom:') && atlasCacheKey
+    ? customAtlas?.companionId === companionId && customAtlas.cacheKey === atlasCacheKey
+      ? customAtlas.url
+      : floppyAtlas
+    : builtInAtlas;
 
   useEffect(() => {
     setFrameIndex(0);

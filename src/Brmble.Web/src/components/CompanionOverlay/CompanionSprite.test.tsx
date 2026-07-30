@@ -103,4 +103,64 @@ describe('CompanionSprite', () => {
     expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
     expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
+
+  it('renders floppy immediately when a resolved custom companion changes to floppy', async () => {
+    getAtlas.mockResolvedValue(new Blob(['atlas'], { type: 'image/webp' }));
+    const view = render(
+      <CompanionSprite
+        companionId="custom:$sprite:test"
+        atlasCacheKey="!gallery:test\u0000$sprite:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('companion-sprite')).toHaveStyle({
+        backgroundImage: 'url(blob:custom-atlas)',
+      });
+    });
+
+    view.rerender(
+      <CompanionSprite
+        companionId="floppy"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
+  });
+
+  it('renders floppy immediately while loading a replacement custom atlas', async () => {
+    getAtlas.mockResolvedValue(new Blob(['atlas'], { type: 'image/webp' }));
+    const view = render(
+      <CompanionSprite
+        companionId="custom:$first:test"
+        atlasCacheKey="!gallery:test\u0000$first:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('companion-sprite')).toHaveStyle({
+        backgroundImage: 'url(blob:custom-atlas)',
+      });
+    });
+
+    getAtlas.mockImplementationOnce(() => new Promise<Blob>(() => undefined));
+
+    view.rerender(
+      <CompanionSprite
+        companionId="custom:$second:test"
+        atlasCacheKey="!gallery:test\u0000$second:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:custom-atlas');
+  });
 });
