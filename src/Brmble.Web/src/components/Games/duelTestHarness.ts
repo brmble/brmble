@@ -66,3 +66,8 @@ export const unknownEstimate: DurationEstimate = {
   status: 'unknown', milliseconds: null, sampleCount: 0,
   method: 'insufficient', approximate: true,
 };
+
+/** Counterpart to {@link unknownEstimate} for fixtures that do assert on a duration. */
+export function knownEstimate(milliseconds: number): DurationEstimate {
+  return { status: 'known', milliseconds, sampleCount: 11, method: 'fullMedian', approximate: true };
+}

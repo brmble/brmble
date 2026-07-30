@@ -49,9 +49,17 @@
   overflow-wrap: anywhere;
 }
 
-.eta {
+.eta,
+.over {
   font-family: var(--font-mono);
+}
+
+.eta {
   color: var(--accent-primary);
+}
+
+.over {
+  color: var(--accent-danger);
 }
 
 .readyPlayers {

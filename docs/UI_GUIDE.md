@@ -266,6 +266,15 @@ shell. It contains metadata only: active/starting pair, ready-check state, accep
 order, game display name, format, and the server-provided static ETA (`About …` or exactly
 `Unknown`). It does not locally decrement or derive ETAs.
 
+Duel activity cards show two distinct server-owned values. `Estimated duration: ~25s` is that duel's
+own expected length (server full-duration median; `Unknown` when the server has too few samples).
+The live card additionally shows `Elapsed: 12s` and either `Ends in about 13s` or, past the estimate,
+`6s over estimate` in `--accent-danger`. Queued cards show `Starts in about 50s` (cumulative, excludes
+their own duration) or `Starts in: Unknown` when any earlier segment is unknown — showing each duel's
+own estimate is what makes that propagation legible, so never invent a partial ETA. Elapsed and
+over-estimate values tick once per second from the server `startedAt`; they are display-only and never
+end, delay, or otherwise control a match.
+
 Ready checks use one persistent top-right `warning` `<Notification>` under the stable id
 `game-ready`. Show it only when the local participant is not ready. Its single primary action is
 **Ready**; the `×` dismiss affordance declines. Incoming rematches use one persistent top-right

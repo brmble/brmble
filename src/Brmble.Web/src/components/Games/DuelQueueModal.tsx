@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import type { DuelPlayer } from '../../api/games';
+import { useEffect, useRef, useState } from 'react';
+import type { DuelPlayer, DurationEstimate } from '../../api/games';
 import { gameDisplayName } from '../../utils/games';
 import { Icon } from '../Icon/Icon';
 import type { DuelQueueSnapshot } from './useDuelQueueState';
@@ -30,8 +30,49 @@ function formatDuration(milliseconds: number): string {
   return minutes > 0 ? `${minutes}m${remainder > 0 ? ` ${remainder}s` : ''}` : `${seconds}s`;
 }
 
+/** Whole seconds rounded up, so a sub-second remainder never renders as `0s`. */
+function ceilSeconds(milliseconds: number): number {
+  return Math.ceil(milliseconds / 1000) * 1000;
+}
+
+/** The usable length of an estimate, or null when the server has none. */
+function estimateMs(estimate: DurationEstimate): number | null {
+  return estimate.status === 'known' && estimate.milliseconds != null ? estimate.milliseconds : null;
+}
+
+/** The duel's own expected length, as the server measured it. Never a live value. */
+function estimateText(estimate: DurationEstimate): string {
+  const milliseconds = estimateMs(estimate);
+  return milliseconds != null
+    ? `Estimated duration: ~${formatDuration(milliseconds)}`
+    : 'Estimated duration: Unknown';
+}
+
+/**
+ * Re-renders once a second so elapsed/over-estimate text stays current, seeding
+ * `now` whenever the match changes — the modal can sit open across duels, and a
+ * `now` left frozen from a previous match would render a stale first second.
+ * Display-only: it never ends, delays, or otherwise controls a match.
+ */
+function useSecondTick(startedAt: string | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (startedAt == null) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return now;
+}
+
 export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModalProps) {
-  const isEmpty = !snapshot.active && !snapshot.readyCheck && snapshot.queue.length === 0;
+  const active = snapshot.active;
+  const now = useSecondTick(active?.startedAt ?? null);
+  const startedMs = active ? Date.parse(active.startedAt) : NaN;
+  const elapsedMs = Number.isFinite(startedMs) ? Math.max(0, now - startedMs) : 0;
+  const estimatedMs = active ? estimateMs(active.estimatedDuration) : null;
+  const overMs = estimatedMs != null ? elapsedMs - estimatedMs : null;
+  const isEmpty = !active && !snapshot.readyCheck && snapshot.queue.length === 0;
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -87,16 +128,18 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
         </div>
 
         <div className={styles.content} data-testid="duel-activity-content">
-          {snapshot.active && (
+          {active && (
             <section className={styles.section} aria-label="Active duel">
-              <span className={styles.label}>{snapshot.active.status === 'starting' ? 'Starting' : 'Live'}</span>
-              <strong className={styles.pair}>{pairLabel(snapshot.active.players, resolveName)}</strong>
-              <span className={styles.meta}>{gameDisplayName(snapshot.active.gameType)} · {snapshot.active.format} · v{snapshot.active.rulesetVersion}</span>
-              <span className={styles.eta}>
-                {snapshot.active.remaining.status === 'known' && snapshot.active.remaining.milliseconds != null
-                  ? `About ${formatDuration(snapshot.active.remaining.milliseconds)}`
-                  : 'Unknown'}
-              </span>
+              <span className={styles.label}>{active.status === 'starting' ? 'Starting' : 'Live'}</span>
+              <strong className={styles.pair}>{pairLabel(active.players, resolveName)}</strong>
+              <span className={styles.meta}>{gameDisplayName(active.gameType)} · {active.format} · v{active.rulesetVersion}</span>
+              <span className={styles.meta}>{estimateText(active.estimatedDuration)}</span>
+              <span className={styles.eta}>Elapsed: {formatDuration(elapsedMs)}</span>
+              {overMs != null && (
+                overMs > 0
+                  ? <span className={styles.over}>{formatDuration(ceilSeconds(overMs))} over estimate</span>
+                  : <span className={styles.eta}>Ends in about {formatDuration(ceilSeconds(-overMs))}</span>
+              )}
             </section>
           )}
 
@@ -105,6 +148,7 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
               <span className={styles.label}>Ready check</span>
               <strong className={styles.pair}>{pairLabel(snapshot.readyCheck.players, resolveName)}</strong>
               <span className={styles.meta}>{gameDisplayName(snapshot.readyCheck.gameType)} · {snapshot.readyCheck.format} · v{snapshot.readyCheck.rulesetVersion}</span>
+              <span className={styles.meta}>{estimateText(snapshot.readyCheck.estimatedDuration)}</span>
               <div className={styles.readyPlayers}>
                 {snapshot.readyCheck.players.map(player => (
                   <span key={`${player.userId}:${player.sessionId}`}>
@@ -123,10 +167,11 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
                   <li key={entry.reservationId} className={styles.queueItem}>
                     <strong className={styles.pair}>{entry.position}. {pairLabel(entry.players, resolveName)}</strong>
                     <span className={styles.meta}>{gameDisplayName(entry.gameType)} · {entry.format} · v{entry.rulesetVersion}</span>
+                    <span className={styles.meta}>{estimateText(entry.estimatedDuration)}</span>
                     <span className={styles.eta}>
                       {entry.eta.status === 'known' && entry.eta.milliseconds != null
-                        ? `About ${formatDuration(entry.eta.milliseconds)}`
-                        : 'Unknown'}
+                        ? `Starts in about ${formatDuration(entry.eta.milliseconds)}`
+                        : 'Starts in: Unknown'}
                     </span>
                   </li>
                 ))}
