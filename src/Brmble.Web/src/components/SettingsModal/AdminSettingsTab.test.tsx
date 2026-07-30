@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AdminSettingsTab } from './AdminSettingsTab';
 import { confirm } from '../../hooks/usePrompt';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
 import type { Channel } from '../../types';
 
 const { bridgeMock } = vi.hoisted(() => ({
@@ -58,6 +59,21 @@ function renderWithBan() {
   return render(<AdminSettingsTab />);
 }
 
+function customCompanionGallery(): CustomCompanionGalleryController {
+  return {
+    status: 'empty',
+    entries: [],
+    redactedEventIds: new Set(),
+    error: null,
+    requestAtlas: vi.fn(),
+    requestThumbnail: vi.fn(),
+    releaseAtlas: vi.fn(),
+    releaseThumbnail: vi.fn(),
+    createCompanion: vi.fn(),
+    deleteCompanion: vi.fn(),
+  };
+}
+
 describe('AdminSettingsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,6 +115,27 @@ describe('AdminSettingsTab', () => {
     await waitFor(() => {
       expect(bridgeMock.send).toHaveBeenCalledWith('voice.unban', { index: 0 });
     });
+  });
+
+  it('shows custom companion management only for capable moderators', () => {
+    const gallery = customCompanionGallery();
+    const { rerender } = render(
+      <AdminSettingsTab
+        customCompanions={{ canModerate: false }}
+        customCompanionGallery={gallery}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Moderation' }));
+    expect(screen.queryByRole('heading', { name: 'Custom Companions' })).not.toBeInTheDocument();
+
+    rerender(
+      <AdminSettingsTab
+        customCompanions={{ canModerate: true }}
+        customCompanionGallery={gallery}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'Custom Companions' })).toBeVisible();
   });
 
   it('exposes tablist accessibility state for admin sections', () => {

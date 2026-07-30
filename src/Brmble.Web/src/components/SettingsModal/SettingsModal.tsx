@@ -16,6 +16,7 @@ import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
 import type { Channel } from '../../types';
+import type { CustomCompanionCapability } from '../../customCompanions/customCompanionTypes';
 import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
 import type { MatrixUploadClient } from './customCompanions/CustomCompanionUploadDialog';
 
@@ -65,6 +66,7 @@ interface SettingsModalProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
   channelRequestRefreshKey?: number;
+  customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
   customCompanionGallery?: CustomCompanionGalleryController;
   customCompanionMatrixClient?: MatrixUploadClient;
   onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
@@ -131,6 +133,10 @@ export function SettingsModal(props: SettingsModalProps) {
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
+  const customCompanions = props.customCompanions
+    ?? (props.customCompanionGallery?.status !== 'disabled' && props.customCompanionGallery
+      ? { canModerate: hasAdminPermission }
+      : undefined);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -573,6 +579,8 @@ export function SettingsModal(props: SettingsModalProps) {
               channels={props.channels ?? []}
               onChannelsChange={props.onChannelsChange}
               liveUsers={props.liveUsers ?? []}
+              customCompanions={customCompanions}
+              customCompanionGallery={props.customCompanionGallery}
             />
           )}
 

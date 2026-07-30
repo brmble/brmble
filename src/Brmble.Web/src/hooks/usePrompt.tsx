@@ -4,12 +4,18 @@ import '../components/Prompt/Prompt.css';
 
 export interface PromptOptions {
   title: string;
+  message: React.ReactNode;
+  content?: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+}
+
+export interface PromptWithInputOptions {
+  title: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
-}
-
-export interface PromptWithInputOptions extends PromptOptions {
   placeholder?: string;
   defaultValue?: string;
   isPassword?: boolean;
@@ -109,8 +115,11 @@ function PromptComponent() {
       >
         <div className="modal-header">
           <h2 id="prompt-title" className="heading-title modal-title">{globalOptions.title}</h2>
-          <p className="modal-subtitle">{globalOptions.message}</p>
+          <div className="modal-subtitle">{globalOptions.message}</div>
         </div>
+        {globalOptions.content && (
+          <div className="prompt-content">{globalOptions.content}</div>
+        )}
         <div className="prompt-footer">
           <button
             className="btn btn-secondary"
@@ -120,7 +129,7 @@ function PromptComponent() {
             {globalOptions.cancelLabel || 'Cancel'}
           </button>
           <button
-            className="btn btn-primary"
+            className={`btn ${globalOptions.destructive ? 'btn-danger' : 'btn-primary'}`}
             onClick={handleConfirm}
           >
             {globalOptions.confirmLabel || 'Confirm'}
