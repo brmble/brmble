@@ -34,6 +34,16 @@ vi.mock('../customCompanions/customCompanionMediaLoader', () => ({
 
 type Handler = (...args: unknown[]) => void;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function event(index: number, overrides: Record<string, unknown> = {}) {
   const raw = {
     type: 'im.brmble.sprite',
@@ -177,6 +187,44 @@ describe('useCustomCompanionGallery', () => {
     expect(result.current.redactedEventIds).toContain('$sprite-1:test');
   });
 
+  it('does not carry redaction tombstones into a different gallery scope', async () => {
+    const oldGallery = setupClient([]);
+    const hook = renderHook(
+      ({ client, currentCredentials }) => useCustomCompanionGallery(client, currentCredentials),
+      {
+        initialProps: {
+          client: asMatrixClient(oldGallery.client),
+          currentCredentials: credentials,
+        },
+      },
+    );
+    await waitFor(() => expect(hook.result.current.status).toBe('empty'));
+
+    act(() => oldGallery.emit('Room.timeline', event(99, {
+      type: 'm.room.redaction',
+      eventId: '$redaction:test',
+      redacts: '$sprite-1:test',
+      content: {},
+    }), { roomId: '!gallery:test' }));
+    expect(hook.result.current.redactedEventIds).toContain('$sprite-1:test');
+
+    const newGallery = setupClient([event(1, { roomId: '!other:test' })]);
+    hook.rerender({
+      client: asMatrixClient(newGallery.client),
+      currentCredentials: {
+        ...credentials,
+        customCompanions: {
+          ...credentials.customCompanions!,
+          galleryRoomId: '!other:test',
+        },
+      },
+    });
+
+    await waitFor(() => expect(hook.result.current.entries).toHaveLength(1));
+    expect(hook.result.current.entries[0].eventId).toBe('$sprite-1:test');
+    expect(hook.result.current.redactedEventIds).not.toContain('$sprite-1:test');
+  });
+
   it('cancels requests, revokes URLs, and deletes the cached atlas on redaction', async () => {
     const harness = setupClient([event(1)]);
     ensureAtlas.mockResolvedValue(new Blob(['atlas']));
@@ -198,6 +246,90 @@ describe('useCustomCompanionGallery', () => {
     await waitFor(() => expect(deleteAtlas).toHaveBeenCalledWith('!gallery:test\u0000$sprite-1:test'));
     expect(cancel).toHaveBeenCalledWith('!gallery:test\u0000$sprite-1:test');
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps replacement atlas request ownership when a stale request completes', async () => {
+    const harness = setupClient([event(1)]);
+    const staleBlob = deferred<Blob>();
+    const currentBlob = deferred<Blob>();
+    ensureAtlas.mockReturnValueOnce(staleBlob.promise).mockReturnValue(currentBlob.promise);
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:current-atlas');
+    const hook = renderHook(
+      ({ currentCredentials }) => useCustomCompanionGallery(
+        asMatrixClient(harness.client),
+        currentCredentials,
+      ),
+      { initialProps: { currentCredentials: credentials } },
+    );
+    await waitFor(() => expect(hook.result.current.entries).toHaveLength(1));
+    const entry = hook.result.current.entries[0];
+
+    const staleRequest = hook.result.current.requestAtlas(entry, new Set());
+    hook.rerender({
+      currentCredentials: { ...credentials, accessToken: 'replacement-token' },
+    });
+    const currentRequest = hook.result.current.requestAtlas(entry, new Set());
+    expect(ensureAtlas).toHaveBeenCalledTimes(2);
+
+    staleBlob.resolve(new Blob(['stale']));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const attachedRequest = hook.result.current.requestAtlas(entry, new Set());
+    expect(attachedRequest).toBe(currentRequest);
+    expect(ensureAtlas).toHaveBeenCalledTimes(2);
+
+    currentBlob.resolve(new Blob(['current']));
+    await expect(Promise.all([staleRequest, currentRequest, attachedRequest])).resolves.toEqual([
+      'blob:current-atlas',
+      'blob:current-atlas',
+      'blob:current-atlas',
+    ]);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('keeps replacement thumbnail request ownership when a stale request completes', async () => {
+    const harness = setupClient([event(1)]);
+    const staleBlob = deferred<Blob>();
+    const currentBlob = deferred<Blob>();
+    loadThumbnail.mockReturnValueOnce(staleBlob.promise).mockReturnValue(currentBlob.promise);
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:current-thumbnail');
+    const hook = renderHook(
+      ({ currentCredentials }) => useCustomCompanionGallery(
+        asMatrixClient(harness.client),
+        currentCredentials,
+      ),
+      { initialProps: { currentCredentials: credentials } },
+    );
+    await waitFor(() => expect(hook.result.current.entries).toHaveLength(1));
+    const entry = hook.result.current.entries[0];
+
+    const staleRequest = hook.result.current.requestThumbnail(entry);
+    hook.rerender({
+      currentCredentials: { ...credentials, accessToken: 'replacement-token' },
+    });
+    const currentRequest = hook.result.current.requestThumbnail(entry);
+    expect(loadThumbnail).toHaveBeenCalledTimes(2);
+
+    staleBlob.resolve(new Blob(['stale']));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const attachedRequest = hook.result.current.requestThumbnail(entry);
+    expect(attachedRequest).toBe(currentRequest);
+    expect(loadThumbnail).toHaveBeenCalledTimes(2);
+
+    currentBlob.resolve(new Blob(['current']));
+    await expect(Promise.all([staleRequest, currentRequest, attachedRequest])).resolves.toEqual([
+      'blob:current-thumbnail',
+      'blob:current-thumbnail',
+      'blob:current-thumbnail',
+    ]);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it('exposes explicit media requests and retries failures only on demand', async () => {

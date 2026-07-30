@@ -100,6 +100,7 @@ export function useCustomCompanionGallery(
     [accessToken, capability, client],
   );
   const galleryRef = useRef(gallery);
+  const galleryScopeRef = useRef<{ client: MatrixClient; galleryRoomId: string } | null>(null);
   const atlasUrls = useRef(new Map<string, string>());
   const thumbnailUrls = useRef(new Map<string, string>());
   const atlasRequests = useRef(new Map<string, Promise<string>>());
@@ -123,14 +124,23 @@ export function useCustomCompanionGallery(
 
   useEffect(() => {
     if (!client || !capability) {
+      galleryScopeRef.current = null;
       setGallery(emptyGallery('disabled'));
       return;
     }
 
     let active = true;
-    setGallery(emptyGallery('loading'));
+    const previousScope = galleryScopeRef.current;
+    const sameScope = previousScope?.client === client
+      && previousScope.galleryRoomId === capability.galleryRoomId;
+    galleryScopeRef.current = { client, galleryRoomId: capability.galleryRoomId };
+    let scopeRedactedEventIds = sameScope
+      ? new Set(galleryRef.current.redactedEventIds)
+      : new Set<string>();
+    setGallery(emptyGallery('loading', new Set(scopeRedactedEventIds)));
 
     const applyRedaction = (eventId: string) => {
+      scopeRedactedEventIds.add(eventId);
       const known = galleryRef.current.entries.find(entry => entry.eventId === eventId);
       cleanupEntry(known?.atlasCacheKey ?? `${capability.galleryRoomId}\u0000${eventId}`);
       setGallery(current => reduceGalleryEvent(current, { kind: 'remove', eventId }));
@@ -153,7 +163,7 @@ export function useCustomCompanionGallery(
       try {
         const room = client.getRoom(capability.galleryRoomId);
         if (!room?.currentState) throw new Error('Custom companion gallery room is unavailable.');
-        const current = emptyGallery('loading', new Set(galleryRef.current.redactedEventIds));
+        const current = emptyGallery('loading', new Set(scopeRedactedEventIds));
         const next = room.currentState.getStateEvents('im.brmble.sprite').reduce((state, event) => {
           if (event.isRedacted?.() && event.getId()) {
             cleanupEntry(`${capability.galleryRoomId}\u0000${event.getId()}`);
@@ -162,6 +172,7 @@ export function useCustomCompanionGallery(
           const entry = parseCustomCompanionEvent(event, capability);
           return entry ? reduceGalleryEvent(state, { kind: 'upsert', entry }) : state;
         }, current);
+        scopeRedactedEventIds = new Set(next.redactedEventIds);
         if (active) setGallery({
           ...next,
           status: next.entries.length === 0 ? 'empty' : 'ready',
@@ -169,7 +180,7 @@ export function useCustomCompanionGallery(
         });
       } catch (error) {
         if (active) setGallery({
-          ...emptyGallery('unavailable', new Set(galleryRef.current.redactedEventIds)),
+          ...emptyGallery('unavailable', new Set(scopeRedactedEventIds)),
           error: error instanceof Error ? error.message : 'Custom companion gallery is unavailable.',
         });
       }
@@ -220,13 +231,23 @@ export function useCustomCompanionGallery(
     const existingRequest = atlasRequests.current.get(entry.atlasCacheKey);
     if (existingRequest) return existingRequest;
 
-    const request = loader.ensureAtlas(entry, protectedKeys).then(blob => {
+    let request!: Promise<string>;
+    request = loader.ensureAtlas(entry, protectedKeys).then((blob): string | Promise<string> => {
       if (galleryRef.current.redactedEventIds.has(entry.eventId)) throw new Error('Custom companion was removed.');
+      const owner = atlasRequests.current.get(entry.atlasCacheKey);
+      if (owner !== request) {
+        if (owner) return owner;
+        throw new Error('Custom companion atlas request was cancelled.');
+      }
       revokeUrl(atlasUrls.current, entry.atlasCacheKey);
       const url = URL.createObjectURL(blob);
       atlasUrls.current.set(entry.atlasCacheKey, url);
       return url;
-    }).finally(() => atlasRequests.current.delete(entry.atlasCacheKey));
+    }).finally(() => {
+      if (atlasRequests.current.get(entry.atlasCacheKey) === request) {
+        atlasRequests.current.delete(entry.atlasCacheKey);
+      }
+    });
     atlasRequests.current.set(entry.atlasCacheKey, request);
     return request;
   }, [loader, revokeUrl]);
@@ -242,13 +263,23 @@ export function useCustomCompanionGallery(
     if (existingRequest) return existingRequest;
 
     const controller = new AbortController();
-    const request = loader.loadThumbnail(entry, controller.signal).then(blob => {
+    let request!: Promise<string>;
+    request = loader.loadThumbnail(entry, controller.signal).then((blob): string | Promise<string> => {
       if (galleryRef.current.redactedEventIds.has(entry.eventId)) throw new Error('Custom companion was removed.');
+      const owner = thumbnailRequests.current.get(entry.atlasCacheKey);
+      if (owner !== request) {
+        if (owner) return owner;
+        throw new Error('Custom companion thumbnail request was cancelled.');
+      }
       revokeUrl(thumbnailUrls.current, entry.atlasCacheKey);
       const url = URL.createObjectURL(blob);
       thumbnailUrls.current.set(entry.atlasCacheKey, url);
       return url;
-    }).finally(() => thumbnailRequests.current.delete(entry.atlasCacheKey));
+    }).finally(() => {
+      if (thumbnailRequests.current.get(entry.atlasCacheKey) === request) {
+        thumbnailRequests.current.delete(entry.atlasCacheKey);
+      }
+    });
     thumbnailRequests.current.set(entry.atlasCacheKey, request);
     return request;
   }, [loader, revokeUrl]);
