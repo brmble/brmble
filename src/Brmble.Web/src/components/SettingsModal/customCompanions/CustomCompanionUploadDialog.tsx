@@ -13,6 +13,7 @@ import {
 import './CustomCompanionUploadDialog.css';
 
 const MAX_FILE_BYTES = 5_242_880;
+const PREVIEW_FRAME_MS = 1000;
 const NAME_PATTERN = /^[\p{L}\p{N} _-]{1,32}$/u;
 const GUIDANCE = 'For correct animation, use a PNG or WebP sheet with 8 columns \u00d7 9 rows of equal cells. 1536 \u00d7 1872 px is recommended; for predictable results, do not exceed 3072 \u00d7 3744 px. Keep the file under 5 MiB.';
 const PRIVACY = 'Only upload artwork you own or have permission to share. Your name will be shown to everyone on this server, and moderators can remove the sprite.';
@@ -79,14 +80,20 @@ function RepresentativePreview({
 }) {
   const frameCounts = { 1: 6, 4: 4, 9: 6 } as const;
   const frameCount = frameCounts[row];
-  const lastFramePosition = `${(((frameCount - 1) / (8 - 1)) * 100).toFixed(6)}%`;
+  const [frameIndex, setFrameIndex] = useState(0);
+
+  useEffect(() => {
+    setFrameIndex(0);
+    const intervalId = window.setInterval(() => {
+      setFrameIndex(current => (current + 1) % frameCount);
+    }, PREVIEW_FRAME_MS);
+    return () => window.clearInterval(intervalId);
+  }, [frameCount, objectUrl, row]);
+
   const style = {
     '--custom-preview-image': `url(${objectUrl})`,
     '--custom-preview-row-position': `${((row - 1) / 8) * 100}%`,
-    '--custom-preview-frame-count': frameCount,
-    '--custom-preview-frame-step-count': frameCount - 1,
-    '--custom-preview-last-frame-position': lastFramePosition,
-    '--custom-preview-cycle': `${frameCount}s`,
+    backgroundPositionX: `${((frameIndex / (8 - 1)) * 100).toFixed(6)}%`,
   } as CSSProperties;
 
   return (
@@ -94,6 +101,8 @@ function RepresentativePreview({
       <span
         className="custom-companion-preview-sprite"
         data-testid={`companion-preview-row-${row}`}
+        data-current-frame={frameIndex}
+        data-frame-count={frameCount}
         style={style}
         aria-hidden="true"
       />

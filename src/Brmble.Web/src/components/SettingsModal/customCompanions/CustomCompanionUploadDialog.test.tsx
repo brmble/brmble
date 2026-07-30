@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -136,6 +136,7 @@ describe('CustomCompanionUploadDialog', () => {
   });
 
   it('keeps an unusual safe layout eligible and shows representative rows', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup();
     setup();
     await fillValidForm(user);
@@ -149,10 +150,20 @@ describe('CustomCompanionUploadDialog', () => {
     const speaking = screen.getByTestId('companion-preview-row-9');
     expect(message).toBeVisible();
     expect(speaking).toBeVisible();
-    expect(idle.style.getPropertyValue('--custom-preview-last-frame-position')).toBe('71.428571%');
-    expect(message.style.getPropertyValue('--custom-preview-last-frame-position')).toBe('42.857143%');
-    expect(speaking.style.getPropertyValue('--custom-preview-frame-step-count')).toBe('5');
+    expect(idle).toHaveAttribute('data-frame-count', '6');
+    expect(idle).toHaveAttribute('data-current-frame', '0');
+    expect(idle).toHaveStyle({ backgroundPositionX: '0.000000%' });
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    await waitFor(() => {
+      expect(idle).toHaveAttribute('data-current-frame', '5');
+      expect(idle).toHaveStyle({ backgroundPositionX: '71.428571%' });
+      expect(message).toHaveAttribute('data-current-frame', '1');
+      expect(message).toHaveStyle({ backgroundPositionX: '14.285714%' });
+    });
     expect(screen.getByRole('button', { name: 'Upload sprite' })).toBeEnabled();
+    vi.useRealTimers();
   });
 
   it('treats preview failure as non-blocking', async () => {
