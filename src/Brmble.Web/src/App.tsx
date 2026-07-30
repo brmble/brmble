@@ -3849,10 +3849,7 @@ const handleConnect = (serverData: SavedServer) => {
     dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
   }, [remoteWatchCount]);
 
-  const handleLiveCompanionChange = useCallback((
-    nextCompanion: CompanionSelection,
-    previousCompanion: CompanionSelection,
-  ) => {
+  const handleLiveCompanionChange = useCallback((nextCompanion: CompanionSelection) => {
     const selfUser = usersRef.current.find(user => user.self);
     const liveBrmbleSession = !!selfUser?.isBrmbleClient && connectionStatusRef.current === 'connected';
     if (!liveBrmbleSession) {
@@ -3860,40 +3857,26 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     const capability = matrixCredentialsRef.current?.customCompanions;
-    const current = overlaySettingsRef.current;
+    const previousSettings = overlaySettingsRef.current;
     const normalizedNext = normalizeCompanionId(nextCompanion);
-    const normalizedPrevious = normalizeCompanionId(previousCompanion);
     const allowedNext = !capability && normalizedNext.startsWith('custom:') ? 'floppy' : normalizedNext;
-    const currentBuiltIn = BUILT_IN_COMPANIONS.includes(current.myCompanion as BuiltInCompanionId)
-      ? current.myCompanion as BuiltInCompanionId
+    const previousSelection = capability
+      ? companionForServer(previousSettings, capability.galleryRoomId)
+      : normalizeCompanionId(previousSettings.myCompanion);
+    const currentBuiltIn = BUILT_IN_COMPANIONS.includes(previousSettings.myCompanion as BuiltInCompanionId)
+      ? previousSettings.myCompanion as BuiltInCompanionId
       : 'floppy';
-    const previousBuiltIn = BUILT_IN_COMPANIONS.includes(normalizedPrevious as BuiltInCompanionId)
-      ? normalizedPrevious as BuiltInCompanionId
-      : currentBuiltIn;
-    const previousSettings: OverlaySettings = capability
-      ? {
-        ...current,
-        myCompanion: previousBuiltIn,
-        companionSelectionsByServer: {
-          ...current.companionSelectionsByServer,
-          [capability.galleryRoomId]: normalizedPrevious,
-        },
-      }
-      : {
-        ...current,
-        myCompanion: normalizedPrevious,
-      };
     const nextSettings: OverlaySettings = capability
       ? {
-        ...current,
+        ...previousSettings,
         myCompanion: allowedNext.startsWith('custom:') ? currentBuiltIn : allowedNext,
         companionSelectionsByServer: {
-          ...current.companionSelectionsByServer,
+          ...previousSettings.companionSelectionsByServer,
           [capability.galleryRoomId]: allowedNext,
         },
       }
       : {
-        ...current,
+        ...previousSettings,
         myCompanion: allowedNext,
       };
     persistOverlaySettings(nextSettings);
@@ -3902,7 +3885,7 @@ const handleConnect = (serverData: SavedServer) => {
     pendingCompanionRef.current = {
       requestId,
       next: allowedNext,
-      previous: normalizedPrevious,
+      previous: previousSelection,
       previousSettings,
     };
     requestCompanionAtlas(allowedNext, renderedAtlasCacheKeys);
