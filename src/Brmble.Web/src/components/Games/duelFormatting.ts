@@ -1,14 +1,13 @@
 /**
  * Shared duel text formatting.
  *
- * The duel panel (DuelQueueModal) and the ready-check notification (App) must render
- * identical player and duration text; both render through these helpers so the two
- * cannot drift apart. If you need different copy in one of the two places, change it
- * here for both, or the mechanism stops working.
+ * Every duel surface — panel cards and notifications alike — renders player and
+ * duration text through these helpers, so the wording cannot drift between them.
+ * New surface: call these. Different copy: change it here, for all of them.
  *
- * Lives beside the duel components rather than in `utils/` deliberately: it is consumed
- * with `useQueuedDuelConfirmation` from this same folder, and its fixtures live in
- * `duelTestHarness.ts` here.
+ * Lives beside the duel components rather than in `utils/` deliberately: it is
+ * consumed with `useQueuedDuelConfirmation` from this same folder, and its
+ * fixtures live in `duelTestHarness.ts` here.
  */
 
 import type { DuelPlayer, DurationEstimate } from '../../api/games';

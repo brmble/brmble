@@ -6,9 +6,9 @@ import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import type { EndedMatch } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
-import type { DuelPlayer, QueuedDuel } from './api/games';
+import type { DuelPlayer, QueuedDuel, ReadyCheck } from './api/games';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
-import { unknownEstimate } from './components/Games/duelTestHarness';
+import { knownEstimate, unknownEstimate } from './components/Games/duelTestHarness';
 
 const mocks = vi.hoisted(() => {
   const ids = new Set<string>();
@@ -164,6 +164,12 @@ const queuedEntry = (players: DuelPlayer[]): QueuedDuel => ({
   estimatedDuration: unknownEstimate,
 });
 
+const readyCheck = (parts: Partial<ReadyCheck> = {}): ReadyCheck => ({
+  reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
+  gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+  players: [player(selfSession)], estimatedDuration: unknownEstimate, ...parts,
+});
+
 const snapshot = (
   channelId: number,
   parts: Partial<Pick<DuelQueueSnapshot, 'active' | 'readyCheck' | 'queue'>>,
@@ -219,8 +225,9 @@ describe('App duel orchestration', () => {
   it('locks a ready submission against dismiss and double click', () => {
     mocks.duelQueue.byChannel = new Map([[7, {
       schemaVersion: 1, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
-      active: null, queue: [], readyCheck: { reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }, { userId: 2, sessionId: 22, displayName: 'Other', ready: true }], estimatedDuration: unknownEstimate },
+      active: null, queue: [], readyCheck: readyCheck({
+        players: [player(selfSession), { ...player(22), ready: true }],
+      }),
     }]]);
     renderApp();
     act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void }).__emit('voice.connected', { channelId: 7, users: [{ session: 11, name: 'Me', self: true, channelId: 7 }] }));
@@ -239,8 +246,7 @@ describe('App duel orchestration', () => {
   it('resets the ready lock for a new reservation', () => {
     const readySnapshot = (reservationId: number) => ({
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
-      active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }], estimatedDuration: unknownEstimate },
+      active: null, queue: [], readyCheck: readyCheck({ reservationId }),
     });
     mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
     const { rerender } = renderApp();
@@ -258,8 +264,7 @@ describe('App duel orchestration', () => {
   it('unlocks only the matching rejected ready command and permits decline or retry', () => {
     const readySnapshot = (reservationId: number) => ({
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
-      active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }], estimatedDuration: unknownEstimate },
+      active: null, queue: [], readyCheck: readyCheck({ reservationId }),
     });
     mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
     const { rerender } = renderApp();
@@ -276,6 +281,38 @@ describe('App duel orchestration', () => {
     const readyNotification = screen.getByText('Ready to play?').closest('.notification') as HTMLElement;
     fireEvent.click(within(readyNotification).getByLabelText('Dismiss notification'));
     expect(mocks.duelQueue.respondReady).toHaveBeenLastCalledWith(42, false);
+  });
+
+  it('shows the opponent pair and estimated duration on the ready notification', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({
+        gameType: 'deathroll', format: '1v1',
+        players: [player(selfSession), player(22)],
+        estimatedDuration: knownEstimate(90_000),
+      }),
+    })]]);
+    renderApp();
+    connectSelf(7);
+
+    const notification = screen.getByText('Ready to play?').closest('.notification') as HTMLElement;
+    expect(notification).toHaveTextContent('Player 11 vs Player 22');
+    expect(notification).toHaveTextContent('Estimated duration: ~1m 30s');
+  });
+
+  it('shows an unknown estimated duration on the ready notification', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({
+        gameType: 'deathroll', format: '1v1',
+        players: [player(selfSession), player(22)],
+        estimatedDuration: unknownEstimate,
+      }),
+    })]]);
+    renderApp();
+    connectSelf(7);
+
+    const notification = screen.getByText('Ready to play?').closest('.notification') as HTMLElement;
+    expect(notification).toHaveTextContent('Estimated duration: Unknown');
+    expect(notification).not.toHaveTextContent('Starts in');
   });
 
   it('leaves connect recovery to the duel queue hook and resets both stores on disconnect', () => {
@@ -418,12 +455,7 @@ describe('App duel orchestration', () => {
 
   it('marks a channel personal when the local player is in the ready check', () => {
     mocks.duelQueue.byChannel = new Map<number, DuelQueueSnapshot>([[7, snapshot(7, {
-      readyCheck: {
-        reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
-        gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [player(selfSession), player(999)],
-        estimatedDuration: unknownEstimate,
-      },
+      readyCheck: readyCheck({ players: [player(selfSession), player(999)] }),
     })]]);
     renderApp();
     connectSelf(7);
@@ -487,11 +519,7 @@ describe('App duel orchestration', () => {
     connectSelf(7);
 
     mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
-      readyCheck: {
-        reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
-        gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [player(selfSession), player(22)], estimatedDuration: unknownEstimate,
-      },
+      readyCheck: readyCheck({ players: [player(selfSession), player(22)] }),
     })]]);
     rerenderApp(rerender);
 

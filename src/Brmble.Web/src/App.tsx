@@ -72,7 +72,7 @@ import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
 import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
-import { pairLabel } from './components/Games/duelFormatting';
+import { estimateText, pairLabel } from './components/Games/duelFormatting';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
 
@@ -4713,7 +4713,14 @@ const handleConnect = (serverData: SavedServer) => {
             countdownMs={readyCountdownMs}
             visible={true}
             title="Ready to play?"
-            detail={`${gameDisplayName(readyCheck.gameType)} · ${readyCheck.format}`}
+            detail={
+              <>
+                <div>{pairLabel(readyCheck.players, resolveGamePlayerName)}</div>
+                <div>
+                  {gameDisplayName(readyCheck.gameType)} · {readyCheck.format} · {estimateText(readyCheck.estimatedDuration)}
+                </div>
+              </>
+            }
             actions={
               <button
                 className="btn btn-sm btn-primary"
