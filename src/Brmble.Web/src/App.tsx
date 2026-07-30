@@ -95,7 +95,8 @@ export type OptionalNotificationCategory =
   | 'notificationRemoteScreenShare'
   | 'notificationScreenShareStatus'
   | 'notificationIdleWarning'
-  | 'notificationMovedChannel';
+  | 'notificationMovedChannel'
+  | 'notificationDuelQueued';
 
 export interface OptionalNotificationSettings {
   notificationsDisabled?: boolean;
@@ -103,6 +104,7 @@ export interface OptionalNotificationSettings {
   notificationScreenShareStatus?: boolean;
   notificationIdleWarning?: boolean;
   notificationMovedChannel?: boolean;
+  notificationDuelQueued?: boolean;
 }
 
 type IncomingOptionalNotificationSettings = OptionalNotificationSettings & {
@@ -115,6 +117,7 @@ export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificati
   notificationScreenShareStatus: true,
   notificationIdleWarning: true,
   notificationMovedChannel: true,
+  notificationDuelQueued: true,
 };
 
 export function normalizeOptionalNotificationSettings(settings?: IncomingOptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
