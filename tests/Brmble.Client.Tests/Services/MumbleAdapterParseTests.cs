@@ -1160,6 +1160,42 @@ public class MumbleAdapterParseTests
         Assert.AreEqual("custom:$changed:test", changedDocument.RootElement.GetProperty("companionId").GetString());
     }
 
+    [TestMethod]
+    public async Task SetCompanion_ResponsePrefersCustomCompanionId()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            using var clientCertificate = TestTlsHttpServer.CreateCertificate("CN=client");
+            await File.WriteAllBytesAsync(Path.Combine(tempDir.FullName, "Test_test.pfx"), clientCertificate.Export(X509ContentType.Pkcs12));
+
+            var certService = new CertificateService(bridge, new TestAppConfigService(tempDir.FullName));
+            await using var server = new TestTlsHttpServer(
+                """{"companionId":"floppy","customCompanionId":"custom:$sprite:test"}""");
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: server.Url, certService: certService);
+            adapter.RegisterHandlers(bridge);
+            certService.RegisterHandlers(bridge);
+
+            using var statusDocument = JsonDocument.Parse("{}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "cert.requestStatus", statusDocument.RootElement.Clone());
+            _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            using var request = JsonDocument.Parse("""{"requestId":9,"companionId":"custom:$sprite:test"}""");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "voice.setCompanion", request.RootElement.Clone());
+
+            var response = NativeBridgeTestHarness.DrainMessages(bridge)
+                .Single(message => message.Type == "voice.setCompanionResponse");
+            using var responseDocument = JsonDocument.Parse(response.DataJson);
+            Assert.IsTrue(responseDocument.RootElement.GetProperty("success").GetBoolean());
+            Assert.AreEqual("custom:$sprite:test", responseDocument.RootElement.GetProperty("companionId").GetString());
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
     // Transmission mode parsing tests
     [TestMethod]
     public void ParseTransmissionMode_PushToTalkPlus_ReturnsCorrectEnum()

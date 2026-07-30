@@ -30,34 +30,51 @@ internal sealed class CustomCompanionBridgeHandler
 
     public async Task HandleAsync(JsonElement data)
     {
-        var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == JsonValueKind.Number
-            ? requestIdProp.GetInt32()
-            : (int?)null;
-        var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
-        var apiUrl = _getApiUrl();
-
-        if ((action is not "create" and not "delete") || string.IsNullOrWhiteSpace(apiUrl))
-        {
-            SendResponse(requestId, false, null, 0, "Not connected or invalid companion action");
-            return;
-        }
-
-        using var cert = _getCertificate();
-        if (cert is null)
-        {
-            SendResponse(requestId, false, null, 0, "No client certificate");
-            return;
-        }
-
+        int? requestId = null;
         try
         {
-            var baseUri = new Uri(apiUrl, UriKind.Absolute);
+            if (data.ValueKind != JsonValueKind.Object)
+            {
+                SendResponse(requestId, false, null, 0, "Invalid companion request");
+                return;
+            }
+
+            if (data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.TryGetInt32(out var parsedRequestId))
+                requestId = parsedRequestId;
+
+            var action = data.TryGetProperty("action", out var actionProp) && actionProp.ValueKind == JsonValueKind.String
+                ? actionProp.GetString()
+                : null;
+            var apiUrl = _getApiUrl();
+            if ((action is not "create" and not "delete") || string.IsNullOrWhiteSpace(apiUrl))
+            {
+                SendResponse(requestId, false, null, 0, "Not connected or invalid companion action");
+                return;
+            }
+
+            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var baseUri) || baseUri.Scheme != Uri.UriSchemeHttps)
+            {
+                SendResponse(requestId, false, null, 0, "Invalid companion API URL");
+                return;
+            }
+
+            using var cert = _getCertificate();
+            if (cert is null)
+            {
+                SendResponse(requestId, false, null, 0, "No client certificate");
+                return;
+            }
+
             TlsCallResult result;
 
             if (action == "create")
             {
-                var name = data.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
-                var mediaUri = data.TryGetProperty("mediaUri", out var mediaUriElement) ? mediaUriElement.GetString() : null;
+                var name = data.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String
+                    ? nameElement.GetString()
+                    : null;
+                var mediaUri = data.TryGetProperty("mediaUri", out var mediaUriElement) && mediaUriElement.ValueKind == JsonValueKind.String
+                    ? mediaUriElement.GetString()
+                    : null;
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(mediaUri))
                 {
                     SendResponse(requestId, false, null, 0, "Missing companion name or media URI");
@@ -69,7 +86,9 @@ internal sealed class CustomCompanionBridgeHandler
             }
             else
             {
-                var eventId = data.TryGetProperty("eventId", out var eventIdElement) ? eventIdElement.GetString() : null;
+                var eventId = data.TryGetProperty("eventId", out var eventIdElement) && eventIdElement.ValueKind == JsonValueKind.String
+                    ? eventIdElement.GetString()
+                    : null;
                 if (string.IsNullOrWhiteSpace(eventId))
                 {
                     SendResponse(requestId, false, null, 0, "Missing companion event ID");

@@ -97,6 +97,48 @@ public class CustomCompanionBridgeHandlerTests
         Assert.AreEqual("unsupported image", document.RootElement.GetProperty("error").GetString());
     }
 
+    [DataTestMethod]
+    [DataRow("{\"requestId\":4.5,\"action\":\"create\"}")]
+    [DataRow("{\"requestId\":2147483648,\"action\":\"create\"}")]
+    [DataRow("{\"requestId\":7,\"action\":42}")]
+    public async Task MalformedRequest_AlwaysEmitsFailureResponse(string requestJson)
+    {
+        using var request = JsonDocument.Parse(requestJson);
+
+        await _handler.HandleAsync(request.RootElement);
+
+        var response = NativeBridgeTestHarness.DrainMessages(_bridge).Single();
+        Assert.AreEqual("companions.response", response.Type);
+        using var document = JsonDocument.Parse(response.DataJson);
+        Assert.IsFalse(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.AreEqual(0, document.RootElement.GetProperty("statusCode").GetInt32());
+        Assert.IsTrue(document.RootElement.TryGetProperty("error", out var error));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(error.GetString()));
+    }
+
+    [TestMethod]
+    public async Task Create_RejectsNonHttpsApiUrlWithoutCallingTransport()
+    {
+        var transportCalled = false;
+        _handler = new CustomCompanionBridgeHandler(
+            _bridge,
+            () => _certificate,
+            () => "http://api.test/",
+            (_, _, _) =>
+            {
+                transportCalled = true;
+                return Task.FromResult(new CustomCompanionBridgeHandler.TlsCallResult(true, null, 201, null));
+            },
+            (_, _) => throw new AssertFailedException("DELETE should not be called"));
+        using var request = JsonDocument.Parse(
+            """{"requestId":8,"action":"create","name":"Orbit","mediaUri":"mxc://test/media"}""");
+
+        await _handler.HandleAsync(request.RootElement);
+
+        Assert.IsFalse(transportCalled);
+        AssertResponse("companions.response", requestId: 8, success: false, statusCode: 0);
+    }
+
     private void AssertResponse(string type, int requestId, bool success, int statusCode)
     {
         var response = NativeBridgeTestHarness.DrainMessages(_bridge).Single();

@@ -2215,8 +2215,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (!string.IsNullOrWhiteSpace(result.Body))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
-                if (doc.RootElement.TryGetProperty("companionId", out var syncedProp) && syncedProp.GetString() is { } value)
-                    synced = value;
+                synced = ParseWireCompanionId(doc.RootElement);
             }
 
             UpdateSelfCompanionMapping(synced);
