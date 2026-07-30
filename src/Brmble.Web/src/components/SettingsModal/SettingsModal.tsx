@@ -48,7 +48,10 @@ interface SettingsModalProps {
   initialTab?: 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
-  onLiveCompanionChange?: (nextCompanion: CompanionSelection) => void;
+  onLiveCompanionChange?: (
+    nextCompanion: CompanionSelection,
+    previousOverlay: OverlaySettings,
+  ) => void;
   liveUsers?: Array<{
     session: number;
     name: string;
@@ -375,13 +378,13 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const handleOverlayChange = (overlay: OverlaySettings) => {
-    const previousCompanion = settings.overlay.myCompanion;
+    const previousOverlay = settings.overlay;
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-    if (overlay.myCompanion !== previousCompanion) {
-      props.onLiveCompanionChange?.(overlay.myCompanion);
+    if (overlay.myCompanion !== previousOverlay.myCompanion) {
+      props.onLiveCompanionChange?.(overlay.myCompanion, previousOverlay);
     }
   };
 

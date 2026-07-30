@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
@@ -127,11 +127,6 @@ const mockValues = vi.hoisted(() => {
     notificationQueue,
     notificationQueueIds,
     gallery,
-    settingsModalProps: undefined as {
-      onLiveCompanionChange?: (
-        nextCompanion: CompanionSelection,
-      ) => void;
-    } | undefined,
   };
 });
 
@@ -155,25 +150,28 @@ vi.mock('./bridge', () => {
   };
 });
 
-vi.mock('./components/Header/Header', () => ({ Header: () => <header /> }));
+vi.mock('./components/Header/Header', () => ({
+  Header: ({ onOpenSettings }: { onOpenSettings?: () => void }) => (
+    <header>
+      <button type="button" onClick={onOpenSettings}>Open settings</button>
+    </header>
+  ),
+}));
 vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: () => <aside /> }));
 vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => <section /> }));
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => <section /> }));
 vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => <section /> }));
 vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
 vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
-vi.mock('./components/SettingsModal/SettingsModal', () => ({
-  DEFAULT_SCREEN_SHARE: {
-    captureAudio: false,
-    resolution: '1080p',
-    fps: 30,
-    systemAudio: false,
-    viewerMode: 'in-app',
-  },
-  SettingsModal: (props: typeof mockValues.settingsModalProps) => {
-    mockValues.settingsModalProps = props;
-    return null;
-  },
+vi.mock('./hooks/useServerlist', () => ({
+  useServerlist: () => ({ servers: [] }),
+}));
+vi.mock('./hooks/usePermissions', () => ({
+  Permission: { Ban: 0x20000, Kick: 0x10000 },
+  usePermissions: () => ({ hasPermission: () => false }),
+}));
+vi.mock('./components/ChannelRequests/MyChannelRequests', () => ({
+  MyChannelRequests: () => null,
 }));
 vi.mock('./hooks/useMatrixClient', () => ({ useMatrixClient: () => mockValues.matrixClient }));
 vi.mock('./hooks/useCustomCompanionGallery', () => ({
@@ -282,12 +280,28 @@ function storedOverlay(): OverlaySettings {
   return JSON.parse(localStorage.getItem('brmble-settings') ?? '{}').overlay;
 }
 
+async function openInterfaceSettings(settings: { overlay: OverlaySettings; appearance?: { theme: string } }) {
+  await waitFor(() => {
+    expect(vi.mocked(bridge.on)).toHaveBeenCalledWith('settings.current', expect.any(Function));
+  });
+  act(() => emit('settings.current', { settings }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Interface' }));
+}
+
+function selectCompanion(label: string) {
+  const companionSetting = screen.getByText('My Companion').parentElement;
+  if (!companionSetting) throw new Error('Missing companion setting');
+  fireEvent.click(within(companionSetting).getByRole('combobox'));
+  fireEvent.click(screen.getByRole('option', { name: label }));
+}
+
 describe('App custom companion delivery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
     mockValues.notificationQueueIds.clear();
-    mockValues.settingsModalProps = undefined;
     (bridge as unknown as { __reset: () => void }).__reset();
   });
 
@@ -315,7 +329,7 @@ describe('App custom companion delivery', () => {
     });
   });
 
-  it('restores the exact pre-change overlay settings when a custom selection update fails', async () => {
+  it('restores the modal pre-change overlay when another modal setting changed before the App update', async () => {
     const previous: OverlaySettings = {
       overlayEnabled: false,
       mode: 'full',
@@ -325,7 +339,7 @@ describe('App custom companion delivery', () => {
         '!gallery:test': entry.id,
         '!other:test': 'custom:$other:test',
       },
-      showChannelMessages: false,
+      showChannelMessages: true,
       showDirectMessages: true,
       showJoinLeaveEvents: false,
       showModerationEvents: true,
@@ -341,10 +355,13 @@ describe('App custom companion delivery', () => {
       emit('voice.connected', connectedSelf(entry.id));
     });
 
-    await waitFor(() => expect(mockValues.settingsModalProps?.onLiveCompanionChange).toBeTypeOf('function'));
-    act(() => {
-      mockValues.settingsModalProps!.onLiveCompanionChange!('bee');
+    await openInterfaceSettings({
+      appearance: { theme: 'classic' },
+      overlay: previous,
     });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show Channel Messages' }));
+    selectCompanion('Bee');
+
     const request = vi.mocked(bridge.send).mock.calls
       .filter(([type]) => type === 'voice.setCompanion')
       .at(-1)?.[1] as { requestId: number };
@@ -355,27 +372,31 @@ describe('App custom companion delivery', () => {
       error: 'rejected',
     }));
 
-    await waitFor(() => expect(storedOverlay()).toEqual(previous));
+    const expectedRollback = {
+      ...previous,
+      showChannelMessages: false,
+    };
+    await waitFor(() => expect(storedOverlay()).toEqual(expectedRollback));
     expect(vi.mocked(bridge.send)).toHaveBeenCalledWith('settings.set', {
-      settings: {
+      settings: expect.objectContaining({
         appearance: { theme: 'classic' },
-        overlay: previous,
-      },
+        overlay: expectedRollback,
+      }),
     });
   });
 
   it('never sends a custom selection without server capability but still sends built-ins', async () => {
     const initial: OverlaySettings = {
       ...DEFAULT_OVERLAY,
+      mode: 'full',
       myCompanion: entry.id,
     };
     localStorage.setItem('brmble-settings', JSON.stringify({ overlay: initial }));
     renderApp();
     act(() => emit('voice.connected', connectedSelf('bee')));
 
-    await waitFor(() => expect(mockValues.settingsModalProps?.onLiveCompanionChange).toBeTypeOf('function'));
-    act(() => mockValues.settingsModalProps!.onLiveCompanionChange!(entry.id));
-    act(() => mockValues.settingsModalProps!.onLiveCompanionChange!('patch'));
+    await openInterfaceSettings({ overlay: initial });
+    selectCompanion('Patch');
 
     const selections = vi.mocked(bridge.send).mock.calls
       .filter(([type]) => type === 'voice.setCompanion')

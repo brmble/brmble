@@ -163,4 +163,43 @@ describe('CompanionSprite', () => {
     expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:custom-atlas');
   });
+
+  it('does not reuse a revoked custom URL after leaving and returning to the same atlas', async () => {
+    getAtlas.mockResolvedValueOnce(new Blob(['atlas-a'], { type: 'image/webp' }));
+    const view = render(
+      <CompanionSprite
+        companionId="custom:$first:test"
+        atlasCacheKey="!gallery:test\u0000$first:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('companion-sprite')).toHaveStyle({
+        backgroundImage: 'url(blob:custom-atlas)',
+      });
+    });
+
+    view.rerender(
+      <CompanionSprite
+        companionId="floppy"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:custom-atlas');
+
+    getAtlas.mockImplementationOnce(() => new Promise<Blob>(() => undefined));
+    view.rerender(
+      <CompanionSprite
+        companionId="custom:$first:test"
+        atlasCacheKey="!gallery:test\u0000$first:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
+  });
 });

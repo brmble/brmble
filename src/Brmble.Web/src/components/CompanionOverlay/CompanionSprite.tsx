@@ -85,7 +85,10 @@ export function CompanionSprite({
 
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) {
+        setCustomAtlas(current => current?.url === objectUrl ? null : current);
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, [atlasCacheKey, companionId]);
 

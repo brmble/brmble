@@ -185,3 +185,57 @@ None.
 ### Concerns
 
 None.
+
+## Re-review Fix: Modal-Owned Rollback and Sprite URL Re-entry
+
+### Summary
+
+- Changed the real `SettingsModal` companion callback to carry the complete
+  modal-owned overlay object from immediately before the companion change.
+- Updated `App` to build the optimistic selection and retain its rollback from
+  that authoritative modal snapshot instead of `overlaySettingsRef.current`.
+- Replaced the mocked modal/direct callback App coverage with a real modal
+  interaction that changes an overlay flag, changes the companion before any
+  `settings.updated` echo, rejects the companion request, and verifies the
+  preceding flag change survives rollback.
+- Cleared the custom atlas state owned by a departing sprite effect when its
+  object URL is revoked, guarded by URL identity so stale cleanup cannot clear a
+  newer atlas.
+- Added a custom A to floppy to custom A regression with the returning IndexedDB
+  read held pending, verifying the revoked URL is not rendered again.
+
+### TDD Evidence
+
+- Before the production fixes:
+  `npm.cmd run test -- src/components/CompanionOverlay/CompanionSprite.test.tsx src/App.customCompanion.test.tsx`
+  - FAIL: 2 files, 2 failed and 12 passed tests after test-fixture corrections.
+  - App restored `showChannelMessages: true` instead of the modal-owned
+    pre-change value `false`.
+  - `CompanionSprite` rendered `url("blob:custom-atlas")` after that URL had been
+    revoked and custom A was selected again.
+
+### Tests Run
+
+- Required focused suite:
+  `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/components/CompanionOverlay/CompanionSprite.test.tsx src/App.customCompanion.test.tsx`
+  - PASS: 3 files, 22 tests.
+- Broader focused suite:
+  `npm.cmd run test -- src/components/SettingsModal/InterfaceSettingsTypes.test.ts src/components/SettingsModal/SettingsModal.test.tsx src/components/CompanionOverlay/overlayModel.test.ts src/components/CompanionOverlay/CompanionSprite.test.tsx src/hooks/useCustomCompanionGallery.test.tsx src/App.customCompanion.test.tsx src/hooks/useCompanionOverlayPublisher.test.ts`
+  - PASS: 7 files, 68 tests.
+- `npm.cmd run build`
+  - PASS: TypeScript project build and Vite production bundle.
+- `git diff --check`
+  - PASS: no whitespace errors.
+
+### Files Changed
+
+- `src/Brmble.Web/src/App.tsx`
+- `src/Brmble.Web/src/App.customCompanion.test.tsx`
+- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
+- `src/Brmble.Web/src/components/CompanionOverlay/CompanionSprite.tsx`
+- `src/Brmble.Web/src/components/CompanionOverlay/CompanionSprite.test.tsx`
+- `.superpowers/sdd/task-7-report.md`
+
+### Concerns
+
+None.

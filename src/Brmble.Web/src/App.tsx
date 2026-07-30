@@ -3849,7 +3849,10 @@ const handleConnect = (serverData: SavedServer) => {
     dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
   }, [remoteWatchCount]);
 
-  const handleLiveCompanionChange = useCallback((nextCompanion: CompanionSelection) => {
+  const handleLiveCompanionChange = useCallback((
+    nextCompanion: CompanionSelection,
+    previousSettings: OverlaySettings,
+  ) => {
     const selfUser = usersRef.current.find(user => user.self);
     const liveBrmbleSession = !!selfUser?.isBrmbleClient && connectionStatusRef.current === 'connected';
     if (!liveBrmbleSession) {
@@ -3857,7 +3860,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
 
     const capability = matrixCredentialsRef.current?.customCompanions;
-    const previousSettings = overlaySettingsRef.current;
     const normalizedNext = normalizeCompanionId(nextCompanion);
     const allowedNext = !capability && normalizedNext.startsWith('custom:') ? 'floppy' : normalizedNext;
     const previousSelection = capability
