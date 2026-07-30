@@ -211,7 +211,7 @@ describe('SettingsModal tabs', () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    const { rerender } = render(
       <SettingsModal
         isOpen
         onClose={onClose}
@@ -228,6 +228,16 @@ describe('SettingsModal tabs', () => {
     await user.upload(screen.getByLabelText('Sprite sheet'), new File(['sprite'], 'sprite.png', { type: 'image/png' }));
     await user.click(screen.getByRole('button', { name: 'Upload sprite' }));
 
+    rerender(
+      <SettingsModal
+        isOpen
+        onClose={onClose}
+        initialTab="audio"
+        customCompanionGallery={emptyCustomCompanionGallery}
+        customCompanionMatrixClient={{ uploadContent }}
+      />,
+    );
+
     const audioTab = screen.getByRole('button', { name: 'Audio' });
     expect(audioTab).toBeDisabled();
     await user.click(audioTab);
@@ -241,5 +251,8 @@ describe('SettingsModal tabs', () => {
 
     resolveUpload({ content_uri: 'mxc://test/sprite' });
     await waitFor(() => expect(emptyCustomCompanionGallery.createCompanion).toHaveBeenCalledWith('Orbit', 'mxc://test/sprite'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

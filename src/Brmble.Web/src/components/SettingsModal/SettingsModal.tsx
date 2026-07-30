@@ -159,10 +159,10 @@ export function SettingsModal(props: SettingsModalProps) {
   }, [isOpen, hasAdminPermission]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || customCompanionUploadActive) return;
     const effectiveTab = (initialTab === 'admin' && !hasAdminPermission) ? 'profile' : (initialTab ?? 'profile');
     setActiveTab(effectiveTab);
-  }, [isOpen, initialTab, hasAdminPermission]);
+  }, [isOpen, initialTab, hasAdminPermission, customCompanionUploadActive]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {

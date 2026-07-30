@@ -117,3 +117,26 @@
 - `.superpowers/sdd/task-8-report.md`
 - `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
 - `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
+
+## Re-Review Fix: Preserve Active Upload During Prop Synchronization
+
+### Summary
+
+- Guarded the `initialTab` synchronization effect while a custom companion
+  upload or entry creation is active, so prop-driven tab updates cannot unmount
+  the Interface tab and clear the parent upload lock.
+- Extended the pending-upload regression to rerender the modal with a different
+  `initialTab`, verify the Interface picker and upload dialog remain mounted,
+  retain the existing click/keyboard close-lock assertions, and confirm Close
+  becomes available only after the upload flow completes.
+
+### Tests Run
+
+- `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
+  - PASS: 6 files, 46 tests.
+
+### Files Changed
+
+- `.superpowers/sdd/task-8-report.md`
+- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
+- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
