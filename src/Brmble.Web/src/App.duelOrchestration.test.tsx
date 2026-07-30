@@ -8,6 +8,7 @@ import type { EndedMatch } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
 import type { DuelPlayer, QueuedDuel } from './api/games';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
+import { unknownEstimate } from './components/Games/duelTestHarness';
 
 const mocks = vi.hoisted(() => {
   const ids = new Set<string>();
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => {
     roll: vi.fn(), forfeit: vi.fn(), dismissEnded: vi.fn(), clearError: vi.fn(), clearInviteOutcome: vi.fn(), reset: vi.fn(),
   };
   const duelQueue = {
-    byChannel: new Map(), incomingRematch: null as RematchOffer | null, outgoingRematch: null as RematchOffer | null,
+    byChannel: new Map<number, DuelQueueSnapshot>(), incomingRematch: null as RematchOffer | null, outgoingRematch: null as RematchOffer | null,
     commandError: null as null | { revision: number; operation: string; id: number; reason?: string },
     respondReady: vi.fn(), requestRematch: vi.fn(), respondOffer: vi.fn(), cancelOffer: vi.fn(),
     requestSnapshot: vi.fn().mockResolvedValue(undefined), reset: vi.fn(),
@@ -160,6 +161,7 @@ const player = (sessionId: number): DuelPlayer =>
 const queuedEntry = (players: DuelPlayer[]): QueuedDuel => ({
   reservationId: 1, position: 1, players, gameType: 'rps', format: 'bo3', rulesetVersion: 1,
   eta: { status: 'unknown', estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
+  estimatedDuration: unknownEstimate,
 });
 
 const snapshot = (
@@ -188,7 +190,7 @@ describe('App duel orchestration', () => {
   it('derives the badge, opens the selected snapshot, and leaves screen share UI untouched', () => {
     mocks.duelQueue.byChannel = new Map([[7, {
       schemaVersion: 1, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
-      active: { matchId: 1, status: 'starting', startedAt: new Date().toISOString(), players: [], gameType: 'rps', format: 'bo3', rulesetVersion: 1, remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true } },
+      active: { matchId: 1, status: 'starting', startedAt: new Date().toISOString(), players: [], gameType: 'rps', format: 'bo3', rulesetVersion: 1, remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true }, estimatedDuration: unknownEstimate },
       readyCheck: null, queue: [],
     }]]);
     renderApp();
@@ -206,7 +208,7 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.byChannel = new Map([[7, {
       schemaVersion: 1, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
       active: null, queue: [], readyCheck: { reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }, { userId: 2, sessionId: 22, displayName: 'Other', ready: true }] },
+        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }, { userId: 2, sessionId: 22, displayName: 'Other', ready: true }], estimatedDuration: unknownEstimate },
     }]]);
     renderApp();
     act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void }).__emit('voice.connected', { channelId: 7, users: [{ session: 11, name: 'Me', self: true, channelId: 7 }] }));
@@ -226,7 +228,7 @@ describe('App duel orchestration', () => {
     const readySnapshot = (reservationId: number) => ({
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
       active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }] },
+        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }], estimatedDuration: unknownEstimate },
     });
     mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
     const { rerender } = renderApp();
@@ -245,7 +247,7 @@ describe('App duel orchestration', () => {
     const readySnapshot = (reservationId: number) => ({
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: reservationId, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
       active: null, queue: [], readyCheck: { reservationId, expiresAt: new Date(Date.now() + 10_000).toISOString(), gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }] },
+        players: [{ userId: 1, sessionId: 11, displayName: 'Me', ready: false }], estimatedDuration: unknownEstimate },
     });
     mocks.duelQueue.byChannel = new Map([[7, readySnapshot(42)]]);
     const { rerender } = renderApp();
@@ -408,6 +410,7 @@ describe('App duel orchestration', () => {
         reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
         gameType: 'rps', format: 'bo3', rulesetVersion: 1,
         players: [player(selfSession), player(999)],
+        estimatedDuration: unknownEstimate,
       },
     })]]);
     renderApp();
@@ -423,6 +426,7 @@ describe('App duel orchestration', () => {
         players: [player(selfSession), player(999)],
         gameType: 'rps', format: 'bo3', rulesetVersion: 1,
         remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true },
+        estimatedDuration: unknownEstimate,
       },
     })]]);
     renderApp();
@@ -438,6 +442,7 @@ describe('App duel orchestration', () => {
       active: null, readyCheck: null, queue: [{
         reservationId: 2, position: 1, players: [], gameType: 'rps', format: 'bo3', rulesetVersion: 1,
         eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+        estimatedDuration: unknownEstimate,
       }],
     };
     mocks.duelQueue.byChannel = new Map([[7, activeSnapshot]]);

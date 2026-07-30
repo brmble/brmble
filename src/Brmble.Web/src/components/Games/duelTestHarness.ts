@@ -1,5 +1,6 @@
 import { act } from '@testing-library/react';
 import { vi } from 'vitest';
+import type { DurationEstimate } from '../../api/games';
 
 /**
  * Shared test harness for the duel hooks (`useGameState`, `useDuelQueueState`).
@@ -55,3 +56,13 @@ export function resetHarness() {
   handlers.clear();
   vi.clearAllMocks();
 }
+
+/**
+ * Shared "no estimate yet" {@link DurationEstimate} for fixtures that construct
+ * `ActiveDuel` / `ReadyCheck` / `QueuedDuel` but do not assert on the duration.
+ * Every wire entry carries an estimate, so fixtures must supply one too.
+ */
+export const unknownEstimate: DurationEstimate = {
+  status: 'unknown', milliseconds: null, sampleCount: 0,
+  method: 'insufficient', approximate: true,
+};

@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDuelQueueState, type DuelQueueSnapshot } from './useDuelQueueState';
-import { api, emit, handlers, resetHarness } from './duelTestHarness';
+import { api, emit, handlers, resetHarness, unknownEstimate } from './duelTestHarness';
 
 vi.mock('../../bridge', async () => ({ default: (await import('./duelTestHarness')).bridge }));
 vi.mock('../../api/games', async () => (await import('./duelTestHarness')).api);
@@ -41,6 +41,7 @@ const queued = [{
   format: 'bestOf3',
   rulesetVersion: 1,
   eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+  estimatedDuration: unknownEstimate,
 }];
 
 describe('useDuelQueueState', () => {
@@ -523,6 +524,28 @@ describe('useDuelQueueState', () => {
     second.unmount();
     expect(handlers.get('game.queueSnapshot')).toHaveLength(0);
     expect(handlers.get('voice.connected')).toHaveLength(0);
+  });
+
+  it('keeps the estimated duration from an applied snapshot', async () => {
+    const { result } = renderHook(() => useDuelQueueState());
+    api.getQueueSnapshot.mockResolvedValueOnce(snapshot(2, 1, 0));
+    connect(2);
+    await act(() => result.current.requestSnapshot());
+
+    emit('game.queueSnapshot', {
+      ...snapshot(2, 1, 1, queued),
+      queue: [{
+        ...queued[0],
+        estimatedDuration: {
+          status: 'known' as const, milliseconds: 25_000, sampleCount: 11,
+          method: 'fullMedian' as const, approximate: true as const,
+        },
+      }],
+    });
+
+    await waitFor(() => expect(
+      result.current.byChannel.get(2)?.queue[0].estimatedDuration.milliseconds,
+    ).toBe(25_000));
   });
 
   it('tracks incoming and outgoing rematch offers until terminal events', () => {

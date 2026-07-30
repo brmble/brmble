@@ -84,6 +84,7 @@ export interface ActiveDuel {
   format: string;
   rulesetVersion: number;
   remaining: DurationEstimate;
+  estimatedDuration: DurationEstimate;
 }
 
 export interface ReadyCheck {
@@ -93,6 +94,7 @@ export interface ReadyCheck {
   gameType: string;
   format: string;
   rulesetVersion: number;
+  estimatedDuration: DurationEstimate;
 }
 
 export interface QueuedDuel {
@@ -103,6 +105,7 @@ export interface QueuedDuel {
   format: string;
   rulesetVersion: number;
   eta: QueueEta;
+  estimatedDuration: DurationEstimate;
 }
 
 export interface DuelQueueSnapshot {

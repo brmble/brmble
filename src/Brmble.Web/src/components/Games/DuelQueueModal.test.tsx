@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { DuelQueueSnapshot } from './useDuelQueueState';
 import { DuelQueueModal } from './DuelQueueModal';
+import { unknownEstimate } from './duelTestHarness';
 
 const players = [
   { userId: 1, sessionId: 11, displayName: 'Alice', ready: true },
@@ -41,6 +42,7 @@ describe('DuelQueueModal', () => {
             format: 'bo3',
             rulesetVersion: 1,
             eta: { status: 'known', estimatedStartAt: null, milliseconds: 24_000, approximate: true, segments: [] },
+            estimatedDuration: unknownEstimate,
           },
           {
             reservationId: 11,
@@ -50,6 +52,7 @@ describe('DuelQueueModal', () => {
             format: '1v1',
             rulesetVersion: 1,
             eta: { status: 'unknown', estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
+            estimatedDuration: unknownEstimate,
           },
         ],
       })}
@@ -80,6 +83,7 @@ describe('DuelQueueModal', () => {
           format: 'bo5',
           rulesetVersion: 2,
           remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true },
+          estimatedDuration: unknownEstimate,
         },
       })}
       resolveName={resolveName}
@@ -101,6 +105,7 @@ describe('DuelQueueModal', () => {
           format: 'bo5',
           rulesetVersion: 2,
           remaining: { status: 'known', milliseconds: 61_000, sampleCount: 20, method: 'fullMedian', approximate: true },
+          estimatedDuration: unknownEstimate,
         },
       })}
       resolveName={resolveName}
@@ -123,6 +128,7 @@ describe('DuelQueueModal', () => {
           gameType: 'deathroll',
           format: '1v1',
           rulesetVersion: 1,
+          estimatedDuration: unknownEstimate,
         },
       })}
       resolveName={resolveName}
@@ -196,6 +202,7 @@ describe('DuelQueueModal', () => {
       format: 'bo3',
       rulesetVersion: 1,
       eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+      estimatedDuration: unknownEstimate,
     }));
 
     render(<DuelQueueModal snapshot={snapshot({ queue })} resolveName={resolveName} onClose={vi.fn()} />);
@@ -216,6 +223,7 @@ describe('DuelQueueModal', () => {
       format: longToken,
       rulesetVersion: 1,
       eta: { status: 'unknown', estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
+      estimatedDuration: unknownEstimate,
     }] })} resolveName={resolveName} onClose={vi.fn()} />);
 
     expect(screen.getByText(`1. ${longToken} vs Bob`)).toBeInTheDocument();
