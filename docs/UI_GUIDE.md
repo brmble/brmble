@@ -277,12 +277,21 @@ end, delay, or otherwise control a match.
 
 Ready checks use one persistent top-right `warning` `<Notification>` under the stable id
 `game-ready`. Show it only when the local participant is not ready. Its single primary action is
-**Ready**; the `×` dismiss affordance declines. Incoming rematches use one persistent top-right
-`info` notification under `game-rematch`, with **Accept** as the single primary action and `×` as
-decline. Both may show a visual-only countdown derived from the server expiry and never own the
-authoritative timeout. Derive `countdownMs` only from a present, parseable expiry — an absent or
-malformed `expiresAt` must yield `undefined` (no bar), never `NaN`, and the value must be memoized
-per offer/reservation identity so unrelated re-renders don't restart the bar animation.
+**Ready**; the `×` dismiss affordance declines. Its detail is two lines: the opponent pair, then
+`Deathroll · 1v1 · Estimated duration: ~10s`. The pair label and the estimate come from
+`components/Games/duelFormatting.ts` (`pairLabel`, `estimateText`); the game name comes from
+`utils/games.ts` (`gameDisplayName`), and the format is raw snapshot data. The duel activity modal's
+ready-check card calls the same helpers, so the wording of the pair and the estimate cannot drift
+between the two — the layout can and does: the card also shows the ruleset version and puts the
+estimate on its own line. Neither surface shows a start ETA, because participant readiness rather
+than queue position controls advancement.
+
+Incoming rematches use one persistent top-right `info` notification under `game-rematch`, with
+**Accept** as the single primary action and `×` as decline. Both it and the ready check may show a
+visual-only countdown derived from the server expiry and never own the authoritative timeout.
+Derive `countdownMs` only from a present, parseable expiry — an absent or malformed `expiresAt`
+must yield `undefined` (no bar), never `NaN`, and the value must be memoized per offer/reservation
+identity so unrelated re-renders don't restart the bar animation.
 
 A rejected duel command (`game.error` correlated to ready / rematch response / rematch request, or
 a direct request rejection) is surfaced as one persistent top-right `error` notification under the
@@ -297,8 +306,30 @@ releases on a correlated `requestRematch` error or when the completed match chan
 
 Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
 **Rematch** action beside **Close**. A pending request disables that action and leaves the result
-modal open. Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel`
-foreground game state, or new toast system. Those belong to project 2.
+modal open.
+
+#### Duel queue confirmation
+
+When an accepted challenge enters the queue, each participant gets one `info` notification under the
+stable id `game-queued`, titled `Challenge accepted`, with the opponent pair and a `Deathroll · 1v1`
+game/format line as detail. It uses the default `info` auto-dismiss and has no actions; `×`
+dismisses. A later reservation replaces it under the same id rather than stacking — hence a stable
+id, not a per-reservation one: replacement happens without any dismissal in between, so a generated
+id would never be unregistered and would leak a queue slot forever.
+
+It is derived from queue snapshots, not from `game.accepted`: that event carries an `offerId` while
+snapshots carry a `reservationId`, and the two do not correlate. A pair accepted into an idle channel
+is promoted to a ready check before the snapshot is built, so it never appears queued and no
+confirmation fires — the ready check is the confirmation in that case. The first snapshot per channel
+**per session** is consumed as a baseline (`useQueuedDuelConfirmation` re-baselines whenever
+`selfSession` changes, i.e. on reconnect), so reconnecting never replays an old confirmation.
+
+Being a repeatable informational notification, it respects Notifications -> `Disable optional
+notifications` and the `Duel queue updates` (`notificationDuelQueued`) category toggle. The gate is
+applied before `register`, per section 13.
+
+Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel` foreground
+game state, or new toast system. Those belong to project 2.
 
 #### Head-to-head record
 
@@ -1080,6 +1111,7 @@ Every notification uses a **title + detail** pattern:
 
 - **Title** = what happened. Short, scannable, fits one line. Bold weight.
 - **Detail** = context or next step. Smaller, secondary color. Optional — omit if the title says it all.
+- **Multi-line detail** = two or more bare `<div>`s inside a fragment. No wrapper class and no `<br/>`: they sit inside `.notification__detail` and inherit its size, color and line height.
 
 The status icon aligns vertically with the title line.
 
@@ -1127,6 +1159,7 @@ Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brm
 - When a notification is dismissed or exits, the next queued entry **re-appears** automatically.
 - `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
 - `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
+- `onExited` only fires if the component survives the exit animation. A notification behind a render gate — `{data && q.isVisible(id) && <Notification visible={true} … />}` — unmounts the moment `data` clears, before the exit timer is ever scheduled, so its `onExited` is unreachable. Such a notification must unregister from the same effect that registers it (`if (show) register(id, status); else unregister(id)`), or it leaks its queue slot.
 - `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
 
 ### Queue Lifecycle Checklist
