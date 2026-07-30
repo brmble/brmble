@@ -17,6 +17,7 @@ import {
   reduceGalleryEvent,
   type CustomCompanionEntry,
   type CustomCompanionGallery,
+  type ThumbnailConsumer,
 } from '../customCompanions/customCompanionTypes';
 import type { MatrixCredentials } from './useMatrixClient';
 
@@ -78,9 +79,9 @@ function redactionTarget(event: MatrixEvent): string | null {
 
 export interface CustomCompanionGalleryController extends CustomCompanionGallery {
   requestAtlas(entry: CustomCompanionEntry, protectedKeys: ReadonlySet<string>): Promise<string>;
-  requestThumbnail(entry: CustomCompanionEntry): Promise<string>;
+  requestThumbnail(entry: CustomCompanionEntry, consumer: ThumbnailConsumer): Promise<string>;
   releaseAtlas(entry: CustomCompanionEntry): void;
-  releaseThumbnail(entry: CustomCompanionEntry): void;
+  releaseThumbnail(entry: CustomCompanionEntry, consumer: ThumbnailConsumer): void;
   createCompanion(name: string, mediaUri: string): Promise<unknown>;
   deleteCompanion(entry: CustomCompanionEntry): Promise<void>;
 }
@@ -105,6 +106,7 @@ export function useCustomCompanionGallery(
   const thumbnailUrls = useRef(new Map<string, string>());
   const atlasRequests = useRef(new Map<string, Promise<string>>());
   const thumbnailRequests = useRef(new Map<string, Promise<string>>());
+  const thumbnailConsumers = useRef(new Map<string, Set<ThumbnailConsumer>>());
   galleryRef.current = gallery;
 
   const revokeUrl = useCallback((urls: Map<string, string>, cacheKey: string) => {
@@ -117,6 +119,7 @@ export function useCustomCompanionGallery(
     loader?.cancel(cacheKey);
     atlasRequests.current.delete(cacheKey);
     thumbnailRequests.current.delete(cacheKey);
+    thumbnailConsumers.current.delete(cacheKey);
     revokeUrl(atlasUrls.current, cacheKey);
     revokeUrl(thumbnailUrls.current, cacheKey);
     void deleteAtlas(cacheKey);
@@ -219,6 +222,7 @@ export function useCustomCompanionGallery(
     thumbnailUrls.current.clear();
     atlasRequests.current.clear();
     thumbnailRequests.current.clear();
+    thumbnailConsumers.current.clear();
   }, [loader]);
 
   const requestAtlas = useCallback((entry: CustomCompanionEntry, protectedKeys: ReadonlySet<string>) => {
@@ -231,8 +235,7 @@ export function useCustomCompanionGallery(
     const existingRequest = atlasRequests.current.get(entry.atlasCacheKey);
     if (existingRequest) return existingRequest;
 
-    let request!: Promise<string>;
-    request = loader.ensureAtlas(entry, protectedKeys).then((blob): string | Promise<string> => {
+    const request: Promise<string> = loader.ensureAtlas(entry, protectedKeys).then((blob): string | Promise<string> => {
       if (galleryRef.current.redactedEventIds.has(entry.eventId)) throw new Error('Custom companion was removed.');
       const owner = atlasRequests.current.get(entry.atlasCacheKey);
       if (owner !== request) {
@@ -252,19 +255,21 @@ export function useCustomCompanionGallery(
     return request;
   }, [loader, revokeUrl]);
 
-  const requestThumbnail = useCallback((entry: CustomCompanionEntry) => {
+  const requestThumbnail = useCallback((entry: CustomCompanionEntry, consumer: ThumbnailConsumer) => {
     if (!loader) return Promise.reject(new Error('Custom companion media is unavailable.'));
     if (galleryRef.current.redactedEventIds.has(entry.eventId)) {
       return Promise.reject(new Error('Custom companion was removed.'));
     }
+    const consumers = thumbnailConsumers.current.get(entry.atlasCacheKey) ?? new Set();
+    consumers.add(consumer);
+    thumbnailConsumers.current.set(entry.atlasCacheKey, consumers);
     const existingUrl = thumbnailUrls.current.get(entry.atlasCacheKey);
     if (existingUrl) return Promise.resolve(existingUrl);
     const existingRequest = thumbnailRequests.current.get(entry.atlasCacheKey);
     if (existingRequest) return existingRequest;
 
     const controller = new AbortController();
-    let request!: Promise<string>;
-    request = loader.loadThumbnail(entry, controller.signal).then((blob): string | Promise<string> => {
+    const request: Promise<string> = loader.loadThumbnail(entry, controller.signal).then((blob): string | Promise<string> => {
       if (galleryRef.current.redactedEventIds.has(entry.eventId)) throw new Error('Custom companion was removed.');
       const owner = thumbnailRequests.current.get(entry.atlasCacheKey);
       if (owner !== request) {
@@ -290,7 +295,11 @@ export function useCustomCompanionGallery(
     revokeUrl(atlasUrls.current, entry.atlasCacheKey);
   }, [loader, revokeUrl]);
 
-  const releaseThumbnail = useCallback((entry: CustomCompanionEntry) => {
+  const releaseThumbnail = useCallback((entry: CustomCompanionEntry, consumer: ThumbnailConsumer) => {
+    const consumers = thumbnailConsumers.current.get(entry.atlasCacheKey);
+    if (!consumers?.delete(consumer)) return;
+    if (consumers.size > 0) return;
+    thumbnailConsumers.current.delete(entry.atlasCacheKey);
     loader?.cancelThumbnail(entry.atlasCacheKey);
     thumbnailRequests.current.delete(entry.atlasCacheKey);
     revokeUrl(thumbnailUrls.current, entry.atlasCacheKey);

@@ -79,6 +79,44 @@ describe('useViewportThumbnail', () => {
     expect(requestThumbnail).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the visible thumbnail when refreshed metadata retains the cache key', async () => {
+    const requestThumbnail = vi.fn().mockResolvedValue('blob:thumbnail');
+    const releaseThumbnail = vi.fn();
+    const hook = renderHook(
+      ({ currentEntry }) => useViewportThumbnail(
+        currentEntry,
+        { requestThumbnail, releaseThumbnail },
+      ),
+      { initialProps: { currentEntry: entry } },
+    );
+
+    act(() => hook.result.current.ref(document.createElement('div')));
+    act(() => intersect(true));
+    await waitFor(() => expect(hook.result.current.status).toBe('ready'));
+
+    hook.rerender({
+      currentEntry: {
+        ...entry,
+        name: 'Orbit refreshed',
+      },
+    });
+
+    expect(hook.result.current.thumbnailUrl).toBe('blob:thumbnail');
+    expect(hook.result.current.status).toBe('ready');
+    expect(requestThumbnail).toHaveBeenCalledTimes(1);
+    expect(releaseThumbnail).not.toHaveBeenCalled();
+    expect(observers).toHaveLength(1);
+    expect(observers[0].disconnect).not.toHaveBeenCalled();
+
+    act(() => intersect(false));
+    act(() => intersect(true));
+    await waitFor(() => expect(requestThumbnail).toHaveBeenCalledTimes(2));
+    expect(requestThumbnail).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: 'Orbit refreshed' }),
+      expect.anything(),
+    );
+  });
+
   it('releases on leave, requests again on re-entry, and releases on unmount', async () => {
     const requestThumbnail = vi.fn()
       .mockResolvedValueOnce('blob:first')
@@ -130,7 +168,7 @@ describe('useViewportThumbnail', () => {
     ));
     await waitFor(() => expect(result.current[0].status).toBe('ready'));
     expect(requestThumbnail).toHaveBeenCalledTimes(1);
-    expect(requestThumbnail).toHaveBeenLastCalledWith(entry);
+    expect(requestThumbnail).toHaveBeenLastCalledWith(entry, expect.anything());
 
     act(() => observers[1].callback(
       [{ isIntersecting: true } as IntersectionObserverEntry],
@@ -138,7 +176,7 @@ describe('useViewportThumbnail', () => {
     ));
     await waitFor(() => expect(result.current[1].status).toBe('ready'));
     expect(requestThumbnail).toHaveBeenCalledTimes(2);
-    expect(requestThumbnail).toHaveBeenLastCalledWith(secondEntry);
+    expect(requestThumbnail).toHaveBeenLastCalledWith(secondEntry, expect.anything());
   });
 
   it('keeps a placeholder state after failure without requesting a full atlas', async () => {

@@ -180,3 +180,39 @@ Commit: `c5efb37a feat: synchronize custom companion gallery`
 ### Concerns
 
 - None.
+
+## Review Fix: Viewport Thumbnail Consumer Leases
+
+### Summary
+
+- Keyed viewport thumbnail effects by `atlasCacheKey` and retained the latest entry in a ref, so current-state refreshes with fresh entry objects do not disconnect observers, release URLs, refetch, or flicker.
+- Added stable per-hook consumer symbols and reference-counted ownership per thumbnail cache key.
+- A consumer leaving no longer aborts an in-flight shared request or revokes a shared URL while another consumer remains.
+- Final consumer leave, redaction, loader replacement, and unmount still cancel requests and revoke session object URLs.
+- Preserved viewport-only requests with `rootMargin: '200px'`, stable placeholder/error behavior, and no full-atlas fallback.
+- Added regressions for same-key metadata refreshes and two simultaneous consumers sharing an in-flight request and resulting URL.
+
+### Tests Run
+
+- `npm.cmd run test -- src/customCompanions src/hooks/useCustomCompanionGallery.test.tsx src/hooks/useMatrixClient.test.ts src/utils/matrixCredentials.test.ts`
+  - PASS: 7 files, 98 tests.
+  - The `useMatrixClient` failure-path test emitted its expected simulated `network` diagnostic.
+- `npm.cmd run type-check`
+  - PASS.
+- `npx.cmd eslint src/customCompanions/customCompanionTypes.ts src/customCompanions/useViewportThumbnail.ts src/customCompanions/useViewportThumbnail.test.tsx src/hooks/useCustomCompanionGallery.ts src/hooks/useCustomCompanionGallery.test.tsx`
+  - PASS with zero errors or warnings.
+- `git diff --check`
+  - PASS.
+
+### Files Changed
+
+- `src/Brmble.Web/src/customCompanions/customCompanionTypes.ts`
+- `src/Brmble.Web/src/customCompanions/useViewportThumbnail.ts`
+- `src/Brmble.Web/src/customCompanions/useViewportThumbnail.test.tsx`
+- `src/Brmble.Web/src/hooks/useCustomCompanionGallery.ts`
+- `src/Brmble.Web/src/hooks/useCustomCompanionGallery.test.tsx`
+- `.superpowers/sdd/task-6-report.md`
+
+### Concerns
+
+- None.

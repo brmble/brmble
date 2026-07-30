@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState, type RefCallback } from 'react';
-import type { CustomCompanionEntry } from './customCompanionTypes';
+import { useCallback, useEffect, useRef, useState, type RefCallback } from 'react';
+import type { CustomCompanionEntry, ThumbnailConsumer } from './customCompanionTypes';
 
 export type ViewportThumbnailStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface ViewportThumbnailController {
-  requestThumbnail(entry: CustomCompanionEntry): Promise<string>;
-  releaseThumbnail(entry: CustomCompanionEntry): void;
+  requestThumbnail(entry: CustomCompanionEntry, consumer: ThumbnailConsumer): Promise<string>;
+  releaseThumbnail(entry: CustomCompanionEntry, consumer: ThumbnailConsumer): void;
 }
 
 export interface ViewportThumbnail {
@@ -24,17 +24,22 @@ export function useViewportThumbnail(
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<ViewportThumbnailStatus>('idle');
   const ref = useCallback<RefCallback<HTMLElement>>(node => setElement(node), []);
+  const entryRef = useRef(entry);
+  const consumer = useRef<ThumbnailConsumer>(Symbol('viewport-thumbnail')).current;
+  entryRef.current = entry;
 
   useEffect(() => {
     if (!element) return;
 
     let active = false;
     let requestGeneration = 0;
+    let leasedEntry: CustomCompanionEntry | null = null;
     const release = () => {
       if (!active) return;
       active = false;
       requestGeneration += 1;
-      releaseThumbnail(entry);
+      if (leasedEntry) releaseThumbnail(leasedEntry, consumer);
+      leasedEntry = null;
       setThumbnailUrl(null);
       setStatus('idle');
     };
@@ -48,8 +53,10 @@ export function useViewportThumbnail(
 
       active = true;
       const generation = ++requestGeneration;
+      const requestedEntry = entryRef.current;
+      leasedEntry = requestedEntry;
       setStatus('loading');
-      void requestThumbnail(entry).then(url => {
+      void requestThumbnail(requestedEntry, consumer).then(url => {
         if (!active || requestGeneration !== generation) return;
         setThumbnailUrl(url);
         setStatus('ready');
@@ -65,7 +72,7 @@ export function useViewportThumbnail(
       observer.disconnect();
       release();
     };
-  }, [element, entry, releaseThumbnail, requestThumbnail]);
+  }, [consumer, element, entry.atlasCacheKey, releaseThumbnail, requestThumbnail]);
 
   return {
     ref,

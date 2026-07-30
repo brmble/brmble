@@ -234,7 +234,7 @@ describe('useCustomCompanionGallery', () => {
 
     await act(async () => {
       await result.current.requestAtlas(result.current.entries[0], new Set());
-      await result.current.requestThumbnail(result.current.entries[0]);
+      await result.current.requestThumbnail(result.current.entries[0], Symbol('redaction-test'));
     });
     act(() => harness.emit('Room.timeline', event(99, {
       type: 'm.room.redaction',
@@ -305,12 +305,13 @@ describe('useCustomCompanionGallery', () => {
     );
     await waitFor(() => expect(hook.result.current.entries).toHaveLength(1));
     const entry = hook.result.current.entries[0];
+    const consumer = Symbol('replacement-test');
 
-    const staleRequest = hook.result.current.requestThumbnail(entry);
+    const staleRequest = hook.result.current.requestThumbnail(entry, consumer);
     hook.rerender({
       currentCredentials: { ...credentials, accessToken: 'replacement-token' },
     });
-    const currentRequest = hook.result.current.requestThumbnail(entry);
+    const currentRequest = hook.result.current.requestThumbnail(entry, consumer);
     expect(loadThumbnail).toHaveBeenCalledTimes(2);
 
     staleBlob.resolve(new Blob(['stale']));
@@ -318,7 +319,7 @@ describe('useCustomCompanionGallery', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const attachedRequest = hook.result.current.requestThumbnail(entry);
+    const attachedRequest = hook.result.current.requestThumbnail(entry, consumer);
     expect(attachedRequest).toBe(currentRequest);
     expect(loadThumbnail).toHaveBeenCalledTimes(2);
 
@@ -332,6 +333,42 @@ describe('useCustomCompanionGallery', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
+  it('retains a shared thumbnail until the final consumer releases it', async () => {
+    const harness = setupClient([event(1)]);
+    const thumbnailBlob = deferred<Blob>();
+    loadThumbnail.mockReturnValue(thumbnailBlob.promise);
+    cancelThumbnail.mockReset();
+    const { result } = renderHook(() =>
+      useCustomCompanionGallery(asMatrixClient(harness.client), credentials));
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+    const currentEntry = result.current.entries[0];
+    const pickerConsumer = Symbol('picker');
+    const moderationConsumer = Symbol('moderation');
+
+    const pickerRequest = result.current.requestThumbnail(currentEntry, pickerConsumer);
+    const moderationRequest = result.current.requestThumbnail(currentEntry, moderationConsumer);
+    expect(loadThumbnail).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.releaseThumbnail(currentEntry, pickerConsumer));
+    expect(cancelThumbnail).not.toHaveBeenCalled();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+    thumbnailBlob.resolve(new Blob(['thumb']));
+    await expect(Promise.all([pickerRequest, moderationRequest])).resolves.toEqual([
+      'blob:5',
+      'blob:5',
+    ]);
+
+    await expect(
+      result.current.requestThumbnail(currentEntry, moderationConsumer),
+    ).resolves.toBe('blob:5');
+    expect(loadThumbnail).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.releaseThumbnail(currentEntry, moderationConsumer));
+    expect(cancelThumbnail).toHaveBeenCalledOnce();
+    expect(URL.revokeObjectURL).toHaveBeenCalledOnce();
+  });
+
   it('exposes explicit media requests and retries failures only on demand', async () => {
     const harness = setupClient([event(1)]);
     ensureAtlas.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(new Blob(['atlas']));
@@ -342,7 +379,9 @@ describe('useCustomCompanionGallery', () => {
     await expect(result.current.requestAtlas(result.current.entries[0], new Set())).rejects.toThrow('offline');
     expect(ensureAtlas).toHaveBeenCalledTimes(1);
     await expect(result.current.requestAtlas(result.current.entries[0], new Set())).resolves.toBe('blob:5');
-    await expect(result.current.requestThumbnail(result.current.entries[0])).resolves.toBe('blob:5');
+    await expect(
+      result.current.requestThumbnail(result.current.entries[0], Symbol('explicit-request-test')),
+    ).resolves.toBe('blob:5');
   });
 
   it('reports disabled and unavailable states without media requests', async () => {

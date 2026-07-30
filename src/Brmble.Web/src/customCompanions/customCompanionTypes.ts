@@ -1,5 +1,7 @@
 import type { CompanionSelection } from '../components/SettingsModal/InterfaceSettingsTypes';
 
+export type ThumbnailConsumer = symbol;
+
 export interface CustomCompanionCapability {
   enabled: true;
   schemaVersion: 1;
