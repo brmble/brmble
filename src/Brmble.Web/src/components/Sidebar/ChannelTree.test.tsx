@@ -832,4 +832,32 @@ describe('ChannelTree duel activity badge', () => {
     expect(badge).toHaveClass('channel-duel-icon');
     expect(badge.querySelector('[data-icon="swords"]')).not.toBeNull();
   });
+
+  it('marks the duel badge active when the local player is waiting in that channel', () => {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[]}
+        duelChannelIds={new Set([1])}
+        personalDuelChannelIds={new Set([1])}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Open duel activity for General')).toHaveClass('active');
+  });
+
+  it('leaves the duel badge unstyled for duels the local player is not waiting in', () => {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[]}
+        duelChannelIds={new Set([1])}
+        personalDuelChannelIds={new Set()}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Open duel activity for General')).not.toHaveClass('active');
+  });
 });

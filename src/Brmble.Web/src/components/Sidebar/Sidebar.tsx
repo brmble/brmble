@@ -42,6 +42,7 @@ interface SidebarProps {
   onChallengeDeathroll?: (session: number) => void;
   onChallengeRps?: (session: number, bestOf: number) => void;
   duelChannelIds?: Set<number>;
+  personalDuelChannelIds?: Set<number>;
   onOpenDuelQueue?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
@@ -81,6 +82,7 @@ export function Sidebar({
   onChallengeDeathroll,
   onChallengeRps,
   duelChannelIds,
+  personalDuelChannelIds,
   onOpenDuelQueue,
   speakingUsers,
   voiceIdle,
@@ -451,6 +453,7 @@ export function Sidebar({
           onChallengeDeathroll={onChallengeDeathroll}
           onChallengeRps={onChallengeRps}
           duelChannelIds={duelChannelIds}
+          personalDuelChannelIds={personalDuelChannelIds}
           onOpenDuelQueue={onOpenDuelQueue}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}

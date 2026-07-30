@@ -129,6 +129,13 @@
   cursor: pointer;
 }
 
+/* Same active treatment as the top-bar mute control (UserPanel.css). */
+.channel-duel-icon.active {
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
+  border-radius: var(--radius-sm);
+}
+
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);

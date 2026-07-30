@@ -1015,6 +1015,15 @@ function App() {
       .filter(snapshot => snapshot.active || snapshot.readyCheck || snapshot.queue.length > 0)
       .map(snapshot => snapshot.channelId),
   ), [duelQueue.byChannel]);
+  // Personal = you are waiting (queued or ready). An active match already shows
+  // its own participant modal, so it does not highlight the badge.
+  const personalDuelChannelIds = useMemo(() => new Set(
+    [...duelQueue.byChannel.values()]
+      .filter(snapshot =>
+        snapshot.readyCheck?.players.some(player => player.sessionId === selfSession)
+        || snapshot.queue.some(entry => entry.players.some(player => player.sessionId === selfSession)))
+      .map(snapshot => snapshot.channelId),
+  ), [duelQueue.byChannel, selfSession]);
   const [selectedDuelChannelId, setSelectedDuelChannelId] = useState<number | null>(null);
   const selectedDuelSnapshot = selectedDuelChannelId == null ? null : duelQueue.byChannel.get(selectedDuelChannelId) ?? null;
   const readyCheck = [...duelQueue.byChannel.values()]
@@ -4407,6 +4416,7 @@ const handleConnect = (serverData: SavedServer) => {
           onChallengeDeathroll={(session) => gameState.invite(session)}
           onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
           duelChannelIds={duelChannelIds}
+          personalDuelChannelIds={personalDuelChannelIds}
           onOpenDuelQueue={setSelectedDuelChannelId}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}

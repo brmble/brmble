@@ -60,6 +60,8 @@ interface ChannelTreeProps {
   onChallengeRps?: (session: number, bestOf: number) => void;
   /** Channels with an active/pending duel — shows a swords badge on the row. */
   duelChannelIds?: Set<number>;
+  /** Subset of duelChannelIds where the local player is queued or in a ready check. */
+  personalDuelChannelIds?: Set<number>;
   onOpenDuelQueue?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
@@ -92,7 +94,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -391,7 +393,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             <Tooltip content="Open duel activity">
               <button
                 type="button"
-                className="channel-duel-icon"
+                className={`channel-duel-icon${personalDuelChannelIds?.has(channel.id) ? ' active' : ''}`}
                 aria-label={`Open duel activity for ${channel.name}`}
                 onClick={(event) => {
                   event.stopPropagation();

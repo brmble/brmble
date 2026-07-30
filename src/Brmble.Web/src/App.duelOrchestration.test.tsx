@@ -5,7 +5,8 @@ import bridge from './bridge';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import type { EndedMatch } from './components/Games/useGameState';
-import type { RematchOffer } from './components/Games/useDuelQueueState';
+import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
+import type { DuelPlayer, QueuedDuel } from './api/games';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
 
 const mocks = vi.hoisted(() => {
@@ -148,6 +149,29 @@ describe('participant result rematches', () => {
 function renderApp() {
   return render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
 }
+
+/** Mumble session of the local user in these fixtures. Deliberately distinct from any userId. */
+const selfSession = 11;
+
+/** userId and sessionId are kept distinct so a userId/sessionId mix-up fails the tests. */
+const player = (sessionId: number): DuelPlayer =>
+  ({ userId: sessionId * 100, sessionId, displayName: `Player ${sessionId}`, ready: false });
+
+const queuedEntry = (players: DuelPlayer[]): QueuedDuel => ({
+  reservationId: 1, position: 1, players, gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+  eta: { status: 'unknown', estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
+});
+
+const snapshot = (
+  channelId: number,
+  parts: Partial<Pick<DuelQueueSnapshot, 'active' | 'readyCheck' | 'queue'>>,
+): DuelQueueSnapshot => ({
+  schemaVersion: 1, channelId, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
+  active: parts.active ?? null, readyCheck: parts.readyCheck ?? null, queue: parts.queue ?? [],
+});
+
+const connectSelf = (channelId: number) => act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void })
+  .__emit('voice.connected', { channelId, users: [{ session: selfSession, name: 'Me', self: true, channelId }] }));
 
 describe('App duel orchestration', () => {
   beforeEach(() => {
@@ -364,6 +388,48 @@ describe('App duel orchestration', () => {
 
     fireEvent.click(screen.getByLabelText('Dismiss notification'));
     expect(screen.queryByText('Ready check failed')).not.toBeInTheDocument();
+  });
+
+  it('marks only channels where the local player is queued or ready as personal', () => {
+    mocks.duelQueue.byChannel = new Map<number, DuelQueueSnapshot>([
+      [7, snapshot(7, { queue: [queuedEntry([player(selfSession), player(999)])] })],
+      [8, snapshot(8, { queue: [queuedEntry([player(998), player(999)])] })],
+    ]);
+    renderApp();
+    connectSelf(7);
+
+    expect(mocks.sidebarProps.current?.duelChannelIds).toEqual(new Set([7, 8]));
+    expect(mocks.sidebarProps.current?.personalDuelChannelIds).toEqual(new Set([7]));
+  });
+
+  it('marks a channel personal when the local player is in the ready check', () => {
+    mocks.duelQueue.byChannel = new Map<number, DuelQueueSnapshot>([[7, snapshot(7, {
+      readyCheck: {
+        reservationId: 42, expiresAt: new Date(Date.now() + 10_000).toISOString(),
+        gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+        players: [player(selfSession), player(999)],
+      },
+    })]]);
+    renderApp();
+    connectSelf(7);
+
+    expect(mocks.sidebarProps.current?.personalDuelChannelIds).toEqual(new Set([7]));
+  });
+
+  it('does not mark a channel personal for an active-only local match', () => {
+    mocks.duelQueue.byChannel = new Map<number, DuelQueueSnapshot>([[7, snapshot(7, {
+      active: {
+        matchId: 1, status: 'starting', startedAt: new Date().toISOString(),
+        players: [player(selfSession), player(999)],
+        gameType: 'rps', format: 'bo3', rulesetVersion: 1,
+        remaining: { status: 'unknown', milliseconds: null, sampleCount: 0, method: 'insufficient', approximate: true },
+      },
+    })]]);
+    renderApp();
+    connectSelf(7);
+
+    expect(mocks.sidebarProps.current?.duelChannelIds).toEqual(new Set([7]));
+    expect(mocks.sidebarProps.current?.personalDuelChannelIds).toEqual(new Set());
   });
 
   it('closes a selected modal when its snapshot is removed', () => {
