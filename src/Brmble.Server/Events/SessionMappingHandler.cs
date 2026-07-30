@@ -1,4 +1,5 @@
 using Brmble.Server.Auth;
+using Brmble.Server.Companions;
 using Brmble.Server.Mumble;
 
 namespace Brmble.Server.Events;
@@ -43,13 +44,15 @@ public class SessionMappingHandler : IMumbleEventHandler
         _logger.LogInformation(
             "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble}, added={Added})",
             user.SessionId, user.Name, dbUser.MatrixUserId, isBrmbleClient, mappingAdded);
+        var wire = CompanionWireSelection.FromPersisted(companionId);
         await _eventBus.BroadcastAsync(new
         {
             type = "userMappingAdded",
             sessionId = user.SessionId,
             matrixUserId = dbUser.MatrixUserId,
             mumbleName = user.Name,
-            companionId,
+            companionId = wire.CompanionId,
+            customCompanionId = wire.CustomCompanionId,
             certHash = user.CertHash,
             isBrmbleClient
         });

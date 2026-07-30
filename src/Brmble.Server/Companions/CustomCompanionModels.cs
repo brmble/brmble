@@ -71,3 +71,13 @@ public sealed record CustomCompanionCapability(
     string SelectedCompanionId,
     int MaxActivePerUser,
     int MaxActiveTotal);
+
+public sealed record CompanionWireSelection(
+    string CompanionId,
+    string? CustomCompanionId)
+{
+    public static CompanionWireSelection FromPersisted(string selection) =>
+        Brmble.Server.Companions.CustomCompanionId.TryParse(selection, out _)
+            ? new("floppy", selection)
+            : new(selection, null);
+}

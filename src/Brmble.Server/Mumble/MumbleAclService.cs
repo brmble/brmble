@@ -91,27 +91,24 @@ public sealed class MumbleAclService : IMumbleAclService
 
     public async Task<bool> HasWritePermissionAsync(int sessionId, int channelId)
     {
-        try
-        {
-            return await _iceClient.HasPermissionAsync(sessionId, channelId, MumbleServer.PermissionWrite.value);
-        }
-        catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
-        {
-            _logger.LogWarning(ex, "Failed to verify write permission for session {SessionId} on channel {ChannelId}", sessionId, channelId);
-            throw new MumbleAclException($"Failed to verify write permission for session {sessionId} on channel {channelId}.", ex);
-        }
+        return await HasPermissionAsync(sessionId, channelId, MumbleServer.PermissionWrite.value);
     }
 
     public async Task<bool> HasTextMessagePermissionAsync(int sessionId, int channelId)
     {
+        return await HasPermissionAsync(sessionId, channelId, MumbleServer.PermissionTextMessage.value);
+    }
+
+    public async Task<bool> HasPermissionAsync(int sessionId, int channelId, int permission)
+    {
         try
         {
-            return await _iceClient.HasPermissionAsync(sessionId, channelId, MumbleServer.PermissionTextMessage.value);
+            return await _iceClient.HasPermissionAsync(sessionId, channelId, permission);
         }
         catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
         {
-            _logger.LogWarning(ex, "Failed to verify text message permission for session {SessionId} on channel {ChannelId}", sessionId, channelId);
-            throw new MumbleAclException($"Failed to verify text message permission for session {sessionId} on channel {channelId}.", ex);
+            _logger.LogWarning(ex, "Failed to verify permission for session {SessionId} on channel {ChannelId}", sessionId, channelId);
+            throw new MumbleAclException($"Failed to verify permission for session {sessionId} on channel {channelId}.", ex);
         }
     }
 }

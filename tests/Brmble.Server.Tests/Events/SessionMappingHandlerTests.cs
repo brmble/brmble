@@ -1,8 +1,10 @@
 using Brmble.Server.Auth;
+using Brmble.Server.Companions;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -153,5 +155,26 @@ public class SessionMappingHandlerTests
 
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"companionId\":\"engineer\""))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_CustomCompanionUsesLegacySafeWireFields()
+    {
+        var user = await _repo.Insert("cert-custom", "Alice");
+        using var connection = _keepAlive;
+        await connection.ExecuteAsync(
+            "UPDATE users SET companion_id = 'custom:$sprite:test' WHERE id = @Id", new { user.Id });
+        var gallery = new CustomCompanionRepository(new Database(connection.ConnectionString));
+        await gallery.InsertAsync(new CustomCompanionRecord(
+            "$sprite:test", "sprite", "!gallery:test", user.Id, user.MatrixUserId, "Alice",
+            "Orbit", "mxc://test/media", "image/png", 1, 1, 1, 1,
+            DateTimeOffset.UtcNow, null, null));
+        _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "custom:$sprite:test")).Returns(true);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "cert-custom", 1));
+
+        _bus.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload).Contains("\"companionId\":\"floppy\"") &&
+            JsonSerializer.Serialize(payload).Contains("\"customCompanionId\":\"custom:$sprite:test\""))), Times.Once);
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Brmble.Server.DM;
+using Brmble.Server.Companions;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
@@ -20,6 +21,9 @@ public static class AuthEndpoints
             DmRoomRepository dmRoomRepository,
             UserRepository userRepository,
             IOptions<MatrixSettings> matrixSettings,
+            IOptions<CustomCompanionOptions> customCompanionOptions,
+            CustomCompanionGalleryService customCompanionGalleryService,
+            IAclAuthorizationService aclAuthorization,
             ISessionMappingService sessionMapping,
             IBrmbleEventBus eventBus,
             ILogger<AuthService> logger) =>
@@ -93,13 +97,15 @@ public static class AuthEndpoints
                     // immediately. Authenticate() may have failed to update the mapping if
                     // TryAddMatrixUser hadn't been called yet (race with SessionMappingHandler).
                     sessionMapping.TryUpdateBrmbleStatus(sid, true);
+                    var wire = CompanionWireSelection.FromPersisted(companionId);
                     await eventBus.BroadcastAsync(new
                     {
                         type = "userMappingAdded",
                         sessionId = sid,
                         matrixUserId = result.MatrixUserId,
                         mumbleName = resolvedName,
-                        companionId,
+                        companionId = wire.CompanionId,
+                        customCompanionId = wire.CustomCompanionId,
                         certHash,
                         isBrmbleClient = true
                     });
@@ -135,6 +141,28 @@ public static class AuthEndpoints
 
             // Ensure user is in all rooms, then sync display name
             await matrixAppService.EnsureUserInRooms(result.Localpart, roomMap.Values);
+            CustomCompanionCapability? customCompanions = null;
+            try
+            {
+                var galleryRoomId = await customCompanionGalleryService.GetOrCreateRoomIdAsync(
+                    httpContext.RequestAborted);
+                if (await matrixAppService.EnsureUserInRoom(result.Localpart, galleryRoomId))
+                {
+                    customCompanions = new(
+                        Enabled: true,
+                        SchemaVersion: 1,
+                        GalleryRoomId: galleryRoomId,
+                        TrustedSender: $"@brmble:{matrixSettings.Value.ServerDomain}",
+                        CanModerate: await aclAuthorization.CanModerateServerAsync(result.UserId),
+                        SelectedCompanionId: await userRepository.GetCompanionId(result.UserId),
+                        MaxActivePerUser: customCompanionOptions.Value.MaxActivePerUser,
+                        MaxActiveTotal: customCompanionOptions.Value.MaxActiveTotal);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Custom companion gallery unavailable for {UserId}", result.UserId);
+            }
             try
             {
                 await matrixAppService.SetDisplayName(result.Localpart, result.DisplayName);
@@ -157,27 +185,36 @@ public static class AuthEndpoints
                 .GetRequiredService<IAclSnapshotRepository>()
                 .GetPasswordProtectedChannelIdsAsync();
 
+            var matrixPayload = new Dictionary<string, object?>
+            {
+                ["homeserverUrl"] = publicHomeserverUrl,
+                ["accessToken"] = result.MatrixAccessToken,
+                ["userId"] = result.MatrixUserId,
+                ["roomMap"] = roomMap,
+                ["dmRoomMap"] = dmRoomMap
+            };
+            if (customCompanions is not null)
+                matrixPayload["customCompanions"] = customCompanions;
+
             return Results.Ok(new
             {
-                matrix = new
-                {
-                    homeserverUrl = publicHomeserverUrl,
-                    accessToken = result.MatrixAccessToken,
-                    userId = result.MatrixUserId,
-                    roomMap,
-                    dmRoomMap
-                },
+                matrix = matrixPayload,
                 userMappings,
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp => new
+                        kvp =>
                         {
+                            var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
+                            return new
+                            {
                             matrixUserId = kvp.Value.MatrixUserId,
                             mumbleName = kvp.Value.MumbleName,
-                            companionId = kvp.Value.CompanionId,
+                            companionId = wire.CompanionId,
+                            customCompanionId = wire.CustomCompanionId,
                             certHash = kvp.Value.CertHash,
                             isBrmbleClient = kvp.Value.IsBrmbleClient
+                            };
                         }),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
@@ -227,6 +264,7 @@ public static class AuthEndpoints
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepository,
+            CustomCompanionRepository customCompanionRepository,
             ISessionMappingService sessionMapping,
             IChannelMembershipService channelMembership,
             IBrmbleEventBus eventBus,
@@ -250,7 +288,9 @@ public static class AuthEndpoints
             }
             catch { /* empty or non-JSON body */ }
 
-            if (!UserRepository.TryNormalizeCompanionId(companionId, out var normalized))
+            var normalized = await userRepository.NormalizeCompanionIdAsync(
+                user.Id, companionId, customCompanionRepository);
+            if (normalized == "floppy" && !UserRepository.TryNormalizeCompanionId(companionId, out _))
                 return Results.BadRequest(new { error = "Invalid companion ID" });
 
             await userRepository.SetCompanionId(user.Id, normalized);
@@ -260,18 +300,25 @@ public static class AuthEndpoints
                 sessionMapping.TryUpdateCompanionId(sessionId, normalized);
                 if (channelMembership.TryGetChannel(sessionId, out var channelId))
                 {
+                    var wire = CompanionWireSelection.FromPersisted(normalized);
                     await eventBus.BroadcastToChannelAsync(channelId, new
                     {
                         type = "companionChanged",
                         sessionId,
                         matrixUserId = user.MatrixUserId,
-                        companionId = normalized
+                        companionId = wire.CompanionId,
+                        customCompanionId = wire.CustomCompanionId
                     });
                 }
             }
 
             logger.LogInformation("Companion updated: UserId={UserId}, CompanionId={CompanionId}", user.Id, normalized);
-            return Results.Ok(new { companionId = normalized });
+            var responseWire = CompanionWireSelection.FromPersisted(normalized);
+            return Results.Ok(new
+            {
+                companionId = responseWire.CompanionId,
+                customCompanionId = responseWire.CustomCompanionId
+            });
         });
 
         return app;

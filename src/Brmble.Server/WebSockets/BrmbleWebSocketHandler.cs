@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using Brmble.Server.Auth;
+using Brmble.Server.Companions;
 using Brmble.Server.Events;
 
 namespace Brmble.Server.WebSockets;
@@ -52,13 +53,18 @@ public static class BrmbleWebSocketHandler
                 var snapshot = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp => new
+                        kvp =>
                         {
+                            var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
+                            return new
+                            {
                             matrixUserId = kvp.Value.MatrixUserId,
                             mumbleName = kvp.Value.MumbleName,
-                            companionId = kvp.Value.CompanionId,
+                            companionId = wire.CompanionId,
+                            customCompanionId = wire.CustomCompanionId,
                             certHash = kvp.Value.CertHash,
                             isBrmbleClient = kvp.Value.IsBrmbleClient
+                            };
                         });
                 return new { type = "sessionMappingSnapshot", mappings = snapshot };
             });
@@ -85,13 +91,19 @@ public static class BrmbleWebSocketHandler
         }
     }
 
-    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new
+    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash)
     {
-        type = "userMappingAdded",
-        sessionId,
-        matrixUserId = mapping.MatrixUserId,
-        mumbleName = mapping.MumbleName,
-        certHash,
-        isBrmbleClient = true
-    };
+        var wire = CompanionWireSelection.FromPersisted(mapping.CompanionId);
+        return new
+        {
+            type = "userMappingAdded",
+            sessionId,
+            matrixUserId = mapping.MatrixUserId,
+            mumbleName = mapping.MumbleName,
+            companionId = wire.CompanionId,
+            customCompanionId = wire.CustomCompanionId,
+            certHash,
+            isBrmbleClient = true
+        };
+    }
 }

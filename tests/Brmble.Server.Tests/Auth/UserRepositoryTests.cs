@@ -1,5 +1,6 @@
 // tests/Brmble.Server.Tests/Auth/UserRepositoryTests.cs
 using Brmble.Server.Auth;
+using Brmble.Server.Companions;
 using Brmble.Server.Data;
 using Brmble.Server.Matrix;
 using Dapper;
@@ -168,5 +169,34 @@ public class UserRepositoryTests
         var companionId = await _repo.GetCompanionId(user.Id);
 
         Assert.AreEqual("floppy", companionId);
+    }
+
+    [TestMethod]
+    public async Task NormalizeCompanionIdAsync_AcceptsOnlyActiveCustomEvent()
+    {
+        var user = await _repo!.Insert("cert-custom", "alice");
+        var gallery = new CustomCompanionRepository(_db!);
+        await gallery.InsertAsync(new CustomCompanionRecord(
+            "$local:test", "local", "!gallery:test", user.Id, "@alice:test", "Alice",
+            "Orbit", "mxc://test/media", "image/png", 1536, 1872, 1, 1024,
+            DateTimeOffset.Parse("2026-07-29T10:00:00Z"), null, null));
+
+        Assert.AreEqual("custom:$local:test",
+            await _repo.NormalizeCompanionIdAsync(user.Id, "custom:$local:test", gallery));
+        Assert.AreEqual("floppy",
+            await _repo.NormalizeCompanionIdAsync(user.Id, "custom:$other:test", gallery));
+    }
+
+    [TestMethod]
+    public async Task GetCompanionId_RepairsStaleCustomSelectionToFloppy()
+    {
+        var user = await _repo!.Insert("cert-stale-custom", "alice");
+        using var conn = _db!.CreateConnection();
+        await conn.ExecuteAsync(
+            "UPDATE users SET companion_id = 'custom:$deleted:test' WHERE id = @Id", new { user.Id });
+
+        Assert.AreEqual("floppy", await _repo.GetCompanionId(user.Id));
+        Assert.AreEqual("floppy", await conn.QuerySingleAsync<string>(
+            "SELECT companion_id FROM users WHERE id = @Id", new { user.Id }));
     }
 }

@@ -1,5 +1,6 @@
 using Brmble.Server.Events;
 using Brmble.Server.WebSockets;
+using Brmble.Server.Companions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.WebSockets;
@@ -21,5 +22,25 @@ public class BrmbleWebSocketHandlerTests
         var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
 
         Assert.AreEqual("fresh-hash", payload.GetType().GetProperty("certHash")!.GetValue(payload));
+    }
+
+    [TestMethod]
+    public void WireSelection_CustomValueKeepsLegacyFieldSafe()
+    {
+        var wire = CompanionWireSelection.FromPersisted("custom:$sprite:test");
+
+        Assert.AreEqual("floppy", wire.CompanionId);
+        Assert.AreEqual("custom:$sprite:test", wire.CustomCompanionId);
+    }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_CustomCompanionUsesDualWireFields()
+    {
+        var mapping = new SessionMapping("@alice:test", "Alice", 42, "custom:$sprite:test");
+
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+
+        Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
+        Assert.AreEqual("custom:$sprite:test", payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
     }
 }
