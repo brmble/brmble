@@ -264,6 +264,7 @@ public static class AuthEndpoints
             HttpContext httpContext,
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepository,
+            CustomCompanionEventCoordinator customCompanionEventCoordinator,
             CustomCompanionRepository customCompanionRepository,
             ISessionMappingService sessionMapping,
             IChannelMembershipService channelMembership,
@@ -288,39 +289,67 @@ public static class AuthEndpoints
             }
             catch { /* empty or non-JSON body */ }
 
-            var normalized = await userRepository.NormalizeCompanionIdAsync(
-                user.Id, companionId, customCompanionRepository);
-            if (normalized == "floppy" && !UserRepository.TryNormalizeCompanionId(companionId, out _))
-                return Results.BadRequest(new { error = "Invalid companion ID" });
-
-            await userRepository.SetCompanionId(user.Id, normalized);
-
-            if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId))
+            if (CustomCompanionId.TryParse(companionId, out var eventId))
             {
-                sessionMapping.TryUpdateCompanionId(sessionId, normalized);
-                if (channelMembership.TryGetChannel(sessionId, out var channelId))
+                using (await customCompanionEventCoordinator.AcquireAsync(
+                           eventId, httpContext.RequestAborted))
                 {
-                    var wire = CompanionWireSelection.FromPersisted(normalized);
-                    await eventBus.BroadcastToChannelAsync(channelId, new
-                    {
-                        type = "companionChanged",
-                        sessionId,
-                        matrixUserId = user.MatrixUserId,
-                        companionId = wire.CompanionId,
-                        customCompanionId = wire.CustomCompanionId
-                    });
+                    if (await customCompanionRepository.GetActiveByEventIdAsync(eventId) is null)
+                        return Results.BadRequest(new { error = "Invalid companion ID" });
+
+                    return await PersistCompanionSelectionAsync(
+                        user, companionId!, userRepository, sessionMapping,
+                        channelMembership, eventBus, logger);
                 }
             }
 
-            logger.LogInformation("Companion updated: UserId={UserId}, CompanionId={CompanionId}", user.Id, normalized);
-            var responseWire = CompanionWireSelection.FromPersisted(normalized);
-            return Results.Ok(new
-            {
-                companionId = responseWire.CompanionId,
-                customCompanionId = responseWire.CustomCompanionId
-            });
+            if (!UserRepository.TryNormalizeCompanionId(companionId, out var normalized))
+                return Results.BadRequest(new { error = "Invalid companion ID" });
+
+            return await PersistCompanionSelectionAsync(
+                user, normalized, userRepository, sessionMapping,
+                channelMembership, eventBus, logger);
         });
 
         return app;
+    }
+
+    private static async Task<IResult> PersistCompanionSelectionAsync(
+        User user,
+        string companionId,
+        UserRepository userRepository,
+        ISessionMappingService sessionMapping,
+        IChannelMembershipService channelMembership,
+        IBrmbleEventBus eventBus,
+        ILogger<AuthService> logger)
+    {
+        await userRepository.SetCompanionId(user.Id, companionId);
+
+        if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId))
+        {
+            sessionMapping.TryUpdateCompanionId(sessionId, companionId);
+            if (channelMembership.TryGetChannel(sessionId, out var channelId))
+            {
+                var wire = CompanionWireSelection.FromPersisted(companionId);
+                await eventBus.BroadcastToChannelAsync(channelId, new
+                {
+                    type = "companionChanged",
+                    sessionId,
+                    matrixUserId = user.MatrixUserId,
+                    companionId = wire.CompanionId,
+                    customCompanionId = wire.CustomCompanionId
+                });
+            }
+        }
+
+        logger.LogInformation(
+            "Companion updated: UserId={UserId}, CompanionId={CompanionId}",
+            user.Id, companionId);
+        var responseWire = CompanionWireSelection.FromPersisted(companionId);
+        return Results.Ok(new
+        {
+            companionId = responseWire.CompanionId,
+            customCompanionId = responseWire.CustomCompanionId
+        });
     }
 }

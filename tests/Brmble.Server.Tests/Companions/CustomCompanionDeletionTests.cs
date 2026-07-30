@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Brmble.Server.Companions;
 using Brmble.Server.Events;
@@ -180,6 +181,47 @@ public sealed class CustomCompanionDeletionTests : IDisposable
             responses.Select(response => response.StatusCode).OrderBy(status => status).ToArray());
         _factory.MatrixAppMock.Verify(service => service.RedactRoomEvent(
             "!gallery:test", "$sprite:test", It.IsAny<string>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Delete_WinningRacePreventsCustomSelectionPublication()
+    {
+        await InsertActiveAsync();
+        _factory.SessionMappingMock.Object.TryAddMatrixUser(
+            42, "@alice:test", "Alice", 1, "custom:$sprite:test");
+        _factory.Services.GetRequiredService<IChannelMembershipService>().Update(42, 7);
+        _factory.AclAuthorizationMock.Setup(service => service.CanModerateServerAsync(1))
+            .ReturnsAsync(true);
+
+        var redactionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRedaction = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _factory.MatrixAppMock.Setup(service => service.RedactRoomEvent(
+                "!gallery:test", "$sprite:test", It.IsAny<string>()))
+            .Returns(async () =>
+            {
+                redactionStarted.TrySetResult();
+                await allowRedaction.Task;
+            });
+
+        var deletion = _client.DeleteAsync("/companions/%24sprite%3Atest");
+        await redactionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var selection = _client.PostAsJsonAsync(
+            "/auth/companion", new { companionId = "custom:$sprite:test" });
+
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+        var selectionCompletedBeforeDeletion = selection.IsCompleted;
+        allowRedaction.TrySetResult();
+
+        var deletionResponse = await deletion;
+        var selectionResponse = await selection;
+
+        Assert.IsFalse(selectionCompletedBeforeDeletion);
+        Assert.AreEqual(HttpStatusCode.NoContent, deletionResponse.StatusCode);
+        Assert.AreEqual(HttpStatusCode.BadRequest, selectionResponse.StatusCode);
+        Assert.AreEqual("floppy", _factory.SessionMappingMock.Object.GetSnapshot()[42].CompanionId);
+        Assert.IsFalse(_factory.EventBusMock.Invocations.Any(invocation =>
+            JsonSerializer.Serialize(invocation.Arguments[1])
+                .Contains("\"customCompanionId\":\"custom:$sprite:test\"", StringComparison.Ordinal)));
     }
 
     private async Task InsertActiveAsync()

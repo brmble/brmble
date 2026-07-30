@@ -112,3 +112,30 @@ Result: passed, 1 test passed, 0 failed.
 - `tests/Brmble.Server.Tests/Games/SessionMappingGamePresenceTests.cs`
 - `tests/Brmble.Server.Tests/Integration/BrmbleServerFactory.cs`
 - `.superpowers/sdd/task-4-report.md`
+
+## Review Fix: Synchronize Custom Selection and Deletion
+
+### Summary
+
+- Added a singleton per-event coordinator shared by custom companion selection and deletion.
+- Custom selection now acquires the event lock, revalidates that the event is active, and holds coordination through database persistence, live mapping publication, channel broadcast, and response construction.
+- When deletion owns the event operation first, a racing selection waits, observes the deleted event, returns 400, and does not publish or return the deleted custom ID.
+- Built-in selection and the existing deletion redaction, rollback, idempotency, reset, and compare-and-swap behavior remain unchanged.
+- Added a regression test that pauses deletion during Matrix redaction, starts a selection for the same event, and verifies deletion wins without a stale live update, broadcast, or successful response.
+
+### Tests
+
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
+
+Result: passed, 44 tests passed, 0 failed.
+
+### Files Changed
+
+- `src/Brmble.Server/Auth/AuthEndpoints.cs`
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `src/Brmble.Server/Companions/CustomCompanionEventCoordinator.cs`
+- `src/Brmble.Server/Companions/CustomCompanionExtensions.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
+- `.superpowers/sdd/task-4-report.md`

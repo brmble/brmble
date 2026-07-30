@@ -1,6 +1,5 @@
 namespace Brmble.Server.Companions;
 
-using System.Collections.Concurrent;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
@@ -8,8 +7,6 @@ using Brmble.Server.Mumble;
 
 public static class CustomCompanionEndpoints
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> DeletionLocks = new();
-
     public static IEndpointRouteBuilder MapCustomCompanionEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/companions", async (
@@ -26,6 +23,7 @@ public static class CustomCompanionEndpoints
             ICertificateHashExtractor certHashExtractor,
             UserRepository userRepository,
             IAclAuthorizationService aclAuthorization,
+            CustomCompanionEventCoordinator eventCoordinator,
             CustomCompanionRepository repository,
             IMatrixAppService matrixAppService,
             ISessionMappingService sessionMapping,
@@ -41,9 +39,7 @@ public static class CustomCompanionEndpoints
             if (!await aclAuthorization.CanModerateServerAsync(user.Id))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var deletionLock = DeletionLocks.GetOrAdd(eventId, _ => new SemaphoreSlim(1, 1));
-            await deletionLock.WaitAsync(httpContext.RequestAborted);
-            try
+            using (await eventCoordinator.AcquireAsync(eventId, httpContext.RequestAborted))
             {
                 var record = await repository.GetActiveByEventIdAsync(eventId);
                 if (record is null) return Results.NoContent();
@@ -88,10 +84,6 @@ public static class CustomCompanionEndpoints
                 }
 
                 return Results.NoContent();
-            }
-            finally
-            {
-                deletionLock.Release();
             }
         });
 

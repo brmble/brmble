@@ -6,6 +6,7 @@ public static class CustomCompanionExtensions
     {
         services.AddOptions<CustomCompanionOptions>()
             .BindConfiguration("CustomCompanions");
+        services.AddSingleton<CustomCompanionEventCoordinator>();
         services.AddSingleton<CustomCompanionRepository>();
         services.AddSingleton<CustomCompanionGalleryService>();
         services.AddSingleton<CustomCompanionUploadService>();
