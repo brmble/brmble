@@ -323,6 +323,26 @@ public sealed class DuelDurationEstimatorTests
     }
 
     [TestMethod]
+    public async Task BuildEtas_BlockedEntryKeepsItsOwnKnownDurationWhileItsEtaIsUnknown()
+    {
+        var insufficient = Config("rps", "bo3", 1);
+        var known = Config("deathroll", "1v1", 1);
+        var repository = new StubDurationRepository(call =>
+            Samples(40_000, call.GameType == "rps" ? 9 : 25));
+        var input = Input(queue: [Reservation(1, insufficient), Reservation(2, known)]);
+
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+        var blocked = result.Queue[1];
+
+        Assert.AreEqual(EstimateStatus.Known, blocked.Duration.Status);
+        Assert.AreEqual(40_000L, blocked.Duration.Milliseconds);
+        Assert.AreEqual(25, blocked.Duration.SampleCount);
+        Assert.AreEqual(EstimateStatus.Unknown, blocked.Eta.Status);
+        Assert.IsNull(blocked.Eta.Milliseconds);
+        Assert.IsNull(blocked.Eta.EstimatedStartAt);
+    }
+
+    [TestMethod]
     public async Task BuildEtas_CopiesSegmentsIntoImmutableSnapshots()
     {
         var input = Input(queue: [Reservation(1, Config()), Reservation(2, Config())]);

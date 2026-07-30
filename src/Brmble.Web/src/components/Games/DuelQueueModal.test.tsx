@@ -137,7 +137,7 @@ describe('DuelQueueModal', () => {
           gameType: 'deathroll',
           format: '1v1',
           rulesetVersion: 1,
-          estimatedDuration: unknownEstimate,
+          estimatedDuration: knownEstimate(45_000),
         },
       })}
       resolveName={resolveName}
@@ -147,6 +147,7 @@ describe('DuelQueueModal', () => {
     expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Alice Ready');
     expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Bob Waiting');
     expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Deathroll · 1v1 · v1');
+    expect(screen.getByRole('region', { name: 'Ready check' })).toHaveTextContent('Estimated duration: ~45s');
 
     rerender(<DuelQueueModal snapshot={snapshot()} resolveName={resolveName} onClose={vi.fn()} />);
     expect(screen.getByText('No duel activity in this channel.')).toBeInTheDocument();
@@ -298,13 +299,21 @@ describe('DuelQueueModal', () => {
   });
 
   it('formats minute durations', () => {
-    render(<DuelQueueModal
+    const { rerender } = render(<DuelQueueModal
       snapshot={snapshot({ queue: [queuedEntry({ estimatedDuration: knownEstimate(65_000) })] })}
       resolveName={resolveName}
       onClose={vi.fn()}
     />);
 
     expect(screen.getByText(/Estimated duration: ~1m 5s/)).toBeInTheDocument();
+
+    rerender(<DuelQueueModal
+      snapshot={snapshot({ queue: [queuedEntry({ estimatedDuration: knownEstimate(60_000) })] })}
+      resolveName={resolveName}
+      onClose={vi.fn()}
+    />);
+
+    expect(screen.getByText(/Estimated duration: ~1m$/)).toBeInTheDocument();
   });
 
   it('seeds elapsed time when a duel starts while the modal is already open', () => {
