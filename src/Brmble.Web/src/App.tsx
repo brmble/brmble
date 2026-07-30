@@ -1574,9 +1574,7 @@ function App() {
   const previousScreenShareServiceConnectedRef = useRef(false);
   const pendingCompanionRef = useRef<{
     requestId: number;
-    next: CompanionSelection;
-    previous: CompanionSelection;
-    previousSettings: OverlaySettings;
+    rollbackSettings?: OverlaySettings;
   } | null>(null);
   const companionRequestIdRef = useRef(0);
 
@@ -1944,9 +1942,6 @@ function App() {
             const requestId = ++companionRequestIdRef.current;
             pendingCompanionRef.current = {
               requestId,
-              next: desiredSelection,
-              previous: selfUser.companionId,
-              previousSettings: overlaySettingsRef.current,
             };
             bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
           }
@@ -2871,7 +2866,9 @@ function App() {
         return;
       }
       pendingCompanionRef.current = null;
-      persistOverlaySettings(pending.previousSettings);
+      if (pending.rollbackSettings) {
+        persistOverlaySettings(pending.rollbackSettings);
+      }
       setConnectionError(d?.error ?? 'Failed to sync companion');
       notifQueue.register('companion-sync-error', 'error');
     };
@@ -3862,9 +3859,6 @@ const handleConnect = (serverData: SavedServer) => {
     const capability = matrixCredentialsRef.current?.customCompanions;
     const normalizedNext = normalizeCompanionId(nextCompanion);
     const allowedNext = !capability && normalizedNext.startsWith('custom:') ? 'floppy' : normalizedNext;
-    const previousSelection = capability
-      ? companionForServer(previousSettings, capability.galleryRoomId)
-      : normalizeCompanionId(previousSettings.myCompanion);
     const currentBuiltIn = BUILT_IN_COMPANIONS.includes(previousSettings.myCompanion as BuiltInCompanionId)
       ? previousSettings.myCompanion as BuiltInCompanionId
       : 'floppy';
@@ -3886,9 +3880,7 @@ const handleConnect = (serverData: SavedServer) => {
     const requestId = ++companionRequestIdRef.current;
     pendingCompanionRef.current = {
       requestId,
-      next: allowedNext,
-      previous: previousSelection,
-      previousSettings,
+      rollbackSettings: previousSettings,
     };
     requestCompanionAtlas(allowedNext, renderedAtlasCacheKeys);
     bridge.send('voice.setCompanion', { companionId: allowedNext, requestId });

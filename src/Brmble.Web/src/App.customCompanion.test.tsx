@@ -385,6 +385,33 @@ describe('App custom companion delivery', () => {
     });
   });
 
+  it('does not roll back a newer modal setting when connect-time companion sync fails', async () => {
+    const initial: OverlaySettings = {
+      ...DEFAULT_OVERLAY,
+      myCompanion: 'patch',
+      showChannelMessages: true,
+    };
+    localStorage.setItem('brmble-settings', JSON.stringify({ overlay: initial }));
+    renderApp();
+
+    act(() => emit('voice.connected', connectedSelf('bee')));
+    const request = vi.mocked(bridge.send).mock.calls
+      .filter(([type]) => type === 'voice.setCompanion')
+      .at(-1)?.[1] as { requestId: number };
+
+    await openInterfaceSettings({ overlay: initial });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show Channel Messages' }));
+    await waitFor(() => expect(storedOverlay().showChannelMessages).toBe(false));
+
+    act(() => emit('voice.setCompanionResponse', {
+      success: false,
+      requestId: request.requestId,
+      error: 'rejected',
+    }));
+
+    await waitFor(() => expect(storedOverlay().showChannelMessages).toBe(false));
+  });
+
   it('never sends a custom selection without server capability but still sends built-ins', async () => {
     const initial: OverlaySettings = {
       ...DEFAULT_OVERLAY,

@@ -239,3 +239,48 @@ None.
 ### Concerns
 
 None.
+
+## Review Fix: Connect-Time Sync Without Rollback State
+
+### Summary
+
+- Removed rollback data from automatic companion synchronization started by
+  `voice.connected`.
+- Made rollback settings optional pending-request state and restore them only
+  when a user-initiated optimistic companion request supplied a snapshot.
+- Preserved the existing modal-owned optimistic rollback behavior.
+- Added an App regression that changes a modal overlay setting while an
+  automatic companion request is pending, rejects that request, and verifies
+  the newer setting is not overwritten.
+
+### TDD Evidence
+
+- Before the production fix:
+  `npm.cmd run test -- src/App.customCompanion.test.tsx`
+  - FAIL: 1 file, 1 failed and 7 passed tests.
+  - The failed automatic sync restored `showChannelMessages: true` over the
+    modal's newer persisted value `false`.
+- After the production fix:
+  `npm.cmd run test -- src/App.customCompanion.test.tsx`
+  - PASS: 1 file, 8 tests.
+
+### Tests Run
+
+- Required focused suite:
+  `npm.cmd run test -- src/App.customCompanion.test.tsx src/components/SettingsModal/SettingsModal.test.tsx`
+  - PASS: 2 files, 16 tests.
+- Broader focused suite:
+  `npm.cmd run test -- src/components/SettingsModal/InterfaceSettingsTypes.test.ts src/components/SettingsModal/SettingsModal.test.tsx src/components/CompanionOverlay/overlayModel.test.ts src/components/CompanionOverlay/CompanionSprite.test.tsx src/hooks/useCustomCompanionGallery.test.tsx src/App.customCompanion.test.tsx src/hooks/useCompanionOverlayPublisher.test.ts`
+  - PASS: 7 files, 69 tests.
+- `git diff --check`
+  - PASS: no whitespace errors.
+
+### Files Changed
+
+- `src/Brmble.Web/src/App.tsx`
+- `src/Brmble.Web/src/App.customCompanion.test.tsx`
+- `.superpowers/sdd/task-7-report.md`
+
+### Concerns
+
+None.
