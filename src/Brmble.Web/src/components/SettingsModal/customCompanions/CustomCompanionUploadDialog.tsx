@@ -167,10 +167,12 @@ export function CustomCompanionUploadDialog({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !active) onClose();
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      if (!active) onClose();
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [active, isOpen, onClose]);
 
   if (!isOpen) return null;

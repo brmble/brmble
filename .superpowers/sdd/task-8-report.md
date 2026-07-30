@@ -140,3 +140,32 @@
 - `.superpowers/sdd/task-8-report.md`
 - `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
 - `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
+
+## Final Re-Review Fix: Nested Escape Handling
+
+### Summary
+
+- The upload dialog now claims Escape during the capture phase and prevents the
+  parent Settings handler from processing the same key event.
+- Idle Escape closes only the upload dialog, leaving Settings open. During
+  `uploading-media` and `creating-entry`, the dialog still claims Escape but
+  closes neither dialog, preserving the existing active-upload lock.
+- Existing active tab and `initialTab` upload-lock behavior remains covered by
+  the integration regression.
+
+### Tests Run
+
+- `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
+  - PASS: 6 files, 47 tests.
+
+### Files Changed
+
+- `.superpowers/sdd/task-8-report.md`
+- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
+- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
+- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CustomCompanionUploadDialog.tsx`
+
+### Visual Verification
+
+- Classic/Retro visual verification remains for the controller; no new visual
+  browser verification was performed for this focused keyboard-handling fix.

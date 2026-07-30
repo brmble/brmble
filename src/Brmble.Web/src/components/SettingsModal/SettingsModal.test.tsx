@@ -203,6 +203,30 @@ describe('SettingsModal tabs', () => {
     expect(screen.getByTestId('my-channel-requests')).toBeInTheDocument();
   });
 
+  it('dismisses only the idle upload dialog when Escape is pressed', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <SettingsModal
+        isOpen
+        onClose={onClose}
+        initialTab="appearance"
+        customCompanionGallery={emptyCustomCompanionGallery}
+        customCompanionMatrixClient={{ uploadContent: vi.fn() }}
+      />,
+    );
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(screen.getByRole('option', { name: 'Full Companion' }));
+    await user.click(screen.getAllByRole('button', { name: /Upload custom sprite/ })[0]);
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'Upload custom companion' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Built-in' })).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('keeps the upload dialog mounted and settings close locked when a pending upload tries to change tabs', async () => {
     let resolveUpload!: (value: { content_uri: string }) => void;
     const uploadContent = vi.fn(() => new Promise<{ content_uri: string }>(resolve => {

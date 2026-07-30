@@ -181,7 +181,7 @@ export function SettingsModal(props: SettingsModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('.key-binding-btn.recording')) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.key-binding-btn.recording')) {
         requestClose();
       }
     };
