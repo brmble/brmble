@@ -9,6 +9,7 @@ export interface StoredAtlas {
   blob: Blob;
   byteSize: number;
   lastAccessedAt: number;
+  writeOwner?: string;
 }
 
 export interface AtlasStoreTransaction {
@@ -136,6 +137,7 @@ export class CustomCompanionAtlasStore {
     cacheKey: string,
     blob: Blob,
     protectedKeys: ReadonlySet<string>,
+    writeOwner?: string,
   ): Promise<boolean> {
     await this.initialize();
     return this.adapter.transaction(async transaction => {
@@ -163,6 +165,7 @@ export class CustomCompanionAtlasStore {
         blob,
         byteSize: blob.size,
         lastAccessedAt: this.now(),
+        writeOwner,
       });
       return true;
     });
@@ -173,8 +176,22 @@ export class CustomCompanionAtlasStore {
     return this.adapter.transaction(async transaction => {
       const record = await transaction.get(cacheKey);
       if (!record) return undefined;
-      await transaction.put({ ...record, lastAccessedAt: this.now() });
+      await transaction.put({
+        ...record,
+        lastAccessedAt: this.now(),
+        writeOwner: undefined,
+      });
       return record.blob;
+    });
+  }
+
+  async deleteAtlasIfOwned(cacheKey: string, writeOwner: string): Promise<boolean> {
+    await this.initialize();
+    return this.adapter.transaction(async transaction => {
+      const record = await transaction.get(cacheKey);
+      if (record?.writeOwner !== writeOwner) return false;
+      await transaction.delete(cacheKey);
+      return true;
     });
   }
 
@@ -208,9 +225,12 @@ export const putAtlas = (
   cacheKey: string,
   blob: Blob,
   protectedKeys: ReadonlySet<string>,
-) => getDefaultStore().putAtlas(cacheKey, blob, protectedKeys);
+  writeOwner?: string,
+) => getDefaultStore().putAtlas(cacheKey, blob, protectedKeys, writeOwner);
 export const getAtlas = (cacheKey: string) => getDefaultStore().getAtlas(cacheKey);
 export const deleteAtlas = (cacheKey: string) => getDefaultStore().deleteAtlas(cacheKey);
+export const deleteAtlasIfOwned = (cacheKey: string, writeOwner: string) =>
+  getDefaultStore().deleteAtlasIfOwned(cacheKey, writeOwner);
 export const pruneAtlasCache = (
   protectedKeys: ReadonlySet<string>,
   requiredBytes: number,

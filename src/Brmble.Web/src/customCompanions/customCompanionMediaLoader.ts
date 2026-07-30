@@ -1,5 +1,5 @@
 import type { MatrixClient } from 'matrix-js-sdk';
-import { deleteAtlas, getAtlas, putAtlas } from './customCompanionAtlasStore';
+import { deleteAtlasIfOwned, getAtlas, putAtlas } from './customCompanionAtlasStore';
 import type { CustomCompanionEntry } from './customCompanionTypes';
 import type { MatrixCredentials } from '../hooks/useMatrixClient';
 
@@ -13,6 +13,13 @@ interface InFlightRequest {
 
 function abortError(): DOMException {
   return new DOMException('The custom companion request was cancelled.', 'AbortError');
+}
+
+function createWriteOwner(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
 }
 
 async function readBoundedBlob(response: Response, maxBytes: number, mimeType: string): Promise<Blob> {
@@ -77,6 +84,7 @@ export class CustomCompanionMediaLoader {
 
     const controller = new AbortController();
     const generation = this.generations.get(entry.atlasCacheKey) ?? 0;
+    const writeOwner = createWriteOwner();
     const promise = (async () => {
       const cached = await getAtlas(entry.atlasCacheKey);
       if (controller.signal.aborted || (this.generations.get(entry.atlasCacheKey) ?? 0) !== generation) throw abortError();
@@ -89,9 +97,9 @@ export class CustomCompanionMediaLoader {
       const blob = await readBoundedBlob(response, MAX_ATLAS_BYTES, entry.mimeType);
       if (controller.signal.aborted || (this.generations.get(entry.atlasCacheKey) ?? 0) !== generation) throw abortError();
       const normalized = blob.slice(0, blob.size, entry.mimeType);
-      await putAtlas(entry.atlasCacheKey, normalized, protectedKeys);
+      await putAtlas(entry.atlasCacheKey, normalized, protectedKeys, writeOwner);
       if (controller.signal.aborted || (this.generations.get(entry.atlasCacheKey) ?? 0) !== generation) {
-        await deleteAtlas(entry.atlasCacheKey);
+        await deleteAtlasIfOwned(entry.atlasCacheKey, writeOwner);
         throw abortError();
       }
       return normalized;

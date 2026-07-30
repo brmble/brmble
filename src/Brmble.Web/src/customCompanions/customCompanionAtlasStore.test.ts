@@ -56,12 +56,24 @@ describe('CustomCompanionAtlasStore', () => {
     const adapter = new FakeIndexedDbAdapter();
     let now = 10;
     const store = new CustomCompanionAtlasStore(adapter, 100, () => now);
-    await store.putAtlas('a', blob(3), new Set());
+    await store.putAtlas('a', blob(3), new Set(), 'pending-owner');
     now = 20;
 
     await store.getAtlas('a');
 
     expect(adapter.snapshot()[0].lastAccessedAt).toBe(20);
+    expect(adapter.snapshot()[0].writeOwner).toBeUndefined();
+  });
+
+  it('deletes a late cancelled write only while its ownership is unchanged', async () => {
+    const adapter = new FakeIndexedDbAdapter();
+    const store = new CustomCompanionAtlasStore(adapter, 100, () => 1);
+    await store.putAtlas('a', blob(3), new Set(), 'old-owner');
+
+    await expect(store.deleteAtlasIfOwned('a', 'new-owner')).resolves.toBe(false);
+    expect(adapter.snapshot()).toHaveLength(1);
+    await expect(store.deleteAtlasIfOwned('a', 'old-owner')).resolves.toBe(true);
+    expect(adapter.snapshot()).toHaveLength(0);
   });
 
   it('evicts deterministically by oldest access then cache key', async () => {

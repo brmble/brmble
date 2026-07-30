@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomCompanionMediaLoader } from './customCompanionMediaLoader';
 import type { CustomCompanionEntry } from './customCompanionTypes';
 
-const { deleteAtlas, getAtlas, putAtlas } = vi.hoisted(() => ({
-  deleteAtlas: vi.fn(),
+const { deleteAtlasIfOwned, getAtlas, putAtlas } = vi.hoisted(() => ({
+  deleteAtlasIfOwned: vi.fn(),
   getAtlas: vi.fn(),
   putAtlas: vi.fn(),
 }));
-vi.mock('./customCompanionAtlasStore', () => ({ deleteAtlas, getAtlas, putAtlas }));
+vi.mock('./customCompanionAtlasStore', () => ({ deleteAtlasIfOwned, getAtlas, putAtlas }));
 
 const entry: CustomCompanionEntry = {
   id: 'custom:$sprite:test',
@@ -54,7 +54,7 @@ describe('CustomCompanionMediaLoader', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
     getAtlas.mockReset();
-    deleteAtlas.mockReset().mockResolvedValue(undefined);
+    deleteAtlasIfOwned.mockReset().mockResolvedValue(true);
     putAtlas.mockReset().mockResolvedValue(true);
     client.mxcUrlToHttp.mockClear();
   });
@@ -94,7 +94,12 @@ describe('CustomCompanionMediaLoader', () => {
     );
     expect(firstBlob).toBe(secondBlob);
     expect(firstBlob.type).toBe('image/png');
-    expect(putAtlas).toHaveBeenCalledWith(entry.atlasCacheKey, firstBlob, protectedKeys);
+    expect(putAtlas).toHaveBeenCalledWith(
+      entry.atlasCacheKey,
+      firstBlob,
+      protectedKeys,
+      expect.any(String),
+    );
   });
 
   it('stops reading and rejects a full atlas above 5 MiB', async () => {
@@ -184,6 +189,60 @@ describe('CustomCompanionMediaLoader', () => {
     finishWrite();
 
     await expect(pending).rejects.toThrow();
-    expect(deleteAtlas).toHaveBeenCalledWith(entry.atlasCacheKey);
+    expect(deleteAtlasIfOwned).toHaveBeenCalledWith(
+      entry.atlasCacheKey,
+      expect.any(String),
+    );
+  });
+
+  it('does not delete an atlas claimed by a newer loader after the old write', async () => {
+    let cached: Blob | undefined;
+    let writeOwner: string | undefined;
+    let publishOldWrite!: () => void;
+    let finishOldWrite!: () => void;
+    const oldWritePublished = new Promise<void>(resolve => {
+      publishOldWrite = resolve;
+    });
+    getAtlas.mockImplementation(async () => {
+      if (!cached) return undefined;
+      writeOwner = undefined;
+      return cached;
+    });
+    putAtlas.mockImplementationOnce((
+      _cacheKey: string,
+      blob: Blob,
+      _protectedKeys: ReadonlySet<string>,
+      owner: string,
+    ) => new Promise<boolean>(resolve => {
+      finishOldWrite = () => resolve(true);
+      void oldWritePublished.then(() => {
+        cached = blob;
+        writeOwner = owner;
+      });
+    }));
+    deleteAtlasIfOwned.mockImplementation(async (_cacheKey: string, owner: string) => {
+      if (writeOwner !== owner) return false;
+      cached = undefined;
+      writeOwner = undefined;
+      return true;
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      streamingResponse([new Uint8Array([1])]) as unknown as Response,
+    );
+    const oldLoader = makeLoader();
+    const newLoader = makeLoader();
+    const oldRequest = oldLoader.ensureAtlas(entry, new Set());
+    await vi.waitFor(() => expect(putAtlas).toHaveBeenCalledTimes(1));
+
+    oldLoader.cancelAll();
+    publishOldWrite();
+    await oldWritePublished;
+    const currentAtlas = await newLoader.ensureAtlas(entry, new Set());
+    finishOldWrite();
+
+    await expect(oldRequest).rejects.toThrow();
+    expect(currentAtlas).toBe(cached);
+    expect(cached).toBeDefined();
+    expect(deleteAtlasIfOwned).toHaveBeenCalledTimes(1);
   });
 });

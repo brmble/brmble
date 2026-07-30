@@ -115,3 +115,35 @@ Commit: `c5efb37a feat: synchronize custom companion gallery`
 ### Concerns
 
 - None.
+
+## Review Fix: Persistent Atlas Cache Ownership
+
+### Summary
+
+- Added a shared write-owner marker to persisted atlas records so cancellation cleanup can verify that it still owns the record before deleting it.
+- A successful cache read clears pending write ownership in the same transaction that refreshes LRU access time, preventing an older cancelled loader from deleting an atlas claimed by a newer loader or WebView.
+- Preserved redaction cleanup: a cancelled write that remains unclaimed is still removed by the matching ownership-checked deletion.
+- Added a two-loader regression where the old cancelled loader finishes after the newer loader reads the shared cache and cannot delete the current atlas.
+- Preserved full-atlas request deduplication, explicit loading, bounded streaming, persistent cache reuse, deterministic LRU eviction, and protected-key behavior.
+
+### Tests Run
+
+- `npm.cmd run test -- src/customCompanions src/hooks/useCustomCompanionGallery.test.tsx src/hooks/useMatrixClient.test.ts src/utils/matrixCredentials.test.ts`
+  - PASS: 6 files, 89 tests.
+  - The `useMatrixClient` failure-path test emitted its expected simulated `network` diagnostic.
+- `npm.cmd run type-check`
+  - PASS.
+- `git diff --check`
+  - PASS.
+
+### Files Changed
+
+- `src/Brmble.Web/src/customCompanions/customCompanionAtlasStore.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionAtlasStore.test.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionMediaLoader.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionMediaLoader.test.ts`
+- `.superpowers/sdd/task-6-report.md`
+
+### Concerns
+
+- None.
