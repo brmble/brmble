@@ -1,3 +1,5 @@
+import type { CompanionSelection } from '../SettingsModal/InterfaceSettingsTypes';
+
 export type OverlayEventKind =
   | 'channel-message'
   | 'direct-message'
@@ -38,12 +40,13 @@ export interface CompanionSpeakerEntry {
 
 export type CompanionAtlasRow = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type CompanionDisplayKind = 'idle' | 'chat' | 'speaking' | 'join' | 'leave';
-export type CompanionId = 'bee' | 'engineer' | 'floppy' | 'patch' | 'pip' | 'retro';
+export type CompanionId = CompanionSelection;
 
 export interface CompanionLookupEntry {
   session: number;
   name: string;
   companionId?: CompanionId;
+  atlasCacheKey?: string;
   isProxy?: boolean;
 }
 
@@ -53,6 +56,7 @@ export interface FullCompanionDisplay {
   representedSession: number;
   representedName: string;
   companionId: CompanionId;
+  atlasCacheKey?: string;
   row: CompanionAtlasRow;
   bubble: string | null;
   startedAt: number;
@@ -85,6 +89,7 @@ export interface FullCompanionState {
     session: number;
     name: string;
     companionId: CompanionId;
+    atlasCacheKey?: string;
   };
   flags: {
     localMuted: boolean;

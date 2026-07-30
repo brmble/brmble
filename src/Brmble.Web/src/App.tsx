@@ -15,6 +15,7 @@ import { useUnreadTracker, resetMarkersCache } from './hooks/useUnreadTracker';
 import { useServiceStatus } from './hooks/useServiceStatus';
 import { useServerHealth } from './hooks/useServerHealth';
 import { useCompanionOverlayPublisher } from './hooks/useCompanionOverlayPublisher';
+import { useCustomCompanionGallery } from './hooks/useCustomCompanionGallery';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header/Header';
@@ -51,7 +52,18 @@ import { BrokenCertNotification } from './components/BrokenCertNotification/Brok
 import { Notification } from './components/Notification/Notification';
 import { RequestChannelModal } from './components/ChannelRequests/RequestChannelModal';
 import type { NotificationStatus } from './components/Notification/Notification';
-import { DEFAULT_OVERLAY, normalizeOverlaySettings, type OverlaySettings } from './components/SettingsModal/InterfaceSettingsTypes';
+import {
+  BUILT_IN_COMPANIONS,
+  DEFAULT_OVERLAY,
+  companionForServer,
+  normalizeCompanionBridgeSelection,
+  normalizeCompanionId,
+  normalizeOverlaySettings,
+  resolveCompanionDisplay,
+  type BuiltInCompanionId,
+  type CompanionSelection,
+  type OverlaySettings,
+} from './components/SettingsModal/InterfaceSettingsTypes';
 import type { CompanionOverlaySnapshot } from './components/CompanionOverlay/overlayTypes';
 import type { CompanionId } from './components/CompanionOverlay/overlayTypes';
 import {
@@ -886,6 +898,19 @@ function App() {
     createOverlaySnapshot(null, ''),
   );
   const overlaySettingsRef = useRef(overlaySettings);
+  const persistOverlaySettings = useCallback((nextOverlay: OverlaySettings) => {
+    overlaySettingsRef.current = nextOverlay;
+    setOverlaySettings(nextOverlay);
+    try {
+      const stored = localStorage.getItem('brmble-settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      const nextSettings = { ...settings, overlay: nextOverlay };
+      localStorage.setItem('brmble-settings', JSON.stringify(nextSettings));
+      bridge.send('settings.set', { settings: nextSettings });
+    } catch {
+      bridge.send('settings.set', { settings: { overlay: nextOverlay } });
+    }
+  }, []);
   const [optionalNotificationSettings, setOptionalNotificationSettings] = useState<Required<OptionalNotificationSettings>>(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -1164,6 +1189,107 @@ function App() {
     },
   }), []);
   const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
+  const customCompanionGallery = useCustomCompanionGallery(matrixClient.client, matrixCredentials);
+  const [readyAtlasCacheKeys, setReadyAtlasCacheKeys] = useState<Set<string>>(() => new Set());
+  const pendingAtlasCacheKeysRef = useRef(new Set<string>());
+  const galleryRoomId = matrixCredentials?.customCompanions?.galleryRoomId ?? null;
+  const galleryRoomIdRef = useRef(galleryRoomId);
+  galleryRoomIdRef.current = galleryRoomId;
+  const displayGallery = useMemo(() => ({
+    entries: customCompanionGallery.entries,
+    redactedEventIds: customCompanionGallery.redactedEventIds,
+    readyAtlasCacheKeys,
+  }), [
+    customCompanionGallery.entries,
+    customCompanionGallery.redactedEventIds,
+    readyAtlasCacheKeys,
+  ]);
+
+  useEffect(() => {
+    pendingAtlasCacheKeysRef.current.clear();
+    setReadyAtlasCacheKeys(new Set());
+  }, [galleryRoomId]);
+
+  useEffect(() => {
+    const currentKeys = new Set(customCompanionGallery.entries.map(entry => entry.atlasCacheKey));
+    setReadyAtlasCacheKeys(previous => {
+      const next = new Set(Array.from(previous).filter(key => currentKeys.has(key)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [customCompanionGallery.entries]);
+
+  const requestCompanionAtlas = useCallback((
+    selection: CompanionSelection,
+    protectedKeys: ReadonlySet<string>,
+  ) => {
+    if (!selection.startsWith('custom:')) return;
+    const entry = customCompanionGallery.entries.find(candidate => candidate.id === selection);
+    if (!entry
+      || customCompanionGallery.redactedEventIds.has(entry.eventId)
+      || readyAtlasCacheKeys.has(entry.atlasCacheKey)
+      || pendingAtlasCacheKeysRef.current.has(entry.atlasCacheKey)) {
+      return;
+    }
+
+    pendingAtlasCacheKeysRef.current.add(entry.atlasCacheKey);
+    const keysToProtect = new Set(protectedKeys);
+    keysToProtect.add(entry.atlasCacheKey);
+    void customCompanionGallery.requestAtlas(entry, keysToProtect)
+      .then(() => {
+        if (galleryRoomIdRef.current !== entry.roomId
+          || customCompanionGallery.redactedEventIds.has(entry.eventId)) {
+          return;
+        }
+        setReadyAtlasCacheKeys(previous => {
+          const next = new Set(previous);
+          next.add(entry.atlasCacheKey);
+          return next;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        pendingAtlasCacheKeysRef.current.delete(entry.atlasCacheKey);
+        customCompanionGallery.releaseAtlas(entry);
+      });
+  }, [
+    customCompanionGallery.entries,
+    customCompanionGallery.redactedEventIds,
+    customCompanionGallery.releaseAtlas,
+    customCompanionGallery.requestAtlas,
+    readyAtlasCacheKeys,
+  ]);
+
+  const requestedLocalCompanion = useMemo<CompanionSelection>(() => {
+    const capability = matrixCredentials?.customCompanions;
+    if (capability) return companionForServer(overlaySettings, capability.galleryRoomId);
+    const normalized = normalizeCompanionId(overlaySettings.myCompanion);
+    return BUILT_IN_COMPANIONS.includes(normalized as BuiltInCompanionId) ? normalized : 'floppy';
+  }, [matrixCredentials?.customCompanions, overlaySettings]);
+
+  const renderedAtlasCacheKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const activeKey = overlaySnapshot.fullCompanion.activeDisplay?.atlasCacheKey;
+    if (activeKey) keys.add(activeKey);
+    return keys;
+  }, [overlaySnapshot.fullCompanion.activeDisplay?.atlasCacheKey]);
+
+  useEffect(() => {
+    requestCompanionAtlas(requestedLocalCompanion, renderedAtlasCacheKeys);
+  }, [renderedAtlasCacheKeys, requestCompanionAtlas, requestedLocalCompanion]);
+
+  useEffect(() => {
+    const active = overlaySnapshot.fullCompanion.activeDisplay;
+    const localSession = overlaySnapshot.fullCompanion.localUser.session;
+    if (!active || active.representedSession === localSession) return;
+    const remote = users.find(user => user.session === active.representedSession);
+    if (remote?.companionId) requestCompanionAtlas(remote.companionId, renderedAtlasCacheKeys);
+  }, [
+    overlaySnapshot.fullCompanion.activeDisplay,
+    overlaySnapshot.fullCompanion.localUser.session,
+    renderedAtlasCacheKeys,
+    requestCompanionAtlas,
+    users,
+  ]);
   useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
   useServerHealth();
 
@@ -1446,7 +1572,12 @@ function App() {
   const handleScreenShareServiceUnavailableRef = useRef<(() => Promise<void>) | null>(null);
   const requestActiveShareDiscoveryRef = useRef<((channelId: string | undefined) => void) | null>(null);
   const previousScreenShareServiceConnectedRef = useRef(false);
-  const pendingCompanionRef = useRef<{ requestId: number; next: CompanionId; previous: CompanionId } | null>(null);
+  const pendingCompanionRef = useRef<{
+    requestId: number;
+    next: CompanionSelection;
+    previous: CompanionSelection;
+    previousSettings: OverlaySettings;
+  } | null>(null);
   const companionRequestIdRef = useRef(0);
 
   const stopSharesForVoiceExit = useCallback(async () => {
@@ -1802,14 +1933,22 @@ function App() {
           setSelfMuted(selfUser.muted || false);
           setSelfDeafened(selfUser.deafened || false);
           setSelfSession(selfUser.session);
-          if (selfUser.companionId && selfUser.companionId !== overlaySettingsRef.current.myCompanion) {
+          const capability = matrixCredentialsRef.current?.customCompanions;
+          const storedSelection = capability
+            ? companionForServer(overlaySettingsRef.current, capability.galleryRoomId)
+            : normalizeCompanionId(overlaySettingsRef.current.myCompanion);
+          const desiredSelection = !capability && storedSelection.startsWith('custom:')
+            ? 'floppy'
+            : storedSelection;
+          if (selfUser.companionId && selfUser.companionId !== desiredSelection) {
             const requestId = ++companionRequestIdRef.current;
             pendingCompanionRef.current = {
               requestId,
-              next: overlaySettingsRef.current.myCompanion,
+              next: desiredSelection,
               previous: selfUser.companionId,
+              previousSettings: overlaySettingsRef.current,
             };
-            bridge.send('voice.setCompanion', { companionId: overlaySettingsRef.current.myCompanion, requestId });
+            bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
           }
         }
         // Fetch avatars for users already present at connect time
@@ -1938,6 +2077,17 @@ function App() {
         setMatrixCredentials(prev => {
           return areMatrixCredentialsEqual(prev, d) ? prev : d;
         });
+        if (d.customCompanions) {
+          const selection = normalizeCompanionId(d.customCompanions.selectedCompanionId);
+          const current = overlaySettingsRef.current;
+          persistOverlaySettings({
+            ...current,
+            companionSelectionsByServer: {
+              ...current.companionSelectionsByServer,
+              [d.customCompanions.galleryRoomId]: selection,
+            },
+          });
+        }
       }
     };
 
@@ -2693,9 +2843,14 @@ function App() {
     };
 
     const onVoiceCompanionChanged = (data: unknown) => {
-      const d = data as { session?: number; companionId?: CompanionId } | undefined;
-      if (d?.session === undefined || !d.companionId) return;
-      setUsers(prev => prev.map(u => u.session === d.session ? { ...u, companionId: d.companionId } : u));
+      const d = data as {
+        session?: number;
+        companionId?: unknown;
+        customCompanionId?: unknown;
+      } | undefined;
+      if (d?.session === undefined) return;
+      const companionId = normalizeCompanionBridgeSelection(d);
+      setUsers(prev => prev.map(u => u.session === d.session ? { ...u, companionId } : u));
     };
 
     const onVoiceSetCompanionResponse = (data: unknown) => {
@@ -2716,6 +2871,7 @@ function App() {
         return;
       }
       pendingCompanionRef.current = null;
+      persistOverlaySettings(pending.previousSettings);
       setConnectionError(d?.error ?? 'Failed to sync companion');
       notifQueue.register('companion-sync-error', 'error');
     };
@@ -3693,26 +3849,80 @@ const handleConnect = (serverData: SavedServer) => {
     dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
   }, [remoteWatchCount]);
 
-  const handleLiveCompanionChange = useCallback((nextCompanion: CompanionId, previousCompanion: CompanionId) => {
+  const handleLiveCompanionChange = useCallback((
+    nextCompanion: CompanionSelection,
+    previousCompanion: CompanionSelection,
+  ) => {
     const selfUser = usersRef.current.find(user => user.self);
     const liveBrmbleSession = !!selfUser?.isBrmbleClient && connectionStatusRef.current === 'connected';
     if (!liveBrmbleSession) {
       return;
     }
 
+    const capability = matrixCredentialsRef.current?.customCompanions;
+    const current = overlaySettingsRef.current;
+    const normalizedNext = normalizeCompanionId(nextCompanion);
+    const normalizedPrevious = normalizeCompanionId(previousCompanion);
+    const allowedNext = !capability && normalizedNext.startsWith('custom:') ? 'floppy' : normalizedNext;
+    const currentBuiltIn = BUILT_IN_COMPANIONS.includes(current.myCompanion as BuiltInCompanionId)
+      ? current.myCompanion as BuiltInCompanionId
+      : 'floppy';
+    const previousBuiltIn = BUILT_IN_COMPANIONS.includes(normalizedPrevious as BuiltInCompanionId)
+      ? normalizedPrevious as BuiltInCompanionId
+      : currentBuiltIn;
+    const previousSettings: OverlaySettings = capability
+      ? {
+        ...current,
+        myCompanion: previousBuiltIn,
+        companionSelectionsByServer: {
+          ...current.companionSelectionsByServer,
+          [capability.galleryRoomId]: normalizedPrevious,
+        },
+      }
+      : {
+        ...current,
+        myCompanion: normalizedPrevious,
+      };
+    const nextSettings: OverlaySettings = capability
+      ? {
+        ...current,
+        myCompanion: allowedNext.startsWith('custom:') ? currentBuiltIn : allowedNext,
+        companionSelectionsByServer: {
+          ...current.companionSelectionsByServer,
+          [capability.galleryRoomId]: allowedNext,
+        },
+      }
+      : {
+        ...current,
+        myCompanion: allowedNext,
+      };
+    persistOverlaySettings(nextSettings);
+
     const requestId = ++companionRequestIdRef.current;
-    pendingCompanionRef.current = { requestId, next: nextCompanion, previous: previousCompanion };
-    bridge.send('voice.setCompanion', { companionId: nextCompanion, requestId });
-  }, []);
+    pendingCompanionRef.current = {
+      requestId,
+      next: allowedNext,
+      previous: normalizedPrevious,
+      previousSettings,
+    };
+    requestCompanionAtlas(allowedNext, renderedAtlasCacheKeys);
+    bridge.send('voice.setCompanion', { companionId: allowedNext, requestId });
+  }, [persistOverlaySettings, renderedAtlasCacheKeys, requestCompanionAtlas]);
 
   useEffect(() => {
     const localUser = users.find((user) => user.self);
     const companionsByUser = users.reduce<CompanionOverlaySnapshot['fullCompanion']['companionsByUser']>((acc, user) => {
       if (user.session === undefined) return acc;
+      const resolved = user.self
+        ? resolveCompanionDisplay(requestedLocalCompanion, displayGallery)
+        : user.companionId
+          ? resolveCompanionDisplay(normalizeCompanionId(user.companionId), displayGallery)
+          : undefined;
       acc[user.session] = {
         session: user.session,
         name: user.name || 'Unknown user',
-        companionId: user.self ? overlaySettings.myCompanion : user.companionId,
+        companionId: resolved?.companionId,
+        atlasCacheKey: resolved?.atlasCacheKey,
         isProxy: false,
       };
       return acc;
@@ -3722,17 +3932,28 @@ const handleConnect = (serverData: SavedServer) => {
       ...activeShares.map((share) => share.sessionId).filter((session): session is number => session !== undefined),
     ]));
 
+    const resolvedLocal = resolveCompanionDisplay(requestedLocalCompanion, displayGallery);
     setOverlaySnapshot((prev) => updateFullCompanionContext(prev, {
       localUser: {
         session: localUser?.session ?? selfSession ?? 0,
         name: localUser?.name || username || 'You',
-        companionId: overlaySettings.myCompanion,
+        companionId: resolvedLocal.companionId,
+        atlasCacheKey: resolvedLocal.atlasCacheKey,
       },
       companionsByUser,
       localMuted: selfMuted,
       liveUserSessions,
     }));
-  }, [activeShares, isSharing, overlaySettings.myCompanion, selfMuted, selfSession, username, users]);
+  }, [
+    activeShares,
+    displayGallery,
+    isSharing,
+    requestedLocalCompanion,
+    selfMuted,
+    selfSession,
+    username,
+    users,
+  ]);
 
   const handleServersImported = useCallback((labels: string[]) => {
     const notifications = labels.map((label) => ({ id: `srv-${nextServerImportNotificationIdRef.current++}`, label, visible: true }));

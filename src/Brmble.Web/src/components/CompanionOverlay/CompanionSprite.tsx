@@ -7,6 +7,11 @@ import pipAtlas from '../../assets/Sprites/Pip/Pip.webp';
 import retroAtlas from '../../assets/Sprites/Retro/Retro.webp';
 import type { CSSProperties } from 'react';
 import type { CompanionAtlasRow, CompanionId } from './overlayTypes';
+import { getAtlas } from '../../customCompanions/customCompanionAtlasStore';
+import {
+  BUILT_IN_COMPANIONS,
+  type BuiltInCompanionId,
+} from '../SettingsModal/InterfaceSettingsTypes';
 
 const COMPANION_FRAME_MS = 1000;
 const ATLAS_COLUMN_COUNT = 8;
@@ -22,7 +27,7 @@ const frameCountByRow: Record<CompanionAtlasRow, number> = {
   9: 6,
 };
 
-const atlasByCompanion: Record<CompanionId, string> = {
+const atlasByCompanion: Record<BuiltInCompanionId, string> = {
   bee: beeAtlas,
   engineer: engineerAtlas,
   floppy: floppyAtlas,
@@ -37,10 +42,12 @@ function percentForFrameIndex(frameIndex: number): string {
 
 export function CompanionSprite({
   companionId,
+  atlasCacheKey,
   row,
   badges,
 }: {
   companionId: CompanionId;
+  atlasCacheKey?: string;
   row: CompanionAtlasRow;
   badges: {
     muted: boolean;
@@ -50,6 +57,35 @@ export function CompanionSprite({
   const frameCount = frameCountByRow[row];
   const frameStepCount = Math.max(frameCount - 1, 0);
   const [frameIndex, setFrameIndex] = useState(0);
+  const builtInAtlas = BUILT_IN_COMPANIONS.includes(companionId as BuiltInCompanionId)
+    ? atlasByCompanion[companionId as BuiltInCompanionId]
+    : floppyAtlas;
+  const [atlasUrl, setAtlasUrl] = useState(builtInAtlas);
+
+  useEffect(() => {
+    if (!companionId.startsWith('custom:') || !atlasCacheKey) {
+      setAtlasUrl(builtInAtlas);
+      return;
+    }
+
+    let active = true;
+    let objectUrl: string | null = null;
+    setAtlasUrl(floppyAtlas);
+    void getAtlas(atlasCacheKey)
+      .then(blob => {
+        if (!active || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAtlasUrl(objectUrl);
+      })
+      .catch(() => {
+        if (active) setAtlasUrl(floppyAtlas);
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [atlasCacheKey, builtInAtlas, companionId]);
 
   useEffect(() => {
     setFrameIndex(0);
@@ -72,7 +108,7 @@ export function CompanionSprite({
     '--companion-frame-step-count': String(frameStepCount),
     '--companion-cycle-duration': `${frameCount * COMPANION_FRAME_MS}ms`,
     '--companion-last-frame-position': lastFramePosition,
-    backgroundImage: `url(${atlasByCompanion[companionId]})`,
+    backgroundImage: `url(${atlasUrl})`,
     backgroundPositionX: currentFramePosition,
     backgroundPositionY: `${((row - 1) / (9 - 1)) * 100}%`,
   } as CSSProperties;

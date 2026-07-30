@@ -1,8 +1,21 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompanionSprite } from './CompanionSprite';
 
+const { getAtlas } = vi.hoisted(() => ({
+  getAtlas: vi.fn(),
+}));
+
+vi.mock('../../customCompanions/customCompanionAtlasStore', () => ({ getAtlas }));
+
 describe('CompanionSprite', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    getAtlas.mockReset();
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:custom-atlas');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  });
+
   it('renders row-aware playback metadata for a 6-frame row', () => {
     render(
       <CompanionSprite
@@ -48,5 +61,46 @@ describe('CompanionSprite', () => {
       '--companion-frame-step-count': '3',
       '--companion-cycle-duration': '4000ms',
     });
+  });
+
+  it('loads a ready custom atlas from IndexedDB and revokes its URL on unmount', async () => {
+    getAtlas.mockResolvedValue(new Blob(['atlas'], { type: 'image/webp' }));
+    const { unmount } = render(
+      <CompanionSprite
+        companionId="custom:$sprite:test"
+        atlasCacheKey="!gallery:test\u0000$sprite:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
+    await waitFor(() => {
+      expect(screen.getByTestId('companion-sprite')).toHaveStyle({
+        backgroundImage: 'url(blob:custom-atlas)',
+      });
+    });
+
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:custom-atlas');
+  });
+
+  it('keeps the floppy atlas when a custom cache read fails', async () => {
+    getAtlas.mockRejectedValue(new Error('IndexedDB unavailable'));
+    render(
+      <CompanionSprite
+        companionId="custom:$sprite:test"
+        atlasCacheKey="!gallery:test\u0000$sprite:test"
+        row={1}
+        badges={{ muted: false, live: false }}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('companion-sprite').style.backgroundImage).toContain('Floppy');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });

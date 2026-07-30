@@ -74,15 +74,18 @@ function representedSessionForName(
   return match?.session ?? state.localUser.session;
 }
 
-function resolveCompanionId(
+function resolveCompanion(
   state: CompanionOverlaySnapshot['fullCompanion'],
   representedSession: number,
-): CompanionId {
+): { companionId: CompanionId; atlasCacheKey?: string } {
   if (representedSession === state.localUser.session) {
-    return state.localUser.companionId;
+    return state.localUser;
   }
 
-  return state.companionsByUser[representedSession]?.companionId ?? state.localUser.companionId;
+  const remote = state.companionsByUser[representedSession];
+  return remote?.companionId
+    ? { companionId: remote.companionId, atlasCacheKey: remote.atlasCacheKey }
+    : state.localUser;
 }
 
 function displayFromEvent(
@@ -93,7 +96,7 @@ function displayFromEvent(
   const representedName = displayNameFromEvent(event);
   const representedSession = representedSessionForName(snapshot.fullCompanion, representedName);
   const companion = snapshot.fullCompanion.companionsByUser[representedSession];
-  const companionId = resolveCompanionId(snapshot.fullCompanion, representedSession);
+  const { companionId, atlasCacheKey } = resolveCompanion(snapshot.fullCompanion, representedSession);
   const isProxy = !companion?.companionId && representedSession !== snapshot.fullCompanion.localUser.session;
   const isLocal = representedSession === snapshot.fullCompanion.localUser.session;
   const kind = event.kind === 'user-joined' ? 'join' 
@@ -107,6 +110,7 @@ function displayFromEvent(
     representedSession,
     representedName,
     companionId,
+    atlasCacheKey,
     row: 4,
     bubble: event.line,
     startedAt: now,
@@ -130,6 +134,7 @@ function idleDisplay(
     representedSession: local.session,
     representedName: local.name,
     companionId: local.companionId,
+    atlasCacheKey: local.atlasCacheKey,
     row: 1,
     bubble: null,
     startedAt: now,
@@ -148,7 +153,7 @@ function candidateToDisplay(
   now: number,
 ): CompanionOverlaySnapshot['fullCompanion']['activeDisplay'] {
   const companion = snapshot.fullCompanion.companionsByUser[candidate.session];
-  const companionId = resolveCompanionId(snapshot.fullCompanion, candidate.session);
+  const { companionId, atlasCacheKey } = resolveCompanion(snapshot.fullCompanion, candidate.session);
   const isProxy = !companion?.companionId && candidate.session !== snapshot.fullCompanion.localUser.session;
   const isLocal = candidate.session === snapshot.fullCompanion.localUser.session;
 
@@ -158,6 +163,7 @@ function candidateToDisplay(
     representedSession: candidate.session,
     representedName: candidate.name,
     companionId,
+    atlasCacheKey,
     row: 9,
     bubble: null,
     startedAt: now,
@@ -300,19 +306,21 @@ export function updateFullCompanionContext(
   // Refresh active remote displays when companion context arrives after the display is already active.
   if (nextActiveDisplay && nextActiveDisplay.representedSession !== nextLocalUser.session) {
     const representedCompanion = nextFullCompanion.companionsByUser[nextActiveDisplay.representedSession];
-    const nextCompanionId = resolveCompanionId(nextFullCompanion, nextActiveDisplay.representedSession);
+    const nextCompanion = resolveCompanion(nextFullCompanion, nextActiveDisplay.representedSession);
     const nextIsProxy = !representedCompanion?.companionId;
     const nextRepresentedName = representedCompanion?.name ?? nextActiveDisplay.representedName;
 
     if (
-      nextCompanionId !== nextActiveDisplay.companionId
+      nextCompanion.companionId !== nextActiveDisplay.companionId
+      || nextCompanion.atlasCacheKey !== nextActiveDisplay.atlasCacheKey
       || nextIsProxy !== nextActiveDisplay.isProxy
       || nextRepresentedName !== nextActiveDisplay.representedName
     ) {
       nextActiveDisplay = {
         ...nextActiveDisplay,
         representedName: nextRepresentedName,
-        companionId: nextCompanionId,
+        companionId: nextCompanion.companionId,
+        atlasCacheKey: nextCompanion.atlasCacheKey,
         isProxy: nextIsProxy,
       };
     }
@@ -323,6 +331,7 @@ export function updateFullCompanionContext(
     nextActiveDisplay = {
       ...nextActiveDisplay,
       companionId: nextLocalUser.companionId,
+      atlasCacheKey: nextLocalUser.atlasCacheKey,
     };
   }
   

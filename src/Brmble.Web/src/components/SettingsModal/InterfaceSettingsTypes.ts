@@ -11,6 +11,7 @@ export interface OverlaySettings {
   mode: CompanionOverlayMode;
   position: CompanionOverlayPosition;
   myCompanion: CompanionSelection;
+  companionSelectionsByServer: Record<string, CompanionSelection>;
   showChannelMessages: boolean;
   showDirectMessages: boolean;
   showJoinLeaveEvents: boolean;
@@ -20,7 +21,34 @@ export interface OverlaySettings {
 
 export type CompanionOverlayMode = 'full' | 'minimal';
 export type CompanionOverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-export type CompanionSelection = 'bee' | 'engineer' | 'floppy' | 'patch' | 'pip' | 'retro';
+export const BUILT_IN_COMPANIONS = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'] as const;
+export type BuiltInCompanionId = typeof BUILT_IN_COMPANIONS[number];
+export type CustomCompanionId = `custom:${string}`;
+export type CompanionSelection = BuiltInCompanionId | CustomCompanionId;
+
+export interface CompanionDisplayGallery {
+  entries: ReadonlyArray<{
+    id: CustomCompanionId;
+    eventId: string;
+    atlasCacheKey: string;
+  }>;
+  redactedEventIds: ReadonlySet<string>;
+  readyAtlasCacheKeys: ReadonlySet<string>;
+}
+
+export interface ResolvedCompanionDisplay {
+  companionId: CompanionSelection;
+  atlasCacheKey?: string;
+}
+
+function isCustomCompanionId(value: string): value is CustomCompanionId {
+  if (!value.startsWith('custom:$')) return false;
+  const eventId = value.slice('custom:'.length);
+  return eventId.length >= 2 && !Array.from(eventId).some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+}
 
 /**
  * Validates and migrates a companion ID to ensure it's a valid CompanionSelection.
@@ -30,9 +58,8 @@ export type CompanionSelection = 'bee' | 'engineer' | 'floppy' | 'patch' | 'pip'
  * @returns A valid CompanionSelection, or 'floppy' if the input is invalid
  */
 export function normalizeCompanionId(companionId: unknown): CompanionSelection {
-  const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
-  
-  if (typeof companionId === 'string' && validCompanions.includes(companionId as CompanionSelection)) {
+  if (typeof companionId === 'string'
+    && (BUILT_IN_COMPANIONS.includes(companionId as BuiltInCompanionId) || isCustomCompanionId(companionId))) {
     return companionId as CompanionSelection;
   }
   
@@ -48,10 +75,52 @@ export function normalizeCompanionId(companionId: unknown): CompanionSelection {
  * @returns Normalized overlay settings with valid companion IDs
  */
 export function normalizeOverlaySettings(settings: Partial<OverlaySettings>): OverlaySettings {
+  const selections = settings.companionSelectionsByServer;
+  const companionSelectionsByServer = selections && typeof selections === 'object'
+    ? Object.fromEntries(Object.entries(selections)
+      .filter(([serverKey]) => serverKey.length > 0)
+      .map(([serverKey, selection]) => [serverKey, normalizeCompanionId(selection)]))
+    : {};
+
   return {
     ...DEFAULT_OVERLAY,
     ...settings,
     myCompanion: normalizeCompanionId(settings.myCompanion),
+    companionSelectionsByServer,
+  };
+}
+
+export function companionForServer(settings: OverlaySettings, serverKey: string): CompanionSelection {
+  return normalizeCompanionId(settings.companionSelectionsByServer[serverKey] ?? settings.myCompanion);
+}
+
+export function normalizeCompanionBridgeSelection(payload: {
+  companionId?: unknown;
+  customCompanionId?: unknown;
+}): CompanionSelection {
+  const customSelection = normalizeCompanionId(payload.customCompanionId);
+  return customSelection !== 'floppy' || payload.customCompanionId === 'floppy'
+    ? customSelection
+    : normalizeCompanionId(payload.companionId);
+}
+
+export function resolveCompanionDisplay(
+  selection: CompanionSelection,
+  gallery: CompanionDisplayGallery,
+): ResolvedCompanionDisplay {
+  const normalized = normalizeCompanionId(selection);
+  if (!isCustomCompanionId(normalized)) return { companionId: normalized };
+
+  const entry = gallery.entries.find(candidate => candidate.id === normalized);
+  if (!entry
+    || gallery.redactedEventIds.has(entry.eventId)
+    || !gallery.readyAtlasCacheKeys.has(entry.atlasCacheKey)) {
+    return { companionId: 'floppy' };
+  }
+
+  return {
+    companionId: normalized,
+    atlasCacheKey: entry.atlasCacheKey,
   };
 }
 
@@ -60,6 +129,7 @@ export const DEFAULT_OVERLAY: OverlaySettings = {
   mode: 'minimal',
   position: 'bottom-right',
   myCompanion: 'floppy',
+  companionSelectionsByServer: {},
   showChannelMessages: true,
   showDirectMessages: true,
   showJoinLeaveEvents: true,
