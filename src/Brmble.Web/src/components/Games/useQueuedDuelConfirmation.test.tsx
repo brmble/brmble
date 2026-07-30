@@ -176,4 +176,36 @@ describe('useQueuedDuelConfirmation', () => {
 
     expect(result.current.confirmation?.reservationId).toBe(60);
   });
+
+  it('clears the confirmation once the reservation leaves the queue', () => {
+    const { result, rerender } = renderHook(
+      ({ byChannel }) => useQueuedDuelConfirmation(byChannel, SELF),
+      { initialProps: { byChannel: channels(snapshot(7, {})) } },
+    );
+
+    rerender({ byChannel: channels(snapshot(7, { queue: [queued(41, [SELF, 22])] })) });
+    expect(result.current.confirmation?.reservationId).toBe(41);
+
+    // Promoted to a ready check: "Challenge accepted" is stale, the ready check takes over.
+    rerender({ byChannel: channels(snapshot(7, { readyCheck: ready(41, [SELF, 22]) })) });
+    expect(result.current.confirmation).toBeNull();
+
+    // Already announced, so re-entering the queue must not resurrect the confirmation.
+    rerender({ byChannel: channels(snapshot(7, { queue: [queued(41, [SELF, 22])] })) });
+    expect(result.current.confirmation).toBeNull();
+  });
+
+  it('clears the confirmation when the channel map empties on disconnect', () => {
+    const { result, rerender } = renderHook(
+      ({ byChannel }) => useQueuedDuelConfirmation(byChannel, SELF),
+      { initialProps: { byChannel: channels(snapshot(7, {})) } },
+    );
+
+    rerender({ byChannel: channels(snapshot(7, { queue: [queued(41, [SELF, 22])] })) });
+    expect(result.current.confirmation?.reservationId).toBe(41);
+
+    rerender({ byChannel: channels() });
+
+    expect(result.current.confirmation).toBeNull();
+  });
 });

@@ -511,6 +511,7 @@ describe('App duel orchestration', () => {
 
     expect(screen.getByText('Challenge accepted')).toBeInTheDocument();
     expect(screen.getByText('Player 11 vs Player 22')).toBeInTheDocument();
+    expect(screen.getByText('Rock Paper Scissors · bo3')).toBeInTheDocument();
   });
 
   it('does not confirm when the duel goes straight to a ready check', () => {
