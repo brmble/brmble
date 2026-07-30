@@ -16,7 +16,7 @@ public static partial class CustomCompanionUploadPolicy
         return normalized is not null && ValidName.IsMatch(normalized) ? normalized : null;
     }
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9 _-]{0,47}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[\\p{L}\\p{N} _-]{1,32}$", RegexOptions.CultureInvariant)]
     private static partial Regex NameRegex();
 }
 

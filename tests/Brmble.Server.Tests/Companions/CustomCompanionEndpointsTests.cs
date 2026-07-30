@@ -68,10 +68,13 @@ public sealed class CustomCompanionEndpointsTests : IDisposable
     }
 
     [DataTestMethod]
-    [DataRow("truncated.png", "invalid_image")]
-    [DataRow("oversized-width.png", "unsafe_image_dimensions")]
-    [DataRow("animated.webp", "animated_image_not_supported")]
-    public async Task Create_UnsafeImageReturns422AndWritesNoState(string fixture, string expectedCode)
+    [DataRow("truncated.png", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
+    [DataRow("oversized-width.png", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
+    [DataRow("animated.webp", HttpStatusCode.UnsupportedMediaType, "unsupported_file_type")]
+    public async Task Create_CodecUnrecognizedImageReturns415AndWritesNoState(
+        string fixture,
+        HttpStatusCode expectedStatus,
+        string expectedCode)
     {
         _matrix.Setup(service => service.DownloadMedia(
                 It.IsAny<string>(), 5_242_881, It.IsAny<CancellationToken>()))
@@ -80,7 +83,7 @@ public sealed class CustomCompanionEndpointsTests : IDisposable
         var response = await _client.PostAsJsonAsync(
             "/companions", new { name = "Unsafe", mediaUri = $"mxc://test/{fixture}" });
 
-        Assert.AreEqual(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.AreEqual(expectedStatus, response.StatusCode);
         Assert.AreEqual(expectedCode, (await response.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("code").GetString());
         VerifyNoStateWritten();
