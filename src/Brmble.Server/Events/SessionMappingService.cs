@@ -100,6 +100,21 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
+    public bool TryUpdateCompanionIdIfCurrent(int sessionId, string expectedCompanionId, string companionId)
+    {
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            if (!string.Equals(existing.CompanionId, expectedCompanionId, StringComparison.Ordinal))
+                return false;
+
+            var updated = existing with { CompanionId = companionId };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+                return true;
+        }
+
+        return false;
+    }
+
     public bool TryUpdateCertHash(int sessionId, string certHash)
     {
         if (_sessionToMapping.TryGetValue(sessionId, out var existing))

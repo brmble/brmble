@@ -52,7 +52,8 @@ public sealed class CustomCompanionDeletionTests : IDisposable
 
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
         Assert.IsNull(await repository.GetActiveByEventIdAsync("$sprite:test"));
-        _factory.SessionMappingMock.Verify(service => service.TryUpdateCompanionId(42, "floppy"), Times.Once);
+        _factory.SessionMappingMock.Verify(service => service.TryUpdateCompanionIdIfCurrent(
+            42, "custom:$sprite:test", "floppy"), Times.Once);
     }
 
     [TestMethod]
@@ -72,6 +73,39 @@ public sealed class CustomCompanionDeletionTests : IDisposable
         _factory.EventBusMock.Verify(bus => bus.BroadcastToChannelAsync(7, It.Is<object>(payload =>
             JsonSerializer.Serialize(payload) ==
             "{\"type\":\"companionChanged\",\"sessionId\":42,\"matrixUserId\":\"@alice:test\",\"companionId\":\"floppy\",\"customCompanionId\":null}")), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Delete_DoesNotOverwriteOrBroadcastWhenLiveSelectionChangesAfterReset()
+    {
+        await InsertActiveAsync();
+        var userRepository = _factory.Services.GetRequiredService<Brmble.Server.Auth.UserRepository>();
+        _factory.SessionMappingMock.Object.TryAddMatrixUser(42, "@alice:test", "Alice", 1, "custom:$sprite:test");
+        _factory.Services.GetRequiredService<IChannelMembershipService>().Update(42, 7);
+        _factory.AclAuthorizationMock.Setup(service => service.CanModerateServerAsync(1)).ReturnsAsync(true);
+        _factory.MatrixAppMock.Setup(service => service.RedactRoomEvent(
+                "!gallery:test", "$sprite:test", It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        _factory.SessionMappingMock.Setup(service => service.TryGetMappingByUserId(
+                1, out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Callback(() =>
+            {
+                userRepository.SetCompanionId(1, "bee").GetAwaiter().GetResult();
+                _factory.SessionMappingMock.Object.TryUpdateCompanionId(42, "bee");
+            })
+            .Returns((long userId, out int sessionId, out SessionMapping? mapping) =>
+            {
+                sessionId = 42;
+                mapping = new SessionMapping("@alice:test", "Alice", userId, "bee");
+                return true;
+            });
+
+        var response = await _client.DeleteAsync("/companions/%24sprite%3Atest");
+
+        Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.AreEqual("bee", await userRepository.GetCompanionId(1));
+        Assert.AreEqual("bee", _factory.SessionMappingMock.Object.GetSnapshot()[42].CompanionId);
+        _factory.EventBusMock.Verify(bus => bus.BroadcastToChannelAsync(7, It.IsAny<object>()), Times.Never);
     }
 
     [TestMethod]

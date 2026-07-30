@@ -78,3 +78,37 @@ Result: passed, 42 tests passed, 0 failed.
 - `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
 - `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
 - `.superpowers/sdd/task-4-report.md`
+
+## Re-Review Fix: Preserve Newer Live Companion Selections
+
+### Summary
+
+- Added an atomic compare-and-swap live-mapping update for custom companion deletion.
+- Deletion now changes a connected user's live companion to `floppy` only when it is still `custom:<deleted-event-id>`.
+- `companionChanged` is broadcast only after that conditional update succeeds, so a newer built-in or custom selection is not overwritten or announced as `floppy`.
+- Added a regression test that changes both the database and live selection to `bee` after deletion resets the database record; deletion preserves `bee` and sends no fallback broadcast.
+
+### Tests
+
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
+
+Result: passed, 43 tests passed, 0 failed.
+
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~SessionMappingServiceTests.TryUpdateCompanionIdIfCurrent_PreservesNewerSelection"
+```
+
+Result: passed, 1 test passed, 0 failed.
+
+### Files Changed
+
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `src/Brmble.Server/Events/ISessionMappingService.cs`
+- `src/Brmble.Server/Events/SessionMappingService.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
+- `tests/Brmble.Server.Tests/Events/SessionMappingServiceTests.cs`
+- `tests/Brmble.Server.Tests/Games/SessionMappingGamePresenceTests.cs`
+- `tests/Brmble.Server.Tests/Integration/BrmbleServerFactory.cs`
+- `.superpowers/sdd/task-4-report.md`

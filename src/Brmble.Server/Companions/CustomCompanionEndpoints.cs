@@ -63,6 +63,7 @@ public static class CustomCompanionEndpoints
                     return Results.NoContent();
 
                 var affectedUserIds = await repository.ResetSelectionsAsync(record.EventId);
+                var deletedCompanionId = CustomCompanionId.FromEventId(record.EventId);
                 foreach (var affectedUserId in affectedUserIds)
                 {
                     if (!sessionMapping.TryGetMappingByUserId(affectedUserId, out var sessionId, out var mapping)
@@ -71,8 +72,9 @@ public static class CustomCompanionEndpoints
                         continue;
                     }
 
-                    sessionMapping.TryUpdateCompanionId(sessionId, "floppy");
-                    if (channelMembership.TryGetChannel(sessionId, out var channelId))
+                    if (sessionMapping.TryUpdateCompanionIdIfCurrent(
+                            sessionId, deletedCompanionId, "floppy") &&
+                        channelMembership.TryGetChannel(sessionId, out var channelId))
                     {
                         await eventBus.BroadcastToChannelAsync(channelId, new
                         {
