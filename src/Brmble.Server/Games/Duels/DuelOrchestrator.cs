@@ -1015,20 +1015,9 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider,
     private async Task<DuelQueueSnapshot> BuildSnapshotAsync(ChannelSnapshotInput input)
     {
         var stopwatch = Stopwatch.StartNew();
-        DurationEstimate? remaining = null;
-        if (input.Active is not null)
-        {
-            remaining = _estimator is null
-                ? DurationEstimate.Unknown(0)
-                : input.Active.Status == "starting"
-                    ? await _estimator.EstimateDurationAsync(input.Active.Configuration)
-                    : await _estimator.EstimateRemainingAsync(
-                        input.Active.Configuration,
-                        Math.Max(0, (long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds));
-        }
         var estimates = _estimator is null
             ? UnknownEstimates(input)
-            : await _estimator.BuildEtasAsync(input, remaining);
+            : await _estimator.BuildEtasAsync(input);
         stopwatch.Stop();
 
         // A missing duration means the estimator broke its contract (a duration exists exactly
@@ -1038,7 +1027,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider,
         ActiveDuelSnapshot? active = null;
         if (input.Active is { } activeInput)
         {
-            var activeRemaining = remaining
+            var activeRemaining = estimates.ActiveRemaining
                 ?? throw new InvalidOperationException(
                     "No remaining estimate was computed for an active duel.");
             var activeDuration = estimates.ActiveDuration
@@ -1093,6 +1082,7 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider,
                     DurationEstimate.Unknown(0)))
                 .ToArray(),
             input.ReadyCheck is null ? null : DurationEstimate.Unknown(0),
+            input.Active is null ? null : DurationEstimate.Unknown(0),
             input.Active is null ? null : DurationEstimate.Unknown(0));
 
     internal Task DrainSnapshotPublicationsAsync(int channelId)

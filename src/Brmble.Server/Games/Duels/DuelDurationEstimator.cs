@@ -5,7 +5,8 @@ public sealed record QueueEstimate(QueueEtaSnapshot Eta, DurationEstimate Durati
 public sealed record DuelEstimates(
     IReadOnlyList<QueueEstimate> Queue,
     DurationEstimate? ReadyDuration,
-    DurationEstimate? ActiveDuration);
+    DurationEstimate? ActiveDuration,
+    DurationEstimate? ActiveRemaining = null);
 
 public sealed class DuelDurationEstimator
 {
@@ -27,8 +28,19 @@ public sealed class DuelDurationEstimator
             : DurationEstimate.Unknown(samples.Count);
     }
 
-    public async Task<DurationEstimate> EstimateRemainingAsync(
-        DuelConfiguration config, long elapsedMs)
+    public Task<DurationEstimate> EstimateRemainingAsync(
+        DuelConfiguration config, long elapsedMs) =>
+        EstimateRemainingAsync(config, elapsedMs, EstimateDurationAsync);
+
+    /// <summary>
+    /// Conditional remaining estimate, falling back to <paramref name="fullDuration"/> minus elapsed
+    /// when there are too few conditional samples. Callers that also need the full duration pass a
+    /// memoized <paramref name="fullDuration"/> so the fallback and the duration share one query.
+    /// </summary>
+    private async Task<DurationEstimate> EstimateRemainingAsync(
+        DuelConfiguration config,
+        long elapsedMs,
+        Func<DuelConfiguration, Task<DurationEstimate>> fullDuration)
     {
         var conditional = await _repository.GetDurationSamplesAsync(
             config.GameType, config.Format, config.RulesetVersion, elapsedMs);
@@ -40,7 +52,7 @@ public sealed class DuelDurationEstimator
                 EstimateMethod.ConditionalRemaining);
         }
 
-        var full = await EstimateDurationAsync(config);
+        var full = await fullDuration(config);
         if (full.Status == EstimateStatus.Unknown)
             return full;
 
@@ -81,21 +93,23 @@ public sealed class DuelDurationEstimator
         return DurationEstimate.Known(milliseconds, sampleCount, EstimateMethod.FullMedian);
     }
 
-    public async Task<DuelEstimates> BuildEtasAsync(
-        ChannelSnapshotInput input, DurationEstimate? activeEstimate = null)
+    public async Task<DuelEstimates> BuildEtasAsync(ChannelSnapshotInput input)
     {
         var cache = new Dictionary<(string GameType, string Format, int RulesetVersion), DurationEstimate>();
         var accumulated = new List<DurationEstimate>();
         var segments = new List<EtaSegmentSnapshot>();
         DurationEstimate? readyDuration = null;
+        DurationEstimate? activeRemaining = null;
 
         if (input.Active is not null)
         {
             var elapsedMs = Math.Max(
                 0,
                 checked((long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds));
-            Add(activeEstimate ?? await EstimateRemainingAsync(input.Active.Configuration, elapsedMs),
-                input.Active.Configuration);
+            activeRemaining = input.Active.Status == "starting"
+                ? await Duration(input.Active.Configuration)
+                : await EstimateRemainingAsync(input.Active.Configuration, elapsedMs, Duration);
+            Add(activeRemaining, input.Active.Configuration);
         }
 
         if (input.ReadyCheck is not null)
@@ -129,12 +143,14 @@ public sealed class DuelDurationEstimator
         }
 
         // Computed after the loop purely so the memo cache is already warm; `Duration`
-        // is order-independent, so this does not affect the value.
+        // is order-independent, so this does not affect the value. When the active
+        // remaining estimate already needed the full duration (a `starting` duel, or a
+        // fallback from too few conditional samples) this is a cache hit.
         var activeDuration = input.Active is null
             ? null
             : await Duration(input.Active.Configuration);
 
-        return new DuelEstimates(result, readyDuration, activeDuration);
+        return new DuelEstimates(result, readyDuration, activeDuration, activeRemaining);
 
         async Task<DurationEstimate> Duration(DuelConfiguration config)
         {

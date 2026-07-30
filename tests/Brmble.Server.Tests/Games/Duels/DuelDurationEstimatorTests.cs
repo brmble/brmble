@@ -175,33 +175,81 @@ public sealed class DuelDurationEstimatorTests
     }
 
     [TestMethod]
-    public async Task BuildEtas_ReusesPrecomputedRemaining_AndQueriesActiveDurationExactlyOnce()
+    public async Task BuildEtas_ReturnsConditionalRemainingAndQueriesActiveDurationExactlyOnce()
     {
         var active = Config("rps", "bo3", 2);
-        var repository = new StubDurationRepository(call => IsConditionalActiveQuery(call)
-            ? throw new AssertFailedException("active remaining estimate was recalculated")
-            : Samples(10_000, 10));
+        var repository = new StubDurationRepository(call => call.ElapsedGreaterThanMs is null
+            ? Samples(10_000, 10)
+            : Samples(37_000, 14));
         var input = Input(
             active: new ActiveSnapshotInput(active, CalculatedAt.AddSeconds(-30)),
             queue: [Reservation(1, Config("arena"))]);
-        var remaining = DurationEstimate.Known(7_000, 14, EstimateMethod.ConditionalRemaining);
 
-        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input, remaining);
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
         var eta = result.Queue.Single().Eta;
 
         Assert.AreEqual(7_000L, eta.Milliseconds);
         AssertSegment(eta.Segments.Single(), active, 14, EstimateMethod.ConditionalRemaining);
+        Assert.AreEqual(7_000L, result.ActiveRemaining!.Milliseconds);
+        Assert.AreEqual(EstimateMethod.ConditionalRemaining, result.ActiveRemaining.Method);
         Assert.AreEqual(10_000L, result.ActiveDuration!.Milliseconds);
         CollectionAssert.AreEqual(
             new[]
             {
+                new RepositoryCall("rps", "bo3", 2, 30_000),
                 new RepositoryCall("arena", "bo3", 1, null),
                 new RepositoryCall("rps", "bo3", 2, null),
             },
             repository.Calls);
+    }
 
-        static bool IsConditionalActiveQuery(RepositoryCall call) =>
-            call.GameType == "rps" && call.ElapsedGreaterThanMs is not null;
+    [TestMethod]
+    public async Task BuildEtas_FullMedianFallbackDoesNotDuplicateTheActiveDurationQuery()
+    {
+        var active = Config("rps", "bo3", 2);
+        var repository = new StubDurationRepository(call => call.ElapsedGreaterThanMs is null
+            ? Samples(50_000, 10)
+            : Samples(90_000, 9));
+        var input = Input(
+            active: new ActiveSnapshotInput(active, CalculatedAt.AddSeconds(-20)),
+            queue: [Reservation(1, Config("arena"))]);
+
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+
+        Assert.AreEqual(30_000L, result.ActiveRemaining!.Milliseconds);
+        Assert.AreEqual(EstimateMethod.FullMedianFallback, result.ActiveRemaining.Method);
+        Assert.AreEqual(50_000L, result.ActiveDuration!.Milliseconds);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                new RepositoryCall("rps", "bo3", 2, 20_000),
+                new RepositoryCall("rps", "bo3", 2, null),
+                new RepositoryCall("arena", "bo3", 1, null),
+            },
+            repository.Calls);
+    }
+
+    [TestMethod]
+    public async Task BuildEtas_StartingActiveUsesFullDurationOnceForRemainingAndDuration()
+    {
+        var active = Config("rps", "bo3", 2);
+        var repository = new StubDurationRepository(_ => Samples(50_000, 10));
+        var input = Input(
+            active: new ActiveSnapshotInput(0, null, active, CalculatedAt.AddSeconds(-20), "starting"),
+            queue: [Reservation(1, Config("arena"))]);
+
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+
+        Assert.AreEqual(50_000L, result.ActiveRemaining!.Milliseconds);
+        Assert.AreEqual(EstimateMethod.FullMedian, result.ActiveRemaining.Method);
+        Assert.AreEqual(50_000L, result.ActiveDuration!.Milliseconds);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                new RepositoryCall("rps", "bo3", 2, null),
+                new RepositoryCall("arena", "bo3", 1, null),
+            },
+            repository.Calls);
     }
 
     [TestMethod]
