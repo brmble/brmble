@@ -1119,6 +1119,47 @@ public class MumbleAdapterParseTests
         Assert.AreEqual("pip", result[42].CompanionId);
     }
 
+    [TestMethod]
+    public void ParseWireCompanionId_PrefersCustomCompanionId()
+    {
+        const string json =
+            """{"companionId":"floppy","customCompanionId":"custom:$sprite:test"}""";
+        using var document = JsonDocument.Parse(json);
+
+        Assert.AreEqual(
+            "custom:$sprite:test",
+            MumbleAdapter.ParseWireCompanionId(document.RootElement));
+    }
+
+    [TestMethod]
+    public void CustomCompanionId_FlowsThroughSnapshotAddedAndChangedMappings()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
+        {"type":"sessionMappingSnapshot","mappings":{"42":{"matrixUserId":"@alice:test","mumbleName":"Alice","companionId":"floppy","customCompanionId":"custom:$snapshot:test"}}}
+        """);
+        var snapshot = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.sessionMappingSnapshot");
+        using var snapshotDocument = JsonDocument.Parse(snapshot.DataJson);
+        Assert.AreEqual("custom:$snapshot:test", snapshotDocument.RootElement
+            .GetProperty("mappings").GetProperty("42").GetProperty("companionId").GetString());
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
+        {"type":"userMappingAdded","sessionId":43,"matrixUserId":"@bob:test","mumbleName":"Bob","companionId":"floppy","customCompanionId":"custom:$joined:test"}
+        """);
+        var added = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.userMappingUpdated");
+        using var addedDocument = JsonDocument.Parse(added.DataJson);
+        Assert.AreEqual("custom:$joined:test", addedDocument.RootElement.GetProperty("companionId").GetString());
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
+        {"type":"companionChanged","sessionId":43,"matrixUserId":"@bob:test","companionId":"floppy","customCompanionId":"custom:$changed:test"}
+        """);
+        var changed = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.companionChanged");
+        using var changedDocument = JsonDocument.Parse(changed.DataJson);
+        Assert.AreEqual("custom:$changed:test", changedDocument.RootElement.GetProperty("companionId").GetString());
+    }
+
     // Transmission mode parsing tests
     [TestMethod]
     public void ParseTransmissionMode_PushToTalkPlus_ReturnsCorrectEnum()
