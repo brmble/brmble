@@ -1026,27 +1026,52 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider,
                         input.Active.Configuration,
                         Math.Max(0, (long)(input.CalculatedAt - input.Active.StartedAt).TotalMilliseconds));
         }
-        var etas = _estimator is null
-            ? input.Queue.Select(_ => new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, [])).ToArray()
+        var estimates = _estimator is null
+            ? UnknownEstimates(input)
             : await _estimator.BuildEtasAsync(input, remaining);
         stopwatch.Stop();
 
-        var active = input.Active is null ? null : new ActiveDuelSnapshot(
-            input.Active.MatchId,
-            input.Active.Status,
-            input.Active.StartedAt,
-            Players(input.Active.Reservation!),
-            input.Active.Configuration.GameType,
-            input.Active.Configuration.Format,
-            input.Active.Configuration.RulesetVersion,
-            remaining!);
-        var ready = input.ReadyCheck is null ? null : new ReadyCheckSnapshot(
-            input.ReadyCheck.Reservation.ReservationId,
-            input.ReadyCheck.ExpiresAt,
-            Players(input.ReadyCheck.Reservation, input.ReadyCheck.ReadyUserIds),
-            input.ReadyCheck.Reservation.Configuration.GameType,
-            input.ReadyCheck.Reservation.Configuration.Format,
-            input.ReadyCheck.Reservation.Configuration.RulesetVersion);
+        // A missing duration means the estimator broke its contract (a duration exists exactly
+        // when the corresponding input does). Throw rather than publish a snapshot that omits a
+        // section: clients treat snapshots as authoritative, so a silent omission reads as
+        // "no active duel". Throwing routes into the publish lane's retry-and-log path instead.
+        ActiveDuelSnapshot? active = null;
+        if (input.Active is { } activeInput)
+        {
+            var activeRemaining = remaining
+                ?? throw new InvalidOperationException(
+                    "No remaining estimate was computed for an active duel.");
+            var activeDuration = estimates.ActiveDuration
+                ?? throw new InvalidOperationException(
+                    "Estimator returned no duration for an active duel.");
+            active = new ActiveDuelSnapshot(
+                activeInput.MatchId,
+                activeInput.Status,
+                activeInput.StartedAt,
+                Players(activeInput.Reservation!),
+                activeInput.Configuration.GameType,
+                activeInput.Configuration.Format,
+                activeInput.Configuration.RulesetVersion,
+                activeRemaining,
+                activeDuration);
+        }
+
+        ReadyCheckSnapshot? ready = null;
+        if (input.ReadyCheck is { } readyInput)
+        {
+            var readyDuration = estimates.ReadyDuration
+                ?? throw new InvalidOperationException(
+                    "Estimator returned no ready-check duration for a pending ready check.");
+            ready = new ReadyCheckSnapshot(
+                readyInput.Reservation.ReservationId,
+                readyInput.ExpiresAt,
+                Players(readyInput.Reservation, readyInput.ReadyUserIds),
+                readyInput.Reservation.Configuration.GameType,
+                readyInput.Reservation.Configuration.Format,
+                readyInput.Reservation.Configuration.RulesetVersion,
+                readyDuration);
+        }
+
         var queue = input.Queue.Select((reservation, index) => new QueuedDuelSnapshot(
             reservation.ReservationId,
             index + 1,
@@ -1054,10 +1079,21 @@ public sealed class DuelOrchestrator : IDuelOrchestrator, IDuelSnapshotProvider,
             reservation.Configuration.GameType,
             reservation.Configuration.Format,
             reservation.Configuration.RulesetVersion,
-            etas[index])).ToArray();
+            estimates.Queue[index].Eta,
+            estimates.Queue[index].Duration)).ToArray();
         return new(1, input.Generation, input.Revision, input.ChannelId, input.CalculatedAt,
             Math.Max(0, stopwatch.ElapsedMilliseconds), active, ready, queue);
     }
+
+    private static DuelEstimates UnknownEstimates(ChannelSnapshotInput input) =>
+        new(
+            input.Queue
+                .Select(_ => new QueueEstimate(
+                    new QueueEtaSnapshot(EstimateStatus.Unknown, null, null, true, []),
+                    DurationEstimate.Unknown(0)))
+                .ToArray(),
+            input.ReadyCheck is null ? null : DurationEstimate.Unknown(0),
+            input.Active is null ? null : DurationEstimate.Unknown(0));
 
     internal Task DrainSnapshotPublicationsAsync(int channelId)
     {

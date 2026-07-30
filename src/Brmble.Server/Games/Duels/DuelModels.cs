@@ -119,7 +119,8 @@ public sealed record ActiveDuelSnapshot(
     string GameType,
     string Format,
     int RulesetVersion,
-    DurationEstimate Remaining);
+    DurationEstimate Remaining,
+    DurationEstimate EstimatedDuration);
 
 public sealed record ReadyCheckSnapshot(
     long ReservationId,
@@ -127,7 +128,8 @@ public sealed record ReadyCheckSnapshot(
     IReadOnlyList<DuelPlayerSnapshot> Players,
     string GameType,
     string Format,
-    int RulesetVersion);
+    int RulesetVersion,
+    DurationEstimate EstimatedDuration);
 
 public sealed record QueuedDuelSnapshot(
     long ReservationId,
@@ -136,7 +138,8 @@ public sealed record QueuedDuelSnapshot(
     string GameType,
     string Format,
     int RulesetVersion,
-    QueueEtaSnapshot Eta);
+    QueueEtaSnapshot Eta,
+    DurationEstimate EstimatedDuration);
 
 public sealed record DuelQueueSnapshot(
     int SchemaVersion,

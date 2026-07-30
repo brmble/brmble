@@ -289,6 +289,39 @@ public class DuelOrchestratorTests
     }
 
     [TestMethod]
+    public async Task Snapshot_ExposesEstimatedDurationForActiveReadyAndQueued()
+    {
+        var (sut, presence, _, router) = Create();
+        for (var i = 1; i <= 6; i++) Add(presence, i * 10, i * 100);
+        var activeOffer = await sut.CreateChallengeAsync(10, 20, "test", null);
+        var secondOffer = await sut.CreateChallengeAsync(30, 40, "test", null);
+        var thirdOffer = await sut.CreateChallengeAsync(50, 60, "test", null);
+        var active = await sut.RespondToOfferAsync(activeOffer.OfferId!.Value, 200, true);
+        await sut.RespondToOfferAsync(secondOffer.OfferId!.Value, 400, true);
+        await sut.RespondToOfferAsync(thirdOffer.OfferId!.Value, 600, true);
+
+        var live = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.IsNotNull(live.Active);
+        Assert.AreEqual(2, live.Queue.Count);
+        Assert.AreEqual(EstimateStatus.Known, live.Active!.EstimatedDuration.Status);
+        Assert.AreEqual(60_000L, live.Active.EstimatedDuration.Milliseconds);
+        Assert.AreEqual(EstimateStatus.Known, live.Queue[0].EstimatedDuration.Status);
+        Assert.AreEqual(60_000L, live.Queue[0].EstimatedDuration.Milliseconds);
+        Assert.AreEqual(60_000L, live.Queue[1].EstimatedDuration.Milliseconds);
+
+        await router.CompleteAsync(new MatchCompletion(
+            1, active.ReservationId!.Value, 1,
+            router.Starts[0].PlayerOne, router.Starts[0].PlayerTwo,
+            router.Starts[0].Configuration, DateTimeOffset.UtcNow));
+        var promoted = await sut.GetSnapshotForSessionAsync(10);
+
+        Assert.IsNotNull(promoted.ReadyCheck);
+        Assert.AreEqual(EstimateStatus.Known, promoted.ReadyCheck!.EstimatedDuration.Status);
+        Assert.AreEqual(60_000L, promoted.ReadyCheck.EstimatedDuration.Milliseconds);
+    }
+
+    [TestMethod]
     public async Task MutationBurst_CoalescesBlockedCalculationToInitialAndLatest()
     {
         var presence = new TestPresence();

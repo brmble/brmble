@@ -1,5 +1,12 @@
 namespace Brmble.Server.Games.Duels;
 
+public sealed record QueueEstimate(QueueEtaSnapshot Eta, DurationEstimate Duration);
+
+public sealed record DuelEstimates(
+    IReadOnlyList<QueueEstimate> Queue,
+    DurationEstimate? ReadyDuration,
+    DurationEstimate? ActiveDuration);
+
 public sealed class DuelDurationEstimator
 {
     private const int MinimumSamples = 10;
@@ -74,12 +81,13 @@ public sealed class DuelDurationEstimator
         return DurationEstimate.Known(milliseconds, sampleCount, EstimateMethod.FullMedian);
     }
 
-    public async Task<IReadOnlyList<QueueEtaSnapshot>> BuildEtasAsync(
+    public async Task<DuelEstimates> BuildEtasAsync(
         ChannelSnapshotInput input, DurationEstimate? activeEstimate = null)
     {
         var cache = new Dictionary<(string GameType, string Format, int RulesetVersion), DurationEstimate>();
         var accumulated = new List<DurationEstimate>();
         var segments = new List<EtaSegmentSnapshot>();
+        DurationEstimate? readyDuration = null;
 
         if (input.Active is not null)
         {
@@ -98,28 +106,35 @@ public sealed class DuelDurationEstimator
             Add(
                 DurationEstimate.Known(readyWindowMs, int.MaxValue, EstimateMethod.ReadyWindow),
                 input.ReadyCheck.Reservation.Configuration);
-            Add(
-                await Duration(input.ReadyCheck.Reservation.Configuration),
-                input.ReadyCheck.Reservation.Configuration);
+            readyDuration = await Duration(input.ReadyCheck.Reservation.Configuration);
+            Add(readyDuration, input.ReadyCheck.Reservation.Configuration);
         }
 
-        var result = new List<QueueEtaSnapshot>(input.Queue.Count);
+        var result = new List<QueueEstimate>(input.Queue.Count);
         foreach (var reservation in input.Queue)
         {
             var combined = Combine(accumulated);
-            result.Add(new QueueEtaSnapshot(
+            var eta = new QueueEtaSnapshot(
                 combined.Status,
                 combined.Status == EstimateStatus.Known
                     ? input.CalculatedAt.AddMilliseconds(combined.Milliseconds!.Value)
                     : null,
                 combined.Milliseconds,
                 true,
-                segments.ToArray()));
+                segments.ToArray());
 
-            Add(await Duration(reservation.Configuration), reservation.Configuration);
+            var queueDuration = await Duration(reservation.Configuration);
+            result.Add(new QueueEstimate(eta, queueDuration));
+            Add(queueDuration, reservation.Configuration);
         }
 
-        return result;
+        // Computed after the loop purely so the memo cache is already warm; `Duration`
+        // is order-independent, so this does not affect the value.
+        var activeDuration = input.Active is null
+            ? null
+            : await Duration(input.Active.Configuration);
+
+        return new DuelEstimates(result, readyDuration, activeDuration);
 
         async Task<DurationEstimate> Duration(DuelConfiguration config)
         {

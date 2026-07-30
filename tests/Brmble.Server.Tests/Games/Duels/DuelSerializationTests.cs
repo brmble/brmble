@@ -64,7 +64,8 @@ public sealed class DuelSerializationTests
                 "rps",
                 "bo3",
                 1,
-                new DurationEstimate(EstimateStatus.Unknown, null, 9, EstimateMethod.FullMedianFallback, true)),
+                new DurationEstimate(EstimateStatus.Unknown, null, 9, EstimateMethod.FullMedianFallback, true),
+                DurationEstimate.Unknown(9)),
             null,
             new[]
             {
@@ -80,7 +81,8 @@ public sealed class DuelSerializationTests
                         null,
                         null,
                         true,
-                        new[] { new EtaSegmentSnapshot("rps", "bo3", 1, 9, EstimateMethod.FullMedianFallback) }))
+                        new[] { new EtaSegmentSnapshot("rps", "bo3", 1, 9, EstimateMethod.FullMedianFallback) }),
+                    DurationEstimate.Unknown(9))
             });
     }
 }

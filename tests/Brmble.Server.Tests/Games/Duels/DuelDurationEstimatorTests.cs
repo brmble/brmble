@@ -161,7 +161,7 @@ public sealed class DuelDurationEstimatorTests
             active: new ActiveSnapshotInput(active, CalculatedAt.AddSeconds(-30)),
             queue: [Reservation(1, queued), Reservation(2, queued)]);
 
-        var etas = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+        var etas = (await new DuelDurationEstimator(repository).BuildEtasAsync(input)).Queue.Select(entry => entry.Eta).ToArray();
 
         Assert.AreEqual(5_000L, etas[0].Milliseconds);
         Assert.AreEqual(CalculatedAt.AddSeconds(5), etas[0].EstimatedStartAt);
@@ -175,24 +175,59 @@ public sealed class DuelDurationEstimatorTests
     }
 
     [TestMethod]
-    public async Task BuildEtas_ReusesPrecomputedActiveEstimateWithoutRepositoryCall()
+    public async Task BuildEtas_ReusesPrecomputedRemaining_AndQueriesActiveDurationExactlyOnce()
     {
         var active = Config("rps", "bo3", 2);
-        var repository = new StubDurationRepository(call => call.GameType == "rps"
-            ? throw new AssertFailedException("active estimate was recalculated")
+        var repository = new StubDurationRepository(call => IsConditionalActiveQuery(call)
+            ? throw new AssertFailedException("active remaining estimate was recalculated")
             : Samples(10_000, 10));
         var input = Input(
             active: new ActiveSnapshotInput(active, CalculatedAt.AddSeconds(-30)),
             queue: [Reservation(1, Config("arena"))]);
         var remaining = DurationEstimate.Known(7_000, 14, EstimateMethod.ConditionalRemaining);
 
-        var eta = (await new DuelDurationEstimator(repository).BuildEtasAsync(input, remaining)).Single();
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input, remaining);
+        var eta = result.Queue.Single().Eta;
 
         Assert.AreEqual(7_000L, eta.Milliseconds);
         AssertSegment(eta.Segments.Single(), active, 14, EstimateMethod.ConditionalRemaining);
+        Assert.AreEqual(10_000L, result.ActiveDuration!.Milliseconds);
         CollectionAssert.AreEqual(
-            new[] { new RepositoryCall("arena", "bo3", 1, null) },
+            new[]
+            {
+                new RepositoryCall("arena", "bo3", 1, null),
+                new RepositoryCall("rps", "bo3", 2, null),
+            },
             repository.Calls);
+
+        static bool IsConditionalActiveQuery(RepositoryCall call) =>
+            call.GameType == "rps" && call.ElapsedGreaterThanMs is not null;
+    }
+
+    [TestMethod]
+    public async Task BuildEtas_ReturnsReadyAndPerQueueDurationsInQueueOrder()
+    {
+        var ready = Config("ready", "bo3", 1);
+        var first = Config("first", "bo3", 1);
+        var second = Config("second", "bo3", 1);
+        var repository = new StubDurationRepository(call => call.GameType switch
+        {
+            "ready" => Samples(11_000, 10),
+            "first" => Samples(22_000, 10),
+            "second" => Samples(33_000, 10),
+            _ => Samples(1_000, 10),
+        });
+        var input = Input(
+            ready: new ReadySnapshotInput(Reservation(20, ready), CalculatedAt.AddSeconds(3)),
+            queue: [Reservation(1, first), Reservation(2, second)]);
+
+        var result = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+
+        Assert.AreEqual(11_000L, result.ReadyDuration!.Milliseconds);
+        Assert.IsNull(result.ActiveDuration);
+        CollectionAssert.AreEqual(
+            new long?[] { 22_000L, 33_000L },
+            result.Queue.Select(entry => entry.Duration.Milliseconds).ToArray());
     }
 
     [TestMethod]
@@ -205,7 +240,7 @@ public sealed class DuelDurationEstimatorTests
             queue: [Reservation(21, queued)]);
 
         var eta = (await new DuelDurationEstimator(
-            new StubDurationRepository(_ => Samples(10_000, 15))).BuildEtasAsync(input)).Single();
+            new StubDurationRepository(_ => Samples(10_000, 15))).BuildEtasAsync(input)).Queue.Single().Eta;
 
         Assert.AreEqual(13_000L, eta.Milliseconds);
         Assert.AreEqual(CalculatedAt.AddSeconds(13), eta.EstimatedStartAt);
@@ -227,7 +262,7 @@ public sealed class DuelDurationEstimatorTests
             Reservation(3, known),
         ]);
 
-        var etas = await new DuelDurationEstimator(repository).BuildEtasAsync(input);
+        var etas = (await new DuelDurationEstimator(repository).BuildEtasAsync(input)).Queue.Select(entry => entry.Eta).ToArray();
 
         Assert.AreEqual(EstimateStatus.Known, etas[0].Status);
         Assert.AreEqual(0L, etas[0].Milliseconds);
@@ -244,8 +279,8 @@ public sealed class DuelDurationEstimatorTests
     {
         var input = Input(queue: [Reservation(1, Config()), Reservation(2, Config())]);
 
-        var etas = await new DuelDurationEstimator(
-            new StubDurationRepository(_ => Samples(10_000, 10))).BuildEtasAsync(input);
+        var etas = (await new DuelDurationEstimator(
+            new StubDurationRepository(_ => Samples(10_000, 10))).BuildEtasAsync(input)).Queue.Select(entry => entry.Eta).ToArray();
 
         Assert.AreEqual(0, etas[0].Segments.Count);
         Assert.AreEqual(1, etas[1].Segments.Count);
