@@ -116,6 +116,23 @@ describe('CustomCompanionMediaLoader', () => {
     expect(putAtlas).not.toHaveBeenCalled();
   });
 
+  it('rejects a bodyless full atlas without buffering it', async () => {
+    getAtlas.mockResolvedValue(undefined);
+    const blobResponse = vi.fn(async () => new Blob([new Uint8Array(6 * 1024 * 1024)]));
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Length': `${6 * 1024 * 1024}` }),
+      body: null,
+      blob: blobResponse,
+    } as unknown as Response);
+    const loader = makeLoader();
+
+    await expect(loader.ensureAtlas(entry, new Set())).rejects.toThrow('stream is unavailable');
+    expect(blobResponse).not.toHaveBeenCalled();
+    expect(putAtlas).not.toHaveBeenCalled();
+  });
+
   it('loads only the bounded authenticated thumbnail with the supplied signal', async () => {
     const response = streamingResponse([new Uint8Array([1, 2, 3])], 'image/webp');
     vi.mocked(fetch).mockResolvedValue(response as unknown as Response);
@@ -144,6 +161,24 @@ describe('CustomCompanionMediaLoader', () => {
     const loader = makeLoader();
 
     await expect(loader.loadThumbnail(entry, new AbortController().signal)).rejects.toThrow('too large');
+    expect(client.mxcUrlToHttp).toHaveBeenCalledTimes(1);
+    expect(putAtlas).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bodyless thumbnail without buffering or requesting the full atlas', async () => {
+    const blobResponse = vi.fn(async () => new Blob([new Uint8Array(2 * 1024 * 1024)]));
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body: null,
+      blob: blobResponse,
+    } as unknown as Response);
+    const loader = makeLoader();
+
+    await expect(loader.loadThumbnail(entry, new AbortController().signal))
+      .rejects.toThrow('stream is unavailable');
+    expect(blobResponse).not.toHaveBeenCalled();
     expect(client.mxcUrlToHttp).toHaveBeenCalledTimes(1);
     expect(putAtlas).not.toHaveBeenCalled();
   });
@@ -195,54 +230,59 @@ describe('CustomCompanionMediaLoader', () => {
     );
   });
 
-  it('does not delete an atlas claimed by a newer loader after the old write', async () => {
+  it('does not let a stale loader replace or delete a newer loader write', async () => {
     let cached: Blob | undefined;
     let writeOwner: string | undefined;
-    let publishOldWrite!: () => void;
     let finishOldWrite!: () => void;
-    const oldWritePublished = new Promise<void>(resolve => {
-      publishOldWrite = resolve;
-    });
-    getAtlas.mockImplementation(async () => {
-      if (!cached) return undefined;
-      writeOwner = undefined;
-      return cached;
-    });
+    getAtlas.mockResolvedValue(undefined);
     putAtlas.mockImplementationOnce((
       _cacheKey: string,
       blob: Blob,
       _protectedKeys: ReadonlySet<string>,
       owner: string,
     ) => new Promise<boolean>(resolve => {
-      finishOldWrite = () => resolve(true);
-      void oldWritePublished.then(() => {
+      finishOldWrite = () => {
+        if (cached) {
+          resolve(false);
+          return;
+        }
         cached = blob;
         writeOwner = owner;
-      });
-    }));
+        resolve(true);
+      };
+    })).mockImplementationOnce(async (
+      _cacheKey: string,
+      blob: Blob,
+      _protectedKeys: ReadonlySet<string>,
+      owner: string,
+    ) => {
+      if (cached) return false;
+      cached = blob;
+      writeOwner = owner;
+      return true;
+    });
     deleteAtlasIfOwned.mockImplementation(async (_cacheKey: string, owner: string) => {
       if (writeOwner !== owner) return false;
       cached = undefined;
       writeOwner = undefined;
       return true;
     });
-    vi.mocked(fetch).mockResolvedValue(
-      streamingResponse([new Uint8Array([1])]) as unknown as Response,
-    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(streamingResponse([new Uint8Array([1])]) as unknown as Response)
+      .mockResolvedValueOnce(streamingResponse([new Uint8Array([2, 2])]) as unknown as Response);
     const oldLoader = makeLoader();
     const newLoader = makeLoader();
     const oldRequest = oldLoader.ensureAtlas(entry, new Set());
     await vi.waitFor(() => expect(putAtlas).toHaveBeenCalledTimes(1));
 
     oldLoader.cancelAll();
-    publishOldWrite();
-    await oldWritePublished;
     const currentAtlas = await newLoader.ensureAtlas(entry, new Set());
+    expect(putAtlas).toHaveBeenCalledTimes(2);
     finishOldWrite();
 
     await expect(oldRequest).rejects.toThrow();
     expect(currentAtlas).toBe(cached);
-    expect(cached).toBeDefined();
+    expect([...new Uint8Array(await currentAtlas.arrayBuffer())]).toEqual([2, 2]);
     expect(deleteAtlasIfOwned).toHaveBeenCalledTimes(1);
   });
 });

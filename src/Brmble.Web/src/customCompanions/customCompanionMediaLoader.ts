@@ -26,9 +26,7 @@ async function readBoundedBlob(response: Response, maxBytes: number, mimeType: s
   if (!response.ok) throw new Error(`Custom companion media request failed (${response.status}).`);
 
   if (!response.body) {
-    const blob = await response.blob();
-    if (blob.size > maxBytes) throw new Error('Custom companion media is too large.');
-    return blob.slice(0, blob.size, mimeType);
+    throw new Error('Custom companion media stream is unavailable.');
   }
 
   const reader = response.body.getReader();

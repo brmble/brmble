@@ -76,6 +76,26 @@ describe('CustomCompanionAtlasStore', () => {
     expect(adapter.snapshot()).toHaveLength(0);
   });
 
+  it('does not replace a same-key atlas created by another owned writer', async () => {
+    const adapter = new FakeIndexedDbAdapter();
+    const newerStore = new CustomCompanionAtlasStore(adapter, 100, () => 2);
+    const staleStore = new CustomCompanionAtlasStore(adapter, 100, () => 1);
+    const newerBlob = blob(4, 'image/webp');
+
+    await expect(newerStore.putAtlas('a', newerBlob, new Set(), 'new-owner')).resolves.toBe(true);
+    await expect(staleStore.putAtlas('a', blob(3), new Set(), 'old-owner')).resolves.toBe(false);
+    await expect(staleStore.deleteAtlasIfOwned('a', 'old-owner')).resolves.toBe(false);
+
+    expect(adapter.snapshot()).toEqual([
+      expect.objectContaining({
+        cacheKey: 'a',
+        blob: newerBlob,
+        byteSize: 4,
+        writeOwner: 'new-owner',
+      }),
+    ]);
+  });
+
   it('evicts deterministically by oldest access then cache key', async () => {
     const adapter = new FakeIndexedDbAdapter([
       { cacheKey: 'b', blob: blob(4), byteSize: 4, lastAccessedAt: 1 },

@@ -142,6 +142,8 @@ export class CustomCompanionAtlasStore {
     await this.initialize();
     return this.adapter.transaction(async transaction => {
       const records = await transaction.getAll();
+      if (writeOwner && records.some(record => record.cacheKey === cacheKey)) return false;
+
       const retained = records.filter(record => record.cacheKey !== cacheKey);
       let retainedBytes = retained.reduce((total, record) => total + record.byteSize, 0);
       const protectedBytes = retained

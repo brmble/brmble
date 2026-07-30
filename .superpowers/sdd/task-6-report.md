@@ -147,3 +147,36 @@ Commit: `c5efb37a feat: synchronize custom companion gallery`
 ### Concerns
 
 - None.
+
+## Review Fix: Atomic Atlas Writes and Viewport Thumbnails
+
+### Summary
+
+- Made owned atlas writes atomic create-if-absent operations, so a stale loader cannot replace a same-key atlas that another loader or WebView committed first.
+- Preserved ownership-checked cancellation cleanup: a stale writer that loses the compare-and-set cannot delete the current record.
+- Rejected successful media responses without a readable stream, preventing atlas and thumbnail fallbacks from fully buffering an unbounded `response.blob()`.
+- Added `useViewportThumbnail`, a Task 6 data-layer hook with `IntersectionObserver` `rootMargin: '200px'`, visible-only thumbnail requests, release on leave/unmount, re-entry loading, and stable placeholder/error state.
+- Kept full-atlas loading outside the viewport hook; thumbnail failure does not invoke an available full-atlas request.
+- Added regressions for two loader instances sharing a cache key, bodyless atlas and thumbnail responses, row-to-row viewport loading, leave/unmount cleanup, and failure behavior.
+
+### Tests Run
+
+- `npm.cmd run test -- src/customCompanions src/hooks/useCustomCompanionGallery.test.tsx src/hooks/useMatrixClient.test.ts src/utils/matrixCredentials.test.ts`
+  - PASS: 7 files, 96 tests.
+  - The `useMatrixClient` failure-path test emitted its expected simulated `network` diagnostic.
+- `npm.cmd run type-check`
+  - PASS.
+
+### Files Changed
+
+- `src/Brmble.Web/src/customCompanions/customCompanionAtlasStore.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionAtlasStore.test.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionMediaLoader.ts`
+- `src/Brmble.Web/src/customCompanions/customCompanionMediaLoader.test.ts`
+- `src/Brmble.Web/src/customCompanions/useViewportThumbnail.ts`
+- `src/Brmble.Web/src/customCompanions/useViewportThumbnail.test.tsx`
+- `.superpowers/sdd/task-6-report.md`
+
+### Concerns
+
+- None.
