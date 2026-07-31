@@ -12,11 +12,17 @@
 
 **Scope note:** This is Phase 1 of three. Phase 2 builds the client-side `UserProjectionStore`; Phase 3 rewires `MumbleAdapter` and `App.tsx`. Phase 1 ships and is useful on its own — no client changes are required for it to be safe.
 
-**Dependency:** PR #617 (`fix/companion-broadcast-scope`) must be merged first. Gap detection requires every client to observe every mutation; the channel-scoped `companionChanged` that #617 removes would cause phantom gaps. Verify with:
+**Dependencies:**
+
+1. **PR #617 (`fix/companion-broadcast-scope`) — MERGED** as `a4c993fa`. Gap detection requires every client to observe every mutation; the channel-scoped `companionChanged` it removed would have caused phantom gaps.
+2. **`fix/companion-update-race` (`cd7b48fa`) must land first.** It adds `TryUpdateCompanionIdIfOwnedBy` and restructures the deletion endpoint. This plan is written against the post-`cd7b48fa` code. Verify both with:
 
 ```bash
 git log --oneline origin/main | Select-String "broadcast companion changes"
+Select-String -Path src/Brmble.Server/Events/ISessionMappingService.cs -Pattern TryUpdateCompanionIdIfOwnedBy
 ```
+
+If the second returns nothing, stop — Task 1 and Task 4 reference a method that does not exist yet.
 
 ---
 
@@ -24,9 +30,16 @@ git log --oneline origin/main | Select-String "broadcast companion changes"
 
 `SessionMappingService` (`src/Brmble.Server/Events/SessionMappingService.cs`) is an in-memory store of four `ConcurrentDictionary` indexes. It is a singleton (`Mumble/MumbleExtensions.cs:12`) and holds no persistence — a process restart empties it, which is exactly why `instanceId` is needed.
 
-`BrmbleEventBus.BroadcastCoreAsync` is deliberately **not** an `async` method: it serialises the payload and enqueues to every client's per-socket queue synchronously, then returns a `Task` you await for completion. This means calling it inside a `lock` is safe — no socket I/O happens under the lock — and it is why the ordering approach in Task 3 works.
+`BrmbleEventBus.BroadcastCoreAsync` is deliberately **not** an `async` method: it serialises the payload and enqueues to every client's per-socket queue synchronously, then returns a `Task` that completes when delivery finishes. The distinction matters enormously here:
 
-There are six mutation methods: `TryAddMatrixUser`, `RemoveSession`, `TryUpdateCompanionId`, `TryUpdateCompanionIdIfCurrent`, `TryUpdateBrmbleStatus`, `TryUpdateCertHash`.
+- **Calling** `BroadcastAsync` does no socket I/O — it only enqueues.
+- **Awaiting** the returned task waits for actual delivery.
+
+So holding a lock across the *call* is cheap and safe; holding it across the *await* is not. `MappingEventPublisher` (Task 3) enqueues under its lock and awaits outside it, which is what gives ordering without serialising I/O.
+
+**This is also why the publisher does not regress `cd7b48fa`.** That commit moved deletion broadcasts outside the event-coordinator lock because `await eventBus.BroadcastAsync(...)` was waiting on a full-server fan-out while holding it. Using the publisher inside that lock is fine — `PublishAsync` returns before any I/O — provided you collect the tasks and `await Task.WhenAll(...)` after releasing. Task 4 shows the shape.
+
+There are seven mutation methods: `TryAddMatrixUser`, `RemoveSession`, `TryUpdateCompanionId`, `TryUpdateCompanionIdIfCurrent`, `TryUpdateCompanionIdIfOwnedBy`, `TryUpdateBrmbleStatus`, `TryUpdateCertHash`.
 
 **JSON naming — read this before writing any payload.** `BrmbleEventBus` serialises with `PropertyNamingPolicy = JsonNamingPolicy.CamelCase` (`BrmbleEventBus.cs:17`), but the tests in this plan call `JsonSerializer.Serialize` with default options. The codebase convention sidesteps the mismatch by naming anonymous-type properties in camelCase directly (`sessionId = ...`, never `SessionId`). Follow it: always write `instanceId = envelope.InstanceId`, never the `envelope.InstanceId` property shorthand — the shorthand emits `InstanceId` under default options and every assertion in this plan would fail.
 
@@ -81,8 +94,11 @@ Append these to `SessionMappingServiceTests.cs`, inside the existing `SessionMap
         _svc.TryUpdateCertHash(1, "abc");
         Assert.AreEqual(4L, _svc.Revision);
 
-        _svc.RemoveSession(1);
+        _svc.TryUpdateCompanionIdIfOwnedBy(1, 1L, "pip");
         Assert.AreEqual(5L, _svc.Revision);
+
+        _svc.RemoveSession(1);
+        Assert.AreEqual(6L, _svc.Revision);
     }
 
     [TestMethod]
@@ -99,6 +115,9 @@ Append these to `SessionMappingServiceTests.cs`, inside the existing `SessionMap
 
         // A CAS whose expected value does not match must not bump either.
         Assert.IsFalse(_svc.TryUpdateCompanionIdIfCurrent(1, "notthecurrentone", "pip"));
+
+        // Nor one whose owning userId does not match.
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfOwnedBy(1, 999L, "pip"));
 
         Assert.AreEqual(before, _svc.Revision);
     }
@@ -227,7 +246,7 @@ In `TryUpdateBrmbleStatus`, `TryUpdateCompanionId` and `TryUpdateCertHash`, add 
 
 `TryUpdateBrmbleStatus` becomes the same shape with `IsBrmbleClient = isBrmbleClient`, and `TryUpdateCertHash` the same shape with `CertHash = certHash`.
 
-In `TryUpdateCompanionIdIfCurrent`, add `Bump();` immediately before its existing `return true;` inside the `if (_sessionToMapping.TryUpdate(...))` block.
+In `TryUpdateCompanionIdIfCurrent` and `TryUpdateCompanionIdIfOwnedBy`, add `Bump();` immediately before each existing `return true;` inside the `if (_sessionToMapping.TryUpdate(...))` block. Both are already CAS loops, so they need no other change.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -708,7 +727,7 @@ Declare `var activatedSessionId = 0;` above the call, since it is now assigned i
         var sessionId = 0;
         await publisher.PublishAsync(
             () => sessionMapping.TryGetMappingByUserId(user.Id, out sessionId, out _)
-                  && sessionMapping.TryUpdateCompanionId(sessionId, companionId),
+                  && sessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, user.Id, companionId),
             envelope =>
             {
                 var wire = CompanionWireSelection.FromPersisted(companionId);
@@ -725,12 +744,33 @@ Declare `var activatedSessionId = 0;` above the call, since it is now assigned i
             });
 ```
 
+Keep `TryUpdateCompanionIdIfOwnedBy` — do not revert it to `TryUpdateCompanionId`. It is a CAS on the owning userId that stops a session recycled between the lookup and the write from having the new owner's companion overwritten.
+
 Add `IMappingEventPublisher publisher` to the `/auth/companion` endpoint's DI parameters and to `PersistCompanionSelectionAsync`'s signature, replacing `IBrmbleEventBus eventBus` if it becomes unused.
 
-`CustomCompanionEndpoints.cs:71-83` becomes:
+`CustomCompanionEndpoints` deletion. `cd7b48fa` restructured this into "mutate inside the coordinator lock, collect, broadcast after". Preserve that shape — but note the publisher must do the *mutation* too, since it is the mutation that assigns the revision. Collect the returned tasks and await them after the lock releases.
+
+Replace the `resetSessions` list and the loop that follows it with:
 
 ```csharp
-                    await publisher.PublishAsync(
+            var sends = new List<Task>();
+
+            using (await eventCoordinator.AcquireAsync(eventId, httpContext.RequestAborted))
+            {
+                // ... unchanged: record lookup, redaction, MarkDeletedAsync, ResetSelectionsAsync ...
+
+                foreach (var affectedUserId in affectedUserIds)
+                {
+                    if (!sessionMapping.TryGetMappingByUserId(affectedUserId, out var sessionId, out var mapping)
+                        || mapping is null)
+                    {
+                        continue;
+                    }
+
+                    // PublishAsync returns as soon as the payload is enqueued, so the
+                    // coordinator lock is not held across the fan-out. Awaiting these here
+                    // would reintroduce exactly what cd7b48fa removed.
+                    sends.Add(publisher.PublishAsync(
                         () => sessionMapping.TryUpdateCompanionIdIfCurrent(
                             sessionId, deletedCompanionId, "floppy"),
                         envelope => new
@@ -742,8 +782,15 @@ Add `IMappingEventPublisher publisher` to the `/auth/companion` endpoint's DI pa
                             matrixUserId = mapping.MatrixUserId,
                             companionId = "floppy",
                             customCompanionId = (string?)null
-                        });
+                        }));
+                }
+            }
+
+            await Task.WhenAll(sends);
+            return Results.NoContent();
 ```
+
+Add `IMappingEventPublisher publisher` to the DELETE endpoint's DI parameters and remove `IBrmbleEventBus eventBus` if it becomes unused.
 
 `MumbleServerCallback.cs:197` becomes:
 
