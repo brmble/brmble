@@ -53,6 +53,23 @@ resolution, but they do not live in it.
 **Also out of scope:** replacing the Mumble protocol (not ours), and unifying the Matrix media
 layer (see §9).
 
+### 2.1 Inherited constraints
+
+Carried forward from the problem statement, which this document supersedes:
+
+1. **The Mumble protocol is not ours to change.** Mumble-owned fields keep arriving as `UserState`
+   and keep repeating on every change. The design leans on that rather than replacing it.
+2. **`/auth/token` cannot be dropped.** It exists because the client needs credentials *before*
+   the WebSocket is up, so it is not redundant with `sessionMappingSnapshot` even though they
+   carry identical data. §3.1 keeps them as two transports sharing one code path rather than
+   collapsing them — a future "simplification" that deletes the HTTP route would break bootstrap.
+3. **The projection is not the only consumer.** Client-side, companions read it (§6.5). The
+   *server's* `ISessionMappingService` is a different thing and additionally feeds duels, paint,
+   screen share and channel routing — it is not in scope here.
+4. **It has to survive concurrent joins.** Simultaneous registration is what exposed this bug
+   class in the first place, via a deadlock that starved clients of `sessionMappingSnapshot`
+   entirely (fixed in `29ac2c8c`). See the concurrency acceptance test in §8.
+
 ---
 
 ## 3. Architecture
@@ -370,6 +387,12 @@ currently fails on all four counts.
 **Moderation.** A moderator redacts a skin while a client sits in a different channel with that
 atlas cached. That client loses it from memory and disk without changing channels or reconnecting.
 (Expected to pass already via Matrix sync — this pins it against regression.)
+
+**Concurrency.** Several clients register their WebSockets simultaneously. Every one of them
+receives a complete `sessionMappingSnapshot`, and every one converges on the same projection.
+Simultaneous registration is what exposed this bug class originally — a deadlock left clients with
+no snapshot at all (`29ac2c8c`) — so it is a standing acceptance criterion, not a one-off
+regression test.
 
 ---
 

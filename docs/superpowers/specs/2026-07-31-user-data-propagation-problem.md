@@ -1,5 +1,18 @@
 # User data reaches clients by four different routes
 
+> **Status: SUPERSEDED — historical record, do not work from this document.**
+>
+> The design that answers this is
+> [`2026-07-31-user-projection-design.md`](2026-07-31-user-projection-design.md). All four open
+> questions below are decided there, and its §2.1 carries forward the constraints.
+>
+> Kept because it holds the original evidence and debugging history. **Its line references are
+> stale** — they predate the `custom-companion` merge (`31353ec5`) and no longer resolve. Use the
+> design document for current anchors.
+>
+> One claim made during the follow-up investigation — that moderator redactions failed to reach
+> out-of-channel clients — was later disproved. See §5.1 of the design.
+
 **Status:** problem statement only. No solution chosen — this is input for a brainstorm.
 
 **Written:** 2026-07-31, from the investigation behind `29ac2c8c`, `621ce204` and `659797c4`.
@@ -77,14 +90,18 @@ Consequences:
 
 ## Open design questions for the brainstorm
 
+*(All four are answered in the design document — pointers added retrospectively.)*
+
 1. Should server-owned user data become self-correcting like `UserState`, by periodic or
    change-driven re-assertion — or should the client resync when it sees an event for a
-   session it cannot place?
+   session it cannot place? → **Resync on gap, driven by a revision counter** (design §4.2).
 2. Can routes two and three collapse into one? They carry identical data for different
-   reasons.
+   reasons. → **No — two transports, one code path** (design §3.1, §2.1 constraint 2).
 3. Should "absent" be representable at all on the wire, or should every payload be complete?
+   → **Yes, as tri-state; absent means unknown** (design §3.2, §4.1).
 4. Does the merge belong in one function in `App.tsx`, or should the adapter own a single
-   authoritative user projection and the UI stop merging entirely?
+   authoritative user projection and the UI stop merging entirely? → **The adapter owns it; the
+   UI stops merging** (design §3.1, §6.2).
 
 ## What is deliberately not decided here
 
