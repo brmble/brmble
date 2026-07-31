@@ -323,9 +323,14 @@ public static class AuthEndpoints
     {
         await userRepository.SetCompanionId(user.Id, companionId);
 
-        if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId))
+        // Resolve through TryGetMappingByUserId rather than TryGetSessionByUserId: the
+        // userId→session index can outlive or disagree with the session→mapping table, so a
+        // bare session lookup can point at a session with no mapping, or one that has since
+        // been recycled to a different user. Announcing either would publish a change that
+        // did not happen — or attribute it to somebody else.
+        if (sessionMapping.TryGetMappingByUserId(user.Id, out var sessionId, out _)
+            && sessionMapping.TryUpdateCompanionId(sessionId, companionId))
         {
-            sessionMapping.TryUpdateCompanionId(sessionId, companionId);
             var wire = CompanionWireSelection.FromPersisted(companionId);
             // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
             // delivery left everyone outside the user's channel with a stale selection until
