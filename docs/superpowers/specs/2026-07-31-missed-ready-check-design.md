@@ -50,8 +50,13 @@ that ordering.
 
 ### Reason filtering
 
-`game.commitmentCanceled` carries five reasons: `expired`, `declined`, `disconnected`, `leftChannel`,
-and `channelRemoved`. Only `expired` produces this notification.
+`game.commitmentCanceled` carries six reasons: `expired`, `declined`, `disconnected`, `leftChannel`,
+`channelRemoved`, and `startFailed`. Only `expired` produces this notification.
+
+The handler allow-lists `expired` rather than excluding the others, so a reason added later cannot
+silently start reporting itself as a missed ready check. Note `startFailed` is published inline
+rather than through `PublishReservationCancellationAsync`, so enumerating that helper's callers does
+not find it.
 
 The others are semantically different and must not be reported as a missed ready check. `declined` in
 particular is a deliberate refusal, not a timeout; it is currently unreachable from the web client,

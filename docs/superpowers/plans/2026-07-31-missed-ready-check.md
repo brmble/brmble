@@ -21,7 +21,7 @@
 ## Critical implementation facts (verified — do not re-derive)
 
 1. **`App.tsx:1041-1043` derives `readyCheck` with a `!player.ready` filter**, so it becomes `null` the moment the local player presses Ready. The capture in Task 2 MUST read raw `duelQueue.byChannel` snapshots, not that derived variable. Using it would make the ready-player case impossible to detect.
-2. **`game.commitmentCanceled` fires for five reasons**: `expired`, `declined`, `disconnected`, `leftChannel`, `channelRemoved` (`DuelOrchestrator.cs:331,480,540,607,748,770`). Only `expired` may produce this notification.
+2. **`game.commitmentCanceled` fires for six reasons**: `expired`, `declined`, `disconnected`, `leftChannel`, `channelRemoved` (`DuelOrchestrator.cs:331,480,540,607,748,770`) and `startFailed` (`DuelOrchestrator.cs:664-666`, published inline rather than via `PublishReservationCancellationAsync`). Only `expired` may produce this notification. Allow-list it rather than excluding the others.
 3. **`DEFAULT_DURATIONS`** (`Notification.tsx`): `info: 5000`, `warning: null`. The persistence requirement is met by status choice alone — do NOT pass a `duration` prop.
 4. **`onExited` is unreachable** for a notification behind a render gate (documented in `docs/UI_GUIDE.md` §13). Registration cleanup goes in the effect's `else`. Do not add an `onExited` handler.
 5. The server keeps the ready check in the snapshot after one player readies, with that player's `ready: true` — so the capture sees the full ready state.
@@ -477,7 +477,7 @@ Add a `#### Missed ready check` subsection next to `#### Duel queue confirmation
 
 - The two forms under the stable id `game-ready-missed`: `warning` / `Missed your duel` (persistent, because the player was away) when the local player did not ready, and `info` / `Duel canceled` naming the opponent when they did. Both when neither readied.
 - That persistence comes from the `warning` status's `duration: null`, not an explicit prop.
-- That only `reason === 'expired'` produces it, and why `declined` / `disconnected` / `leftChannel` / `channelRemoved` must not.
+- That only `reason === 'expired'` produces it, and why `declined` / `disconnected` / `leftChannel` / `channelRemoved` / `startFailed` must not. Note the handler allow-lists rather than deny-lists, so a future reason cannot silently start reporting itself.
 - That the ready state is captured from raw snapshots because App's derived `readyCheck` excludes checks the local player has readied.
 - That it is not behind a settings toggle, matching the other duel outcome notifications.
 - That the queue holds pairs, so an expired check drops the pair and getting back in means a fresh challenge at the back of the queue. This is by design, not a limitation.
