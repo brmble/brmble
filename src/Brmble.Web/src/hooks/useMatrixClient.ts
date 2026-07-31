@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient, RoomEvent, RoomStateEvent, RoomMemberEvent, ClientEvent, EventType, MsgType, KnownMembership, RelationType } from 'matrix-js-sdk';
 import type { MatrixClient, MatrixEvent, Room, RoomMember, RoomState } from 'matrix-js-sdk';
+import type { CustomCompanionCapability } from '../customCompanions/customCompanionTypes';
 import type { ChatMessage, MediaAttachment } from '../types';
 import { addReactionSender, removeReactionSender } from '../utils/chatReactions';
 import { formatTypingIndicator } from '../utils/formatTypingIndicator';
@@ -309,6 +310,7 @@ function loadMessagesFromTimeline(
 }
 
 export interface MatrixCredentials {
+  customCompanions?: CustomCompanionCapability;
   homeserverUrl: string;
   accessToken: string;
   userId: string;

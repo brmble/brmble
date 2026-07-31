@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using Brmble.Server.Auth;
+using Brmble.Server.Companions;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
 
@@ -64,6 +65,21 @@ public static class BrmbleWebSocketHandler
         }
     }
 
+    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash)
+    {
+        var wire = CompanionWireSelection.FromPersisted(mapping.CompanionId);
+        return new
+        {
+            type = "userMappingAdded",
+            sessionId,
+            matrixUserId = mapping.MatrixUserId,
+            mumbleName = mapping.MumbleName,
+            companionId = wire.CompanionId,
+            customCompanionId = wire.CustomCompanionId,
+            certHash,
+            isBrmbleClient = true
+        };
+    }
     /// <summary>
     /// Registers an accepted socket and hands it its initial payloads. The mapping mutation
     /// and its announcement run inside the registration window, so the joining client is
@@ -106,28 +122,22 @@ public static class BrmbleWebSocketHandler
     {
         var snapshot = mappings.ToDictionary(
             kvp => kvp.Key.ToString(),
-            kvp => new
+            kvp =>
             {
-                matrixUserId = kvp.Value.MatrixUserId,
-                mumbleName = kvp.Value.MumbleName,
-                companionId = kvp.Value.CompanionId,
-                certHash = kvp.Value.CertHash,
-                isBrmbleClient = kvp.Value.IsBrmbleClient,
+                var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
+                return new
+                {
+                    matrixUserId = kvp.Value.MatrixUserId,
+                    mumbleName = kvp.Value.MumbleName,
+                    companionId = wire.CompanionId,
+                    customCompanionId = wire.CustomCompanionId,
+                    certHash = kvp.Value.CertHash,
+                    isBrmbleClient = kvp.Value.IsBrmbleClient,
+                };
             });
         var initial = new List<object> { new { type = "sessionMappingSnapshot", mappings = snapshot } };
         if (sessionId != 0)
             initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
         return initial;
     }
-
-    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash) => new
-    {
-        type = "userMappingAdded",
-        sessionId,
-        matrixUserId = mapping.MatrixUserId,
-        mumbleName = mapping.MumbleName,
-        companionId = mapping.CompanionId,
-        certHash,
-        isBrmbleClient = true
-    };
 }

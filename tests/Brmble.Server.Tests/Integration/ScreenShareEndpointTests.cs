@@ -12,7 +12,7 @@ public class ScreenShareEndpointTests
     {
         await using var factory = new BrmbleServerFactory();
         var client = factory.CreateClient();
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         var startResp = await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
         Assert.AreEqual(HttpStatusCode.OK, startResp.StatusCode);
@@ -22,7 +22,7 @@ public class ScreenShareEndpointTests
         var body = await activeResp.Content.ReadFromJsonAsync<ActiveSharesResponse>();
         Assert.IsNotNull(body?.Shares);
         Assert.AreEqual(1, body.Shares.Length);
-        Assert.AreEqual("maui", body.Shares[0].UserName);
+        Assert.AreEqual("Alice", body.Shares[0].UserName);
     }
 
     [TestMethod]
@@ -30,7 +30,7 @@ public class ScreenShareEndpointTests
     {
         await using var factory = new BrmbleServerFactory();
         var client = factory.CreateClient();
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
         var resp = await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
@@ -42,7 +42,7 @@ public class ScreenShareEndpointTests
     {
         await using var factory = new BrmbleServerFactory();
         var client = factory.CreateClient();
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         await client.PostAsJsonAsync("/livekit/share-started", new { roomName = "channel-4" });
         await client.PostAsJsonAsync("/livekit/share-stopped", new { roomName = "channel-4" });
@@ -59,7 +59,7 @@ public class ScreenShareEndpointTests
     {
         await using var factory = new BrmbleServerFactory();
         var client = factory.CreateClient();
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         var resp = await client.GetAsync("/livekit/active-share?roomName=channel-99");
         Assert.AreEqual(HttpStatusCode.OK, resp.StatusCode);

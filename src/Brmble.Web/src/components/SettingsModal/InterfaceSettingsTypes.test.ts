@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCompanionId, normalizeOverlaySettings, DEFAULT_OVERLAY } from './InterfaceSettingsTypes';
+import {
+  companionForServer,
+  normalizeCompanionId,
+  normalizeOverlaySettings,
+  resolveCompanionDisplay,
+  DEFAULT_OVERLAY,
+} from './InterfaceSettingsTypes';
 
 describe('InterfaceSettingsTypes', () => {
   describe('normalizeCompanionId', () => {
@@ -13,6 +19,12 @@ describe('InterfaceSettingsTypes', () => {
     });
 
     it('migrates legacy companion ID "clip" to "floppy"', () => {
+      expect(normalizeCompanionId('clip')).toBe('floppy');
+    });
+
+    it('keeps a syntactically valid custom ID but rejects unknown strings', () => {
+      expect(normalizeCompanionId('custom:$sprite:test')).toBe('custom:$sprite:test');
+      expect(normalizeCompanionId('custom:')).toBe('floppy');
       expect(normalizeCompanionId('clip')).toBe('floppy');
     });
 
@@ -53,6 +65,21 @@ describe('InterfaceSettingsTypes', () => {
       expect(result.myCompanion).toBe('engineer');
     });
 
+    it('normalizes server-scoped selections independently', () => {
+      const result = normalizeOverlaySettings({
+        ...DEFAULT_OVERLAY,
+        companionSelectionsByServer: {
+          '!gallery-a:test': 'custom:$a:test',
+          '!gallery-b:test': 'clip' as any,
+        },
+      });
+
+      expect(result.companionSelectionsByServer).toEqual({
+        '!gallery-a:test': 'custom:$a:test',
+        '!gallery-b:test': 'floppy',
+      });
+    });
+
     it('returns complete settings when given empty object', () => {
       const result = normalizeOverlaySettings({});
 
@@ -80,6 +107,48 @@ describe('InterfaceSettingsTypes', () => {
 
       expect(result.myCompanion).toBe('floppy');
       expect(result.mode).toBe('full');
+    });
+  });
+
+  it('restores independent selections for two gallery rooms', () => {
+    const settings = {
+      ...DEFAULT_OVERLAY,
+      companionSelectionsByServer: {
+        '!gallery-a:test': 'custom:$a:test' as const,
+        '!gallery-b:test': 'bee' as const,
+      },
+    };
+    expect(companionForServer(settings, '!gallery-a:test')).toBe('custom:$a:test');
+    expect(companionForServer(settings, '!gallery-b:test')).toBe('bee');
+  });
+
+  it('temporarily displays floppy and recovers when the atlas resolves', () => {
+    const entry = {
+      id: 'custom:$a:test' as const,
+      eventId: '$a:test',
+      atlasCacheKey: '!gallery:test\u0000$a:test',
+    };
+    const loadingGallery = {
+      status: 'loading',
+      entries: [],
+      redactedEventIds: new Set<string>(),
+      readyAtlasCacheKeys: new Set<string>(),
+    };
+    const metadataOnlyGallery = {
+      ...loadingGallery,
+      status: 'ready',
+      entries: [entry],
+    };
+    const atlasReadyGallery = {
+      ...metadataOnlyGallery,
+      readyAtlasCacheKeys: new Set([entry.atlasCacheKey]),
+    };
+
+    expect(resolveCompanionDisplay('custom:$a:test', loadingGallery).companionId).toBe('floppy');
+    expect(resolveCompanionDisplay('custom:$a:test', metadataOnlyGallery).companionId).toBe('floppy');
+    expect(resolveCompanionDisplay('custom:$a:test', atlasReadyGallery)).toEqual({
+      companionId: 'custom:$a:test',
+      atlasCacheKey: '!gallery:test\u0000$a:test',
     });
   });
 });

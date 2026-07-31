@@ -3,6 +3,13 @@ import { Select } from '../Select';
 import './InterfaceSettingsTab.css';
 import type { OverlaySettings, AppearanceSettings, BrmblegotchiSettings, CompanionOverlayMode, CompanionOverlayPosition, CompanionSelection } from './InterfaceSettingsTypes';
 import { themes } from '../../themes/theme-registry';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
+import { CompanionPicker } from './customCompanions/CompanionPicker';
+import {
+  CustomCompanionUploadDialog,
+  type MatrixUploadClient,
+} from './customCompanions/CustomCompanionUploadDialog';
+import { normalizeCompanionId } from './InterfaceSettingsTypes';
 
 interface InterfaceSettingsTabProps {
   appearanceSettings: AppearanceSettings;
@@ -13,20 +20,25 @@ interface InterfaceSettingsTabProps {
   onBrmblegotchiChange: (settings: BrmblegotchiSettings) => void;
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
+  customCompanionGallery?: CustomCompanionGalleryController;
+  customCompanionMatrixClient?: MatrixUploadClient;
+  onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
+  onCustomCompanionUploadActivityChange?: (active: boolean) => void;
 }
 
 export function InterfaceSettingsTab({ 
   appearanceSettings, 
   overlaySettings,
-  brmblegotchiSettings: _brmblegotchiSettings,
   onAppearanceChange, 
   onOverlayChange,
-  onBrmblegotchiChange: _onBrmblegotchiChange,
-  brmblegotchiEnabled: _brmblegotchiEnabled,
-  setBrmblegotchiEnabled: _setBrmblegotchiEnabled
+  customCompanionGallery,
+  customCompanionMatrixClient,
+  onCustomCompanionAtlasRequest,
+  onCustomCompanionUploadActivityChange,
 }: InterfaceSettingsTabProps) {
   
   const [localAppearance, setLocalAppearance] = useState<AppearanceSettings>(appearanceSettings);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
 
   useEffect(() => {
@@ -62,11 +74,9 @@ export function InterfaceSettingsTab({
   };
 
   const handleMyCompanionChange = (companion: string) => {
-    const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
-    const validCompanion: CompanionSelection = validCompanions.includes(companion as CompanionSelection)
-      ? companion as CompanionSelection
-      : 'floppy';
-    onOverlayChange({ ...overlaySettings, myCompanion: validCompanion });
+    // normalizeCompanionId is the single source of truth for what a selection may be:
+    // a known built-in, or a well-formed `custom:$…` id. Anything else becomes 'floppy'.
+    onOverlayChange({ ...overlaySettings, myCompanion: normalizeCompanionId(companion) });
   };
 
   return (
@@ -112,20 +122,30 @@ export function InterfaceSettingsTab({
           />
         </div>
         {overlaySettings.mode === 'full' && (
-          <div className="settings-item">
+          <div className={`settings-item${customCompanionGallery ? ' settings-item--companion-picker' : ''}`}>
             <label>My Companion</label>
-            <Select
-              value={overlaySettings.myCompanion}
-              onChange={handleMyCompanionChange}
-              options={[
-                { value: 'bee', label: 'Bee' },
-                { value: 'engineer', label: 'Engineer' },
-                { value: 'floppy', label: 'Floppy' },
-                { value: 'patch', label: 'Patch' },
-                { value: 'pip', label: 'Pip' },
-                { value: 'retro', label: 'Retro' },
-              ]}
-            />
+            {customCompanionGallery ? (
+              <CompanionPicker
+                value={overlaySettings.myCompanion}
+                gallery={customCompanionGallery}
+                onChange={handleMyCompanionChange}
+                onRequestCustomAtlas={onCustomCompanionAtlasRequest}
+                onUpload={() => setUploadDialogOpen(true)}
+              />
+            ) : (
+              <Select
+                value={overlaySettings.myCompanion}
+                onChange={handleMyCompanionChange}
+                options={[
+                  { value: 'bee', label: 'Bee' },
+                  { value: 'engineer', label: 'Engineer' },
+                  { value: 'floppy', label: 'Floppy' },
+                  { value: 'patch', label: 'Patch' },
+                  { value: 'pip', label: 'Pip' },
+                  { value: 'retro', label: 'Retro' },
+                ]}
+              />
+            )}
           </div>
         )}
         <div className="settings-item">
@@ -203,6 +223,15 @@ export function InterfaceSettingsTab({
         </div>
       </div>
 
+      {uploadDialogOpen && customCompanionGallery && customCompanionMatrixClient && (
+        <CustomCompanionUploadDialog
+          isOpen={uploadDialogOpen}
+          matrixClient={customCompanionMatrixClient}
+          companions={customCompanionGallery}
+          onClose={() => setUploadDialogOpen(false)}
+          onActivityChange={onCustomCompanionUploadActivityChange}
+        />
+      )}
     </div>
   );
 }

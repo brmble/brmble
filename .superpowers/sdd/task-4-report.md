@@ -1,119 +1,141 @@
-# Task 4 Report: Workspace State App Integration
+# Task 4 Report: Capability, Custom Selection Validation, and Moderator Deletion
 
-## Implementation Summary
+## What Changed
 
-- Connected `useScreenShare` remote lifecycle state to the workspace reducer through `REMOTE_WATCH_COUNT_CHANGED`.
-- Consumed pending viewer shares when calculating the LiveKit connecting state.
-- Kept both chat panels mounted and applied workspace foreground state through ARIA visibility and pointer-event behavior.
-- Added Messages-panel reflow classes and the shared `--messages-rail-width` token composition.
-- Routed header and shortcut Messages toggles through one App callback.
-- Disconnected viewers before user-initiated Matrix channel or server selection so previous-channel attempts are cancelled before selection state changes.
-
-## TDD Evidence
-
-1. Added the pending-viewer lifecycle App integration test before App consumed `remoteWatchCount`.
-2. Ran `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts`.
-3. The new test failed as expected: it observed `DMContactList.visible` remain `true` instead of collapsing to `false` while the viewer attempt was pending.
-4. Implemented the App reducer dispatch and re-ran the suite successfully.
-5. Added a follow-up App test proving an active remote watch collapses Messages without changing the selected channel foreground.
+- Added root-server moderation authorization using only Mumble Kick or Ban permission.
+- Added active-gallery validation for `custom:<matrix-event-id>` selections. Stale custom selections now repair to `floppy`; invalid custom selection requests leave the prior selection unchanged.
+- Added the `matrix.customCompanions` capability after a successful gallery-room join, including gallery metadata, trusted sender, limits, selected companion, and moderation capability. Gallery failures omit the additive capability without failing authentication.
+- Added `CompanionWireSelection` so legacy `companionId` remains `floppy` for custom selections while `customCompanionId` carries the real value in auth, session mapping, and WebSocket payloads.
+- Added authorized, idempotent `DELETE /companions/{eventId}`. It redacts the Matrix event before marking the record deleted, resets affected user selections, updates live mappings, and broadcasts `companionChanged` to the affected users' channels. Redaction failures return 503 and retain the active record.
 
 ## Test Results
 
-- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
-  - Passed: 179 tests in 4 files.
-  - The suite retains an expected pre-existing stderr line from the mocked rejected viewer-connect test: `Screen share error: viewer failed`.
-- `npm.cmd run build`
-  - Passed: TypeScript project build and Vite production build.
-- `git diff --check`
-  - Passed with no whitespace errors.
+Command:
+
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
+
+Result: passed, 40 tests passed, 0 failed.
+
+Committed implementation: `0386add5 feat: authorize custom companion selection and removal`.
+
+## TDD Evidence
+
+1. Added the custom-selection, capability, compatibility, and deletion tests before production changes.
+2. Ran the Task 4 focused red command. It failed because `CompanionWireSelection`, `CanModerateServerAsync`, and `NormalizeCompanionIdAsync` did not yet exist.
+3. Corrected test setup errors while preserving the expected missing-feature failures.
+4. Implemented the minimum production behavior, then reran the focused suite. The first green run exposed an actual 403 implementation issue (`Results.Forbid()` required an unconfigured authentication service); replaced it with an explicit 403 result.
+5. Reran the full Task 4 focused test command successfully.
 
 ## Files Changed
 
-- `src/Brmble.Web/src/App.tsx`
-- `src/Brmble.Web/src/App.css`
-- `src/Brmble.Web/src/App.screenShareStart.test.ts`
-- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
-- `.superpowers/sdd/task-4-report.md`
+- `src/Brmble.Server/Auth/AuthEndpoints.cs`
+- `src/Brmble.Server/Auth/UserRepository.cs`
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `src/Brmble.Server/Companions/CustomCompanionModels.cs`
+- `src/Brmble.Server/Events/SessionMappingHandler.cs`
+- `src/Brmble.Server/Mumble/AclAuthorizationService.cs`
+- `src/Brmble.Server/Mumble/IMumbleAclService.cs`
+- `src/Brmble.Server/Mumble/MumbleAclService.cs`
+- `src/Brmble.Server/WebSockets/BrmbleWebSocketHandler.cs`
+- `tests/Brmble.Server.Tests/Auth/AuthEndpointsCompanionTests.cs`
+- `tests/Brmble.Server.Tests/Auth/UserRepositoryTests.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
+- `tests/Brmble.Server.Tests/Events/SessionMappingHandlerTests.cs`
+- `tests/Brmble.Server.Tests/WebSockets/BrmbleWebSocketHandlerTests.cs`
 
 ## Self-Review
 
-- Remote-watch changes dispatch only the reducer event that updates `remoteWatchCount` and the Messages panel state; foreground selection remains reducer-owned and untouched by lifecycle events.
-- Channel and server selection call the existing `disconnectViewer()` reference before updating the selected channel, while the existing channel-change effect remains as a defensive cleanup path.
-- Local broadcasting remains excluded because `remoteWatchCount` originates from `watchingShares` plus `pendingViewerShares`, not local publishing state.
-- Blocking screens remain structurally unchanged; workspace rendering applies once the connected content is visible.
-- DM rail controls and icons were deliberately not added because they belong to Task 5.
+- Confirmed custom identifiers are kept exactly as `custom:<matrix-event-id>` internally and are never exposed through a legacy wire `companionId`.
+- Confirmed the deletion path checks moderation before looking up or redacting the record, performs Matrix redaction before database deletion, and is idempotent for inactive records.
+- Confirmed custom-gallery capability calculation is isolated from ordinary Matrix room joining and display-name synchronization.
+- Ran `git diff --check`; no whitespace errors were reported.
+- Reviewed the committed diff with `git show --check --stat HEAD`; no post-commit whitespace or scope issues were found.
 
 ## Concerns
 
-None.
+- The focused test build reports the existing `CS0108` warning in `AuthEndpointsCompanionTests.CompanionAuthFactory` for hiding the base factory's `SessionMappingMock`. This Task 4 work did not introduce that factory member and leaves it unchanged.
 
-## Review Follow-up: Acceptance Coverage
+## Review Fix: Concurrent Custom Companion Deletion
 
-### Fixes
+### Summary
 
-- Added focused App integration coverage for remote-watch count transitions, including multiple watches and a duplicate final-watch update.
-- Added coverage that local sharing alone leaves Messages open, manual Messages intent persists during an active remote watch, and the final remote-watch end reopens Messages after a manual close.
-- Added coverage that viewer cleanup occurs before channel-specific discovery after channel selection and that clearing a stale remote-watch count reopens Messages without changing channel foreground.
-- Added coverage that a selected DM remains foreground through remote-watch start/end, and that an unread-DM badge update does not navigate away from a selected channel.
+- Serialized active custom-companion deletion per Matrix event after authorization, preventing concurrent requests from issuing duplicate Matrix redactions.
+- Preserved rollback behavior: a redaction failure releases the lock, leaves the record active, and returns 503; once deletion succeeds, subsequent requests return 204 without redaction.
+- Added coverage for the required `companionChanged` payload sent to an affected user's current channel during active deletion.
 
 ### Tests
 
-- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
-  - Passed: 185 tests in 4 files.
-  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
 
-### Files
+Result: passed, 42 tests passed, 0 failed.
 
-- `src/Brmble.Web/src/App.screenShareStart.test.ts`
-- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+### Files Changed
+
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
 - `.superpowers/sdd/task-4-report.md`
 
-### Concerns
+## Re-Review Fix: Preserve Newer Live Companion Selections
 
-- No App production change was needed. Invalid-contact fallback remains covered by reducer-level tests; this App harness does not expose a practical contact-removal interaction without broadening the mock surface.
+### Summary
 
-## Re-review Follow-up: Task 4 Coverage
-
-### Fixes
-
-- Corrected the duplicate final-watch case to repeat the final `remoteWatchCount = 0` render and verify Messages stays expanded.
-- Scoped channel-switch cleanup ordering to the explicit post-selection cleanup call, then verified cleared pending/watch state reopens Messages without changing the channel foreground.
-- Captured the existing `DMContactList` App mock callback and covered selected-contact closure while watching, proving the App dispatches the channel fallback.
-- Added native `voice.toggleDmScreen` coverage that alternates with the Header action against the same Messages panel state.
+- Added an atomic compare-and-swap live-mapping update for custom companion deletion.
+- Deletion now changes a connected user's live companion to `floppy` only when it is still `custom:<deleted-event-id>`.
+- `companionChanged` is broadcast only after that conditional update succeeds, so a newer built-in or custom selection is not overwritten or announced as `floppy`.
+- Added a regression test that changes both the database and live selection to `bee` after deletion resets the database record; deletion preserves `bee` and sends no fallback broadcast.
 
 ### Tests
 
-- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx`
-  - Passed: 187 tests in 4 files.
-  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
 
-### Files
+Result: passed, 43 tests passed, 0 failed.
 
-- `src/Brmble.Web/src/App.screenShareStart.test.ts`
-- `src/Brmble.Web/src/App.dmDirectoryBehavior.test.tsx`
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~SessionMappingServiceTests.TryUpdateCompanionIdIfCurrent_PreservesNewerSelection"
+```
+
+Result: passed, 1 test passed, 0 failed.
+
+### Files Changed
+
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `src/Brmble.Server/Events/ISessionMappingService.cs`
+- `src/Brmble.Server/Events/SessionMappingService.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
+- `tests/Brmble.Server.Tests/Events/SessionMappingServiceTests.cs`
+- `tests/Brmble.Server.Tests/Games/SessionMappingGamePresenceTests.cs`
+- `tests/Brmble.Server.Tests/Integration/BrmbleServerFactory.cs`
 - `.superpowers/sdd/task-4-report.md`
 
-### Concerns
+## Review Fix: Synchronize Custom Selection and Deletion
 
-- No production code changes were needed, so no build was required.
+### Summary
 
-## Integration Finding Fix: DMContactList Visibility Toggle
-
-### Fixes
-
-- Added the forward-compatible `onToggleVisibility: () => void` prop to `DMContactList`.
-- Passed App's existing `toggleMessagesPanel` callback into `DMContactList`, matching Header and bridge shortcut behavior.
-- Kept panel-local controls out of the UI for Task 5; the callback is read harmlessly until then.
-- Added App regression coverage and updated direct component test renders.
+- Added a singleton per-event coordinator shared by custom companion selection and deletion.
+- Custom selection now acquires the event lock, revalidates that the event is active, and holds coordination through database persistence, live mapping publication, channel broadcast, and response construction.
+- When deletion owns the event operation first, a racing selection waits, observes the deleted event, returns 400, and does not publish or return the deleted custom ID.
+- Built-in selection and the existing deletion redaction, rollback, idempotency, reset, and compare-and-swap behavior remain unchanged.
+- Added a regression test that pauses deletion during Matrix redaction, starts a selection for the same event, and verifies deletion wins without a stale live update, broadcast, or successful response.
 
 ### Tests
 
-- `npm.cmd run test -- src/App.chatMode.test.ts src/App.screenShareStart.test.ts src/App.screenShareEnded.test.ts src/App.dmDirectoryBehavior.test.tsx src/components/DMContactList/DMContactList.test.tsx`
-  - Passed: 197 tests in 5 files.
-  - The suite retains the expected mocked viewer-connect stderr: `Screen share error: viewer failed`.
-- `npm.cmd run build`
-  - Passed: TypeScript project build and Vite production build.
+```powershell
+dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```
 
-### Concerns
+Result: passed, 44 tests passed, 0 failed.
 
-- None.
+### Files Changed
+
+- `src/Brmble.Server/Auth/AuthEndpoints.cs`
+- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
+- `src/Brmble.Server/Companions/CustomCompanionEventCoordinator.cs`
+- `src/Brmble.Server/Companions/CustomCompanionExtensions.cs`
+- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
+- `.superpowers/sdd/task-4-report.md`

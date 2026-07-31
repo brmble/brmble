@@ -42,12 +42,17 @@ public record OverlaySettings(
     string Mode = "minimal",
     string Position = "bottom-right",
     string MyCompanion = "floppy",
+    Dictionary<string, string>? CompanionSelectionsByServer = null,
     bool ShowChannelMessages = true,
     bool ShowDirectMessages = true,
     bool ShowJoinLeaveEvents = true,
     bool ShowModerationEvents = true,
     bool ShowActiveSpeakers = true
-);
+)
+{
+    public Dictionary<string, string> CompanionSelectionsByServer { get; init; } =
+        CompanionSelectionsByServer ?? new();
+}
 
 public record NoiseSuppressionSettings(
     NoiseSuppressionLevel Level = NoiseSuppressionLevel.High

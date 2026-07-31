@@ -118,9 +118,9 @@ public class LiveKitEndpointsTests
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 1);
 
@@ -138,9 +138,9 @@ public class LiveKitEndpointsTests
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 1);
 
@@ -159,8 +159,8 @@ public class LiveKitEndpointsTests
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
         var participantTracker = factory.Services.GetRequiredService<LiveKitParticipantTracker>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        sessionMapping.SetNameForSession("Alice", 7);
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
         channelMembership.Update(7, 1);
 
         var response = await client.PostAsJsonAsync("/livekit/token", new { roomName = "channel-1", accessMode = "subscribe" });
@@ -168,7 +168,7 @@ public class LiveKitEndpointsTests
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         var record = participantTracker.GetSnapshot().Single();
         Assert.AreEqual("channel-1", record.RoomName);
-        Assert.AreEqual("@1:localhost", record.MatrixUserId);
+        Assert.AreEqual("@alice:test", record.MatrixUserId);
         Assert.AreEqual(1L, record.UserId);
         Assert.AreEqual(7, record.SessionId);
         Assert.AreEqual(LiveKitAccessMode.Subscribe, record.AccessMode);
@@ -185,8 +185,8 @@ public class LiveKitEndpointsTests
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
         var participantTracker = factory.Services.GetRequiredService<LiveKitParticipantTracker>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        sessionMapping.SetNameForSession("Alice", 7);
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
         channelMembership.Update(7, 1);
         participantTracker.MarkSessionRevoking(7);
 
@@ -226,9 +226,9 @@ public class LiveKitEndpointsTests
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 2);
         Assert.IsTrue(sessionMapping.TryAddMatrixUser(11, "@sharer:localhost", "Sharer", 42, "bee"));
@@ -257,9 +257,9 @@ public class LiveKitEndpointsTests
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
         var channelMembership = factory.Services.GetRequiredService<IChannelMembershipService>();
 
-        sessionMapping.SetNameForSession("TestUser", 7);
+        sessionMapping.SetNameForSession("Alice", 7);
 
-        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "TestUser" });
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "Alice" });
 
         channelMembership.Update(7, 1);
 

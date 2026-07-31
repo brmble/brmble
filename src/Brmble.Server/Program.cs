@@ -13,6 +13,7 @@ using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
 using Brmble.Server.Paint;
+using Brmble.Server.Companions;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
@@ -41,6 +42,7 @@ builder.Services.AddAuth();
 builder.Services.AddMatrix();
 builder.Services.AddLiveKit();
 builder.Services.AddGames();
+builder.Services.AddCustomCompanions();
 builder.Services.AddSingleton<IMatrixPaintService, MatrixPaintService>();
 builder.Services.AddSingleton<MatrixPaintSourceResolver>();
 builder.Services.AddSingleton<IPaintPresence, SessionMappingPaintPresence>();
@@ -99,6 +101,21 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.QueueLimit = 0;
         limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+
+    options.AddPolicy("custom-companion-upload", httpContext =>
+    {
+        var companionOptions = httpContext.RequestServices
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<CustomCompanionOptions>>().Value;
+        var partitionKey = httpContext.Connection.ClientCertificate?.Thumbprint ?? "missing-client-certificate";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = companionOptions.UploadPermitLimit,
+                Window = TimeSpan.FromMinutes(companionOptions.UploadWindowMinutes),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            });
+    });
 });
 
 var app = builder.Build();
@@ -120,6 +137,7 @@ app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
+app.MapCustomCompanionEndpoints();
 app.MapReverseProxy();
 
 app.Run();

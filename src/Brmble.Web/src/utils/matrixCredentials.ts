@@ -7,6 +7,22 @@ function recordEqual(a: Record<string, string> | undefined, b: Record<string, st
   return aEntries.every(([key, value], index) => bEntries[index][0] === key && bEntries[index][1] === value);
 }
 
+function customCompanionsEqual(
+  a: MatrixCredentials['customCompanions'],
+  b: MatrixCredentials['customCompanions'],
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.enabled === b.enabled
+    && a.schemaVersion === b.schemaVersion
+    && a.galleryRoomId === b.galleryRoomId
+    && a.trustedSender === b.trustedSender
+    && a.canModerate === b.canModerate
+    && a.selectedCompanionId === b.selectedCompanionId
+    && a.maxActivePerUser === b.maxActivePerUser
+    && a.maxActiveTotal === b.maxActiveTotal;
+}
+
 export function areMatrixCredentialsEqual(a: MatrixCredentials | null, b: MatrixCredentials | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -14,5 +30,6 @@ export function areMatrixCredentialsEqual(a: MatrixCredentials | null, b: Matrix
     && a.accessToken === b.accessToken
     && a.userId === b.userId
     && recordEqual(a.roomMap, b.roomMap)
-    && recordEqual(a.dmRoomMap, b.dmRoomMap);
+    && recordEqual(a.dmRoomMap, b.dmRoomMap)
+    && customCompanionsEqual(a.customCompanions, b.customCompanions);
 }

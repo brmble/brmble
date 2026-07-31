@@ -323,4 +323,54 @@ public class MatrixAppServiceTests
         await Assert.ThrowsExceptionAsync<InvalidDataException>(() =>
             _svc.DownloadMedia("mxc://media.example.org/abc123", 1, CancellationToken.None));
     }
+
+    [TestMethod]
+    public async Task CreateCustomCompanionGalleryRoom_LocksWritesAndHistory()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"room_id":"!gallery:test"}""");
+
+        await _svc.CreateCustomCompanionGalleryRoom();
+
+        var body = JsonDocument.Parse(LastJsonBody()).RootElement;
+        Assert.AreEqual("private_chat", body.GetProperty("preset").GetString());
+        var power = body.GetProperty("initial_state").EnumerateArray()
+            .Single(item => item.GetProperty("type").GetString() == "m.room.power_levels")
+            .GetProperty("content");
+        Assert.AreEqual(100, power.GetProperty("state_default").GetInt32());
+        Assert.AreEqual(100, power.GetProperty("events_default").GetInt32());
+        Assert.AreEqual(100, power.GetProperty("redact").GetInt32());
+        Assert.AreEqual(0, power.GetProperty("users_default").GetInt32());
+    }
+
+    [TestMethod]
+    public async Task SendStateEvent_ReturnsMatrixEventId()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"event_id":"$sprite:test"}""");
+
+        var eventId = await _svc.SendStateEvent(
+            "!gallery:test", "im.brmble.sprite", "sprite-1", """{"schemaVersion":1}""");
+
+        Assert.AreEqual("$sprite:test", eventId);
+    }
+
+    [TestMethod]
+    public async Task RedactRoomEvent_SendsTheCallerSuppliedReason()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"event_id":"$redaction:test"}""");
+
+        await _svc.RedactRoomEvent("!gallery:test", "$sprite:test", "Removed after persistence failure");
+
+        var body = JsonDocument.Parse(LastJsonBody()).RootElement;
+        Assert.AreEqual("Removed after persistence failure", body.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task EnsureUserInRoom_ReturnsFalseWhenJoinFails()
+    {
+        SetupHttpResponse(
+            HttpStatusCode.Forbidden,
+            """{"errcode":"M_FORBIDDEN","error":"not invited"}""");
+
+        Assert.IsFalse(await _svc.EnsureUserInRoom("alice", "!gallery:test"));
+    }
 }

@@ -7,6 +7,8 @@ import { AdminChannelRequestsSection } from './admin/AdminChannelRequestsSection
 import { AdminUsersSection } from './admin/AdminUsersSection';
 import { AdminAuditLogSection } from './admin/AdminAuditLogSection';
 import { AdminGroupsSection } from './admin/AdminGroupsSection';
+import type { CustomCompanionCapability } from '../../customCompanions/customCompanionTypes';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
 import type { Channel } from '../../types';
 
 interface AdminSettingsTabProps {
@@ -20,9 +22,17 @@ interface AdminSettingsTabProps {
     companionId?: string;
     isBrmbleClient?: boolean;
   }>;
+  customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
+  customCompanionGallery?: CustomCompanionGalleryController;
 }
 
-export function AdminSettingsTab({ channels = [], onChannelsChange, liveUsers = [] }: AdminSettingsTabProps) {
+export function AdminSettingsTab({
+  channels = [],
+  onChannelsChange,
+  liveUsers = [],
+  customCompanions,
+  customCompanionGallery,
+}: AdminSettingsTabProps) {
   const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>('channels');
 
   return (
@@ -50,7 +60,12 @@ export function AdminSettingsTab({ channels = [], onChannelsChange, liveUsers = 
         )}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
         {activeTab === 'groups' && <AdminGroupsSection channels={channels} />}
-        {activeTab === 'moderation' && <AdminModerationSection />}
+        {activeTab === 'moderation' && (
+          <AdminModerationSection
+            customCompanions={customCompanions}
+            customCompanionGallery={customCompanionGallery}
+          />
+        )}
         {activeTab === 'audit-log' && <AdminAuditLogSection />}
       </div>
     </div>

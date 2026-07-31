@@ -22,7 +22,12 @@ export function FullCompanionOverlay({
       data-testid="companion-overlay-root"
     >
       <div className="companion-anchor">
-        <CompanionSprite companionId={display.companionId} row={display.row} badges={display.badges} />
+        <CompanionSprite
+          companionId={display.companionId}
+          atlasCacheKey={display.atlasCacheKey}
+          row={display.row}
+          badges={display.badges}
+        />
         {display.bubble && (
           <aside
             className="companion-bubble"

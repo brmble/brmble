@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
+using Brmble.Server.Companions;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Dapper;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -26,6 +29,12 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     public Mock<IChannelRequestMumbleService> ChannelRequestMumbleMock { get; } = new();
     public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
     public Mock<IMumbleRegistrationService> MumbleRegistrationMock { get; } = new();
+    public ControllableMatrixAppService Matrix { get; } = new();
+    public Mock<IMatrixAppService> MatrixAppMock => Matrix.Mock;
+    public UserRepository Users => Services.GetRequiredService<UserRepository>();
+    public CustomCompanionRepository Gallery =>
+        Services.GetRequiredService<CustomCompanionRepository>();
+    public long AliceUserId { get; private set; }
 
     public BrmbleServerFactory(string? certHash = "testcerthash123")
     {
@@ -35,6 +44,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         _keepAlive = new SqliteConnection(_cs);
         _keepAlive.Open();
         AclAuthorizationMock.Setup(a => a.CanManageChannelAclAsync(It.IsAny<long>(), 0)).ReturnsAsync(true);
+        AclAuthorizationMock.Setup(a => a.CanModerateServerAsync(It.IsAny<long>())).ReturnsAsync(true);
         ChannelRequestMumbleMock
             .Setup(service => service.ChannelNameExistsAsync(It.IsAny<string>()))
             .ReturnsAsync(false);
@@ -56,6 +66,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             .Returns((int sessionId, bool isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
+        SessionMappingMock.Setup(s => s.TryUpdateCompanionIdIfCurrent(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((int sessionId, string expectedCompanionId, string companionId) =>
+                defaultSessionMapping.TryUpdateCompanionIdIfCurrent(sessionId, expectedCompanionId, companionId));
         SessionMappingMock.Setup(s => s.TryUpdateCertHash(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string certHash) => defaultSessionMapping.TryUpdateCertHash(sessionId, certHash));
         SessionMappingMock.Setup(s => s.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny))
@@ -82,6 +96,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
                 ["Matrix:HomeserverUrl"] = "http://localhost:8008",
                 ["Matrix:AppServiceToken"] = "test-token",
+                ["Matrix:ServerDomain"] = "test",
                 ["LiveKit:ApiKey"] = "test-api-key",
                 ["LiveKit:ApiSecret"] = "testsecret0123456789abcdef01234567890abcdef01234567890abcdef0123",
             });
@@ -93,6 +108,15 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             if (descriptor != null) services.Remove(descriptor);
             var db = new Database(_cs);
             db.Initialize();
+            if (_certHash == "testcerthash123")
+            {
+                using var connection = db.CreateConnection();
+                AliceUserId = connection.ExecuteScalar<long>("""
+                    INSERT INTO users (cert_hash, display_name, matrix_user_id)
+                    VALUES (@CertHash, 'Alice', '@alice:test');
+                    SELECT last_insert_rowid();
+                    """, new { CertHash = _certHash });
+            }
             services.AddSingleton(db);
 
             var mumbleIceHostedService = services.FirstOrDefault(d =>
@@ -103,12 +127,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             // Stub IMatrixAppService so no real HTTP calls are made
             var existing = services.FirstOrDefault(d => d.ServiceType == typeof(IMatrixAppService));
             if (existing != null) services.Remove(existing);
-            var mock = new Mock<IMatrixAppService>();
-            mock.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
-                .ReturnsAsync("stub_matrix_token");
-            mock.Setup(m => m.LoginUser(It.IsAny<string>()))
-                .ReturnsAsync("stub_matrix_token");
-            services.AddSingleton<IMatrixAppService>(mock.Object);
+            services.AddSingleton<IMatrixAppService>(Matrix.Service);
 
             // Stub ICertificateHashExtractor — WebApplicationFactory bypasses TLS so
             // context.Connection.ClientCertificate is always null in tests.
@@ -150,4 +169,59 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             _keepAlive.Dispose();
         base.Dispose(disposing);
     }
+}
+
+internal sealed class ControllableMatrixAppService
+{
+    private readonly ConcurrentQueue<byte[]> _queuedMedia = new();
+    private int _sentSpriteEventCount;
+
+    public ControllableMatrixAppService()
+    {
+        Mock.Setup(service => service.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync("stub_matrix_token");
+        Mock.Setup(service => service.LoginUser(It.IsAny<string>()))
+            .ReturnsAsync("stub_matrix_token");
+        Mock.Setup(service => service.EnsureUserInRooms(
+                It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Returns(Task.CompletedTask);
+        Mock.Setup(service => service.EnsureUserInRoom(
+                It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(() => GalleryJoinSucceeds);
+        Mock.Setup(service => service.SetDisplayName(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+        Mock.Setup(service => service.CreateCustomCompanionGalleryRoom())
+            .Returns(() => FailGalleryRoomCreation
+                ? Task.FromException<string>(
+                    new InvalidOperationException("Matrix gallery creation unavailable"))
+                : Task.FromResult(GalleryRoomId));
+        Mock.Setup(service => service.DownloadMedia(
+                It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+            .Returns((string _, long _, CancellationToken _) =>
+            {
+                if (_queuedMedia.TryDequeue(out var bytes))
+                    return Task.FromResult(bytes);
+                return Task.FromException<byte[]>(
+                    new InvalidOperationException("No Matrix media was queued for this request."));
+            });
+        Mock.Setup(service => service.SendStateEvent(
+                It.IsAny<string>(), "im.brmble.sprite", It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(() =>
+            {
+                var sequence = Interlocked.Increment(ref _sentSpriteEventCount);
+                return Task.FromResult($"$sprite-{sequence}:test");
+            });
+        Mock.Setup(service => service.RedactRoomEvent(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+    }
+
+    public Mock<IMatrixAppService> Mock { get; } = new();
+    public IMatrixAppService Service => Mock.Object;
+    public string GalleryRoomId { get; set; } = "!gallery:test";
+    public bool FailGalleryRoomCreation { get; set; }
+    public bool GalleryJoinSucceeds { get; set; } = true;
+    public int SentSpriteEventCount => Volatile.Read(ref _sentSpriteEventCount);
+
+    public void QueueMedia(byte[] bytes) => _queuedMedia.Enqueue(bytes);
 }

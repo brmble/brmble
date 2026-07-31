@@ -12,17 +12,21 @@ public interface IMatrixAppService
     Task SendMessage(string roomId, string displayName, string text);
     Task<string> CreateRoom(string name);
     Task<string> CreatePaintRoom(string name, IReadOnlyList<string> invitedMatrixUserIds);
+    Task<string> CreateCustomCompanionGalleryRoom();
     Task<string> CreateDMRoom(string localpartA, string localpartB);
     Task SetRoomName(string roomId, string name);
     Task<string> RegisterUser(string localpart, string displayName);
     Task<string> LoginUser(string localpart);
     Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
+    Task<bool> EnsureUserInRoom(string localpart, string roomId);
     Task SetDisplayName(string localpart, string displayName);
     Task SetAvatarUrl(string localpart, string avatarUrl);
     Task<string> UploadMedia(byte[] data, string contentType, string fileName);
     Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
     Task SetAccountData(string localpart, string eventType, string jsonContent);
     Task<string?> GetAccountData(string localpart, string eventType);
+    Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent);
+    Task RedactRoomEvent(string roomId, string eventId, string reason);
     Task InvitePaintUser(string roomId, string matrixUserId);
     Task<JsonElement> GetRoomEvent(string roomId, string eventId);
     Task<string?> GetRoomMembership(string roomId, string matrixUserId);
@@ -97,6 +101,41 @@ public class MatrixAppService : IMatrixAppService
                 new { type = "m.room.history_visibility", content = new { history_visibility = "invited" } },
                 new { type = "m.room.power_levels", content = new { users_default = 0, invite = 50, users = new Dictionary<string, int> { [_botUserId] = 100 } } },
             },
+        });
+        var response = await SendRequest(HttpMethod.Post, url, body);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        return json.GetProperty("room_id").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return a room_id");
+    }
+
+    public async Task<string> CreateCustomCompanionGalleryRoom()
+    {
+        var url = $"{_homeserverUrl}/_matrix/client/v3/createRoom";
+        var body = JsonSerializer.Serialize(new
+        {
+            name = "Brmble Custom Companions",
+            preset = "private_chat",
+            is_direct = false,
+            initial_state = new object[]
+            {
+                new { type = "m.room.join_rules", content = new { join_rule = "invite" } },
+                new { type = "m.room.history_visibility", content = new { history_visibility = "joined" } },
+                new
+                {
+                    type = "m.room.power_levels",
+                    content = new
+                    {
+                        users_default = 0,
+                        events_default = 100,
+                        state_default = 100,
+                        invite = 100,
+                        kick = 100,
+                        ban = 100,
+                        redact = 100,
+                        users = new Dictionary<string, int> { [_botUserId] = 100 }
+                    }
+                }
+            }
         });
         var response = await SendRequest(HttpMethod.Post, url, body);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
@@ -189,9 +228,7 @@ public class MatrixAppService : IMatrixAppService
 
             try
             {
-                var inviteUrl = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/invite";
-                var inviteBody = JsonSerializer.Serialize(new { user_id = userId });
-                await SendRequest(HttpMethod.Post, inviteUrl, inviteBody);
+                await InviteUserToRoom(roomId, userId);
             }
             catch (Exception ex)
             {
@@ -207,6 +244,39 @@ public class MatrixAppService : IMatrixAppService
             {
                 _logger.LogWarning("Failed to join {UserId} to {RoomId}: {Error}", userId, roomId, ex.Message);
             }
+        }
+    }
+
+    public async Task<bool> EnsureUserInRoom(string localpart, string roomId)
+    {
+        var userId = $"@{localpart}:{_serverDomain}";
+        try
+        {
+            var joinedRoomsUrl = $"{_homeserverUrl}/_matrix/client/v3/joined_rooms";
+            var joinedResponse = await SendRequest(HttpMethod.Get, joinedRoomsUrl, "{}", actAs: userId);
+            var joinedJson = JsonSerializer.Deserialize<JsonElement>(joinedResponse);
+            if (joinedJson.TryGetProperty("joined_rooms", out var rooms)
+                && rooms.EnumerateArray().Any(room => room.GetString() == roomId))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not fetch joined rooms for {UserId}: {Error}", userId, ex.Message);
+        }
+
+        try
+        {
+            await InviteUserToRoom(roomId, userId);
+            var joinUrl = $"{_homeserverUrl}/_matrix/client/v3/join/{Uri.EscapeDataString(roomId)}";
+            await SendRequest(HttpMethod.Post, joinUrl, "{}", actAs: userId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to invite and join {UserId} to {RoomId}: {Error}", userId, roomId, ex.Message);
+            return false;
         }
     }
 
@@ -317,11 +387,26 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
+    public async Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent)
+    {
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/state/{Uri.EscapeDataString(eventType)}/{Uri.EscapeDataString(stateKey)}";
+        var response = await SendRequest(HttpMethod.Put, url, jsonContent);
+        var json = JsonSerializer.Deserialize<JsonElement>(response);
+        return json.GetProperty("event_id").GetString()
+            ?? throw new InvalidOperationException("Matrix did not return an event_id");
+    }
+
+    public Task RedactRoomEvent(string roomId, string eventId, string reason)
+    {
+        var txnId = Guid.NewGuid().ToString("N");
+        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/redact/{Uri.EscapeDataString(eventId)}/{txnId}";
+        var body = JsonSerializer.Serialize(new { reason });
+        return SendRequest(HttpMethod.Put, url, body);
+    }
+
     public Task InvitePaintUser(string roomId, string matrixUserId)
     {
-        var inviteUrl = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/invite";
-        var inviteBody = JsonSerializer.Serialize(new { user_id = matrixUserId });
-        return SendRequest(HttpMethod.Post, inviteUrl, inviteBody);
+        return InviteUserToRoom(roomId, matrixUserId);
     }
 
     public async Task<JsonElement> GetRoomEvent(string roomId, string eventId)
@@ -471,5 +556,12 @@ public class MatrixAppService : IMatrixAppService
     {
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/leave";
         return SendRequestWithCancellation(HttpMethod.Post, url, "{}", cancellationToken);
+    }
+
+    private Task InviteUserToRoom(string roomId, string matrixUserId)
+    {
+        var inviteUrl = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/invite";
+        var inviteBody = JsonSerializer.Serialize(new { user_id = matrixUserId });
+        return SendRequest(HttpMethod.Post, inviteUrl, inviteBody);
     }
 }

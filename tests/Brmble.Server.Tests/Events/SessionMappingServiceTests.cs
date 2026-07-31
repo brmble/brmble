@@ -145,6 +145,17 @@ public class SessionMappingServiceTests
     }
 
     [TestMethod]
+    public void TryUpdateCompanionIdIfCurrent_PreservesNewerSelection()
+    {
+        _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
+
+        var updated = _svc.TryUpdateCompanionIdIfCurrent(42, "custom:$sprite:test", "floppy");
+
+        Assert.IsFalse(updated);
+        Assert.AreEqual("bee", _svc.GetSnapshot()[42].CompanionId);
+    }
+
+    [TestMethod]
     public void TryUpdateCertHash_UpdatesExistingMapping()
     {
         _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");

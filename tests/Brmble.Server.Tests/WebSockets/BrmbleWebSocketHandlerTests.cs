@@ -2,6 +2,7 @@ using Brmble.Server.Events;
 using Brmble.Server.Auth;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.WebSockets;
+using Brmble.Server.Companions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -56,6 +57,37 @@ public class BrmbleWebSocketHandlerTests
         var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
 
         Assert.AreEqual("fresh-hash", payload.GetType().GetProperty("certHash")!.GetValue(payload));
+    }
+
+    [TestMethod]
+    public void WireSelection_CustomValueKeepsLegacyFieldSafe()
+    {
+        var wire = CompanionWireSelection.FromPersisted("custom:$sprite:test");
+
+        Assert.AreEqual("floppy", wire.CompanionId);
+        Assert.AreEqual("custom:$sprite:test", wire.CustomCompanionId);
+    }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_CustomCompanionUsesDualWireFields()
+    {
+        var mapping = new SessionMapping("@alice:test", "Alice", 42, "custom:$sprite:test");
+
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+
+        Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
+        Assert.AreEqual("custom:$sprite:test", payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
+    }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_BuiltInKeepsLegacyFieldAndEmptyCustomField()
+    {
+        var mapping = new SessionMapping("@alice:test", "Alice", 42, "floppy");
+
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+
+        Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
+        Assert.IsNull(payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
     }
 
     [TestMethod]

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from 'react';
 import './SettingsModal.css';
 import bridge from '../../bridge';
 import { applyTheme } from '../../themes/theme-loader';
@@ -16,6 +16,9 @@ import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
 import { useServerlist } from '../../hooks/useServerlist';
 import { usePermissions, Permission } from '../../hooks/usePermissions';
 import type { Channel } from '../../types';
+import type { CustomCompanionCapability } from '../../customCompanions/customCompanionTypes';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
+import type { MatrixUploadClient } from './customCompanions/CustomCompanionUploadDialog';
 
 /** A flat map of every key binding in the app: bindingId → bound key code (or null). */
 export type AllBindings = Record<string, string | null>;
@@ -48,7 +51,10 @@ interface SettingsModalProps {
   initialTab?: 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
-  onLiveCompanionChange?: (nextCompanion: CompanionSelection, previousCompanion: CompanionSelection) => void;
+  onLiveCompanionChange?: (
+    nextCompanion: CompanionSelection,
+    previousOverlay: OverlaySettings,
+  ) => void;
   liveUsers?: Array<{
     session: number;
     name: string;
@@ -60,6 +66,10 @@ interface SettingsModalProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
   channelRequestRefreshKey?: number;
+  customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
+  customCompanionGallery?: CustomCompanionGalleryController;
+  customCompanionMatrixClient?: MatrixUploadClient;
+  onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
 }
 
 export interface ScreenShareSettings {
@@ -113,17 +123,25 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const VALID_NS_LEVELS = ['Off', 'Low', 'Moderate', 'High', 'VeryHigh'] as const;
+type SettingsTab = 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare';
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin' | 'screenShare'>(initialTab ?? 'profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'profile');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [customCompanionUploadActive, setCustomCompanionUploadActive] = useState(false);
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const requestClose = useCallback(() => {
+    if (!customCompanionUploadActive) onClose();
+  }, [customCompanionUploadActive, onClose]);
+  const changeActiveTab = useCallback((tab: SettingsTab) => {
+    if (!customCompanionUploadActive) setActiveTab(tab);
+  }, [customCompanionUploadActive]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -144,10 +162,10 @@ export function SettingsModal(props: SettingsModalProps) {
   }, [isOpen, hasAdminPermission]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || customCompanionUploadActive) return;
     const effectiveTab = (initialTab === 'admin' && !hasAdminPermission) ? 'profile' : (initialTab ?? 'profile');
     setActiveTab(effectiveTab);
-  }, [isOpen, initialTab, hasAdminPermission]);
+  }, [isOpen, initialTab, hasAdminPermission, customCompanionUploadActive]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {
@@ -166,13 +184,13 @@ export function SettingsModal(props: SettingsModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('.key-binding-btn.recording')) {
-        onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.key-binding-btn.recording')) {
+        requestClose();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, requestClose]);
 
   // Flat map of ALL key bindings across all tabs for cross-tab conflict detection
   const allBindings: AllBindings = useMemo(() => ({
@@ -375,13 +393,13 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const handleOverlayChange = (overlay: OverlaySettings) => {
-    const previousCompanion = settings.overlay.myCompanion;
+    const previousOverlay = settings.overlay;
     const newSettings = { ...settings, overlay };
     setSettings(newSettings);
     bridge.send('settings.set', { settings: newSettings });
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-    if (overlay.myCompanion !== previousCompanion) {
-      props.onLiveCompanionChange?.(overlay.myCompanion, previousCompanion);
+    if (overlay.myCompanion !== previousOverlay.myCompanion) {
+      props.onLiveCompanionChange?.(overlay.myCompanion, previousOverlay);
     }
   };
 
@@ -425,7 +443,7 @@ export function SettingsModal(props: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={requestClose}>
       <div ref={modalRef} className="settings-modal glass-panel animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="heading-title modal-title">Settings</h2>
@@ -435,56 +453,65 @@ export function SettingsModal(props: SettingsModalProps) {
         <div ref={tabsRef} className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveTab('profile')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('profile')}
           >
             Profile
           </button>
           <button
             className={`settings-tab ${activeTab === 'games' ? 'active' : ''}`}
-            onClick={() => setActiveTab('games')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('games')}
           >
             Games
           </button>
           <button 
             className={`settings-tab ${activeTab === 'audio' ? 'active' : ''}`}
-            onClick={() => setActiveTab('audio')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('audio')}
           >
             Audio
           </button>
           <button 
             className={`settings-tab ${activeTab === 'shortcuts' ? 'active' : ''}`}
-            onClick={() => setActiveTab('shortcuts')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('shortcuts')}
           >
             Shortcuts
           </button>
           <button 
             className={`settings-tab ${activeTab === 'messages' ? 'active' : ''}`}
-            onClick={() => setActiveTab('messages')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('messages')}
           >
             Notifications
           </button>
           <button 
             className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`}
-            onClick={() => setActiveTab('appearance')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('appearance')}
           >
             Interface
           </button>
           <button
             className={`settings-tab ${activeTab === 'connection' ? 'active' : ''}`}
-            onClick={() => setActiveTab('connection')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('connection')}
           >
             Connection
           </button>
           <button 
             className={`settings-tab ${activeTab === 'screenShare' ? 'active' : ''}`}
-            onClick={() => setActiveTab('screenShare')}
+            disabled={customCompanionUploadActive}
+            onClick={() => changeActiveTab('screenShare')}
           >
             Screen Share
           </button>
           {hasAdminPermission && (
             <button
               className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
-              onClick={() => setActiveTab('admin')}
+              disabled={customCompanionUploadActive}
+              onClick={() => changeActiveTab('admin')}
             >
               Admin
             </button>
@@ -519,6 +546,10 @@ export function SettingsModal(props: SettingsModalProps) {
         onAppearanceChange={handleAppearanceChange}
         onOverlayChange={handleOverlayChange}
         onBrmblegotchiChange={handleBrmblegotchiChange}
+        customCompanionGallery={props.customCompanionGallery}
+        customCompanionMatrixClient={props.customCompanionMatrixClient}
+        onCustomCompanionAtlasRequest={props.onCustomCompanionAtlasRequest}
+        onCustomCompanionUploadActivityChange={setCustomCompanionUploadActive}
       />
           )}
           {activeTab === 'connection' && (
@@ -544,13 +575,15 @@ export function SettingsModal(props: SettingsModalProps) {
               channels={props.channels ?? []}
               onChannelsChange={props.onChannelsChange}
               liveUsers={props.liveUsers ?? []}
+              customCompanions={props.customCompanions}
+              customCompanionGallery={props.customCompanionGallery}
             />
           )}
 
         </div>
 
         <div className="settings-footer">
-          <button className="btn btn-primary" onClick={onClose}>
+          <button className="btn btn-primary" disabled={customCompanionUploadActive} onClick={requestClose}>
             Close
           </button>
         </div>

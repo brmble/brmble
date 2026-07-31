@@ -167,6 +167,38 @@ public class Database
             );
             """);
 
+        conn.Execute("""
+            CREATE TABLE IF NOT EXISTS custom_companion_gallery_room (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                matrix_room_id TEXT NOT NULL UNIQUE,
+                created_at_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS custom_companion_gallery (
+                event_id TEXT PRIMARY KEY,
+                state_key TEXT NOT NULL UNIQUE,
+                matrix_room_id TEXT NOT NULL,
+                uploader_user_id INTEGER NOT NULL,
+                uploader_matrix_user_id TEXT NOT NULL,
+                uploader_display_name TEXT NOT NULL,
+                name TEXT NOT NULL,
+                media_uri TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                frame_count INTEGER NOT NULL CHECK (frame_count = 1),
+                byte_size INTEGER NOT NULL,
+                created_at_utc TEXT NOT NULL,
+                deleted_at_utc TEXT,
+                deleted_by_user_id INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_custom_companion_gallery_active_created
+                ON custom_companion_gallery(deleted_at_utc, created_at_utc DESC, event_id);
+            CREATE INDEX IF NOT EXISTS ix_custom_companion_gallery_active_uploader
+                ON custom_companion_gallery(uploader_user_id, deleted_at_utc);
+            """);
+
         // Migrate paint cleanup work created before retries were scheduled.
         var hasCleanupRetryTime = conn.ExecuteScalar<int>(
             "SELECT COUNT(*) FROM pragma_table_info('paint_room_cleanup') WHERE name='next_attempt_at'");

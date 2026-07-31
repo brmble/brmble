@@ -1,6 +1,7 @@
 // src/Brmble.Server/Auth/UserRepository.cs
 using Dapper;
 using Brmble.Server.Data;
+using Brmble.Server.Companions;
 using Brmble.Server.Matrix;
 using Microsoft.Extensions.Options;
 
@@ -139,16 +140,42 @@ public class UserRepository
             "SELECT companion_id FROM users WHERE id = @Id",
             new { Id = userId });
 
-        return NormalizeCompanionId(companionId);
+        var normalized = await NormalizeCompanionIdAsync(
+            userId, companionId, new CustomCompanionRepository(_db));
+        if (!string.Equals(companionId, normalized, StringComparison.Ordinal))
+        {
+            await conn.ExecuteAsync(
+                "UPDATE users SET companion_id = @CompanionId WHERE id = @Id",
+                new { CompanionId = normalized, Id = userId });
+        }
+
+        return normalized;
     }
 
     public async Task SetCompanionId(long userId, string companionId)
     {
         using var conn = _db.CreateConnection();
-        var normalized = NormalizeCompanionId(companionId);
+        var normalized = await NormalizeCompanionIdAsync(
+            userId, companionId, new CustomCompanionRepository(_db));
         await conn.ExecuteAsync(
             "UPDATE users SET companion_id = @CompanionId WHERE id = @Id",
             new { CompanionId = normalized, Id = userId });
+    }
+
+    public async Task<string> NormalizeCompanionIdAsync(
+        long userId,
+        string? companionId,
+        CustomCompanionRepository customCompanionRepository)
+    {
+        _ = userId;
+        if (TryNormalizeCompanionId(companionId, out var builtIn)) return builtIn;
+        if (CustomCompanionId.TryParse(companionId, out var eventId)
+            && await customCompanionRepository.GetActiveByEventIdAsync(eventId) is not null)
+        {
+            return companionId!;
+        }
+
+        return "floppy";
     }
 
     public async Task<bool> GetChallengesBlocked(long userId)
@@ -166,12 +193,6 @@ public class UserRepository
         await conn.ExecuteAsync(
             "UPDATE users SET challenges_blocked = @Blocked WHERE id = @Id",
             new { Blocked = blocked ? 1 : 0, Id = userId });
-    }
-
-    private static string NormalizeCompanionId(string? companionId)
-    {
-        TryNormalizeCompanionId(companionId, out var normalized);
-        return normalized;
     }
 
     public virtual async Task<User?> GetByMatrixUserId(string matrixUserId)

@@ -161,11 +161,11 @@ public class AuthTokenTests : IDisposable
 
         // Pre-seed the name→session mapping so the endpoint can find the session
         var sessionMapping = factory.Services.GetRequiredService<ISessionMappingService>();
-        sessionMapping.SetNameForSession("TestUser", 1);
+        sessionMapping.SetNameForSession("Alice", 1);
 
         // Authenticate with a mumbleUsername so the endpoint can resolve the session
         var body = new StringContent(
-            JsonSerializer.Serialize(new { mumbleUsername = "TestUser" }),
+            JsonSerializer.Serialize(new { mumbleUsername = "Alice" }),
             Encoding.UTF8, "application/json");
         var response = await client.PostAsync("/auth/token", body);
         response.EnsureSuccessStatusCode();

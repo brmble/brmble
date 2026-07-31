@@ -1,8 +1,19 @@
 import { useState } from 'react';
+import type { CustomCompanionCapability } from '../../../customCompanions/customCompanionTypes';
+import type { CustomCompanionGalleryController } from '../../../hooks/useCustomCompanionGallery';
+import { CustomCompanionModerationPanel } from '../customCompanions/CustomCompanionModerationPanel';
 import { AdminSectionPlaceholder } from './AdminSectionPlaceholder';
 import { useAdminBanList } from './useAdminBanList';
 
-export function AdminModerationSection() {
+interface AdminModerationSectionProps {
+  customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
+  customCompanionGallery?: CustomCompanionGalleryController;
+}
+
+export function AdminModerationSection({
+  customCompanions,
+  customCompanionGallery,
+}: AdminModerationSectionProps) {
   const { bans, loading, error, refresh, unban } = useAdminBanList();
   const [expandedBan, setExpandedBan] = useState<number | null>(null);
 
@@ -63,6 +74,16 @@ export function AdminModerationSection() {
             </div>
           ))}
         </div>
+      )}
+
+      {customCompanions?.canModerate && customCompanionGallery && (
+        <CustomCompanionModerationPanel
+          gallery={customCompanionGallery}
+          onDelete={async eventId => {
+            const entry = customCompanionGallery.entries.find(candidate => candidate.eventId === eventId);
+            if (entry) await customCompanionGallery.deleteCompanion(entry);
+          }}
+        />
       )}
 
       <AdminSectionPlaceholder

@@ -1,6 +1,12 @@
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { SettingsModal } from './SettingsModal';
+import type { CustomCompanionGalleryController } from '../../hooks/useCustomCompanionGallery';
+
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn();
+}
 
 const { bridgeMock } = vi.hoisted(() => ({
   bridgeMock: {
@@ -11,6 +17,19 @@ const { bridgeMock } = vi.hoisted(() => ({
 }));
 
 const hasPermissionMock = vi.fn(() => false);
+
+const emptyCustomCompanionGallery: CustomCompanionGalleryController = {
+  status: 'empty',
+  entries: [],
+  redactedEventIds: new Set(),
+  error: null,
+  requestAtlas: vi.fn(),
+  requestThumbnail: vi.fn(),
+  releaseAtlas: vi.fn(),
+  releaseThumbnail: vi.fn(),
+  createCompanion: vi.fn(),
+  deleteCompanion: vi.fn(),
+};
 
 vi.mock('../../bridge', () => ({
   default: bridgeMock,
@@ -25,8 +44,17 @@ vi.mock('../../hooks/usePermissions', () => ({
   usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
 vi.mock('./AdminSettingsTab', () => ({
-  AdminSettingsTab: ({ liveUsers }: { liveUsers: Array<{ session: number; name: string }> }) => (
-    <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
+  AdminSettingsTab: ({
+    liveUsers,
+    customCompanions,
+  }: {
+    liveUsers: Array<{ session: number; name: string }>;
+    customCompanions?: { canModerate: boolean };
+  }) => (
+    <div>
+      <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
+      <div data-testid="admin-custom-companion-prop">{customCompanions?.canModerate ? 'can-moderate' : 'absent'}</div>
+    </div>
   ),
 }));
 vi.mock('../ChannelRequests/MyChannelRequests', () => ({
@@ -88,6 +116,33 @@ describe('SettingsModal tabs', () => {
     );
 
     expect(screen.getByTestId('admin-users-prop')).toHaveTextContent('Alice');
+  });
+
+  it('passes only the advertised custom companion moderation capability into AdminSettingsTab', () => {
+    hasPermissionMock.mockReturnValue(true);
+
+    const { rerender } = render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        customCompanionGallery={emptyCustomCompanionGallery}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('absent');
+
+    rerender(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        customCompanions={{ canModerate: true }}
+        customCompanionGallery={emptyCustomCompanionGallery}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-custom-companion-prop')).toHaveTextContent('can-moderate');
   });
 
   it('normalizes legacy screen share settings from native settings', async () => {
@@ -182,5 +237,82 @@ describe('SettingsModal tabs', () => {
     render(<SettingsModal isOpen onClose={vi.fn()} />);
 
     expect(screen.getByTestId('my-channel-requests')).toBeInTheDocument();
+  });
+
+  it('dismisses only the idle upload dialog when Escape is pressed', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <SettingsModal
+        isOpen
+        onClose={onClose}
+        initialTab="appearance"
+        customCompanionGallery={emptyCustomCompanionGallery}
+        customCompanionMatrixClient={{ uploadContent: vi.fn() }}
+      />,
+    );
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(screen.getByRole('option', { name: 'Full Companion' }));
+    await user.click(screen.getAllByRole('button', { name: /Upload custom sprite/ })[0]);
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'Upload custom companion' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Built-in' })).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the upload dialog mounted and settings close locked when a pending upload tries to change tabs', async () => {
+    let resolveUpload!: (value: { content_uri: string }) => void;
+    const uploadContent = vi.fn(() => new Promise<{ content_uri: string }>(resolve => {
+      resolveUpload = resolve;
+    }));
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <SettingsModal
+        isOpen
+        onClose={onClose}
+        initialTab="appearance"
+        customCompanionGallery={emptyCustomCompanionGallery}
+        customCompanionMatrixClient={{ uploadContent }}
+      />,
+    );
+
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(screen.getByRole('option', { name: 'Full Companion' }));
+    await user.click(screen.getAllByRole('button', { name: /Upload custom sprite/ })[0]);
+    await user.type(screen.getByLabelText('Companion name'), 'Orbit');
+    await user.upload(screen.getByLabelText('Sprite sheet'), new File(['sprite'], 'sprite.png', { type: 'image/png' }));
+    await user.click(screen.getByRole('button', { name: 'Upload sprite' }));
+
+    rerender(
+      <SettingsModal
+        isOpen
+        onClose={onClose}
+        initialTab="audio"
+        customCompanionGallery={emptyCustomCompanionGallery}
+        customCompanionMatrixClient={{ uploadContent }}
+      />,
+    );
+
+    const audioTab = screen.getByRole('button', { name: 'Audio' });
+    expect(audioTab).toBeDisabled();
+    await user.click(audioTab);
+    fireEvent.keyDown(audioTab, { key: 'Enter' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.click(screen.getByText('Settings').closest('.settings-modal')!.parentElement!);
+
+    expect(screen.getByRole('dialog', { name: 'Upload custom companion' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Built-in' })).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveUpload({ content_uri: 'mxc://test/sprite' });
+    await waitFor(() => expect(emptyCustomCompanionGallery.createCompanion).toHaveBeenCalledWith('Orbit', 'mxc://test/sprite'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

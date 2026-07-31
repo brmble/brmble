@@ -519,6 +519,23 @@ Rules:
 6. Do not add plain inline help paragraphs under settings controls. Settings rows stay compact; if a setting needs explanation, use `SettingsHelp`. Inline text is reserved for empty states, loading states, validation errors, and feature placeholders.
 7. Settings `?` help uses `SettingsHelp` from `src/Brmble.Web/src/components/SettingsModal/SettingsHelp.tsx`. Do not create CSS-only `data-tooltip` spans or one-off `?` button markup in settings tabs.
 
+### Companion Picker Pattern
+
+The full companion overlay uses a sectioned picker instead of a flat select. The
+Built-in section remains fixed above an independently scrollable Custom list.
+Every custom row contains a lazy `192 x 234` thumbnail or placeholder, the
+companion name, an uploader hint, and a selected state. Loading, empty,
+unavailable, and ready are distinct states. Upload actions use
+`<Icon name="upload">`. All picker dimensions and spacing use CSS custom
+properties and shared UI tokens.
+
+Custom rows use viewport observation before requesting thumbnails. Gallery
+metadata and opening the picker never preload full atlases. Selecting a custom
+companion requests only that companion's full atlas. Browser and server policy
+enforce PNG/WebP type and server safety limits. An `8 x 9` equal-cell sprite
+sheet remains guidance rather than a browser acceptance rule, and browser
+preview is best-effort.
+
 Settings help example:
 
 ```tsx
@@ -624,6 +641,32 @@ if (result) {
 }
 ```
 
+For destructive actions that benefit from visual identity, keep using the same
+App-owned confirmation host and pass rich preview content:
+
+```tsx
+const result = await confirm({
+  title: 'Remove custom companion?',
+  message: 'This sprite will be removed for everyone and cannot be restored.',
+  content: (
+    <div className="custom-companion-confirmation">
+      <img src={thumbnailUrl} alt={`${name} preview`} />
+      <div>
+        <strong>{name}</strong>
+        <span>Uploaded by {uploaderName}</span>
+      </div>
+    </div>
+  ),
+  confirmLabel: 'Remove',
+  destructive: true,
+});
+```
+
+`message` and `content` may contain React nodes for confirmations. `content`
+renders between the header and footer, and `destructive: true` changes the
+confirmation action to `btn-danger`. Rich confirmations do not add another
+prompt host or a feature-specific modal.
+
 Use `prompt()` when the shared confirmation flow also needs a short text input, such as a reason or typed confirmation:
 
 ```tsx
@@ -660,6 +703,8 @@ if (password) {
 ```
 
 Use `prompt()` for one short text input only. For multi-field flows such as creating or editing a server profile, use the modal/form pattern instead of trying to extend `prompt()`.
+Input prompt messages remain strings and input prompts do not accept rich
+`content` or `destructive` options.
 
 #### DOM structure
 
@@ -670,10 +715,12 @@ div.modal-overlay          (click → cancel)
   div.prompt.glass-panel.animate-slide-up   (stops propagation)
     div.modal-header
       h2.heading-title.modal-title
-      p.modal-subtitle
+      div.modal-subtitle
+    div.prompt-content             (optional rich preview)
     div.prompt-footer
       button.btn.btn-secondary   Cancel  (autoFocus, bottom-left)
-      button.btn.btn-primary     Confirm (bottom-right)
+      button.btn.btn-primary     Confirm (bottom-right, default)
+      button.btn.btn-danger      Confirm (bottom-right, destructive only)
 ```
 
 Input prompt:
@@ -694,12 +741,13 @@ div.modal-overlay          (click → cancel)
 
 Rules:
 1. No close button — ESC and overlay click both cancel
-2. Cancel is always `btn-secondary` on the left; Confirm is always `btn-primary` on the right
+2. Cancel is always `btn-secondary` on the left; Confirm is `btn-primary` by default and `btn-danger` only when `destructive: true`
 3. `<Prompt />` and `<PromptWithInput />` must be the **last children** of the root `<div className="app">` so they render above all other content
 4. Never call `usePrompt()` in more than one component — only the owner of the prompt host components should call it; all others use `confirm()` or `prompt()` directly
 5. For typed confirmations or reason capture, use the shared `prompt()` / `<PromptWithInput />` flow instead of building a one-off modal
 6. Do not use native `title` attributes on prompt controls; use accessible labels and the shared Tooltip pattern when hover help is needed
 7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
+8. Rich preview confirmations still use the single App-owned prompt host; never mount a second host for feature-specific content
 
 ### Form Inputs
 

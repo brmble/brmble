@@ -25,6 +25,10 @@
   position: relative;
 }
 
+.prompt-content {
+  margin: 0 0 var(--space-lg);
+}
+
 .prompt-input-container .brmble-input {
   width: 100%;
   box-sizing: border-box;

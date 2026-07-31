@@ -79,6 +79,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
+    private readonly CustomCompanionBridgeHandler _customCompanionBridgeHandler;
     private System.Threading.Timer? _voiceIdlePollTimer;
     private int _voiceIdlePollOffset;
     private int _voiceIdlePollInProgress;   // 0 = idle, 1 = tick running (Interlocked guard)
@@ -122,7 +123,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
                 var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                var companionId = prop.Value.TryGetProperty("companionId", out var c) ? c.GetString() : "floppy";
+                var companionId = ParseWireCompanionId(prop.Value);
                 var certHash = prop.Value.TryGetProperty("certHash", out var h) ? h.GetString() : null;
                 if (matrixId is not null && name is not null && companionId is not null)
                 {
@@ -132,6 +133,26 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
         }
         return result;
+    }
+
+    internal static string ParseWireCompanionId(System.Text.Json.JsonElement element)
+        => ParseWireCompanionIdOrNull(element) ?? "floppy";
+
+    /// <summary>
+    /// Reads the companion from a wire payload, preferring a custom companion id.
+    /// Returns null when the payload carries no companion at all, so callers can
+    /// distinguish "not announced" from "reset to default".
+    /// </summary>
+    internal static string? ParseWireCompanionIdOrNull(System.Text.Json.JsonElement element)
+    {
+        if (element.TryGetProperty("customCompanionId", out var custom) &&
+            custom.GetString() is { } customValue &&
+            customValue.StartsWith("custom:$", StringComparison.Ordinal))
+            return customValue;
+
+        return element.TryGetProperty("companionId", out var legacy)
+            ? legacy.GetString()
+            : null;
     }
 
     public string ServiceName => "mumble";
@@ -160,6 +181,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             () => _apiUrl,
             PostChannelRequestViaBcTls,
             GetChannelRequestViaBcTls);
+        _customCompanionBridgeHandler = new CustomCompanionBridgeHandler(
+            _bridge,
+            () => _certService?.GetExportableCertificate(),
+            () => _apiUrl,
+            PostCustomCompanionViaBcTls,
+            DeleteCustomCompanionViaBcTls);
         _audioManager = new AudioManager(_hwnd);
         // Toggle* actions now fire via MumbleAdapter.FireShortcutAction
         // (driven by InputRouter.ShortcutReleased); AudioManager no longer
@@ -1404,6 +1431,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return await SendViaBcTls(cert, uri, httpRequest);
     }
 
+    private static async Task<TlsResult> DeleteViaBcTls(X509Certificate2 cert, Uri uri)
+    {
+        var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
+        var httpRequest =
+            $"DELETE {uri.PathAndQuery} HTTP/1.1\r\n" +
+            $"Host: {hostHeader}\r\n" +
+            "Content-Length: 0\r\n" +
+            "Connection: close\r\n\r\n";
+
+        return await SendViaBcTls(cert, uri, httpRequest);
+    }
+
     private static async Task<TlsResult> PutViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
     {
         var hostHeader = uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}";
@@ -1429,6 +1468,18 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     internal static async Task<ChannelRequestBridgeHandler.TlsCallResult> GetChannelRequestViaBcTls(X509Certificate2 cert, Uri uri)
     {
         var result = await GetViaBcTls(cert, uri);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
+    }
+
+    internal static async Task<CustomCompanionBridgeHandler.TlsCallResult> PostCustomCompanionViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
+    {
+        var result = await PostViaBcTls(cert, uri, jsonBody);
+        return new(result.Success, result.Body, result.StatusCode, result.Error);
+    }
+
+    internal static async Task<CustomCompanionBridgeHandler.TlsCallResult> DeleteCustomCompanionViaBcTls(X509Certificate2 cert, Uri uri)
+    {
+        var result = await DeleteViaBcTls(cert, uri);
         return new(result.Success, result.Body, result.StatusCode, result.Error);
     }
 
@@ -2120,8 +2171,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (!string.IsNullOrWhiteSpace(result.Body))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
-                if (doc.RootElement.TryGetProperty("companionId", out var syncedProp) && syncedProp.GetString() is { } value)
-                    synced = value;
+                synced = ParseWireCompanionId(doc.RootElement);
             }
 
             UpdateSelfCompanionMapping(synced);
@@ -2595,7 +2645,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     // An announcement that carries no companion is not a claim that the user has
                     // none. It is sent for a session this client may already know in full, so the
                     // known companion is kept rather than replaced with the default.
-                    var announcedCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : null;
+                    var announcedCompanionId = ParseWireCompanionIdOrNull(root);
                     var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
                     if (addSid > 0 && addMatrixId is not null && addName is not null)
@@ -2614,7 +2664,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "companionChanged":
                     var changedSid = root.GetProperty("sessionId").GetUInt32();
-                    var changedCompanionId = root.GetProperty("companionId").GetString() ?? "floppy";
+                    var changedCompanionId = ParseWireCompanionId(root);
                     if (_sessionMappings.TryGetValue(changedSid, out var changed))
                         _sessionMappings[changedSid] = changed with { CompanionId = changedCompanionId };
                     _bridge?.Send("voice.companionChanged", new
@@ -2742,6 +2792,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void RegisterHandlers(NativeBridge bridge)
     {
+        bridge.RegisterHandler("companions.request", data =>
+            _customCompanionBridgeHandler.HandleAsync(data));
+
         bridge.RegisterHandler("voice.connect", async data =>
         {
             var h      = data.TryGetProperty("host",     out var host) ? host.GetString()  ?? "" : "";

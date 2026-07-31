@@ -5,6 +5,7 @@ namespace Brmble.Server.Mumble;
 public interface IAclAuthorizationService
 {
     Task<bool> CanManageChannelAclAsync(long userId, int channelId);
+    Task<bool> CanModerateServerAsync(long userId);
 }
 
 public sealed class AclAuthorizationService : IAclAuthorizationService
@@ -26,5 +27,12 @@ public sealed class AclAuthorizationService : IAclAuthorizationService
         }
 
         return await _aclService.HasWritePermissionAsync(sessionId, channelId);
+    }
+
+    public async Task<bool> CanModerateServerAsync(long userId)
+    {
+        if (!_sessionMapping.TryGetSessionByUserId(userId, out var sessionId)) return false;
+        return await _aclService.HasPermissionAsync(sessionId, 0, MumbleServer.PermissionKick.value)
+            || await _aclService.HasPermissionAsync(sessionId, 0, MumbleServer.PermissionBan.value);
     }
 }

@@ -275,7 +275,7 @@ public class GameEndpointsTests
     public async Task CancelOffer_WithoutCertificate_IsUnauthorized()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
-        await using var factory = CreateFactory(orchestrator);
+        await using var factory = CreateFactory(orchestrator, certHash: null);
         var response = await factory.CreateClient().PostAsJsonAsync("/games/offers/cancel", new { offerId = 9 });
 
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -305,9 +305,10 @@ public class GameEndpointsTests
         Mock<IDuelOrchestrator> orchestrator,
         Mock<IDuelMatchRunnerRouter>? router = null,
         bool hasSession = true,
-        Mock<IDuelSnapshotProvider>? snapshots = null)
+        Mock<IDuelSnapshotProvider>? snapshots = null,
+        string? certHash = "testcerthash123")
     {
-        var factory = new BrmbleServerFactory();
+        var factory = new BrmbleServerFactory(certHash);
         factory.SessionMappingMock
             .Setup(x => x.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
             .Returns((long _, out int session) => { session = 55; return hasSession; });
