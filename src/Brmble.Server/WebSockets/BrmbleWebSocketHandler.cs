@@ -90,12 +90,15 @@ public static class BrmbleWebSocketHandler
         }
     }
 
-    internal static object CreateUserMappingAddedPayload(int sessionId, SessionMapping mapping, string certHash)
+    internal static object CreateUserMappingAddedPayload(
+        int sessionId, SessionMapping mapping, string certHash, MappingEnvelope envelope)
     {
         var wire = CompanionWireSelection.FromPersisted(mapping.CompanionId);
         return new
         {
             type = "userMappingAdded",
+            instanceId = envelope.InstanceId,
+            revision = envelope.Revision,
             sessionId,
             matrixUserId = mapping.MatrixUserId,
             mumbleName = mapping.MumbleName,
@@ -128,7 +131,12 @@ public static class BrmbleWebSocketHandler
                 sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
                 sessionMapping.TryUpdateCertHash(sessionId, certHash);
                 await eventBus.BroadcastExceptAsync(
-                    socket, CreateUserMappingAddedPayload(sessionId, mapping, certHash));
+                    socket,
+                    CreateUserMappingAddedPayload(
+                        sessionId, mapping, certHash,
+                        // Stamped after the two mutations above, so their bumps are announced
+                        // rather than silent.
+                        new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision)));
             }
 
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);

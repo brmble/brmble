@@ -55,7 +55,7 @@ public class BrmbleWebSocketHandlerTests
             CertHash: null,
             IsBrmbleClient: false);
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
 
         Assert.AreEqual("fresh-hash", payload.GetType().GetProperty("certHash")!.GetValue(payload));
     }
@@ -74,7 +74,7 @@ public class BrmbleWebSocketHandlerTests
     {
         var mapping = new SessionMapping("@alice:test", "Alice", 42, "custom:$sprite:test");
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
 
         Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
         Assert.AreEqual("custom:$sprite:test", payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
@@ -85,7 +85,7 @@ public class BrmbleWebSocketHandlerTests
     {
         var mapping = new SessionMapping("@alice:test", "Alice", 42, "floppy");
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash");
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
 
         Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
         Assert.IsNull(payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
@@ -240,5 +240,17 @@ public class BrmbleWebSocketHandlerTests
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("not json", out _));
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{}", out _));
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("", out _));
+    }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_CarriesTheEnvelope()
+    {
+        // This payload is broadcast after TryUpdateBrmbleStatus/TryUpdateCertHash have already
+        // bumped the revision. Unstamped, those bumps are silent and every client sees a gap.
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(
+            42, new SessionMapping("@alice:test", "Alice", 1L, "floppy"), "cert",
+            new MappingEnvelope("inst", 9L));
+
+        Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
     }
 }

@@ -101,6 +101,10 @@ public static class AuthEndpoints
                     await eventBus.BroadcastAsync(new
                     {
                         type = "userMappingAdded",
+                        // Stamped after the three mutations above, so their bumps are
+                        // announced rather than silent.
+                        instanceId = sessionMapping.InstanceId,
+                        revision = sessionMapping.Revision,
                         sessionId = sid,
                         matrixUserId = result.MatrixUserId,
                         mumbleName = resolvedName,
@@ -118,6 +122,15 @@ public static class AuthEndpoints
                     // was created before auth completed.
                     sessionMapping.TryUpdateCertHash(sid, certHash);
                     sessionMapping.TryUpdateBrmbleStatus(sid, true);
+                    // Both mutations bump the revision. Announcing is not optional: an
+                    // unannounced bump leaves every client with a permanent phantom gap.
+                    await eventBus.BroadcastAsync(new
+                    {
+                        type = "brmbleClientActivated",
+                        instanceId = sessionMapping.InstanceId,
+                        revision = sessionMapping.Revision,
+                        sessionId = sid
+                    });
                 }
             }
 
