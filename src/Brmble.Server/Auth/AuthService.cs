@@ -38,7 +38,7 @@ public class AuthService : IActiveBrmbleSessions
     private readonly ILogger<AuthService> _logger;
     private readonly IMumbleRegistrationService _mumbleRegistration;
     private readonly ISessionMappingService _sessionMapping;
-    private readonly IBrmbleEventBus _eventBus;
+    private readonly IMappingEventPublisher _publisher;
     private readonly HashSet<string> _activeSessions = [];
     private readonly HashSet<string> _activeNames = [];
     private readonly Dictionary<string, string> _certToName = [];
@@ -53,14 +53,14 @@ public class AuthService : IActiveBrmbleSessions
         ILogger<AuthService> logger,
         IMumbleRegistrationService mumbleRegistration,
         ISessionMappingService sessionMapping,
-        IBrmbleEventBus eventBus)
+        IMappingEventPublisher publisher)
     {
         _userRepository = userRepository;
         _matrixAppService = matrixAppService;
         _logger = logger;
         _mumbleRegistration = mumbleRegistration;
         _sessionMapping = sessionMapping;
-        _eventBus = eventBus;
+        _publisher = publisher;
     }
 
     public bool IsBrmbleClient(string certHash)
@@ -257,15 +257,17 @@ public class AuthService : IActiveBrmbleSessions
         }
 
         // Broadcast Brmble client activation
-        if (_sessionMapping.TryGetSessionByUserId(user!.Id, out var activatedSessionId))
-        {
-            _sessionMapping.TryUpdateBrmbleStatus(activatedSessionId, true);
-            _ = _eventBus.BroadcastAsync(new
+        var activatedSessionId = 0;
+        _ = _publisher.PublishAsync(
+            () => _sessionMapping.TryGetSessionByUserId(user!.Id, out activatedSessionId)
+                  && _sessionMapping.TryUpdateBrmbleStatus(activatedSessionId, true),
+            envelope => new
             {
                 type = "brmbleClientActivated",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
                 sessionId = activatedSessionId
             });
-        }
 
         return new AuthResult(user.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
     }
@@ -279,15 +281,18 @@ public class AuthService : IActiveBrmbleSessions
             {
                 _activeNames.Remove(name);
                 // Broadcast Brmble client deactivation
-                if (_sessionMapping.TryGetSessionId(name, out var deactivatedSessionId))
-                {
-                    _sessionMapping.TryUpdateBrmbleStatus(deactivatedSessionId, false);
-                    _ = _eventBus.BroadcastAsync(new
+                var deactivatedSessionId = 0;
+                _ = _publisher.PublishAsync(
+                    () => _sessionMapping.TryGetSessionId(name, out deactivatedSessionId)
+                          // false here is knowledge — we observed the socket go away.
+                          && _sessionMapping.TryUpdateBrmbleStatus(deactivatedSessionId, false),
+                    envelope => new
                     {
                         type = "brmbleClientDeactivated",
+                        instanceId = envelope.InstanceId,
+                        revision = envelope.Revision,
                         sessionId = deactivatedSessionId
                     });
-                }
             }
         }
     }

@@ -46,7 +46,8 @@ public class AuthServiceTests
         var mockEventBus = new Mock<IBrmbleEventBus>();
         mockEventBus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance,
-            _mockMumbleReg.Object, _mockSessionMapping.Object, mockEventBus.Object);
+            _mockMumbleReg.Object, _mockSessionMapping.Object,
+            new MappingEventPublisher(_mockSessionMapping.Object, mockEventBus.Object));
     }
 
     [TestCleanup]

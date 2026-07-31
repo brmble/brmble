@@ -7,20 +7,20 @@ namespace Brmble.Server.Events;
 public class SessionMappingHandler : IMumbleEventHandler
 {
     private readonly ISessionMappingService _sessionMapping;
-    private readonly IBrmbleEventBus _eventBus;
+    private readonly IMappingEventPublisher _publisher;
     private readonly UserRepository _userRepository;
     private readonly IActiveBrmbleSessions _activeSessions;
     private readonly ILogger<SessionMappingHandler> _logger;
 
     public SessionMappingHandler(
         ISessionMappingService sessionMapping,
-        IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         UserRepository userRepository,
         IActiveBrmbleSessions activeSessions,
         ILogger<SessionMappingHandler> logger)
     {
         _sessionMapping = sessionMapping;
-        _eventBus = eventBus;
+        _publisher = publisher;
         _userRepository = userRepository;
         _activeSessions = activeSessions;
         _logger = logger;
@@ -48,25 +48,34 @@ public class SessionMappingHandler : IMumbleEventHandler
             "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble}, added={Added})",
             user.SessionId, user.Name, dbUser.MatrixUserId, isBrmbleClient, mappingAdded);
         var wire = CompanionWireSelection.FromPersisted(companionId);
-        await _eventBus.BroadcastAsync(new
-        {
-            type = "userMappingAdded",
-            sessionId = user.SessionId,
-            matrixUserId = dbUser.MatrixUserId,
-            mumbleName = user.Name,
-            companionId = wire.CompanionId,
-            customCompanionId = wire.CustomCompanionId,
-            certHash = user.CertHash,
-            isBrmbleClient
-        });
+        await _publisher.PublishAsync(
+            // The mapping mutations above already happened; this announcement is unconditional.
+            () => true,
+            envelope => new
+            {
+                type = "userMappingAdded",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
+                sessionId = user.SessionId,
+                matrixUserId = dbUser.MatrixUserId,
+                mumbleName = user.Name,
+                companionId = wire.CompanionId,
+                customCompanionId = wire.CustomCompanionId,
+                certHash = user.CertHash,
+                isBrmbleClient
+            });
 
         if (!mappingAdded && isBrmbleClient == true)
         {
-            await _eventBus.BroadcastAsync(new
-            {
-                type = "brmbleClientActivated",
-                sessionId = user.SessionId
-            });
+            await _publisher.PublishAsync(
+                () => true,
+                envelope => new
+                {
+                    type = "brmbleClientActivated",
+                    instanceId = envelope.InstanceId,
+                    revision = envelope.Revision,
+                    sessionId = user.SessionId
+                });
         }
     }
 

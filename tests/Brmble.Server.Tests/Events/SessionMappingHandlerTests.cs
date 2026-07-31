@@ -35,10 +35,13 @@ public class SessionMappingHandlerTests
         db.Initialize();
         _repo = new UserRepository(db, Options.Create(new MatrixSettings { ServerDomain = "test.local" }));
         _mapping = new Mock<ISessionMappingService>();
+        // The publisher stamps payloads from these, so they must look like a live table.
+        _mapping.SetupGet(m => m.InstanceId).Returns("test-instance");
+        _mapping.SetupGet(m => m.Revision).Returns(7L);
         _bus = new Mock<IBrmbleEventBus>();
         _bus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
         _activeSessions = new Mock<IActiveBrmbleSessions>();
-        _handler = new SessionMappingHandler(_mapping.Object, _bus.Object, _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
+        _handler = new SessionMappingHandler(_mapping.Object, new MappingEventPublisher(_mapping.Object, _bus.Object), _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
     }
 
     [TestCleanup]
@@ -84,7 +87,7 @@ public class SessionMappingHandlerTests
         var user = await _repo.Insert("abc123", "Alice");
         var mapping = new SessionMappingService();
         _activeSessions.Setup(s => s.IsBrmbleClient("abc123")).Returns(true);
-        var handler = new SessionMappingHandler(mapping, _bus.Object, _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
+        var handler = new SessionMappingHandler(mapping, new MappingEventPublisher(mapping, _bus.Object), _repo, _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
 
         await handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
@@ -198,6 +201,7 @@ public class SessionMappingHandlerTests
 
         Assert.AreEqual(JsonValueKind.Null,
             doc.RootElement.GetProperty("isBrmbleClient").ValueKind);
+        MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
     }
 
     [TestMethod]

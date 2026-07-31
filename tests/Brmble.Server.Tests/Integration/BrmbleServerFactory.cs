@@ -55,6 +55,9 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             .Setup(service => service.CreateChannelAsync(It.IsAny<string>()))
             .ReturnsAsync((string name) => new CreatedMumbleChannel(42, name));
         var defaultSessionMapping = new SessionMappingService();
+        // Delegate the envelope source too, so payloads carry a real monotonic revision.
+        SessionMappingMock.SetupGet(s => s.InstanceId).Returns(() => defaultSessionMapping.InstanceId);
+        SessionMappingMock.SetupGet(s => s.Revision).Returns(() => defaultSessionMapping.Revision);
         SessionMappingMock.Setup(s => s.SetNameForSession(It.IsAny<string>(), It.IsAny<int>()))
             .Callback<string, int>(defaultSessionMapping.SetNameForSession);
         SessionMappingMock.Setup(s => s.RemoveSession(It.IsAny<int>()))
@@ -62,8 +65,8 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         SessionMappingMock.Setup(s => s.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>()))
             .Returns((int sessionId, string matrixUserId, string mumbleName, long userId, string companionId) =>
                 defaultSessionMapping.TryAddMatrixUser(sessionId, matrixUserId, mumbleName, userId, companionId));
-        SessionMappingMock.Setup(s => s.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool>()))
-            .Returns((int sessionId, bool isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
+        SessionMappingMock.Setup(s => s.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool?>()))
+            .Returns((int sessionId, bool? isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionIdIfCurrent(

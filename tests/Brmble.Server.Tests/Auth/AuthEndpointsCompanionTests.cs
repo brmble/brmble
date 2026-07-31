@@ -58,6 +58,11 @@ public class AuthEndpointsCompanionTests : IDisposable
         _factory.SessionMappingMock.Verify(m => m.TryUpdateCompanionIdIfOwnedBy(42, 1, "floppy"), Times.Once);
         _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"type\":\"companionChanged\""))), Times.Once);
+        var companionPayload = _factory.EventBusMock.Invocations
+            .Where(i => i.Method.Name == nameof(IBrmbleEventBus.BroadcastAsync))
+            .Select(i => i.Arguments[0])
+            .Single(p => JsonSerializer.Serialize(p).Contains("\"type\":\"companionChanged\""));
+        Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(companionPayload, "companionChanged");
         _factory.EventBusMock.Verify(
             b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
     }
@@ -259,6 +264,9 @@ public class AuthEndpointsCompanionTests : IDisposable
                 if (eventBusDescriptor is not null) services.Remove(eventBusDescriptor);
 
                 SessionMappingMock.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+                // The bare mock still has to look like a live table to the publisher.
+                SessionMappingMock.SetupGet(m => m.InstanceId).Returns("test-instance");
+                SessionMappingMock.SetupGet(m => m.Revision).Returns(1L);
                 SessionMappingMock.Setup(m => m.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny)).Returns(false);
                 SessionMappingMock.Setup(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>())).Returns(false);
                 SessionMappingMock.Setup(m => m.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool>())).Returns(true);

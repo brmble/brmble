@@ -12,6 +12,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IEnumerable<IMumbleEventHandler> _handlers;
     private readonly ISessionMappingService _sessionMapping;
     private readonly IBrmbleEventBus _eventBus;
+    private readonly IMappingEventPublisher _publisher;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
@@ -25,6 +26,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IEnumerable<IMumbleEventHandler> handlers,
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
@@ -36,6 +38,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _handlers = handlers;
         _sessionMapping = sessionMapping;
         _eventBus = eventBus;
+        _publisher = publisher;
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
         _liveKitRevocationScheduler = liveKitRevocationScheduler;
@@ -194,7 +197,15 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
         await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
 
-        await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
+        await _publisher.PublishAsync(
+            () => true,   // RemoveSession already ran and bumped the revision
+            envelope => new
+            {
+                type = "userMappingRemoved",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
+                sessionId = user.SessionId
+            });
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
     }
 

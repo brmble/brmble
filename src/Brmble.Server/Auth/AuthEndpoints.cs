@@ -267,7 +267,7 @@ public static class AuthEndpoints
             CustomCompanionEventCoordinator customCompanionEventCoordinator,
             CustomCompanionRepository customCompanionRepository,
             ISessionMappingService sessionMapping,
-            IBrmbleEventBus eventBus,
+            IMappingEventPublisher publisher,
             ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -298,7 +298,7 @@ public static class AuthEndpoints
 
                     return await PersistCompanionSelectionAsync(
                         user, companionId!, userRepository, sessionMapping,
-                        eventBus, logger);
+                        publisher, logger);
                 }
             }
 
@@ -307,7 +307,7 @@ public static class AuthEndpoints
 
             return await PersistCompanionSelectionAsync(
                 user, normalized, userRepository, sessionMapping,
-                eventBus, logger);
+                publisher, logger);
         });
 
         return app;
@@ -318,7 +318,7 @@ public static class AuthEndpoints
         string companionId,
         UserRepository userRepository,
         ISessionMappingService sessionMapping,
-        IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         ILogger<AuthService> logger)
     {
         await userRepository.SetCompanionId(user.Id, companionId);
@@ -330,22 +330,27 @@ public static class AuthEndpoints
         // did not happen — or attribute it to somebody else. The update is then done with a
         // CAS on the owning userId, so a recycle racing between the lookup and the write
         // cannot land on the new owner's mapping either.
-        if (sessionMapping.TryGetMappingByUserId(user.Id, out var sessionId, out _)
-            && sessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, user.Id, companionId))
-        {
-            var wire = CompanionWireSelection.FromPersisted(companionId);
-            // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
-            // delivery left everyone outside the user's channel with a stale selection until
-            // their next reconnect (nothing re-delivers it on channel move).
-            await eventBus.BroadcastAsync(new
+        var sessionId = 0;
+        // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
+        // delivery left everyone outside the user's channel with a stale selection until
+        // their next reconnect (nothing re-delivers it on channel move).
+        await publisher.PublishAsync(
+            () => sessionMapping.TryGetMappingByUserId(user.Id, out sessionId, out _)
+                  && sessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, user.Id, companionId),
+            envelope =>
             {
-                type = "companionChanged",
-                sessionId,
-                matrixUserId = user.MatrixUserId,
-                companionId = wire.CompanionId,
-                customCompanionId = wire.CustomCompanionId
+                var wire = CompanionWireSelection.FromPersisted(companionId);
+                return new
+                {
+                    type = "companionChanged",
+                    instanceId = envelope.InstanceId,
+                    revision = envelope.Revision,
+                    sessionId,
+                    matrixUserId = user.MatrixUserId,
+                    companionId = wire.CompanionId,
+                    customCompanionId = wire.CustomCompanionId
+                };
             });
-        }
 
         logger.LogInformation(
             "Companion updated: UserId={UserId}, CompanionId={CompanionId}",
