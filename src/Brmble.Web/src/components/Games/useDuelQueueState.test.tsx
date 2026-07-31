@@ -40,7 +40,7 @@ const queued = [{
   gameType: 'rps',
   format: 'bestOf3',
   rulesetVersion: 1,
-  eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+  eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
   estimatedDuration: unknownEstimate,
 }];
 
@@ -538,7 +538,7 @@ describe('useDuelQueueState', () => {
         ...queued[0],
         estimatedDuration: {
           status: 'known' as const, milliseconds: 25_000, sampleCount: 11,
-          method: 'fullMedian' as const, approximate: true as const,
+          method: 'fullMedian' as const, approximate: true,
         },
       }],
     });

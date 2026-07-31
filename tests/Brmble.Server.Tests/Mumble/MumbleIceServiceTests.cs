@@ -34,7 +34,6 @@ public class MumbleIceServiceTests
             new ScreenShareTracker(),
             revocationScheduler,
             new LiveKitParticipantTracker(),
-            new Mock<Brmble.Server.Games.Duels.IDuelMatchRunnerRouter>().Object,
             new Mock<Brmble.Server.Games.Duels.IDuelOrchestrator>().Object,
             new Mock<IPaintParticipationLifecycle>().Object,
             NullLogger<MumbleServerCallback>.Instance);

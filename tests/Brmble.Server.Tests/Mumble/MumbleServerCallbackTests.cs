@@ -27,7 +27,6 @@ public class MumbleServerCallbackTests
         IReadOnlyList<TimeSpan>? liveKitRevocationRetryDelays = null,
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null,
-        IDuelMatchRunnerRouter? gameSessions = null,
         IDuelOrchestrator? orchestrator = null,
         Mock<IPaintParticipationLifecycle>? paintParticipation = null)
     {
@@ -62,7 +61,6 @@ public class MumbleServerCallbackTests
             screenShareTracker ?? new ScreenShareTracker(),
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
-            gameSessions ?? new Mock<IDuelMatchRunnerRouter>().Object,
             orchestrator ?? new Mock<IDuelOrchestrator>().Object,
             paintParticipation?.Object ?? new Mock<IPaintParticipationLifecycle>().Object,
             logger ?? NullLogger<MumbleServerCallback>.Instance);
@@ -196,7 +194,6 @@ public class MumbleServerCallbackTests
         services.AddSingleton(new ScreenShareTracker());
         services.AddSingleton(new Mock<ILiveKitParticipantRevocationScheduler>().Object);
         services.AddSingleton(new LiveKitParticipantTracker());
-        services.AddSingleton(new Mock<IDuelMatchRunnerRouter>().Object);
         services.AddSingleton<MumbleServerCallback>();
         // Deliberately no IDuelOrchestrator registration.
         using var provider = services.BuildServiceProvider();

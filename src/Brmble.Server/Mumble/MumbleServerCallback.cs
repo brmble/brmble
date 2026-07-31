@@ -16,7 +16,6 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
-    private readonly IDuelMatchRunnerRouter _gameSessions;
     private readonly IDuelOrchestrator _duels;
     private readonly IPaintParticipationLifecycle _paintParticipation;
     private readonly ILogger<MumbleServerCallback> _logger;
@@ -30,7 +29,6 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         ScreenShareTracker screenShareTracker,
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
         LiveKitParticipantTracker liveKitParticipantTracker,
-        IDuelMatchRunnerRouter gameSessions,
         IDuelOrchestrator duels,
         IPaintParticipationLifecycle paintParticipation,
         ILogger<MumbleServerCallback> logger)
@@ -42,7 +40,6 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _screenShareTracker = screenShareTracker;
         _liveKitRevocationScheduler = liveKitRevocationScheduler;
         _liveKitParticipantTracker = liveKitParticipantTracker;
-        _gameSessions = gameSessions;
         _duels = duels;
         _paintParticipation = paintParticipation;
         _logger = logger;

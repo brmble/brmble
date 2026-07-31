@@ -1,4 +1,5 @@
 using Brmble.Server.Games.Duels;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Server.Tests.Games.Duels;
@@ -52,7 +53,7 @@ public class DuelMatchRunnerRouterTests
         var discrete = new FakeDuelRunner("discrete") { StartResult = new(true, 44, DateTimeOffset.UtcNow, null) };
         var continuous = new FakeDuelRunner("continuous") { StartResult = new(true, 55, DateTimeOffset.UtcNow, null) };
         continuous.ActiveByUser[200] = new ActiveMatchReference(55, 9, 7, "continuous");
-        var router = new DuelMatchRunnerRouter([discrete, continuous]);
+        var router = new DuelMatchRunnerRouter([discrete, continuous], NullLogger<DuelMatchRunnerRouter>.Instance);
         MatchCompletion? forwarded = null;
         router.MatchCompleted += completion => { forwarded = completion; return Task.CompletedTask; };
 
@@ -77,7 +78,7 @@ public class DuelMatchRunnerRouterTests
     public async Task UnknownOrFailedRunnerStart_DoesNotCreateMatchMapping()
     {
         var failed = new FakeDuelRunner("discrete") { StartResult = new(false, 77, null, "failed") };
-        var router = new DuelMatchRunnerRouter([failed]);
+        var router = new DuelMatchRunnerRouter([failed], NullLogger<DuelMatchRunnerRouter>.Instance);
 
         var unknown = await router.StartAsync(Reservation("missing"));
         var failure = await router.StartAsync(Reservation("discrete"));
@@ -99,7 +100,7 @@ public class DuelMatchRunnerRouterTests
             StartResult = new(true, 55, DateTimeOffset.UtcNow, null),
             CompleteDuringStart = Reservation("continuous")
         };
-        var router = new DuelMatchRunnerRouter([runner]);
+        var router = new DuelMatchRunnerRouter([runner], NullLogger<DuelMatchRunnerRouter>.Instance);
 
         await router.StartAsync(Reservation("continuous"));
         await router.ForfeitAsync(55, 100, "disconnect");
@@ -117,7 +118,7 @@ public class DuelMatchRunnerRouterTests
             CompleteDuringStart = reservation,
             ThrowAfterCompletion = true,
         };
-        var router = new DuelMatchRunnerRouter([runner]);
+        var router = new DuelMatchRunnerRouter([runner], NullLogger<DuelMatchRunnerRouter>.Instance);
 
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => router.StartAsync(reservation));
         runner.CompleteDuringStart = null;
@@ -128,6 +129,24 @@ public class DuelMatchRunnerRouterTests
 
         Assert.IsTrue(retried.Success);
         Assert.AreEqual((55L, 100L, "disconnect"), runner.Forfeits.Single());
+    }
+
+    [TestMethod]
+    public async Task ThrowingCompletionSubscriber_IsSwallowedAndRemainingSubscribersRun()
+    {
+        var runner = new FakeDuelRunner("continuous") { StartResult = new(true, 55, DateTimeOffset.UtcNow, null) };
+        var router = new DuelMatchRunnerRouter([runner], NullLogger<DuelMatchRunnerRouter>.Instance);
+        var reservation = Reservation("continuous");
+        var secondSubscriberRan = false;
+        router.MatchCompleted += _ => throw new InvalidOperationException("subscriber failed");
+        router.MatchCompleted += _ => { secondSubscriberRan = true; return Task.CompletedTask; };
+
+        await router.StartAsync(reservation);
+        await runner.CompleteAsync(new MatchCompletion(
+            55, reservation.ReservationId, reservation.ChannelId,
+            reservation.PlayerOne, reservation.PlayerTwo, reservation.Configuration, DateTimeOffset.UtcNow));
+
+        Assert.IsTrue(secondSubscriberRan);
     }
 
     private static DuelReservation Reservation(string runnerKey) => new(

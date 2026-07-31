@@ -9,9 +9,11 @@ public sealed class DuelMatchRunnerRouter : IDuelMatchRunnerRouter
     private readonly HashSet<long> _startingReservations = [];
     private readonly HashSet<long> _completedDuringStart = [];
     private readonly object _mappingLock = new();
+    private readonly ILogger<DuelMatchRunnerRouter> _logger;
 
-    public DuelMatchRunnerRouter(IEnumerable<IDuelMatchRunner> runners)
+    public DuelMatchRunnerRouter(IEnumerable<IDuelMatchRunner> runners, ILogger<DuelMatchRunnerRouter> logger)
     {
+        _logger = logger;
         _runners = runners.ToDictionary(runner => runner.RunnerKey, StringComparer.Ordinal);
         foreach (var runner in _runners.Values)
             runner.MatchCompleted += OnMatchCompletedAsync;
@@ -81,20 +83,20 @@ public sealed class DuelMatchRunnerRouter : IDuelMatchRunnerRouter
         var handlers = MatchCompleted;
         if (handlers is null) return;
 
-        List<Exception>? errors = null;
         foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
         {
+            // Raised from a runner's completion path: a throwing subscriber must never
+            // break match cleanup, nor stop the remaining subscribers from being notified.
             try
             {
                 await handler(completion);
             }
             catch (Exception ex)
             {
-                (errors ??= []).Add(ex);
+                _logger.LogError(ex,
+                    "Match completion subscriber failed for match {MatchId} (reservation {ReservationId}). Duel queue advancement may be stalled.",
+                    completion.MatchId, completion.ReservationId);
             }
         }
-
-        if (errors is not null)
-            throw new AggregateException(errors);
     }
 }

@@ -587,7 +587,7 @@ describe('App duel orchestration', () => {
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,
       active: null, readyCheck: null, queue: [{
         reservationId: 2, position: 1, players: [], gameType: 'rps', format: 'bo3', rulesetVersion: 1,
-        eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true as const, segments: [] },
+        eta: { status: 'unknown' as const, estimatedStartAt: null, milliseconds: null, approximate: true, segments: [] },
         estimatedDuration: unknownEstimate,
       }],
     };

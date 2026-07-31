@@ -56,7 +56,7 @@ export interface DurationEstimate {
   milliseconds: number | null;
   sampleCount: number;
   method: EstimateMethod;
-  approximate: true;
+  approximate: boolean;
 }
 
 export interface EstimateSegment {
@@ -71,7 +71,7 @@ export interface QueueEta {
   status: 'known' | 'unknown';
   estimatedStartAt: string | null;
   milliseconds: number | null;
-  approximate: true;
+  approximate: boolean;
   segments: EstimateSegment[];
 }
 
