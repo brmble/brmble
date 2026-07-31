@@ -517,6 +517,43 @@ public class BrmbleEventBusTests
         CollectionAssert.AreEqual(new[] { "userMappingAdded" }, otherSends);
     }
 
+    [TestMethod]
+    public async Task AddClientAsync_ConcurrentRegistrationsAnnouncingToEachOtherComplete()
+    {
+        // Two clients connecting at the same time each announce themselves to the other from
+        // inside their registration window. Neither drains until its own registration returns,
+        // so each announcement must not be awaited against a queue the other end cannot drain.
+        var aSends = new List<string>();
+        var bSends = new List<string>();
+        var a = CreateRecordingWebSocket(aSends);
+        var b = CreateRecordingWebSocket(bSends);
+        var aEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var registerA = _bus.AddClientAsync(a.Object, 1L, async () =>
+        {
+            aEntered.TrySetResult();
+            await bEntered.Task;
+            await _bus.BroadcastExceptAsync(a.Object, new { type = "announceA" });
+            return new object[] { new { type = "snapshotA" } };
+        });
+        var registerB = _bus.AddClientAsync(b.Object, 2L, async () =>
+        {
+            bEntered.TrySetResult();
+            await aEntered.Task;
+            await _bus.BroadcastExceptAsync(b.Object, new { type = "announceB" });
+            return new object[] { new { type = "snapshotB" } };
+        });
+
+        var both = Task.WhenAll(registerA, registerB);
+        await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.IsTrue(both.IsCompleted, "concurrent registrations deadlocked on each other");
+        await both;
+        CollectionAssert.AreEqual(new[] { "snapshotA", "announceB" }, aSends);
+        CollectionAssert.AreEqual(new[] { "snapshotB", "announceA" }, bSends);
+    }
+
     /// <summary>Wraps a single payload as the initial batch a registration hands back.</summary>
     private static Task<IReadOnlyList<object>> Snapshot(string type) =>
         Task.FromResult<IReadOnlyList<object>>([new { type }]);

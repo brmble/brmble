@@ -28,6 +28,14 @@ public class BrmbleEventBus : IBrmbleEventBus
         public object Gate { get; } = new();
         public LinkedList<QueuedMessage> Queue { get; } = new();
         public bool Draining { get; set; }
+
+        /// <summary>
+        /// Set while a registration is building this socket's initial payloads. The drain is
+        /// claimed but not running during that window, so nothing queued behind it can be
+        /// delivered until the registration returns.
+        /// </summary>
+        public bool AwaitingInitialPayloads { get; set; }
+
         public Exception? Failure { get; set; }
     }
 
@@ -76,6 +84,7 @@ public class BrmbleEventBus : IBrmbleEventBus
         }
 
         delivery.Draining = false;
+        delivery.AwaitingInitialPayloads = false;
     }
 
     /// <summary>
@@ -108,6 +117,7 @@ public class BrmbleEventBus : IBrmbleEventBus
             // Claim the drain up front so broadcasts arriving during the build queue
             // without starting to send ahead of the initial payloads.
             delivery.Draining = true;
+            delivery.AwaitingInitialPayloads = true;
         }
 
         _deliveries[ws] = delivery;
@@ -146,6 +156,8 @@ public class BrmbleEventBus : IBrmbleEventBus
             // Inserted back to front so the batch ends up at the head in its original order.
             for (var i = queued.Count - 1; i >= 0; i--)
                 delivery.Queue.AddFirst(queued[i]);
+
+            delivery.AwaitingInitialPayloads = false;
         }
 
         // The drain was claimed above, so nothing else is running it yet.
@@ -275,6 +287,12 @@ public class BrmbleEventBus : IBrmbleEventBus
     /// A client that has stopped draining is disconnected once its queue is full, rather
     /// than being allowed to accumulate payloads without bound.
     /// </summary>
+    /// <remarks>
+    /// A socket still building its initial payloads cannot drain until its registration
+    /// returns, so a send to it completes on enqueue instead. Registrations announce
+    /// themselves to the other clients from inside that window, and two clients connecting
+    /// at once would otherwise each wait on a queue only the other could release.
+    /// </remarks>
     private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes)
     {
         if (!_deliveries.TryGetValue(ws, out var delivery))
@@ -282,6 +300,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool startDrain;
+        bool completeOnEnqueue;
         Exception? overflow = null;
         lock (delivery.Gate)
         {
@@ -294,10 +313,12 @@ public class BrmbleEventBus : IBrmbleEventBus
                     $"WebSocket delivery queue is full ({_socketQueueCapacity} payloads).");
                 FailDeliveryLocked(delivery, overflow);
                 startDrain = false;
+                completeOnEnqueue = false;
             }
             else
             {
                 delivery.Queue.AddLast(new QueuedMessage(bytes, completion));
+                completeOnEnqueue = delivery.AwaitingInitialPayloads;
                 startDrain = !delivery.Draining;
                 if (startDrain)
                     delivery.Draining = true;
@@ -320,6 +341,17 @@ public class BrmbleEventBus : IBrmbleEventBus
         // Started outside the gate so the first send does not run under the lock.
         if (startDrain)
             _ = DrainSocketAsync(ws, delivery);
+
+        if (completeOnEnqueue)
+        {
+            // Nothing will await this send, so make sure a later failure is still observed.
+            _ = completion.Task.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return Task.CompletedTask;
+        }
 
         return completion.Task;
     }
