@@ -12,5 +12,5 @@ public interface IBrmbleEventBus
     Task BroadcastExceptAsync(WebSocket excluded, object message);
     Task BroadcastToChannelAsync(int channelId, object message);
     Task<IReadOnlySet<long>> GetConnectedUserIdsAsync();
-    Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message);
+    Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message, EventDeliveryOptions options = default);
 }

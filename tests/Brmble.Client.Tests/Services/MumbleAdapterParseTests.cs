@@ -1222,4 +1222,18 @@ public class MumbleAdapterParseTests
         Assert.AreEqual("default", repaired.Audio.InputDevice);
         Assert.AreEqual("default", repaired.Audio.OutputDevice);
     }
+
+    [TestMethod]
+    public void HandleWebSocketMessage_ForwardsCanonicalPaintEvents()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter,
+            """{ "type": "paint.strokeCommitted", "sessionId": "11111111-1111-1111-1111-111111111111" }""");
+
+        var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+        Assert.IsTrue(sent.Any(message => message.Type == "paint.strokeCommitted"));
+    }
+
 }

@@ -78,6 +78,7 @@ function transformEventToChatMessage(
     media = [{
       type: content.info?.mimetype?.toLowerCase() === 'image/gif' ? 'gif' : 'image',
       url: fullUrl,
+      ...(content.body?.trim() && { filename: content.body.trim() }),
       width: content.info?.w,
       height: content.info?.h,
       mimetype: content.info?.mimetype,

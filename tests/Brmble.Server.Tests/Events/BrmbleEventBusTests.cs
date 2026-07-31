@@ -558,6 +558,122 @@ public class BrmbleEventBusTests
     private static Task<IReadOnlyList<object>> Snapshot(string type) =>
         Task.FromResult<IReadOnlyList<object>>([new { type }]);
 
+    [TestMethod]
+    public async Task BroadcastToUsersAsync_CoalescedPayloadsSupersedeQueuedOnesWithTheSameKey()
+    {
+        // Previews are superseded by their successor, so only the newest needs to be sent.
+        // Without this a painter at 20 previews/sec fills a stalled client's queue in seconds.
+        var recorded = new List<string>();
+        var release = new TaskCompletionSource();
+        var firstSendStarted = new TaskCompletionSource();
+        var sendCount = 0;
+        var ws = CreateRecordingWebSocket(recorded);
+        ws.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .Returns((ArraySegment<byte> buffer, WebSocketMessageType _, bool _, CancellationToken _) =>
+            {
+                RecordPayloadType(recorded, buffer);
+                if (Interlocked.Increment(ref sendCount) == 1)
+                {
+                    firstSendStarted.TrySetResult();
+                    return release.Task;
+                }
+
+                return Task.CompletedTask;
+            });
+        await _bus.AddClientAsync(ws.Object, 1L);
+
+        var blocking = _bus.BroadcastToUsersAsync(Recipients, new { type = "blocking" });
+        await firstSendStarted.Task;
+
+        var preview = new EventDeliveryOptions { CoalesceKey = "preview:session1:user1" };
+        var superseded = new[]
+        {
+            _bus.BroadcastToUsersAsync(Recipients, new { type = "previewA" }, preview),
+            _bus.BroadcastToUsersAsync(Recipients, new { type = "previewB" }, preview),
+        };
+        var newest = _bus.BroadcastToUsersAsync(Recipients, new { type = "previewC" }, preview);
+
+        // Superseded payloads must not leave their callers waiting for a send that never happens.
+        await Task.WhenAll(superseded).WaitAsync(TimeSpan.FromSeconds(2));
+
+        release.TrySetResult();
+        await Task.WhenAll(blocking, newest).WaitAsync(TimeSpan.FromSeconds(2));
+
+        CollectionAssert.AreEqual(
+            new[] { "blocking", "previewC" },
+            recorded,
+            "Only the newest payload for a coalesce key should be sent.");
+    }
+
+    [TestMethod]
+    public async Task BroadcastToUsersAsync_FullQueueDropsCoalescablePayloadsBeforeDisconnecting()
+    {
+        // A client behind on superseded updates should be throttled by dropping them, not
+        // disconnected. Only a queue full of payloads that all still matter forces a resync.
+        var bus = CreateBus(socketQueueCapacity: 2);
+        var recorded = new List<string>();
+        var release = new TaskCompletionSource();
+        var firstSendStarted = new TaskCompletionSource();
+        var sendCount = 0;
+        var ws = CreateRecordingWebSocket(recorded);
+        ws.Setup(w => w.SendAsync(
+            It.IsAny<ArraySegment<byte>>(),
+            It.IsAny<WebSocketMessageType>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()))
+            .Returns((ArraySegment<byte> buffer, WebSocketMessageType _, bool _, CancellationToken _) =>
+            {
+                RecordPayloadType(recorded, buffer);
+                if (Interlocked.Increment(ref sendCount) == 1)
+                {
+                    firstSendStarted.TrySetResult();
+                    return release.Task;
+                }
+
+                return Task.CompletedTask;
+            });
+        await bus.AddClientAsync(ws.Object, 1L);
+
+        var blocking = bus.BroadcastToUsersAsync(Recipients, new { type = "blocking" });
+        await firstSendStarted.Task;
+
+        // Distinct keys, so these do not supersede each other and the queue reaches capacity.
+        var oldest = bus.BroadcastToUsersAsync(
+            Recipients, new { type = "previewA" }, new EventDeliveryOptions { CoalesceKey = "a" });
+        var newer = bus.BroadcastToUsersAsync(
+            Recipients, new { type = "previewB" }, new EventDeliveryOptions { CoalesceKey = "b" });
+
+        // Queue is now full; this must evict the oldest coalescable payload, not the client.
+        var permanent = bus.BroadcastToUsersAsync(Recipients, new { type = "strokeCommitted" });
+
+        await oldest.WaitAsync(TimeSpan.FromSeconds(2));
+        release.TrySetResult();
+        await Task.WhenAll(blocking, newer, permanent).WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.IsTrue(bus.HasConnectedClient(1L), "The client must not be disconnected while payloads can be dropped.");
+        ws.Verify(w => w.Abort(), Times.Never);
+        CollectionAssert.AreEqual(
+            new[] { "blocking", "previewB", "strokeCommitted" },
+            recorded,
+            "The oldest coalescable payload should be dropped, keeping the rest.");
+    }
+
+    private static readonly IReadOnlySet<long> Recipients = new HashSet<long> { 1L };
+
+    private static void RecordPayloadType(List<string> recorded, ArraySegment<byte> buffer)
+    {
+        var type = JsonDocument.Parse(Encoding.UTF8.GetString(buffer))
+            .RootElement.GetProperty("type").GetString()!;
+        lock (recorded)
+        {
+            recorded.Add(type);
+        }
+    }
+
     private static Mock<WebSocket> CreateRecordingWebSocket(List<string> recorded)
     {
         var mock = new Mock<WebSocket>();

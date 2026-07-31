@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MessageBubble } from './MessageBubble';
 import { ServiceStatusProvider } from '../../hooks/useServiceStatus';
 
+const paint = vi.hoisted(() => ({
+  getSummary: vi.fn(),
+}));
+
+vi.mock('../../api/paint', () => ({ paintApi: paint }));
+
 const baseMessage = {
   sender: 'Alice',
   content: 'hello',
@@ -84,5 +90,45 @@ describe('MessageBubble', () => {
     });
 
     expect(screen.queryByText('Failed to send')).not.toBeInTheDocument();
+  });
+
+  it('drives paint invitation actions from the server summary instead of embedded identities', async () => {
+    const user = userEvent.setup();
+    const onJoinPaint = vi.fn().mockResolvedValue(undefined);
+    const onOpenPaint = vi.fn();
+    paint.getSummary
+      .mockResolvedValueOnce({
+        sessionId: 'session-1',
+        channelId: 5,
+        hostUserId: 7,
+        status: 'active',
+        canJoin: true,
+        isParticipant: false,
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'session-1',
+        channelId: 5,
+        hostUserId: 7,
+        status: 'active',
+        canJoin: true,
+        isParticipant: true,
+      });
+
+    renderBubble({
+      content: '[brmble-paint]{"sessionId":"session-1","hostUserId":7,"participantUserIds":[999],"channelId":5,"status":"active"}',
+      currentUserId: 8,
+      users: [{ session: 8, name: 'Bob', channelId: 5 }],
+      onJoinPaint,
+      onOpenPaint,
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Join paint' }));
+
+    expect(onJoinPaint).toHaveBeenCalledWith('session-1');
+    expect(onOpenPaint).not.toHaveBeenCalled();
+
+    await user.click(await screen.findByRole('button', { name: 'Open paint' }));
+
+    expect(onOpenPaint).toHaveBeenCalledWith('session-1');
   });
 });

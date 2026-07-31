@@ -1,0 +1,4 @@
+.paint-toolbar { display:flex; flex-wrap:wrap; gap:var(--space-xs); align-items:center; padding:var(--space-xs); background:var(--bg-secondary); border-radius:var(--radius-lg); }
+.paint-toolbar button { border:1px solid var(--border-subtle); background:var(--bg-primary); color:var(--text-primary); border-radius:var(--radius-sm); padding:calc(var(--space-xs) / 2) var(--space-xs); cursor:pointer; }
+.paint-toolbar button.active { outline:2px solid var(--accent-primary); }
+.paint-swatches { display:flex; gap:var(--space-xs); }.paint-swatches button { width:var(--space-lg); height:var(--space-lg); padding:0; border-radius:var(--radius-full); background:var(--paint-swatch-color); }

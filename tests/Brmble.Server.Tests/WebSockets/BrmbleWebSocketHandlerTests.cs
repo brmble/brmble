@@ -32,7 +32,8 @@ public class BrmbleWebSocketHandlerTests
         }
         public Task BroadcastToChannelAsync(int channelId, object message) => inner.BroadcastToChannelAsync(channelId, message);
         public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync() => inner.GetConnectedUserIdsAsync();
-        public Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message) => inner.BroadcastToUsersAsync(userIds, message);
+        public Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message, EventDeliveryOptions options = default) =>
+            inner.BroadcastToUsersAsync(userIds, message, options);
     }
 
     private static BrmbleEventBus CreateBus(ISessionMappingService? mappings = null) => new(

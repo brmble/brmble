@@ -12,6 +12,7 @@ using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
+using Brmble.Server.Paint;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
@@ -40,6 +41,17 @@ builder.Services.AddAuth();
 builder.Services.AddMatrix();
 builder.Services.AddLiveKit();
 builder.Services.AddGames();
+builder.Services.AddSingleton<IMatrixPaintService, MatrixPaintService>();
+builder.Services.AddSingleton<MatrixPaintSourceResolver>();
+builder.Services.AddSingleton<IPaintPresence, SessionMappingPaintPresence>();
+builder.Services.AddSingleton<IPaintEventPublisher, BrmblePaintEventPublisher>();
+builder.Services.AddSingleton<PaintRateLimiter>();
+builder.Services.AddSingleton<PaintRoomCleanupRepository>();
+builder.Services.AddSingleton<PaintSessionManager>();
+builder.Services.AddSingleton<IPaintParticipationLifecycle>(services =>
+    services.GetRequiredService<PaintSessionManager>());
+builder.Services.AddHostedService<PaintSessionExpirationService>();
+builder.Services.AddHostedService<PaintRoomCleanupService>();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
 builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();
@@ -103,6 +115,7 @@ app.MapDmEndpoints();
 app.MapAclAdminEndpoints();
 app.MapChannelRequestEndpoints();
 app.MapGameEndpoints();
+app.MapPaintEndpoints();
 app.MapChannelChatAccessEndpoints();
 app.Map("/ws", BrmbleWebSocketHandler.HandleAsync);
 app.MapServerInfoEndpoints();

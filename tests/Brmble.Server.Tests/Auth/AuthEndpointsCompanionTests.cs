@@ -58,7 +58,10 @@ public class AuthEndpointsCompanionTests : IDisposable
 
     private sealed class CompanionAuthFactory : BrmbleServerFactory
     {
-        public Mock<ISessionMappingService> SessionMappingMock { get; } = new();
+        // Deliberately hides the base factory's mock: this suite removes the inherited
+        // ISessionMappingService registration and substitutes a bare mock, so the base's
+        // real-behaviour callbacks must not apply here.
+        public new Mock<ISessionMappingService> SessionMappingMock { get; } = new();
         public Mock<IBrmbleEventBus> EventBusMock { get; } = new();
 
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)

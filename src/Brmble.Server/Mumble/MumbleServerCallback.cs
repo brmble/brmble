@@ -3,6 +3,7 @@ using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.LiveKit;
+using Brmble.Server.Paint;
 
 namespace Brmble.Server.Mumble;
 
@@ -17,6 +18,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly IDuelMatchRunnerRouter _gameSessions;
     private readonly IDuelOrchestrator _duels;
+    private readonly IPaintParticipationLifecycle _paintParticipation;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -30,6 +32,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         LiveKitParticipantTracker liveKitParticipantTracker,
         IDuelMatchRunnerRouter gameSessions,
         IDuelOrchestrator duels,
+        IPaintParticipationLifecycle paintParticipation,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -41,6 +44,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _gameSessions = gameSessions;
         _duels = duels;
+        _paintParticipation = paintParticipation;
         _logger = logger;
     }
 
@@ -171,6 +175,10 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             await TryNotifyDuelsAsync(
                 () => _duels.HandlePresenceLostAsync(mapping.UserId, user.SessionId, DuelCancelReason.Disconnected),
                 "user disconnect", user.SessionId);
+            DispatchPaintParticipation(
+                () => _paintParticipation.HandleSessionDisconnectedAsync(user.SessionId),
+                "disconnect",
+                user.SessionId);
             stoppedRooms = _screenShareTracker.StopAllByUserId(mapping.UserId);
         }
 
@@ -202,6 +210,13 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             await TryNotifyDuelsAsync(
                 () => _duels.HandlePresenceLostAsync(mapped.UserId, user.SessionId, DuelCancelReason.LeftChannel),
                 "channel change", user.SessionId);
+
+        if (channelChanged)
+            DispatchPaintParticipation(
+                () => _paintParticipation.HandleSessionChannelChangedAsync(user.SessionId, previousChannel, channelId),
+                "channel change",
+                user.SessionId);
+
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
@@ -270,6 +285,21 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             _logger.LogDebug(ex, "getCertificateListAsync failed for session {Session}", user.SessionId);
             return user;
         }
+    }
+
+    private void DispatchPaintParticipation(Func<Task> operation, string operationName, int sessionId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await operation();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Paint participation {Operation} failed for Mumble session {Session}", operationName, sessionId);
+            }
+        });
     }
 
     // Mappers — no cert hash in Ice User state; OG clients are never Brmble clients
