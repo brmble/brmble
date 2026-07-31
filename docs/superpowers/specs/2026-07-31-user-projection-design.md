@@ -434,9 +434,41 @@ pipeline; there is no useful half-state, and Velopack delivers it in one update.
 
 ---
 
-## 11. Open questions for the implementation plan
+## 11. Resolved design questions
 
-1. Projection version negotiation (§4.4): announced in the WS registration handshake, or derived
-   from a `requestSnapshot` field? The former is cleaner but touches the handshake.
-2. How long is "buffer briefly" for an event naming an unknown session, before resync?
-3. Does `userMappingRemoved` still earn its place once snapshots reconcile membership?
+**1. Where does projection version negotiation live? → A `pv` query parameter on the `/ws` URL.**
+
+The client already builds the WebSocket path by hand (`MumbleAdapter.cs:2283`) and constructs the
+HTTP upgrade over BouncyCastle TLS, so appending `?pv=1` is trivial. `app.Map("/ws", HandleAsync)`
+(`Program.cs:137`) lets `HandleAsync` read `context.Request.Query["pv"]` *before*
+`AcceptWebSocketAsync()`, so the version is known before initial payloads are built.
+
+An in-band handshake message was rejected: it would force the server to wait for a client frame
+before sending initial payloads, which fights `AddClientAsync`, where payloads are produced by a
+callback during registration.
+
+Absent `pv` means version 0, which gets the legacy `companionId` / `customCompanionId` split.
+Implemented in **Phase 3**, alongside the companion field collapse it exists to serve — reading a
+query parameter is purely additive, so no earlier phase needs to reserve anything for it.
+
+**2. How long is "buffer briefly" for an event naming an unknown session? → Deferred to Phase 2.**
+
+Purely client-side, with no effect on the wire contract. Decide it against the real store, where
+the trade-off between a redundant resync and a delayed row can actually be measured.
+
+**3. Does `userMappingRemoved` still earn its place? → Yes.**
+
+`MumbleServerCallback.cs:184` calls `RemoveSession` and `:197` announces it; they are paired 1:1
+and it is the only place either happens. Since `RemoveSession` bumps the revision, dropping the
+announcement would leave a bump nobody hears — the next event would arrive at N+2 against a client
+holding N, triggering a resync for nothing. Dropping the event would therefore mean dropping the
+bump too, and then two snapshots either side of a removal would carry the same revision, which is
+ambiguous.
+
+This generalises to an invariant every producer must respect:
+
+> **Every revision bump is announced.** A mutation that bumps the counter without broadcasting a
+> stamped payload manufactures a phantom gap in every connected client.
+
+The snapshot's membership reconciliation (§4.3) is a *repair* mechanism, not a substitute for the
+event.

@@ -1042,6 +1042,7 @@ git commit -m "feat: stamp mapping snapshots and serve client resync requests"
 - [ ] `dotnet build` is clean with 0 warnings
 - [ ] `dotnet test` passes in all four projects
 - [ ] Every one of the six mapping payload types carries `instanceId` and `revision`
+- [ ] **Every revision bump is announced.** Cross-check each `Bump()` call site against a producer that broadcasts a stamped payload. A bump nobody hears manufactures a phantom gap in every connected client, which is worse than not bumping at all. In particular `RemoveSession` bumps, so `userMappingRemoved` (`MumbleServerCallback.cs:197`) must go through the publisher — it is not made redundant by snapshot reconciliation
 - [ ] `userMappingAdded` carries `isBrmbleClient: null` when no socket has registered
 - [ ] A `{"type":"requestSnapshot"}` frame returns a stamped `sessionMappingSnapshot`
 - [ ] An existing client build still connects and behaves normally — every change is additive, and the client ignores unknown fields
