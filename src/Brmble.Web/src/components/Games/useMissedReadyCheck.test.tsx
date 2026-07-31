@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DuelPlayer, DuelQueueSnapshot, ReadyCheck } from '../../api/games';
-import { emit, unknownEstimate } from './duelTestHarness';
+import { emit, resetHarness, unknownEstimate } from './duelTestHarness';
 import { useMissedReadyCheck } from './useMissedReadyCheck';
 
 // The `await import` form is required: vi.mock factories hoist above this file's imports.
@@ -35,6 +35,8 @@ const channels = (...snapshots: DuelQueueSnapshot[]) =>
   new Map<number, DuelQueueSnapshot>(snapshots.map(s => [s.channelId, s]));
 
 describe('useMissedReadyCheck', () => {
+  beforeEach(resetHarness);
+
   it('reports that you missed it when you did not ready', () => {
     const { result } = renderHook(() => useMissedReadyCheck(
       channels(snapshot(7, ready(41, [player(SELF, false), player(22, true)]))), SELF));
@@ -80,7 +82,7 @@ describe('useMissedReadyCheck', () => {
     expect(result.current.missed?.reservationId).toBe(41);
   });
 
-  it.each(['declined', 'disconnected', 'leftChannel', 'channelRemoved'])(
+  it.each(['declined', 'disconnected', 'leftChannel', 'channelRemoved', 'startFailed'])(
     'ignores the %s reason', reason => {
       const { result } = renderHook(() => useMissedReadyCheck(
         channels(snapshot(7, ready(41, [player(SELF, false), player(22, true)]))), SELF));
