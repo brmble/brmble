@@ -9,6 +9,15 @@ public class SessionMappingService : ISessionMappingService
     private readonly ConcurrentDictionary<int, string> _sessionToName = new();
     private readonly ConcurrentDictionary<long, int> _userIdToSession = new();
 
+    private readonly string _instanceId = Guid.NewGuid().ToString("N");
+    private long _revision;
+
+    public string InstanceId => _instanceId;
+
+    public long Revision => Interlocked.Read(ref _revision);
+
+    private void Bump() => Interlocked.Increment(ref _revision);
+
     public void SetNameForSession(string name, int sessionId)
     {
         _nameToSession[name] = sessionId;
@@ -20,6 +29,7 @@ public class SessionMappingService : ISessionMappingService
         if (_sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName, userId, companionId)))
         {
             _userIdToSession[userId] = sessionId;
+            Bump();
             return true;
         }
 
@@ -29,11 +39,13 @@ public class SessionMappingService : ISessionMappingService
 
     public void RemoveSession(int sessionId)
     {
+        var changed = false;
         if (_sessionToMapping.TryRemove(sessionId, out var mapping))
         {
             // Only remove userId→session if it still points to this session
             ((ICollection<KeyValuePair<long, int>>)_userIdToSession)
                 .Remove(new KeyValuePair<long, int>(mapping.UserId, sessionId));
+            changed = true;
         }
         if (_sessionToName.TryRemove(sessionId, out var name))
         {
@@ -42,6 +54,7 @@ public class SessionMappingService : ISessionMappingService
             ((ICollection<KeyValuePair<string, int>>)_nameToSession)
                 .Remove(new KeyValuePair<string, int>(name, sessionId));
         }
+        if (changed) Bump();
     }
 
     public bool TryGetMatrixUserId(int sessionId, out string? matrixUserId)
@@ -81,20 +94,29 @@ public class SessionMappingService : ISessionMappingService
 
     public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { IsBrmbleClient = isBrmbleClient };
-            return true;
+            var updated = existing with { IsBrmbleClient = isBrmbleClient };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
+
         return false;
     }
 
     public bool TryUpdateCompanionId(int sessionId, string companionId)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { CompanionId = companionId };
-            return true;
+            var updated = existing with { CompanionId = companionId };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
 
         return false;
@@ -109,7 +131,10 @@ public class SessionMappingService : ISessionMappingService
 
             var updated = existing with { CompanionId = companionId };
             if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
                 return true;
+            }
         }
 
         return false;
@@ -127,7 +152,10 @@ public class SessionMappingService : ISessionMappingService
 
             var updated = existing with { CompanionId = companionId };
             if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
                 return true;
+            }
         }
 
         return false;
@@ -135,10 +163,14 @@ public class SessionMappingService : ISessionMappingService
 
     public bool TryUpdateCertHash(int sessionId, string certHash)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { CertHash = certHash };
-            return true;
+            var updated = existing with { CertHash = certHash };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
 
         return false;

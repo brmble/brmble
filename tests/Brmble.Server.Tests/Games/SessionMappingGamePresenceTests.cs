@@ -15,6 +15,9 @@ file sealed class FakeSessionMapping : ISessionMappingService
     public FakeSessionMapping(Dictionary<int, SessionMapping> snapshot) => _snapshot = snapshot;
     public IReadOnlyDictionary<int, SessionMapping> GetSnapshot() => _snapshot;
 
+    public string InstanceId => "test";
+    public long Revision => 0;
+
     public void SetNameForSession(string name, int sessionId) => throw new NotImplementedException();
     public bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName, long userId, string companionId) => throw new NotImplementedException();
     public void RemoveSession(int sessionId) => throw new NotImplementedException();

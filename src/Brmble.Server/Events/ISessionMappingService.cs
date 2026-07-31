@@ -4,6 +4,19 @@ public record SessionMapping(string MatrixUserId, string MumbleName, long UserId
 
 public interface ISessionMappingService
 {
+    /// <summary>
+    /// Identifies this process's mapping table. Regenerated on every start, so a client that
+    /// sees a different value knows the server restarted and its cached server-owned fields
+    /// are worthless.
+    /// </summary>
+    string InstanceId { get; }
+
+    /// <summary>
+    /// Monotonic counter, incremented once per successful mutation. Stamped on every payload so
+    /// a client can detect a gap (revision > last + 1) and request a snapshot.
+    /// </summary>
+    long Revision { get; }
+
     void SetNameForSession(string name, int sessionId);
     bool TryAddMatrixUser(int sessionId, string matrixUserId, string mumbleName, long userId, string companionId);
     void RemoveSession(int sessionId);

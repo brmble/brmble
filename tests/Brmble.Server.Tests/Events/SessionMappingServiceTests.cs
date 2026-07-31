@@ -195,4 +195,75 @@ public class SessionMappingServiceTests
         Assert.IsTrue(updated);
         Assert.AreEqual("cert-alice", _svc.GetSnapshot()[42].CertHash);
     }
+
+    [TestMethod]
+    public void Revision_StartsAtZeroAndIncrementsOnEverySuccessfulMutation()
+    {
+        Assert.AreEqual(0L, _svc.Revision);
+
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        Assert.AreEqual(1L, _svc.Revision);
+
+        _svc.TryUpdateCompanionId(1, "retro");
+        Assert.AreEqual(2L, _svc.Revision);
+
+        _svc.TryUpdateBrmbleStatus(1, true);
+        Assert.AreEqual(3L, _svc.Revision);
+
+        _svc.TryUpdateCertHash(1, "abc");
+        Assert.AreEqual(4L, _svc.Revision);
+
+        _svc.TryUpdateCompanionIdIfOwnedBy(1, 1L, "pip");
+        Assert.AreEqual(5L, _svc.Revision);
+
+        _svc.RemoveSession(1);
+        Assert.AreEqual(6L, _svc.Revision);
+    }
+
+    [TestMethod]
+    public void Revision_DoesNotIncrementWhenMutationDoesNotApply()
+    {
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        var before = _svc.Revision;
+
+        // Session 99 has no mapping, so none of these change anything.
+        Assert.IsFalse(_svc.TryUpdateCompanionId(99, "retro"));
+        Assert.IsFalse(_svc.TryUpdateBrmbleStatus(99, true));
+        Assert.IsFalse(_svc.TryUpdateCertHash(99, "abc"));
+        _svc.RemoveSession(99);
+
+        // A CAS whose expected value does not match must not bump either.
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfCurrent(1, "notthecurrentone", "pip"));
+
+        // Nor one whose owning userId does not match.
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfOwnedBy(1, 999L, "pip"));
+
+        Assert.AreEqual(before, _svc.Revision);
+    }
+
+    [TestMethod]
+    public void InstanceId_IsStableWithinAnInstanceAndDiffersAcrossInstances()
+    {
+        var first = _svc.InstanceId;
+
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        Assert.AreEqual(first, _svc.InstanceId, "InstanceId must not change while the process lives");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(first));
+
+        var replacement = new SessionMappingService();
+        Assert.AreNotEqual(first, replacement.InstanceId, "a restart must be observable");
+        Assert.AreEqual(0L, replacement.Revision);
+    }
+
+    [TestMethod]
+    public void Revision_IsMonotonicUnderConcurrentMutations()
+    {
+        for (var i = 0; i < 200; i++)
+            _svc.TryAddMatrixUser(i, $"@{i}:server", $"U{i}", i, "bee");
+
+        Parallel.For(0, 200, i => _svc.TryUpdateCompanionId(i, "retro"));
+
+        // 200 adds + 200 updates, none of them lost to a read-modify-write race.
+        Assert.AreEqual(400L, _svc.Revision);
+    }
 }
