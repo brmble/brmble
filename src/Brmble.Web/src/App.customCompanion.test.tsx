@@ -629,6 +629,20 @@ describe('App custom companion delivery', () => {
     expect(normalizeCompanionBridgeSelection({ companionId: 'floppy' })).toBe('floppy');
   });
 
+  it('ignores a built-in value in the custom field and keeps the legacy field', () => {
+    expect(normalizeCompanionBridgeSelection({
+      companionId: 'retro',
+      customCompanionId: 'bee',
+    })).toBe('retro');
+  });
+
+  it('ignores a malformed custom field and keeps the legacy field', () => {
+    expect(normalizeCompanionBridgeSelection({
+      companionId: 'retro',
+      customCompanionId: 'custom:not-an-event-id',
+    })).toBe('retro');
+  });
+
   it('retries an already-selected custom companion through App atlas ownership', async () => {
     const initial: OverlaySettings = {
       ...DEFAULT_OVERLAY,

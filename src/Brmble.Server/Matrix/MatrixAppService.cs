@@ -400,7 +400,7 @@ public class MatrixAppService : IMatrixAppService
     {
         var txnId = Guid.NewGuid().ToString("N");
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/redact/{Uri.EscapeDataString(eventId)}/{txnId}";
-        var body = JsonSerializer.Serialize(new { reason = "Removed by a Brmble moderator" });
+        var body = JsonSerializer.Serialize(new { reason });
         return SendRequest(HttpMethod.Put, url, body);
     }
 

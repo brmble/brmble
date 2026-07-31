@@ -94,13 +94,18 @@ export function companionForServer(settings: OverlaySettings, serverKey: string)
   return normalizeCompanionId(settings.companionSelectionsByServer[serverKey] ?? settings.myCompanion);
 }
 
+/**
+ * Picks the companion from a native wire payload. `customCompanionId` is additive and only
+ * ever carries `custom:$…` values, so anything else there (a built-in name, a malformed
+ * custom id) is ignored in favour of the legacy `companionId` field.
+ */
 export function normalizeCompanionBridgeSelection(payload: {
   companionId?: unknown;
   customCompanionId?: unknown;
 }): CompanionSelection {
-  const customSelection = normalizeCompanionId(payload.customCompanionId);
-  return customSelection !== 'floppy' || payload.customCompanionId === 'floppy'
-    ? customSelection
+  const custom = payload.customCompanionId;
+  return typeof custom === 'string' && isCustomCompanionId(custom)
+    ? custom
     : normalizeCompanionId(payload.companionId);
 }
 

@@ -354,6 +354,17 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task RedactRoomEvent_SendsTheCallerSuppliedReason()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"event_id":"$redaction:test"}""");
+
+        await _svc.RedactRoomEvent("!gallery:test", "$sprite:test", "Removed after persistence failure");
+
+        var body = JsonDocument.Parse(LastJsonBody()).RootElement;
+        Assert.AreEqual("Removed after persistence failure", body.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
     public async Task EnsureUserInRoom_ReturnsFalseWhenJoinFails()
     {
         SetupHttpResponse(

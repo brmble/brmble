@@ -9,6 +9,7 @@ import {
   CustomCompanionUploadDialog,
   type MatrixUploadClient,
 } from './customCompanions/CustomCompanionUploadDialog';
+import { normalizeCompanionId } from './InterfaceSettingsTypes';
 
 interface InterfaceSettingsTabProps {
   appearanceSettings: AppearanceSettings;
@@ -73,13 +74,9 @@ export function InterfaceSettingsTab({
   };
 
   const handleMyCompanionChange = (companion: string) => {
-    const validCompanions: CompanionSelection[] = ['bee', 'engineer', 'floppy', 'patch', 'pip', 'retro'];
-    const validCompanion: CompanionSelection = companion.startsWith('custom:')
-      ? companion as CompanionSelection
-      : validCompanions.includes(companion as CompanionSelection)
-        ? companion as CompanionSelection
-        : 'floppy';
-    onOverlayChange({ ...overlaySettings, myCompanion: validCompanion });
+    // normalizeCompanionId is the single source of truth for what a selection may be:
+    // a known built-in, or a well-formed `custom:$…` id. Anything else becomes 'floppy'.
+    onOverlayChange({ ...overlaySettings, myCompanion: normalizeCompanionId(companion) });
   };
 
   return (
