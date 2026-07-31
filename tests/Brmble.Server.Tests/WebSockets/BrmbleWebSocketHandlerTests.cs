@@ -25,6 +25,7 @@ public class BrmbleWebSocketHandlerTests
         public void RemoveClient(WebSocket ws) => inner.RemoveClient(ws);
         public bool HasConnectedClient(long userId) => inner.HasConnectedClient(userId);
         public Task BroadcastAsync(object message) => inner.BroadcastAsync(message);
+        public Task SendToClientAsync(WebSocket socket, object message) => inner.SendToClientAsync(socket, message);
         public async Task BroadcastExceptAsync(WebSocket excluded, object message)
         {
             MappingBroadcastEntered.TrySetResult();
@@ -207,5 +208,37 @@ public class BrmbleWebSocketHandlerTests
             new[] { "sessionMappingSnapshot", "game.queueSnapshot", "privateEvent" }, sends);
         Assert.AreEqual(1, maxConcurrentSends);
         Assert.AreEqual(1, sends.Count(x => x == "sessionMappingSnapshot"));
+    }
+
+    [TestMethod]
+    public async Task BuildInitialPayloadsAsync_StampsSnapshotWithEnvelope()
+    {
+        var mappings = new SessionMappingService();
+        mappings.TryAddMatrixUser(42, "@alice:test", "Alice", 1L, "floppy");
+
+        var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
+            new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
+            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
+        Assert.AreEqual("sessionMappingSnapshot", doc.RootElement.GetProperty("type").GetString());
+        Assert.AreEqual(mappings.InstanceId, doc.RootElement.GetProperty("instanceId").GetString());
+        Assert.AreEqual(mappings.Revision, doc.RootElement.GetProperty("revision").GetInt64());
+    }
+
+    [TestMethod]
+    public void TryParseClientMessage_RecognisesRequestSnapshot()
+    {
+        Assert.IsTrue(BrmbleWebSocketHandler.TryParseClientMessage(
+            "{\"type\":\"requestSnapshot\"}", out var type));
+        Assert.AreEqual("requestSnapshot", type);
+    }
+
+    [TestMethod]
+    public void TryParseClientMessage_RejectsGarbageWithoutThrowing()
+    {
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("not json", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{}", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("", out _));
     }
 }

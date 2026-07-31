@@ -245,6 +245,13 @@ public class BrmbleEventBus : IBrmbleEventBus
     private static ArraySegment<byte> Serialize(object message) =>
         new(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message, JsonOptions)));
 
+    /// <summary>
+    /// Sends one payload to a single already-registered socket. Used to serve a client's
+    /// resync request without disturbing anyone else.
+    /// </summary>
+    public Task SendToClientAsync(WebSocket socket, object message) =>
+        SendToClient(socket, Serialize(message), default);
+
     public Task BroadcastToChannelAsync(int channelId, object message)
     {
         var sessions = _channelMembership.GetSessionsInChannel(channelId);

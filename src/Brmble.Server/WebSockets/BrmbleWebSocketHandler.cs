@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Companions;
 using Brmble.Server.Events;
@@ -43,8 +44,11 @@ public static class BrmbleWebSocketHandler
                 ws, user.Id, hash, sessionMapping, eventBus, activeSessions,
                 context.RequestServices.GetRequiredService<IDuelSnapshotProvider>());
 
-            // Read loop until close
+            // Read loop until close. Messages are reassembled across frames; anything larger
+            // than the cap is discarded rather than buffered, so a client cannot exhaust memory.
+            const int MaxClientMessageBytes = 8 * 1024;
             var buffer = new byte[1024];
+            var accumulated = new MemoryStream();
             while (ws.State == WebSocketState.Open)
             {
                 var result = await ws.ReceiveAsync(buffer, context.RequestAborted);
@@ -53,6 +57,27 @@ public static class BrmbleWebSocketHandler
                     await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
                     break;
                 }
+
+                if (accumulated.Length + result.Count <= MaxClientMessageBytes)
+                    accumulated.Write(buffer, 0, result.Count);
+
+                if (!result.EndOfMessage) continue;
+
+                var json = System.Text.Encoding.UTF8.GetString(accumulated.ToArray());
+                accumulated.SetLength(0);
+
+                if (!TryParseClientMessage(json, out var messageType)) continue;
+                if (messageType != "requestSnapshot") continue;
+
+                sessionMapping.TryGetSessionByUserId(user.Id, out var resyncSessionId);
+                var payloads = await BuildInitialPayloadsAsync(
+                    context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
+                    resyncSessionId,
+                    sessionMapping.GetSnapshot(),
+                    new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision));
+
+                foreach (var payload in payloads)
+                    await eventBus.SendToClientAsync(ws, payload);
             }
         }
         catch (WebSocketException) { /* client disconnected */ }
@@ -107,7 +132,9 @@ public static class BrmbleWebSocketHandler
             }
 
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);
-            return await BuildInitialPayloadsAsync(snapshots, queueSessionId, sessionMapping.GetSnapshot());
+            return await BuildInitialPayloadsAsync(
+                snapshots, queueSessionId, sessionMapping.GetSnapshot(),
+                new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision));
         });
 
     /// <summary>
@@ -118,7 +145,8 @@ public static class BrmbleWebSocketHandler
     internal static async Task<IReadOnlyList<object>> BuildInitialPayloadsAsync(
         IDuelSnapshotProvider snapshots,
         long sessionId,
-        IReadOnlyDictionary<int, SessionMapping> mappings)
+        IReadOnlyDictionary<int, SessionMapping> mappings,
+        MappingEnvelope envelope)
     {
         var snapshot = mappings.ToDictionary(
             kvp => kvp.Key.ToString(),
@@ -135,9 +163,41 @@ public static class BrmbleWebSocketHandler
                     isBrmbleClient = kvp.Value.IsBrmbleClient,
                 };
             });
-        var initial = new List<object> { new { type = "sessionMappingSnapshot", mappings = snapshot } };
+        var initial = new List<object>
+        {
+            new
+            {
+                type = "sessionMappingSnapshot",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
+                mappings = snapshot
+            }
+        };
         if (sessionId != 0)
             initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
         return initial;
+    }
+
+    /// <summary>
+    /// Parses a client-to-server frame. Returns false for anything unparseable rather than
+    /// throwing: a malformed frame must never take the socket down.
+    /// </summary>
+    internal static bool TryParseClientMessage(string json, out string type)
+    {
+        type = string.Empty;
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (!doc.RootElement.TryGetProperty("type", out var typeProperty)) return false;
+            if (typeProperty.ValueKind != JsonValueKind.String) return false;
+            type = typeProperty.GetString() ?? string.Empty;
+            return type.Length > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

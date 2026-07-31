@@ -73,6 +73,7 @@ public class MappingEventPublisherTests
         }
 
         public Task BroadcastToChannelAsync(int channelId, object message) => BroadcastAsync(message);
+        public Task SendToClientAsync(System.Net.WebSockets.WebSocket socket, object message) => BroadcastAsync(message);
         public Task BroadcastExceptAsync(System.Net.WebSockets.WebSocket excluded, object message) => BroadcastAsync(message);
         public Task AddClientAsync(System.Net.WebSockets.WebSocket ws, long userId, Func<Task<IReadOnlyList<object>>>? initialMessages = null) => Task.CompletedTask;
         public void RemoveClient(System.Net.WebSockets.WebSocket ws) { }

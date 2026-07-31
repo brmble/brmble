@@ -269,7 +269,7 @@ public class AuthService : IActiveBrmbleSessions
                 sessionId = activatedSessionId
             });
 
-        return new AuthResult(user.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
+        return new AuthResult(user!.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
     }
 
     public void Deactivate(string certHash)

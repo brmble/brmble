@@ -200,6 +200,10 @@ public static class AuthEndpoints
             {
                 matrix = matrixPayload,
                 userMappings,
+                // Same envelope the WebSocket snapshot carries: this is the bootstrap
+                // transport for the identical data, so it must be orderable too.
+                instanceId = sessionMapping.InstanceId,
+                revision = sessionMapping.Revision,
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
