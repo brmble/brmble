@@ -9,6 +9,19 @@ const DEFAULT_TURN_MS = 15000;
 // auto-declined so an outdated peer can't open the wrong modal. Forward-compat only.
 const SUPPORTED_GAMES = ['deathroll', 'rps'];
 
+/**
+ * `game.error` ownership split.
+ *
+ * Both this hook and `useDuelQueueState` listen to `game.error`, and both render a
+ * persistent (duration: null) error notification. `useDuelQueueState` correlates
+ * these duel-queue commands back to the button that issued them and reports them
+ * as the specific `game-command-error` notification, so reporting them here as
+ * well would put two boxes on screen for one failure. Anything NOT listed here —
+ * including an error with no `command` at all — is this hook's to report, or it
+ * would go silent.
+ */
+const DUEL_QUEUE_OWNED_COMMANDS = new Set(['game.ready', 'game.respond', 'game.rematch']);
+
 /** Per-player Deathroll view (engine PublicView, camelCase). */
 export interface DeathrollView {
   players: number[];
@@ -412,6 +425,7 @@ export function useGameState(myUserId: number): GameState {
         setOutgoing(null);
         return;
       }
+      if (d.command != null && DUEL_QUEUE_OWNED_COMMANDS.has(d.command)) return;
       setLastError(msg);
     };
 

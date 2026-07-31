@@ -168,12 +168,15 @@ describe('useGameState', () => {
 
       emit('game.error', {
         command: 'game.ready', path: 'games/ready',
-        error: 'This ready check is no longer available.', statusCode: 400, reason: 'stale',
+        error: 'This ready check is no longer available.', statusCode: 400, reason: 'staleOffer',
         reservationId: 12,
       });
 
       expect(result.current.outgoingInvite?.offerId).toBe(7);
-      expect(result.current.lastError).toBe('This ready check is no longer available.');
+      // `game.ready` belongs to useDuelQueueState — see DUEL_QUEUE_OWNED_COMMANDS
+      // and duelErrorOwnership.test.tsx. Reporting it here too would show two
+      // persistent error notifications for one failure.
+      expect(result.current.lastError).toBeNull();
     });
 
     // Cancelling before the server confirms the offer arms a deferred cancel that
