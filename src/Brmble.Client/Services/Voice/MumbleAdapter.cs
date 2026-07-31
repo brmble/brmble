@@ -64,6 +64,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
+
+    /// <summary>
+    /// Brmble status for sessions this client has not been told the mapping for yet. The
+    /// server may announce that a session became a Brmble client before this client learns
+    /// who that session is, and every later user state re-asserts the flag from the mapping
+    /// cache, so an activation that had nowhere to land would not merely be missed once, it
+    /// would be contradicted from then on.
+    /// </summary>
+    private readonly ConcurrentDictionary<uint, bool> _pendingBrmbleStatus = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
@@ -1260,82 +1269,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // The response data already in ms is valid — treat as end-of-stream.
             }
 
-            var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-
-            // Parse HTTP status line
-            var statusEnd = response.IndexOf('\n');
-            if (statusEnd < 0)
+            var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+            if (parsed.StatusCode != 200)
             {
-                Debug.WriteLine("[Brmble:mTLS] No HTTP status line in response");
-                return (null, 0, null);
+                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {parsed.StatusCode}");
+                return (null, parsed.StatusCode, parsed.Body);
             }
 
-            var statusLine = response[..statusEnd].Trim();
-            Debug.WriteLine($"[Brmble:mTLS] BC TLS response: {statusLine}");
-
-            // Parse numeric status code from status line (e.g. "HTTP/1.1 409 Conflict")
-            var statusCode = 0;
-            var parts = statusLine.Split(' ');
-            if (parts.Length >= 2) int.TryParse(parts[1], out statusCode);
-
-            if (statusCode != 200)
-            {
-                Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {statusLine}");
-                // Extract body for error details
-                string? errorBody = null;
-                var errBodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-                if (errBodyStart < 0)
-                    errBodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-                if (errBodyStart >= 0)
-                {
-                    var errSepLen = response[errBodyStart] == '\r' ? 4 : 2;
-                    errorBody = response[(errBodyStart + errSepLen)..].Trim();
-                }
-                return (null, statusCode, errorBody);
-            }
-
-            // Find body after header separator
-            var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-                bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-            if (bodyStart < 0)
-            {
-                Debug.WriteLine("[Brmble:mTLS] No HTTP body found");
-                return (null, 200, null);
-            }
-
-            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-            var body = response[(bodyStart + separatorLength)..].Trim();
-
-            // Handle chunked transfer encoding — reassemble chunk data
-            var headersSection = response[..bodyStart];
-            if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-            {
-                var sb = new System.Text.StringBuilder();
-                var remaining = body;
-                while (remaining.Length > 0)
-                {
-                    var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                    if (lineEnd < 0) break;
-
-                    var chunkSizeHex = remaining[..lineEnd].Trim();
-                    if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                        break;
-
-                    var chunkStart = lineEnd + 2;
-                    if (chunkStart + chunkSize > remaining.Length) break;
-                    sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                    remaining = remaining[(chunkStart + chunkSize)..];
-                    if (remaining.StartsWith("\r\n"))
-                        remaining = remaining[2..];
-                }
-                body = sb.ToString().Trim();
-            }
-
-            if (string.IsNullOrWhiteSpace(body))
+            if (string.IsNullOrWhiteSpace(parsed.Body))
                 return (null, 200, null);
 
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            using var doc = System.Text.Json.JsonDocument.Parse(parsed.Body);
             return (doc.RootElement.Clone(), 200, null);
         }
         finally
@@ -1379,62 +1323,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
 
-                var response = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-                var statusEnd = response.IndexOf('\n');
-                if (statusEnd < 0) return new TlsResult(false, null, 0, "No response from server");
-
-                var statusLine = response[..statusEnd].Trim();
-
-                // Parse status code from "HTTP/1.1 200 OK"
-                var statusCode = 0;
-                var parts = statusLine.Split(' ');
-                if (parts.Length >= 2 && !int.TryParse(parts[1], out statusCode))
-                    return new TlsResult(false, null, 0, $"Unparseable status line: {statusLine}");
-
-                var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-                if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
-
-                string? body = null;
-                if (bodyStart >= 0)
-                {
-                    var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-                    body = response[(bodyStart + separatorLength)..].Trim();
-                }
-
-                if (statusCode < 200 || statusCode >= 300)
-                {
-                    var errorDetail = string.IsNullOrWhiteSpace(body)
-                        ? $"Server returned {statusCode}"
-                        : $"Server returned {statusCode}: {body}";
-                    return new TlsResult(false, body, statusCode, errorDetail);
-                }
-
-                if (body is null)
-                    return new TlsResult(true, null, statusCode, null);
-
-                var headersSection = response[..bodyStart];
-                if (headersSection.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-                {
-                    var sb = new System.Text.StringBuilder();
-                    var remaining = body;
-                    while (remaining.Length > 0)
-                    {
-                        var lineEnd = remaining.IndexOf("\r\n", StringComparison.Ordinal);
-                        if (lineEnd < 0) break;
-                        var chunkSizeHex = remaining[..lineEnd].Trim();
-                        if (!int.TryParse(chunkSizeHex, System.Globalization.NumberStyles.HexNumber, null, out var chunkSize) || chunkSize == 0)
-                            break;
-                        var chunkStart = lineEnd + 2;
-                        if (chunkStart + chunkSize > remaining.Length) break;
-                        sb.Append(remaining.AsSpan(chunkStart, chunkSize));
-                        remaining = remaining[(chunkStart + chunkSize)..];
-                        if (remaining.StartsWith("\r\n"))
-                            remaining = remaining[2..];
-                    }
-                    body = sb.ToString().Trim();
-                }
-
-                return new TlsResult(true, string.IsNullOrWhiteSpace(body) ? null : body, statusCode, null);
+                var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+                return new TlsResult(parsed.Success, parsed.Body, parsed.StatusCode, parsed.Error);
             }
             finally
             {
@@ -1445,6 +1335,64 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             return new TlsResult(false, null, 0, ex.Message);
         }
+    }
+
+    internal static ChannelRequestBridgeHandler.TlsCallResult ParseHttpResponse(string response)
+    {
+        var statusEnd = response.IndexOf('\n');
+        if (statusEnd < 0)
+            return new(false, null, 0, "No response from server");
+
+        var statusLine = response[..statusEnd].Trim();
+        var parts = statusLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var statusCode))
+            return new(false, null, 0, $"Unparseable status line: {statusLine}");
+
+        var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+        string? body = null;
+        if (bodyStart >= 0)
+        {
+            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
+            body = response[(bodyStart + separatorLength)..];
+            var headers = response[..bodyStart];
+            if (headers.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
+                body = DecodeChunkedBody(body);
+            else
+                body = body.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(body)) body = null;
+        var success = statusCode is >= 200 and < 300;
+        var error = success ? null : body is null
+            ? $"Server returned {statusCode}"
+            : $"Server returned {statusCode}: {body}";
+        return new(success, body, statusCode, error);
+    }
+
+    private static string DecodeChunkedBody(string body)
+    {
+        var result = new System.Text.StringBuilder();
+        var offset = 0;
+        while (offset < body.Length)
+        {
+            var lineEnd = body.IndexOf("\r\n", offset, StringComparison.Ordinal);
+            if (lineEnd < 0) break;
+            var sizeText = body[offset..lineEnd];
+            var extension = sizeText.IndexOf(';');
+            if (extension >= 0) sizeText = sizeText[..extension];
+            if (!int.TryParse(sizeText.Trim(), System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out var size))
+                break;
+            offset = lineEnd + 2;
+            if (size == 0) break;
+            if (size < 0 || offset + size > body.Length) break;
+            result.Append(body.AsSpan(offset, size));
+            offset += size;
+            if (offset + 2 > body.Length || body.AsSpan(offset, 2) is not "\r\n") break;
+            offset += 2;
+        }
+        return result.ToString().Trim();
     }
 
     private static async Task<TlsResult> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)
@@ -2012,7 +1960,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 _sessionMappings.Clear();
                 foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
-                    _sessionMappings[sid] = entry;
+                    _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
             }
 
             ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
@@ -2582,6 +2530,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return true;
     }
 
+    /// <summary>
+    /// Records a Brmble status announcement against the session's mapping, holding it aside
+    /// when the mapping is not known yet so the next mapping for that session adopts it.
+    /// </summary>
+    private void RecordBrmbleStatus(uint sessionId, bool isBrmbleClient)
+    {
+        if (_sessionMappings.TryGetValue(sessionId, out var entry))
+        {
+            _sessionMappings[sessionId] = entry with { IsBrmbleClient = isBrmbleClient };
+            _pendingBrmbleStatus.TryRemove(sessionId, out _);
+            return;
+        }
+
+        _pendingBrmbleStatus[sessionId] = isBrmbleClient;
+    }
+
+    /// <summary>
+    /// Folds a status announcement that arrived before this mapping into it. The announcement
+    /// is the newer of the two, so it wins over the status the mapping was built with.
+    /// </summary>
+    private SessionMappingEntry ApplyPendingBrmbleStatus(uint sessionId, SessionMappingEntry entry)
+        => _pendingBrmbleStatus.TryRemove(sessionId, out var pending)
+            ? entry with { IsBrmbleClient = pending }
+            : entry;
+
     private void HandleWebSocketMessage(string json)
     {
         try
@@ -2593,11 +2566,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             switch (type)
             {
                 case "sessionMappingSnapshot":
-                    _sessionMappings.Clear();
+        _sessionMappings.Clear();
+        _pendingBrmbleStatus.Clear();
                     if (root.TryGetProperty("mappings", out var mappings))
                     {
                         foreach (var (sid, entry) in ParseSessionMappings(mappings))
-                            _sessionMappings[sid] = entry;
+                            _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
                         new
@@ -2618,13 +2592,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
-                    var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "floppy";
+                    // An announcement that carries no companion is not a claim that the user has
+                    // none. It is sent for a session this client may already know in full, so the
+                    // known companion is kept rather than replaced with the default.
+                    var announcedCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : null;
                     var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
-                    if (addSid > 0 && addMatrixId is not null && addName is not null && addCompanionId is not null)
+                    if (addSid > 0 && addMatrixId is not null && addName is not null)
                     {
-                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = addIsBrmble, action = "added" });
+                        var knownCompanionId = _sessionMappings.TryGetValue(addSid, out var priorMapping)
+                            ? priorMapping.CompanionId
+                            : null;
+                        var addCompanionId = announcedCompanionId ?? knownCompanionId ?? "floppy";
+                        _sessionMappings[addSid] = ApplyPendingBrmbleStatus(
+                            addSid, new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash));
+                        var storedMapping = _sessionMappings[addSid];
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = storedMapping.IsBrmbleClient, action = "added" });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -2648,6 +2631,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     if (rmSid > 0)
                     {
                         _sessionMappings.TryRemove(rmSid, out _);
+                        _pendingBrmbleStatus.TryRemove(rmSid, out _);
                         _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
                         _bridge?.NotifyUiThread();
                     }
@@ -2655,9 +2639,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "brmbleClientActivated":
                     var actSid = root.TryGetProperty("sessionId", out var actSidProp) ? actSidProp.GetUInt32() : 0u;
-                    if (actSid > 0 && _sessionMappings.TryGetValue(actSid, out var actEntry))
+                    if (actSid > 0)
                     {
-                        _sessionMappings[actSid] = actEntry with { IsBrmbleClient = true };
+                        RecordBrmbleStatus(actSid, true);
                     }
                     _bridge?.Send("voice.brmbleClientActivated", new { sessionId = actSid });
                     _bridge?.NotifyUiThread();
@@ -2665,9 +2649,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "brmbleClientDeactivated":
                     var deactSid = root.TryGetProperty("sessionId", out var deactSidProp) ? deactSidProp.GetUInt32() : 0u;
-                    if (deactSid > 0 && _sessionMappings.TryGetValue(deactSid, out var deactEntry))
+                    if (deactSid > 0)
                     {
-                        _sessionMappings[deactSid] = deactEntry with { IsBrmbleClient = false };
+                        RecordBrmbleStatus(deactSid, false);
                     }
                     _bridge?.Send("voice.brmbleClientDeactivated", new { sessionId = deactSid });
                     _bridge?.NotifyUiThread();
@@ -4147,7 +4131,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 certHash = u.CertificateHash ?? (hasMap ? sm!.CertHash : null),
                 matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
                 companionId = hasMap ? sm!.CompanionId : null,
-                isBrmbleClient = hasMap && sm!.IsBrmbleClient
+                isBrmbleClient = hasMap ? sm!.IsBrmbleClient : _pendingBrmbleStatus.GetValueOrDefault(u.Id)
             };
         }).ToList();
 
@@ -4271,7 +4255,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             certHash = user?.CertificateHash ?? (hasJoinMapping ? joinMapping!.CertHash : null),
             matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
             companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
-            isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
+            isBrmbleClient = hasJoinMapping
+                ? joinMapping!.IsBrmbleClient
+                : _pendingBrmbleStatus.GetValueOrDefault(userState.Session)
         });
         _bridge?.NotifyUiThread();
 

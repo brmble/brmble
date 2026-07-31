@@ -37,6 +37,14 @@ public class BrmbleEventBus : IBrmbleEventBus
         public Dictionary<string, LinkedListNode<QueuedMessage>> Coalescable { get; } = [];
 
         public bool Draining { get; set; }
+
+        /// <summary>
+        /// Set while a registration is building this socket's initial payloads. The drain is
+        /// claimed but not running during that window, so nothing queued behind it can be
+        /// delivered until the registration returns.
+        /// </summary>
+        public bool AwaitingInitialPayloads { get; set; }
+
         public Exception? Failure { get; set; }
     }
 
@@ -121,79 +129,121 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         delivery.Coalescable.Clear();
         delivery.Draining = false;
+        delivery.AwaitingInitialPayloads = false;
     }
 
     /// <summary>
-    /// Registers a client, optionally queuing an initial payload as part of the same step.
-    /// The socket is published to <see cref="_clients"/> before the payload is built, so a
-    /// broadcast racing the build queues behind the payload rather than being dropped for a
-    /// client that is not yet visible. The payload is then placed at the head of the queue so
-    /// it still arrives first. A mutation the payload already reflects may therefore be
-    /// delivered twice, which these events tolerate; losing it entirely would not be.
-    /// Registering and sending separately would reintroduce both hazards, which is why this
-    /// is the only way to add a client. Returns a task that completes once the initial
-    /// payload has been written, or a completed task when there is none.
+    /// Registers a client, optionally queuing an initial batch of payloads as part of the
+    /// same step. The socket is published to <see cref="_clients"/> before the payloads are
+    /// built, so a broadcast racing the build queues behind them rather than being dropped
+    /// for a client that is not yet visible. The payloads are then placed at the head of the
+    /// queue, in order, so they still arrive first. A mutation a payload already reflects may
+    /// therefore be delivered twice, which these events tolerate; losing it entirely would
+    /// not be. Registering and sending separately would reintroduce both hazards, which is
+    /// why this is the only way to add a client.
     /// </summary>
-    public Task AddClientAsync(WebSocket ws, long userId, Func<object>? initialMessage = null)
+    /// <remarks>
+    /// The factory is asynchronous and may broadcast, so that a caller can mutate shared
+    /// state and announce it to the other clients from inside the registration window. The
+    /// registering socket is already visible at that point, so it misses nothing; use
+    /// <see cref="BroadcastExceptAsync"/> to keep it from also receiving an announcement its
+    /// own initial payload already carries.
+    /// </remarks>
+    /// <returns>
+    /// A task that completes once every initial payload has been written, or a completed
+    /// task when there are none.
+    /// </returns>
+    public async Task AddClientAsync(
+        WebSocket ws, long userId, Func<Task<IReadOnlyList<object>>>? initialMessages = null)
     {
         var delivery = new SocketDelivery();
-        if (initialMessage is not null)
+        if (initialMessages is not null)
         {
             // Claim the drain up front so broadcasts arriving during the build queue
-            // without starting to send ahead of the initial payload.
+            // without starting to send ahead of the initial payloads.
             delivery.Draining = true;
+            delivery.AwaitingInitialPayloads = true;
         }
 
         _deliveries[ws] = delivery;
         _clients[ws] = userId;
 
-        if (initialMessage is null)
-            return Task.CompletedTask;
+        if (initialMessages is null)
+            return;
 
+        List<QueuedMessage> queued;
         try
         {
-            var json = JsonSerializer.Serialize(initialMessage(), JsonOptions);
-            var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            lock (delivery.Gate)
-            {
-                // Broadcasts arriving during the build may have overflowed the queue and
-                // dropped this client. Queuing the snapshot behind a failed delivery would
-                // never drain, leaving the registration awaiting a payload that can no
-                // longer be sent, so surface the failure instead.
-                if (delivery.Failure is not null)
-                    return Task.FromException(delivery.Failure);
-
-                delivery.Queue.AddFirst(new QueuedMessage(bytes, completion, CoalesceKey: null));
-            }
-
-            _ = DrainSocketAsync(ws, delivery);
-            return completion.Task;
+            // Initial payloads are never coalescable: nothing supersedes the snapshot a
+            // client needs to make sense of every event queued behind it.
+            queued = (await initialMessages())
+                .Select(message => new QueuedMessage(
+                    Serialize(message),
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                    CoalesceKey: null))
+                .ToList();
         }
         catch
         {
             // Nothing was queued ahead of the broadcasts that may have arrived during the
-            // build, and the client has no snapshot to make sense of them. Drop it entirely
+            // build, and the client has no payload to make sense of them. Drop it entirely
             // and fault those sends rather than leaving a half-registered client behind.
             RemoveClient(ws);
             throw;
         }
+
+        lock (delivery.Gate)
+        {
+            // Broadcasts arriving during the build may have overflowed the queue and
+            // dropped this client. Queuing the payloads behind a failed delivery would
+            // never drain, leaving the registration awaiting payloads that can no
+            // longer be sent, so surface the failure instead.
+            if (delivery.Failure is not null)
+                throw delivery.Failure;
+
+            // Inserted back to front so the batch ends up at the head in its original order.
+            for (var i = queued.Count - 1; i >= 0; i--)
+                delivery.Queue.AddFirst(queued[i]);
+
+            delivery.AwaitingInitialPayloads = false;
+        }
+
+        // The drain was claimed above, so nothing else is running it yet.
+        _ = DrainSocketAsync(ws, delivery);
+        await Task.WhenAll(queued.Select(message => message.Completion.Task));
     }
 
     public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
 
-    public Task BroadcastAsync(object message)
+    public Task BroadcastAsync(object message) => BroadcastCoreAsync(null, message);
+
+    /// <summary>
+    /// Broadcasts to every client except <paramref name="excluded"/>. Used while a client is
+    /// registering so an announcement its initial payload already reflects is not also
+    /// delivered as a separate event.
+    /// </summary>
+    public Task BroadcastExceptAsync(WebSocket excluded, object message) =>
+        BroadcastCoreAsync(excluded, message);
+
+    /// <remarks>
+    /// Deliberately NOT an async method, for the reason given on <see cref="SendToClient"/>:
+    /// every payload must be enqueued before this returns so admission order matches call
+    /// order.
+    /// </remarks>
+    private Task BroadcastCoreAsync(WebSocket? excluded, object message)
     {
-        var json = JsonSerializer.Serialize(message, JsonOptions);
-        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(json));
+        var bytes = Serialize(message);
 
         var tasks = _clients.Keys
+            .Where(ws => !ReferenceEquals(ws, excluded))
             .Select(ws => SendToClient(ws, bytes, default))
             .ToArray();
 
         return Task.WhenAll(tasks);
     }
+
+    private static ArraySegment<byte> Serialize(object message) =>
+        new(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message, JsonOptions)));
 
     public Task BroadcastToChannelAsync(int channelId, object message)
     {
@@ -276,6 +326,12 @@ public class BrmbleEventBus : IBrmbleEventBus
     /// A client that has stopped draining is disconnected once its queue is full, rather
     /// than being allowed to accumulate payloads without bound.
     /// </summary>
+    /// <remarks>
+    /// A socket still building its initial payloads cannot drain until its registration
+    /// returns, so a send to it completes on enqueue instead. Registrations announce
+    /// themselves to the other clients from inside that window, and two clients connecting
+    /// at once would otherwise each wait on a queue only the other could release.
+    /// </remarks>
     private Task QueueSendAsync(WebSocket ws, ArraySegment<byte> bytes, EventDeliveryOptions options)
     {
         if (!_deliveries.TryGetValue(ws, out var delivery))
@@ -283,6 +339,7 @@ public class BrmbleEventBus : IBrmbleEventBus
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool startDrain;
+        bool completeOnEnqueue;
         Exception? overflow = null;
         lock (delivery.Gate)
         {
@@ -297,6 +354,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                     $"WebSocket delivery queue is full ({_socketQueueCapacity} payloads).");
                 FailDeliveryLocked(delivery, overflow);
                 startDrain = false;
+                completeOnEnqueue = false;
             }
             else
             {
@@ -304,6 +362,7 @@ public class BrmbleEventBus : IBrmbleEventBus
                 if (options.CoalesceKey is { } key)
                     delivery.Coalescable[key] = node;
 
+                completeOnEnqueue = delivery.AwaitingInitialPayloads;
                 startDrain = !delivery.Draining;
                 if (startDrain)
                     delivery.Draining = true;
@@ -326,6 +385,17 @@ public class BrmbleEventBus : IBrmbleEventBus
         // Started outside the gate so the first send does not run under the lock.
         if (startDrain)
             _ = DrainSocketAsync(ws, delivery);
+
+        if (completeOnEnqueue)
+        {
+            // Nothing will await this send, so make sure a later failure is still observed.
+            _ = completion.Task.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return Task.CompletedTask;
+        }
 
         return completion.Task;
     }

@@ -1,487 +1,517 @@
-using System.Linq;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
 using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Text.Json;
 
 namespace Brmble.Server.Tests.Games;
 
-file sealed class FakePresence : IGamePresence
+internal sealed class ManagerPublisher : IGameEventPublisher
 {
-    public Dictionary<long, (int ch, bool brmble, long userId)> Users = new();
-    public HashSet<long> Blocked = new();
-    public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
+    public List<object> Messages { get; } = [];
+    public List<object> Delivered { get; } = [];
+    public string? BlockType { get; set; }
+    public string? FailType { get; set; }
+    public bool FailOnce { get; set; }
+    public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task PublishToUsersAsync(IReadOnlySet<long> users, object message) => await PublishAsync(message);
+    public async Task PublishToChannelAsync(int channelId, object message) => await PublishAsync(message);
+    private async Task PublishAsync(object message)
     {
-        if (Users.TryGetValue(sessionId, out var v)) { channelId = v.ch; isBrmble = v.brmble; userId = v.userId; return true; }
-        channelId = 0; isBrmble = false; userId = 0; return false;
+        lock (Messages) Messages.Add(message);
+        var type = MessageType(message);
+        if (type == BlockType && Blocked.TrySetResult()) await Release.Task;
+        if (type == FailType)
+        {
+            if (FailOnce) FailType = null;
+            throw new InvalidOperationException($"{type} failed");
+        }
+        lock (Delivered) Delivered.Add(message);
     }
-    public string? GetDisplayName(long sessionId) => $"user{sessionId}";
-    public Task<bool> AreChallengesBlockedAsync(long sessionId) => Task.FromResult(Blocked.Contains(sessionId));
-}
-file sealed class FakePublisher : IGameEventPublisher
-{
-    public List<(string kind, object msg)> Sent = new();
-    public Task PublishToUsersAsync(IReadOnlySet<long> u, object m) { Sent.Add(("users", m)); return Task.CompletedTask; }
-    public Task PublishToChannelAsync(int c, object m) { Sent.Add(("channel", m)); return Task.CompletedTask; }
+    private static string? MessageType(object message) => message.GetType().GetProperty("type")?.GetValue(message) as string;
 }
 
-// Deterministic RNG so the manager tests never depend on chance. Each roll returns
-// roughly half the current ceiling (never 1 until the ceiling itself is 1), so a
-// Deathroll match always lasts several non-terminal rolls and then ends
-// predictably — instead of a random first roll of 1 ending it instantly and
-// skipping the roll-feed lines these tests assert on.
-file sealed class HalvingRandom : IRandomSource
+internal sealed class ManagerRandom : IRandomSource
 {
     public int Roll(int maxInclusive) => maxInclusive <= 1 ? 1 : Math.Max(1, maxInclusive / 2);
+}
+
+internal sealed class ManagerSink : ICompletedMatchSink
+{
+    public List<CompletedMatch> Matches { get; } = [];
+    public void Enqueue(CompletedMatch match) => Matches.Add(match);
+}
+
+internal sealed class RecordingTimerFactory : IGameTimerFactory
+{
+    public List<(TimerCallback Callback, object? State, TimeSpan Due)> Timers { get; } = [];
+
+    public IDisposable Create(TimerCallback callback, object? state, TimeSpan due)
+    {
+        Timers.Add((callback, state, due));
+        return new RecordingTimer();
+    }
+
+    private sealed class RecordingTimer : IDisposable
+    {
+        public void Dispose() { }
+    }
 }
 
 [TestClass]
 public class GameSessionManagerTests
 {
-    private static GameSessionManager NewManager(IGamePresence presence, IGameEventPublisher pub, GameRepository repo)
+    private static string? MessageType(object message) => message.GetType().GetProperty("type")?.GetValue(message) as string;
+    private static List<string> FeedTexts(ManagerPublisher publisher) => publisher.Messages
+        .Where(x => MessageType(x) == "game.feed")
+        .Select(x => x.GetType().GetProperty("text")?.GetValue(x) as string ?? "").ToList();
+    private static GameSessionManager Manager(ManagerPublisher publisher, ICompletedMatchSink sink) =>
+        new([new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, sink);
+
+    [TestMethod]
+    public async Task ActionWhileStartedPublicationAwaits_IsDeliveredAfterStartedBeforeTimerStarts()
     {
-        var engines = new IGameEngine[] { new DeathrollEngine(), new RpsEngine() };
-        return new GameSessionManager(engines, new HalvingRandom(), presence, pub, repo);
-    }
+        var publisher = new ManagerPublisher { BlockType = "game.started" };
+        var timers = new RecordingTimerFactory();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(), timers);
+        var start = manager.StartAsync(Reservation(80));
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out var active));
 
-    private static bool SentType(IEnumerable<(string kind, object msg)> sent, string type) =>
-        sent.Any(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == type);
+        var action = manager.ActionAsync(active.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.AreEqual(0, timers.Timers.Count);
+        Assert.IsFalse(action.IsCompleted);
+        Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        publisher.Release.TrySetResult();
+        await Task.WhenAll(start, action);
+        var result = await start;
 
-    private static List<string> FeedTexts(IEnumerable<(string kind, object msg)> sent) =>
-        sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.feed")
-            .Select(s => s.msg.GetType().GetProperty("text")?.GetValue(s.msg) as string ?? "")
-            .ToList();
-
-    // The `draw` flag of a game.ended message, or null if none was sent.
-    private static bool? EndedDraw(IEnumerable<(string kind, object msg)> sent)
-    {
-        var ended = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.ended");
-        if (ended.msg is null) return null;
-        return ended.msg.GetType().GetProperty("draw")?.GetValue(ended.msg) as bool?;
-    }
-
-    // The `active` flag of every game.duelState published to a channel, in order.
-    private static List<bool> DuelStates(IEnumerable<(string kind, object msg)> sent) =>
-        sent.Where(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.duelState")
-            .Select(s => (bool)(s.msg.GetType().GetProperty("active")?.GetValue(s.msg) ?? false))
-            .ToList();
-
-    // The `turnStarted` flag of the most recent game.stateUpdated, or null if none.
-    private static bool? LastTurnStarted(IEnumerable<(string kind, object msg)> sent)
-    {
-        var upd = sent.LastOrDefault(s => s.msg.GetType().GetProperty("type")?.GetValue(s.msg) as string == "game.stateUpdated");
-        if (upd.msg is null) return null;
-        return upd.msg.GetType().GetProperty("turnStarted")?.GetValue(upd.msg) as bool?;
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(1, timers.Timers.Count);
+        CollectionAssert.AreEqual(
+            new[] { "game.started", "game.stateUpdated" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.started" or "game.stateUpdated")
+                .ToArray());
     }
 
     [TestMethod]
-    public async Task Invite_NotifiesInviter_WithPendingEvent()
+    public async Task ForfeitAtLiveTransition_DeliversStartedBeforeEndedWithoutStaleStartup()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+        var publisher = new ManagerPublisher();
+        GameSessionManager? manager = null;
+        Task? forfeit = null;
+        manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(),
+            new RecordingTimerFactory(),
+            matchId => forfeit = manager!.ForfeitAsync(matchId, 100, "disconnect"));
 
-        await mgr.InviteAsync(10, 20, "deathroll");
+        var result = await manager.StartAsync(Reservation(801));
+        Assert.IsNotNull(forfeit);
+        await forfeit;
 
-        Assert.IsTrue(SentType(pub.Sent, "game.invited"), "target should be invited");
-        Assert.IsTrue(SentType(pub.Sent, "game.invitePending"), "inviter should get a pending event");
-    }
-
-    [TestMethod]
-    public async Task ExplicitDecline_EmitsGameDeclined()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
-
-        Assert.IsTrue(SentType(pub.Sent, "game.declined"));
-        Assert.IsFalse(SentType(pub.Sent, "game.expired"));
-    }
-
-    [TestMethod]
-    public async Task InviteExpiry_EmitsGameExpired()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.ExpireInviteForTestAsync(invite.MatchId);
-
-        Assert.IsTrue(SentType(pub.Sent, "game.expired"));
-        Assert.IsFalse(SentType(pub.Sent, "game.declined"));
-    }
-
-    [TestMethod]
-    public async Task Invite_MarksChannelBusy_WithActiveDuelState()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        await mgr.InviteAsync(10, 20, "deathroll");
-
-        var states = DuelStates(pub.Sent);
-        Assert.IsTrue(states.Count > 0, "invite should publish a duelState");
-        Assert.IsTrue(states[0], "a pending invite should mark the channel busy (active: true)");
-    }
-
-    [TestMethod]
-    public async Task Decline_ClearsChannelBusy_WithInactiveDuelState()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: false);
-
-        var states = DuelStates(pub.Sent);
-        Assert.IsTrue(states.Count >= 2, "invite then decline should publish two duelStates");
-        Assert.IsTrue(states.First(), "invite marks the channel busy");
-        Assert.IsFalse(states.Last(), "decline clears the channel-busy badge (active: false)");
-    }
-
-    [TestMethod]
-    public async Task InviteExpiry_ClearsChannelBusy_WithInactiveDuelState()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.ExpireInviteForTestAsync(invite.MatchId);
-
-        var states = DuelStates(pub.Sent);
-        Assert.IsTrue(states.First(), "invite marks the channel busy");
-        Assert.IsFalse(states.Last(), "expiry clears the channel-busy badge (active: false)");
-    }
-
-    [TestMethod]
-    public async Task Invite_RejectsWhenTargetNotInSameChannel()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (2, true, 20);
-        var repo = GameTestHelpers.NewRepo();
-        var mgr = NewManager(presence, new FakePublisher(), repo);
-        var result = await mgr.InviteAsync(inviterSession: 10, targetSession: 20, gameType: "deathroll");
+        CollectionAssert.AreEqual(
+            new[] { "game.started", "game.ended" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.started" or "game.ended")
+                .ToArray());
         Assert.IsFalse(result.Success);
-        Assert.IsTrue(result.Error!.Contains("channel", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(manager.IsMatchLive(result.MatchId));
     }
 
     [TestMethod]
-    public async Task Invite_RejectsNonBrmbleTarget()
+    public async Task AdvisoryStartupPublicationFailure_DoesNotRollbackObservableMatch()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, false, 20);
-        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
-        var result = await mgr.InviteAsync(10, 20, "deathroll");
-        Assert.IsFalse(result.Success);
+        var publisher = new ManagerPublisher { FailType = "game.duelState" };
+        var sink = new ManagerSink();
+        var manager = Manager(publisher, sink);
+
+        var result = await manager.StartAsync(Reservation(81));
+        await manager.ActionAsync(result.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        await manager.ForfeitAsync(result.MatchId, 100, "quit");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        Assert.AreEqual(1, sink.Matches.Count);
     }
 
     [TestMethod]
-    public async Task Invite_RejectsBlockedTarget_WithBlockedReason()
+    public async Task CompletionDuringStartedPublication_ReturnsFailureWithoutLaterStartupEvents()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        presence.Blocked.Add(20);
-        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
+        var publisher = new ManagerPublisher { BlockType = "game.started" };
+        var sink = new ManagerSink();
+        var timers = new RecordingTimerFactory();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, sink, timers);
+        var completions = 0;
+        manager.MatchCompleted += _ => { completions++; return Task.CompletedTask; };
+        var start = manager.StartAsync(Reservation(82));
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        manager.TryGetActiveMatch(100, out var active);
 
-        var result = await mgr.InviteAsync(10, 20, "deathroll");
+        var forfeit = manager.ForfeitAsync(active.MatchId, 100, "disconnect");
+        Assert.IsFalse(forfeit.IsCompleted);
+        publisher.Release.TrySetResult();
+        await Task.WhenAll(start, forfeit);
+        var result = await start;
+        await manager.FireTurnTimeoutForTestAsync(active.MatchId);
 
         Assert.IsFalse(result.Success);
-        Assert.AreEqual(InviteRejectReason.Blocked, result.Reason);
+        Assert.AreEqual(0, timers.Timers.Count);
+        Assert.AreEqual(1, completions);
+        Assert.IsFalse(manager.IsMatchLive(active.MatchId));
+        Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.duelState"
+            && x.GetType().GetProperty("active")?.GetValue(x) is true));
+        Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
     }
 
     [TestMethod]
-    public async Task AcceptedMatch_PlaysToCompletion_PersistsAndFeeds()
+    public async Task FailedOldStartupCleanup_PreservesReplacementRuntimeMappings()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
+        var publisher = new ManagerPublisher { BlockType = "game.started" };
+        var sink = new ManagerSink();
+        var manager = Manager(publisher, sink);
+        var oldStart = manager.StartAsync(Reservation(83));
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        manager.TryGetActiveMatch(100, out var old);
+        var forfeit = manager.ForfeitAsync(old.MatchId, 100, "disconnect");
+        publisher.BlockType = null;
+        var overlapping = await manager.StartAsync(Reservation(84));
+
+        publisher.Release.TrySetException(new InvalidOperationException("old publish failed"));
+        await Task.WhenAll(oldStart, forfeit);
+        var oldResult = await oldStart;
+        var replacement = await manager.StartAsync(Reservation(84));
+
+        Assert.IsFalse(oldResult.Success);
+        Assert.IsFalse(overlapping.Success);
+        Assert.IsTrue(replacement.Success);
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out var current));
+        Assert.AreEqual(replacement.MatchId, current.MatchId);
+    }
+    [TestMethod]
+    public async Task CompletionSubscriberFailure_DoesNotFaultTheCompletingAction()
+    {
+        var sink = new ManagerSink();
+        var manager = new GameSessionManager([new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), sink);
+        manager.MatchCompleted += _ => throw new InvalidOperationException("orchestrator advance failed");
+
+        var started = await manager.StartAsync(Reservation(93));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsFalse(manager.IsMatchLive(started.MatchId), "runtime state must still be released");
+        Assert.IsFalse(manager.TryGetActiveMatch(10, out _), "player one must not stay committed");
+        Assert.IsFalse(manager.TryGetActiveMatch(20, out _), "player two must not stay committed");
+    }
+
+    [TestMethod]
+    public async Task StartAsync_UsesImmutableReservationConfiguration_AndCompletesWithCanonicalMetadata()
+    {
+        var sink = new ManagerSink();
+        var manager = new GameSessionManager([new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), sink);
+        var configuration = new DuelConfiguration("rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5 }, "discrete");
+        var reservation = Reservation(91, configuration);
+        MatchCompletion? completion = null;
+        manager.MatchCompleted += value => { completion = value; return Task.CompletedTask; };
+
+        var started = await manager.StartAsync(reservation);
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.IsTrue(started.Success);
+        Assert.IsNotNull(completion);
+        Assert.AreEqual(91L, completion.ReservationId);
+        Assert.AreSame(configuration, completion.Configuration);
+        Assert.AreEqual("bo5", sink.Matches.Single().Format);
+        Assert.AreEqual(3, sink.Matches.Single().RulesetVersion);
+    }
+
+    [TestMethod]
+    public async Task LifecycleEvents_IncludeCanonicalConfiguration()
+    {
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var configuration = new DuelConfiguration("rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5, ["suddenDeath"] = true }, "discrete");
+
+        var started = await manager.StartAsync(Reservation(911, configuration));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        var startedJson = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.started"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var endedJson = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.ended"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        foreach (var payload in new[] { startedJson, endedJson })
+        {
+            StringAssert.Contains(payload, "\"format\":\"bo5\"");
+            StringAssert.Contains(payload, "\"rulesetVersion\":3");
+            StringAssert.Contains(payload, "\"options\":{\"bestOf\":5,\"suddenDeath\":true}");
+        }
+    }
+
+    [TestMethod]
+    public async Task AbandonedLifecycleEvent_IncludesCanonicalConfiguration()
+    {
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var configuration = new DuelConfiguration("rps", "bo5", 3,
+            new Dictionary<string, object?> { ["bestOf"] = 5 }, "discrete");
+
+        var started = await manager.StartAsync(Reservation(912, configuration));
+        await manager.ForfeitAsync(started.MatchId, 100, "quit");
+
+        var payload = JsonSerializer.Serialize(
+            publisher.Messages.Single(x => MessageType(x) == "game.ended"),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        StringAssert.Contains(payload, "\"format\":\"bo5\"");
+        StringAssert.Contains(payload, "\"rulesetVersion\":3");
+        StringAssert.Contains(payload, "\"options\":{\"bestOf\":5}");
+    }
+
+    [TestMethod]
+    public async Task Forfeit_ReleasesRuntimeBeforePersistenceWorkerRuns()
+    {
+        var sink = new ManagerSink();
+        var manager = new GameSessionManager([new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), sink);
+        var started = await manager.StartAsync(Reservation(92));
+
+        await manager.ForfeitAsync(started.MatchId, 100, "disconnect");
+
+        Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
+        Assert.IsFalse(manager.TryGetActiveMatch(200, out _));
+        Assert.AreEqual(1, sink.Matches.Count);
+    }
+
+    [TestMethod]
+    public async Task RunnerForfeit_UsesStableUserIdentity()
+    {
+        var sink = new ManagerSink();
+        var manager = new GameSessionManager([new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), sink);
+        var started = await manager.StartAsync(Reservation(93));
+
+        await manager.ForfeitAsync(started.MatchId, userId: 10, "session-id-collision");
+
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
+        Assert.IsTrue(manager.TryGetActiveMatch(100, out _));
+        Assert.AreEqual(0, sink.Matches.Count);
+    }
+
+    [TestMethod]
+    public async Task Deathroll_PlaysToCompletion_PersistsAndPublishesFeed()
+    {
+        var publisher = new ManagerPublisher();
         var repo = GameTestHelpers.NewRepo();
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, repo);
+        var manager = Manager(publisher, new ImmediateSink(repo));
+        var started = await manager.StartAsync(DeathrollReservation(94));
 
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        Assert.IsTrue(invite.Success);
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        for (var i = 0; i < 100 && manager.IsMatchLive(started.MatchId); i++)
+            await manager.ActionAsync(started.MatchId, manager.GetCurrentPlayer(started.MatchId),
+                new Dictionary<string, object?> { ["roll"] = true });
 
-        for (var i = 0; i < 100000 && mgr.IsMatchLive(invite.MatchId); i++)
-        {
-            var current = mgr.GetCurrentPlayer(invite.MatchId);
-            await mgr.ActionAsync(invite.MatchId, current, new Dictionary<string, object?> { ["roll"] = true });
-        }
-
-        Assert.IsFalse(mgr.IsMatchLive(invite.MatchId));
-
-        // Ephemeral spectator feed is broadcast to the channel (never Matrix):
-        // a start line, at least one roll line, and exactly one terminal line.
-        var feed = FeedTexts(pub.Sent);
-        Assert.IsTrue(feed.Any(t => t.Contains("started")), "expected a start feed line");
-        Assert.IsTrue(feed.Any(t => t.StartsWith("🎲")), "expected roll feed lines");
-        Assert.AreEqual(1, feed.Count(t => t.StartsWith("💀")), "expected one terminal feed line");
-
-        var s10 = await repo.GetUserStatsAsync(10, "deathroll");
-        var s20 = await repo.GetUserStatsAsync(20, "deathroll");
-        Assert.AreEqual(1, s10.GamesPlayed);
-        Assert.AreEqual(1, s20.GamesPlayed);
-        Assert.AreEqual(1, s10.Wins + s20.Wins);
+        Assert.IsFalse(manager.IsMatchLive(started.MatchId));
+        Assert.IsTrue(FeedTexts(publisher).Any(x => x.Contains("started")));
+        Assert.IsTrue(FeedTexts(publisher).Any(x => x.StartsWith("🎲")));
+        Assert.AreEqual(1, FeedTexts(publisher).Count(x => x.StartsWith("💀")));
+        Assert.AreEqual(1, (await repo.GetUserStatsAsync(100, "deathroll")).GamesPlayed);
     }
 
     [TestMethod]
-    public async Task CompletedMatch_PersistsVersionedMetadataEnvelope()
+    public async Task CompletedDeathroll_PersistsVersionedMetadataEnvelope()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
         var (repo, db) = GameTestHelpers.NewRepoWithDb();
-        var mgr = NewManager(presence, new FakePublisher(), repo);
+        var manager = Manager(new ManagerPublisher(), new ImmediateSink(repo));
+        var started = await manager.StartAsync(DeathrollReservation(95));
+        for (var i = 0; i < 100 && manager.IsMatchLive(started.MatchId); i++)
+            await manager.ActionAsync(started.MatchId, manager.GetCurrentPlayer(started.MatchId),
+                new Dictionary<string, object?> { ["roll"] = true });
 
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-        for (var i = 0; i < 100000 && mgr.IsMatchLive(invite.MatchId); i++)
-        {
-            var current = mgr.GetCurrentPlayer(invite.MatchId);
-            await mgr.ActionAsync(invite.MatchId, current, new Dictionary<string, object?> { ["roll"] = true });
-        }
-
-        using var conn = db.CreateConnection();
-        var matchMeta = await conn.QuerySingleAsync<string>(
-            "SELECT metadata_json FROM game_matches ORDER BY id DESC LIMIT 1");
-        Assert.IsTrue(matchMeta.Contains("\"schemaVersion\":1"));
-        Assert.IsTrue(matchMeta.Contains("\"summary\""));
-        Assert.IsTrue(matchMeta.Contains("startingCeiling"));
-
-        var partMetas = (await conn.QueryAsync<string>(
-            "SELECT metadata_json FROM game_match_participants")).ToList();
-        Assert.AreEqual(2, partMetas.Count);
-        foreach (var m in partMetas)
-        {
-            Assert.IsTrue(m.Contains("\"schemaVersion\":1"));
-            Assert.IsTrue(m.Contains("displayName"));
-            Assert.IsTrue(m.Contains("deathroll"));
-        }
+        using var connection = db.CreateConnection();
+        var match = await connection.QuerySingleAsync<string>("SELECT metadata_json FROM game_matches LIMIT 1");
+        var participants = (await connection.QueryAsync<string>("SELECT metadata_json FROM game_match_participants")).ToArray();
+        Assert.IsTrue(match.Contains("\"schemaVersion\":1"));
+        Assert.IsTrue(match.Contains("startingCeiling"));
+        Assert.AreEqual(2, participants.Length);
+        Assert.IsTrue(participants.All(x => x.Contains("displayName") && x.Contains("deathroll")));
     }
 
     [TestMethod]
-    public async Task ForfeitedMatch_PersistsVersionedMetadataEnvelope()
+    public async Task Forfeit_PersistsMetadata_AndNonparticipantIsIgnored()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
         var (repo, db) = GameTestHelpers.NewRepoWithDb();
-        var mgr = NewManager(presence, new FakePublisher(), repo);
+        var manager = Manager(new ManagerPublisher(), new ImmediateSink(repo));
+        var started = await manager.StartAsync(DeathrollReservation(96));
 
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: mgr.GetCurrentPlayer(invite.MatchId), reason: "quit");
+        await manager.ForfeitAsync(started.MatchId, 999, "grief");
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
+        await manager.ForfeitAsync(started.MatchId, 100, "quit");
 
-        using var conn = db.CreateConnection();
-        var matchMeta = await conn.QuerySingleAsync<string>(
-            "SELECT metadata_json FROM game_matches ORDER BY id DESC LIMIT 1");
-        Assert.IsTrue(matchMeta.Contains("\"schemaVersion\":1"));
-        Assert.IsTrue(matchMeta.Contains("\"summary\""));
-
-        var partMetas = (await conn.QueryAsync<string>(
-            "SELECT metadata_json FROM game_match_participants")).ToList();
-        Assert.AreEqual(2, partMetas.Count);
-        Assert.IsTrue(partMetas.All(m => m.Contains("displayName") && m.Contains("deathroll")));
+        using var connection = db.CreateConnection();
+        Assert.AreEqual(1L, await connection.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches"));
+        var metadata = await connection.QuerySingleAsync<string>("SELECT metadata_json FROM game_matches LIMIT 1");
+        Assert.IsTrue(metadata.Contains("\"schemaVersion\":1"));
     }
 
     [TestMethod]
-    public async Task Forfeit_ByNonParticipant_IsIgnored()
+    public async Task Action_NonparticipantIsIgnored_AndParticipantPublishesState()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        presence.Users[99] = (1, true, 99); // an unrelated authenticated user
-        var (repo, db) = GameTestHelpers.NewRepoWithDb();
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, repo);
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(961));
 
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        await manager.ActionAsync(started.MatchId, 99, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.IsFalse(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
 
-        // A third party must not be able to end someone else's live match.
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: 99, reason: "grief");
-
-        Assert.IsTrue(mgr.IsMatchLive(invite.MatchId), "non-participant forfeit must not end the match");
-        Assert.IsFalse(SentType(pub.Sent, "game.ended"));
-        using var conn = db.CreateConnection();
-        var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
-        Assert.AreEqual(0, matches, "no match should be persisted from a bogus forfeit");
+        Assert.IsTrue(publisher.Messages.Any(x => MessageType(x) == "game.stateUpdated"));
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
     }
 
     [TestMethod]
-    public async Task Decline_ByNonParticipant_IsIgnored()
+    public async Task Rps_PlaysToCompletion_PersistsAndPublishesFeed()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        // A user who isn't the inviter or target can't cancel the pending invite.
-        await mgr.RespondAsync(invite.MatchId, targetSession: 99, accept: false);
-
-        Assert.IsFalse(SentType(pub.Sent, "game.declined"));
-        // The invite is still pending, so the real target can accept it.
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-        Assert.IsTrue(mgr.IsMatchLive(invite.MatchId));
-    }
-
-    [TestMethod]
-    public async Task Rps_SimultaneousMatch_PlaysToCompletion_PersistsAndFeeds()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
+        var publisher = new ManagerPublisher();
         var repo = GameTestHelpers.NewRepo();
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, repo);
-
-        var invite = await mgr.InviteAsync(10, 20, "rps",
-            new Dictionary<string, object?> { ["bestOf"] = 3 });
-        Assert.IsTrue(invite.Success);
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-
-        // Both players commit each round; session 10 (rock) always beats 20 (scissors),
-        // so 10 takes the best-of-3 in two decisive rounds.
-        for (var round = 0; round < 2 && mgr.IsMatchLive(invite.MatchId); round++)
+        var manager = Manager(publisher, new ImmediateSink(repo));
+        var started = await manager.StartAsync(Reservation(97));
+        for (var round = 0; round < 2; round++)
         {
-            await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
-            await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
         }
 
-        Assert.IsFalse(mgr.IsMatchLive(invite.MatchId), "match should be decided after two rounds");
-
-        var feed = FeedTexts(pub.Sent);
-        Assert.IsTrue(feed.Any(t => t.Contains("started")), "expected a start feed line");
-        Assert.IsTrue(feed.Any(t => t.StartsWith("✊")), "expected round feed lines");
-        Assert.AreEqual(1, feed.Count(t => t.StartsWith("🏆")), "expected one terminal feed line");
-
-        var s10 = await repo.GetUserStatsAsync(10, "rps");
-        var s20 = await repo.GetUserStatsAsync(20, "rps");
-        Assert.AreEqual(1, s10.GamesPlayed);
-        Assert.AreEqual(1, s20.GamesPlayed);
-        Assert.AreEqual(1, s10.Wins);
-        Assert.AreEqual(0, s20.Wins);
-    }
-
-    [TestMethod]
-    public async Task Invite_RejectsSecondDuelInSameChannel_WithChannelBusyReason()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        presence.Users[30] = (1, true, 30);
-        presence.Users[40] = (1, true, 40);
-        var mgr = NewManager(presence, new FakePublisher(), GameTestHelpers.NewRepo());
-
-        // A pending invite already occupies the channel's single duel slot.
-        var first = await mgr.InviteAsync(10, 20, "deathroll");
-        Assert.IsTrue(first.Success);
-
-        var second = await mgr.InviteAsync(30, 40, "deathroll");
-        Assert.IsFalse(second.Success);
-        Assert.AreEqual(InviteRejectReason.ChannelBusy, second.Reason);
-    }
-
-    [TestMethod]
-    public async Task Forfeit_PendingInvite_CancelsWithoutPersisting()
-    {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var (repo, db) = GameTestHelpers.NewRepoWithDb();
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, repo);
-
-        var invite = await mgr.InviteAsync(10, 20, "deathroll");
-        // Simulate a disconnect/channel-change while the invite is still pending.
-        await mgr.ForfeitAsync(invite.MatchId, sessionId: 10, reason: "disconnect");
-
-        Assert.IsTrue(SentType(pub.Sent, "game.expired"), "pending invite should be cancelled as expired");
-        Assert.IsFalse(SentType(pub.Sent, "game.ended"));
-        // Both users are freed immediately, so a new invite can start right away.
-        Assert.IsFalse(mgr.TryGetActiveMatch(10, out _));
-        Assert.IsFalse(mgr.TryGetActiveMatch(20, out _));
-        using var conn = db.CreateConnection();
-        var matches = await conn.QuerySingleAsync<long>("SELECT COUNT(*) FROM game_matches");
-        Assert.AreEqual(0, matches, "a cancelled pending invite must not be persisted");
+        Assert.IsFalse(manager.IsMatchLive(started.MatchId));
+        Assert.IsTrue(FeedTexts(publisher).Any(x => x.StartsWith("✊")));
+        Assert.AreEqual(1, FeedTexts(publisher).Count(x => x.StartsWith("🏆")));
+        Assert.AreEqual(1, (await repo.GetUserStatsAsync(100, "rps")).Wins);
     }
 
     [TestMethod]
     public async Task Rps_FirstPickDoesNotRestartSharedWindow()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, GameTestHelpers.NewRepo());
+        var publisher = new ManagerPublisher();
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(98));
 
-        var invite = await mgr.InviteAsync(10, 20, "rps",
-            new Dictionary<string, object?> { ["bestOf"] = 3 });
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
-
-        // First player commits — the shared 15s window must NOT restart, so the
-        // opponent keeps their remaining time instead of getting a fresh 15s.
-        await mgr.ActionAsync(invite.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
-        Assert.AreEqual(false, LastTurnStarted(pub.Sent),
-            "first pick in a simultaneous round must not restart the commit window");
-
-        // Second player commits — the round resolves and the next window opens.
-        await mgr.ActionAsync(invite.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
-        Assert.AreEqual(true, LastTurnStarted(pub.Sent),
-            "resolving the round starts a fresh commit window");
+        await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        Assert.AreEqual(false, LastTurnStarted(publisher));
+        await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        Assert.AreEqual(true, LastTurnStarted(publisher));
     }
 
     [TestMethod]
-    public async Task Rps_BothIdleTwice_EndsAsDraw_PersistsAndFlags()
+    public async Task Rps_BothIdleTwice_EndsAsPersistedDraw()
     {
-        var presence = new FakePresence();
-        presence.Users[10] = (1, true, 10);
-        presence.Users[20] = (1, true, 20);
+        var publisher = new ManagerPublisher();
         var repo = GameTestHelpers.NewRepo();
-        var pub = new FakePublisher();
-        var mgr = NewManager(presence, pub, repo);
+        var manager = Manager(publisher, new ImmediateSink(repo));
+        var started = await manager.StartAsync(Reservation(99));
 
-        var invite = await mgr.InviteAsync(10, 20, "rps",
-            new Dictionary<string, object?> { ["bestOf"] = 3 });
-        await mgr.RespondAsync(invite.MatchId, targetSession: 20, accept: true);
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
 
-        // Both players go AFK for two consecutive rounds.
-        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
-        await mgr.FireTurnTimeoutForTestAsync(invite.MatchId);
-
-        Assert.IsTrue(SentType(pub.Sent, "game.ended"), "match should end");
-        Assert.AreEqual(true, EndedDraw(pub.Sent), "game.ended should carry draw: true");
-
-        var s10 = await repo.GetUserStatsAsync(10, "rps");
-        var s20 = await repo.GetUserStatsAsync(20, "rps");
-        Assert.AreEqual(1, s10.Draws, "player 10 records a draw");
-        Assert.AreEqual(1, s20.Draws, "player 20 records a draw");
-        Assert.AreEqual(0, s10.Wins);
-        Assert.AreEqual(0, s20.Wins);
+        var ended = publisher.Messages.Last(x => MessageType(x) == "game.ended");
+        Assert.AreEqual(true, ended.GetType().GetProperty("draw")?.GetValue(ended));
+        Assert.AreEqual(1, (await repo.GetUserStatsAsync(100, "rps")).Draws);
+        Assert.AreEqual(1, (await repo.GetUserStatsAsync(200, "rps")).Draws);
     }
+
+    [TestMethod]
+    public async Task ConcurrentTimeouts_DeliverStateInMutationOrderBeforeEnded()
+    {
+        var publisher = new ManagerPublisher { BlockType = "game.stateUpdated" };
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(991));
+
+        var firstTimeout = manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        await publisher.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var secondTimeout = manager.FireTurnTimeoutForTestAsync(started.MatchId);
+
+        Assert.IsFalse(secondTimeout.IsCompleted, "A later mutation must await earlier outbound delivery.");
+        Assert.IsFalse(publisher.Delivered.Any(x => MessageType(x) == "game.ended"));
+
+        publisher.Release.TrySetResult();
+        await Task.WhenAll(firstTimeout, secondTimeout);
+
+        CollectionAssert.AreEqual(
+            new[] { "game.stateUpdated", "game.stateUpdated", "game.ended" },
+            publisher.Delivered.Select(MessageType)
+                .Where(type => type is "game.stateUpdated" or "game.ended")
+                .ToArray());
+    }
+
+    [TestMethod]
+    public async Task FailedPublication_DoesNotPoisonLaterMatchPublications()
+    {
+        var publisher = new ManagerPublisher { FailType = "game.stateUpdated", FailOnce = true };
+        var manager = Manager(publisher, new ManagerSink());
+        var started = await manager.StartAsync(Reservation(992));
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" }));
+        await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+
+        Assert.AreEqual(1, publisher.Delivered.Count(x => MessageType(x) == "game.stateUpdated"));
+        Assert.IsTrue(manager.IsMatchLive(started.MatchId));
+    }
+
+    [TestMethod]
+    public async Task FailedFinalStatePublication_StillDrainsCompletionAndReleasesRuntime()
+    {
+        var publisher = new ManagerPublisher();
+        var sink = new ManagerSink();
+        var manager = Manager(publisher, sink);
+        var started = await manager.StartAsync(Reservation(993));
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        publisher.FailType = "game.stateUpdated";
+        publisher.FailOnce = true;
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            manager.FireTurnTimeoutForTestAsync(started.MatchId));
+
+        Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
+        Assert.AreEqual(1, sink.Matches.Count);
+        Assert.IsTrue(publisher.Delivered.Any(x => MessageType(x) == "game.ended"));
+    }
+
+    private static bool? LastTurnStarted(ManagerPublisher publisher)
+    {
+        var message = publisher.Messages.Last(x => MessageType(x) == "game.stateUpdated");
+        return message.GetType().GetProperty("turnStarted")?.GetValue(message) as bool?;
+    }
+
+    private static DuelReservation DeathrollReservation(long id) => Reservation(id,
+        new DuelConfiguration("deathroll", "1v1", 1, new Dictionary<string, object?>(), "discrete"));
+
+    private static DuelReservation Reservation(long id, DuelConfiguration? configuration = null) => new(
+        id,
+        7,
+        new DuelPlayer(10, 100, "Alice"),
+        new DuelPlayer(20, 200, "Bob"),
+        configuration ?? new DuelConfiguration("rps", "bo3", 1,
+            new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+        DateTimeOffset.UtcNow,
+        id,
+        null);
+}
+
+internal sealed class ImmediateSink(GameRepository repository) : ICompletedMatchSink
+{
+    public void Enqueue(CompletedMatch match) => repository.SaveCompletedMatchAsync(match).GetAwaiter().GetResult();
 }

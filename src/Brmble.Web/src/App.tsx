@@ -44,6 +44,9 @@ import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import { useGameState } from './components/Games/useGameState';
+import { useDuelQueueState } from './components/Games/useDuelQueueState';
+import { collectCommittedSessions } from './components/Games/committedSessions';
+import { DuelQueueModal } from './components/Games/DuelQueueModal';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -67,11 +70,15 @@ import {
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
+import { pruneFetchedAvatars, shouldFetchAvatar, type AvatarFetchRecord } from './utils/avatarFetch';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
+import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
+import { useMissedReadyCheck } from './components/Games/useMissedReadyCheck';
+import { estimateText, pairLabel } from './components/Games/duelFormatting';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
@@ -99,7 +106,8 @@ export type OptionalNotificationCategory =
   | 'notificationRemoteScreenShare'
   | 'notificationScreenShareStatus'
   | 'notificationIdleWarning'
-  | 'notificationMovedChannel';
+  | 'notificationMovedChannel'
+  | 'notificationDuelQueued';
 
 export interface OptionalNotificationSettings {
   notificationsDisabled?: boolean;
@@ -107,6 +115,7 @@ export interface OptionalNotificationSettings {
   notificationScreenShareStatus?: boolean;
   notificationIdleWarning?: boolean;
   notificationMovedChannel?: boolean;
+  notificationDuelQueued?: boolean;
 }
 
 type IncomingOptionalNotificationSettings = OptionalNotificationSettings & {
@@ -119,6 +128,7 @@ export const DEFAULT_OPTIONAL_NOTIFICATION_SETTINGS: Required<OptionalNotificati
   notificationScreenShareStatus: true,
   notificationIdleWarning: true,
   notificationMovedChannel: true,
+  notificationDuelQueued: true,
 };
 
 export function normalizeOptionalNotificationSettings(settings?: IncomingOptionalNotificationSettings | null): Required<OptionalNotificationSettings> {
@@ -837,6 +847,76 @@ interface ServerRemovalNotification extends ScreenShareEndedNotification {
   id: 'server-removal';
 }
 
+/**
+ * Remaining milliseconds until an ISO expiry, for a Notification `countdownMs`
+ * bar. Returns undefined when the expiry is absent or unparseable so the bar is
+ * omitted entirely — passing NaN would emit `animationDuration: "NaNms"`, an
+ * invalid CSS value that leaves the bar permanently full.
+ */
+function countdownUntil(expiresAt: string | undefined | null): number | undefined {
+  if (!expiresAt) return undefined;
+  const expiry = Date.parse(expiresAt);
+  if (!Number.isFinite(expiry)) return undefined;
+  return Math.max(0, expiry - Date.now());
+}
+
+
+/**
+ * Titles for rejected duel queue commands surfaced as an error notification.
+ *
+ * `respondOffer` is deliberately absent: it covers both invite responses and
+ * rematch responses, so it cannot be resolved by a static lookup. See
+ * {@link duelCommandErrorTitle}.
+ */
+const DUEL_COMMAND_ERROR_TITLES: Record<string, string> = {
+  ready: 'Ready check failed',
+  requestRematch: 'Rematch request failed',
+};
+
+/**
+ * Resolves the title for a rejected duel command.
+ *
+ * The server sends one `game.respond` command for two different user actions —
+ * answering a duel invite and answering a rematch offer — so the correlated
+ * `respondOffer` error is disambiguated by the offer its id names. When it names
+ * neither (the offer has already expired or been resolved away by the time the
+ * error lands) neither specific title can be justified, so a neutral one is used
+ * rather than guessing and telling the user about the wrong thing.
+ */
+function duelCommandErrorTitle(
+  error: { operation: string; id: number },
+  incomingRematchOfferId: number | null,
+  incomingInviteOfferId: number | null,
+): string {
+  if (error.operation !== 'respondOffer') {
+    return DUEL_COMMAND_ERROR_TITLES[error.operation] ?? 'Duel command failed';
+  }
+  if (error.id === incomingRematchOfferId) return 'Rematch response failed';
+  if (error.id === incomingInviteOfferId) return 'Challenge response failed';
+  return 'Duel response failed';
+}
+
+/**
+ * User-facing copy for the server's rejection reason codes (see
+ * `DuelWire.Reason` / `DuelRejectReason` in Brmble.Server). The raw code is
+ * orchestrator vocabulary and must never reach the notification; anything
+ * unmapped falls back to the server's own message, then to a generic sentence.
+ */
+const DUEL_COMMAND_ERROR_REASONS: Record<string, string> = {
+  blocked: "That player isn't accepting challenges.",
+  alreadyCommitted: 'That player is already in another duel.',
+  notPresent: 'That player is no longer available.',
+  staleOffer: 'That request is no longer available.',
+  notParticipant: 'You are not a participant in that duel.',
+  invalidConfiguration: 'That duel could not be set up.',
+};
+
+/** Resolves the detail line for a rejected duel command, never leaking a reason code. */
+function duelCommandErrorDetail(error: { reason?: string; message?: string }): string {
+  return (error.reason ? DUEL_COMMAND_ERROR_REASONS[error.reason] : undefined)
+    ?? error.message
+    ?? 'The server rejected the request. Try again.';
+}
 
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
@@ -948,10 +1028,13 @@ function App() {
   const [selfCanRejoin, setSelfCanRejoin] = useState(false);
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
+  const duelQueue = useDuelQueueState();
   // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
   // latest game actions without being in their dependency arrays.
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+  const duelQueueRef = useRef(duelQueue);
+  duelQueueRef.current = duelQueue;
   const resolveGamePlayerName = useCallback(
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
     [],
@@ -989,26 +1072,191 @@ function App() {
     if (gameState.outgoingInvite) notifQueueRef.current.register('game-pending', 'info', 2);
     else notifQueueRef.current.unregister('game-pending');
   }, [gameState.outgoingInvite]);
-  // Channels with a live duel — drives the swords badge on channel rows. Sourced
-  // from the server's channel-scoped `game.duelState` events (active true/false).
-  const [duelChannelIds, setDuelChannelIds] = useState<Set<number>>(new Set());
+  const duelChannelIds = useMemo(() => new Set(
+    [...duelQueue.byChannel.values()]
+      .filter(snapshot => snapshot.active || snapshot.readyCheck || snapshot.queue.length > 0)
+      .map(snapshot => snapshot.channelId),
+  ), [duelQueue.byChannel]);
+  // Personal = you are waiting (queued or ready). An active match already shows
+  // its own participant modal, so it does not highlight the badge.
+  const personalDuelChannelIds = useMemo(() => new Set(
+    [...duelQueue.byChannel.values()]
+      .filter(snapshot =>
+        snapshot.readyCheck?.players.some(player => player.sessionId === selfSession)
+        || snapshot.queue.some(entry => entry.players.some(player => player.sessionId === selfSession)))
+      .map(snapshot => snapshot.channelId),
+  ), [duelQueue.byChannel, selfSession]);
+  // Sessions the server holds a duel commitment for. A challenge involving either such
+  // player is rejected outright, so the challenge menu entry is disabled for them.
+  const committedDuelSessions = useMemo(
+    () => collectCommittedSessions(duelQueue.byChannel),
+    [duelQueue.byChannel],
+  );
+  const { confirmation: queuedDuelConfirmation, dismiss: dismissQueuedDuelConfirmation } =
+    useQueuedDuelConfirmation(duelQueue.byChannel, selfSession);
+  const { missed: missedReadyCheck, dismiss: dismissMissedReadyCheck } =
+    useMissedReadyCheck(duelQueue.byChannel, selfSession);
+  // Blame the opponent only when BOTH hold: the local player readied, and there is
+  // actually an opponent to name. Missing your own check outranks the opponent missing
+  // theirs, so if neither readied the local player still sees the "Missed your duel"
+  // form — `unreadyOpponents` is non-empty in that case, which is why the readied test
+  // cannot be dropped. The empty-array test is the safety net: pairLabel([]) is '', so a
+  // degenerate capture falls back to the pair form rather than rendering a bare
+  // " did not ready up in time". The register effect and the render must agree, so both
+  // read this one value.
+  const missedReadyBlamesOpponent = !!missedReadyCheck?.localReadied
+    && missedReadyCheck.unreadyOpponents.length > 0;
+  const visibleQueuedDuelConfirmation =
+    shouldShowOptionalNotification(optionalNotificationSettings, 'notificationDuelQueued')
+      ? queuedDuelConfirmation
+      : null;
+  const [selectedDuelChannelId, setSelectedDuelChannelId] = useState<number | null>(null);
+  const selectedDuelSnapshot = selectedDuelChannelId == null ? null : duelQueue.byChannel.get(selectedDuelChannelId) ?? null;
+  const snapshotReadyCheck = [...duelQueue.byChannel.values()]
+    .map(snapshot => snapshot.readyCheck)
+    .find(check => check?.players.some(player => player.sessionId === selfSession && !player.ready)) ?? null;
+  // A missed report and the ready check it refers to must never be on screen together.
+  // useDuelQueueState does not subscribe to game.commitmentCanceled, and the server
+  // publishes the cancellation inline while deferring the snapshot rebuild to a worker
+  // lane (DuelOrchestrator.ExpireReadyAsync), so the expired check lingers in the
+  // snapshot. Rendering it would offer a live Ready button for a reservation the server
+  // has already dropped; pressing it can only produce a rejected games/ready.
+  //
+  // Matched on reservation id, and only when a report actually exists, so a newer pop is
+  // never suppressed. Every consumer below reads this suppressed value, so the dead
+  // reservation cannot leak into the countdown, the submit path, or the registration.
+  const readyCheck = missedReadyCheck
+    && snapshotReadyCheck?.reservationId === missedReadyCheck.reservationId
+    ? null
+    : snapshotReadyCheck;
+  const readySubmissionRef = useRef<number | null>(null);
+  // Memoized per offer identity: countdownUntil() reads Date.now(), so computing
+  // it inline during render would hand <Notification> a new animationDuration on
+  // every unrelated App re-render and restart the CSS countdown animation.
+  const readyCountdownMs = useMemo(
+    () => countdownUntil(readyCheck?.expiresAt),
+    // Identity is part of the key on purpose: a new reservation/offer must get a
+    // fresh countdown even in the unlikely case the expiry string repeats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readyCheck?.reservationId, readyCheck?.expiresAt],
+  );
+  const rematchCountdownMs = useMemo(
+    () => countdownUntil(duelQueue.incomingRematch?.expiresAt),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [duelQueue.incomingRematch?.offerId, duelQueue.incomingRematch?.expiresAt],
+  );
+  const rematchSubmissionRef = useRef<number | null>(null);
+  const [submittedReadyId, setSubmittedReadyId] = useState<number | null>(null);
+  const [submittedRematchId, setSubmittedRematchId] = useState<number | null>(null);
+  // Outgoing rematch *requests* are locked locally the same way ready/accept are:
+  // duelQueue.outgoingRematch only arrives once the server answers, so without
+  // this a double-click would POST games/rematch twice.
+  const rematchRequestRef = useRef<number | null>(null);
+  const [requestedRematchMatchId, setRequestedRematchMatchId] = useState<number | null>(null);
+  const requestRematch = useCallback((sourceMatchId: number) => {
+    if (rematchRequestRef.current === sourceMatchId) return;
+    rematchRequestRef.current = sourceMatchId;
+    setRequestedRematchMatchId(sourceMatchId);
+    duelQueue.requestRematch(sourceMatchId);
+  }, [duelQueue.requestRematch]);
+  const submitReady = useCallback((ready: boolean) => {
+    if (!readyCheck || readySubmissionRef.current === readyCheck.reservationId) return;
+    readySubmissionRef.current = readyCheck.reservationId;
+    setSubmittedReadyId(readyCheck.reservationId);
+    duelQueue.respondReady(readyCheck.reservationId, ready);
+  }, [duelQueue.respondReady, readyCheck]);
+  const submitRematch = useCallback((accept: boolean) => {
+    const offer = duelQueue.incomingRematch;
+    if (!offer || rematchSubmissionRef.current === offer.offerId) return;
+    rematchSubmissionRef.current = offer.offerId;
+    setSubmittedRematchId(offer.offerId);
+    duelQueue.respondOffer(offer.offerId, accept);
+  }, [duelQueue.incomingRematch, duelQueue.respondOffer]);
   useEffect(() => {
-    const handleDuelState = (data: unknown) => {
-      const d = data as { channelId?: number; active?: boolean };
-      if (d.channelId == null) return;
-      setDuelChannelIds(prev => {
-        const has = prev.has(d.channelId!);
-        if (d.active && has) return prev;
-        if (!d.active && !has) return prev;
-        const next = new Set(prev);
-        if (d.active) next.add(d.channelId!);
-        else next.delete(d.channelId!);
-        return next;
-      });
-    };
-    bridge.on('game.duelState', handleDuelState);
-    return () => bridge.off('game.duelState', handleDuelState);
-  }, []);
+    const reservationId = readyCheck?.reservationId ?? null;
+    if (readySubmissionRef.current != null && readySubmissionRef.current !== reservationId) {
+      readySubmissionRef.current = null;
+      setSubmittedReadyId(null);
+    }
+  }, [readyCheck?.reservationId]);
+  useEffect(() => {
+    const offerId = duelQueue.incomingRematch?.offerId ?? null;
+    if (rematchSubmissionRef.current != null && rematchSubmissionRef.current !== offerId) {
+      rematchSubmissionRef.current = null;
+      setSubmittedRematchId(null);
+    }
+  }, [duelQueue.incomingRematch?.offerId]);
+  useEffect(() => {
+    const error = duelQueue.commandError;
+    if (error?.operation === 'ready' && readySubmissionRef.current === error.id) {
+      readySubmissionRef.current = null;
+      setSubmittedReadyId(null);
+    }
+    if (error?.operation === 'respondOffer' && rematchSubmissionRef.current === error.id) {
+      rematchSubmissionRef.current = null;
+      setSubmittedRematchId(null);
+    }
+    if (error?.operation === 'requestRematch' && rematchRequestRef.current === error.id) {
+      rematchRequestRef.current = null;
+      setRequestedRematchMatchId(null);
+    }
+  }, [duelQueue.commandError]);
+  // A rejected duel command (e.g. a stale Ready) must not fail silently: surface
+  // it as a persistent top-right error. Ungated per UI_GUIDE §13 (errors are
+  // never behind optional notification settings). Stable singleton id; dismissal
+  // is tracked by the hook's monotonic revision so the next failure re-shows.
+  const [dismissedCommandErrorRevision, setDismissedCommandErrorRevision] = useState<number | null>(null);
+  const visibleCommandError = duelQueue.commandError && duelQueue.commandError.revision !== dismissedCommandErrorRevision
+    ? duelQueue.commandError
+    : null;
+  useEffect(() => {
+    if (visibleCommandError) notifQueueRef.current.register('game-command-error', 'error');
+    else notifQueueRef.current.unregister('game-command-error');
+  }, [visibleCommandError]);
+  useEffect(() => {
+    const sourceMatchId = gameState.ended?.sourceMatchId ?? null;
+    if (rematchRequestRef.current != null && rematchRequestRef.current !== sourceMatchId) {
+      rematchRequestRef.current = null;
+      setRequestedRematchMatchId(null);
+    }
+  }, [gameState.ended?.sourceMatchId]);
+  // A rematch of the ended match is already in flight in one direction or the
+  // other, so a second request would only be rejected as `alreadyCommitted`.
+  // Incoming counts too: the opponent has committed, and the Accept button on the
+  // "Rematch offered" notification is the action to take instead.
+  const endedSourceMatchId = gameState.ended?.sourceMatchId ?? null;
+  const rematchPending = endedSourceMatchId !== null && (
+    duelQueue.outgoingRematch?.sourceMatchId === endedSourceMatchId
+    || duelQueue.incomingRematch?.sourceMatchId === endedSourceMatchId
+    || requestedRematchMatchId === endedSourceMatchId);
+  useEffect(() => {
+    if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
+    else notifQueueRef.current.unregister('game-ready');
+  }, [readyCheck]);
+  useEffect(() => {
+    if (visibleQueuedDuelConfirmation) notifQueueRef.current.register('game-queued', 'info');
+    else notifQueueRef.current.unregister('game-queued');
+  }, [visibleQueuedDuelConfirmation]);
+  useEffect(() => {
+    if (missedReadyCheck) {
+      notifQueueRef.current.register(
+        'game-ready-missed', missedReadyBlamesOpponent ? 'info' : 'warning');
+    } else {
+      // Cleanup must live here: behind a render gate the notification unmounts before
+      // its exit timer is scheduled, so `onExited` never fires (UI_GUIDE §13).
+      notifQueueRef.current.unregister('game-ready-missed');
+    }
+    // `register` is id-idempotent and ignores the status of an already-registered id
+    // (useNotificationQueue.ts:58), so the status dep only takes effect because the hook
+    // always sets `missed` back to null before a new capture, unregistering in between.
+  }, [missedReadyCheck, missedReadyBlamesOpponent]);
+  useEffect(() => {
+    if (duelQueue.incomingRematch) notifQueueRef.current.register('game-rematch', 'info', 2);
+    else notifQueueRef.current.unregister('game-rematch');
+  }, [duelQueue.incomingRematch]);
+  useEffect(() => {
+    if (selectedDuelChannelId != null && !selectedDuelSnapshot) setSelectedDuelChannelId(null);
+  }, [selectedDuelChannelId, selectedDuelSnapshot]);
   const [speakingUsers, setSpeakingUsers] = useState<Map<number, boolean>>(new Map());
   const [pendingChannelAction, setPendingChannelAction] = useState<number | 'leave' | null>(null);
   const hasMatrixCredentialsForSessionRef = useRef(false);
@@ -1189,8 +1437,8 @@ function App() {
   }, [currentUserAvatarUrl]);
 
   // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching.
-  // Maps matrixUserId -> number of fetch attempts so far (for retry logic).
-  const fetchedAvatarIdsRef = useRef<Map<string, number>>(new Map());
+  // Maps matrixUserId -> what is known about the fetch already made for them.
+  const fetchedAvatarIdsRef = useRef<Map<string, AvatarFetchRecord>>(new Map());
   // Track pending retry timers so they can be cancelled on cleanup
   const avatarRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   // Ref for fetchAvatarForUser so the safety-net useEffect can call it without
@@ -1206,15 +1454,10 @@ function App() {
 
     // Prune stale entries: if a user disconnected and reconnected, their matrixUserId
     // may still be in fetchedAvatarIdsRef from the previous session.
-    const currentMatrixIds = new Set(users.filter(u => u.matrixUserId).map(u => u.matrixUserId!));
-    for (const id of fetchedAvatarIdsRef.current.keys()) {
-      if (!currentMatrixIds.has(id)) {
-        fetchedAvatarIdsRef.current.delete(id);
-      }
-    }
+    pruneFetchedAvatars(fetchedAvatarIdsRef.current, users);
 
     for (const u of users) {
-      if (u.matrixUserId && !u.avatarUrl) {
+      if (shouldFetchAvatar(u, fetchedAvatarIdsRef.current) && u.matrixUserId) {
         fetchAvatarForUserRef.current(u.session, u.matrixUserId);
       }
     }
@@ -1521,16 +1764,14 @@ function App() {
   // backoff, and clearing the dedupe entry after max attempts so later events can retry.
   const fetchAvatarForUser = useCallback((session: number, matrixUserId: string) => {
     if (!matrixClientRef.current) return;
-    // Skip if already fetched or in-flight
-    if (fetchedAvatarIdsRef.current.has(matrixUserId)) return;
-    // Check if user already has an avatar
+    // Skip if already fetched for this session, in-flight, or already resolved
     const user = usersRef.current.find(u => u.session === session);
-    if (user?.avatarUrl) return;
+    if (!shouldFetchAvatar(user ?? { session, matrixUserId }, fetchedAvatarIdsRef.current)) return;
 
     const maxAttempts = 3;
 
     const attemptFetch = (attempt: number) => {
-      fetchedAvatarIdsRef.current.set(matrixUserId, attempt + 1);
+      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1, session });
       fetchAvatarUrlRef.current(matrixUserId).then((url) => {
         if (url) {
           setUsers(prev => prev.map(u =>
@@ -1774,6 +2015,9 @@ function App() {
       setBrmbleServiceBootstrapTimedOut(false);
       overlayConnectedAtRef.current = Date.now();
       notifQueue.unregister('server-removal');
+      // Duel queue recovery is owned by useDuelQueueState's own 'voice.connected'
+      // handler — requesting it here would race that handler's epoch bump and
+      // could strand recovery permanently.
       setServerRemovalNotification(null);
       const d = data as { username?: string; channelId?: number; channels?: Channel[]; users?: User[] } | undefined;
 
@@ -1902,7 +2146,12 @@ function App() {
       // would produce a spurious "Not connected" error when Accept can no longer
       // reach the server. The server tears the match down on its side.
       gameStateRef.current.reset();
-      setDuelChannelIds(new Set());
+      duelQueueRef.current.reset();
+      readySubmissionRef.current = null;
+      rematchSubmissionRef.current = null;
+      setSubmittedReadyId(null);
+      setSubmittedRematchId(null);
+      setSelectedDuelChannelId(null);
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);
@@ -2158,8 +2407,11 @@ function App() {
             // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
             const certHash = d.certHash || existing.certHash;
             const matrixUserId = d.matrixUserId || existing.matrixUserId;
+            // A user state carries no companion for a session the client has no mapping for,
+            // which is not the same as the user having no companion.
+            const companionId = d.companionId ?? existing.companionId;
             const isBrmbleClient = d.isBrmbleClient !== undefined ? d.isBrmbleClient : existing.isBrmbleClient;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, isBrmbleClient } : u);
+            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, companionId, isBrmbleClient } : u);
           }
           return [...prev, d];
         });
@@ -2659,7 +2911,7 @@ function App() {
             ? {
               ...u,
               matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
-              companionId: d.action === 'added' ? d.companionId : u.companionId,
+              companionId: d.action === 'added' ? (d.companionId ?? u.companionId) : u.companionId,
               certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
               isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
             }
@@ -3320,7 +3572,12 @@ const handleConnect = (serverData: SavedServer) => {
       // errors when actions can no longer reach the server. The server tears the
       // match down on its side, so this is purely a local UI reset.
       gameStateRef.current.reset();
-      setDuelChannelIds(new Set());
+      duelQueueRef.current.reset();
+      readySubmissionRef.current = null;
+      rematchSubmissionRef.current = null;
+      setSubmittedReadyId(null);
+      setSubmittedRematchId(null);
+      setSelectedDuelChannelId(null);
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setBrmbleDMUsers([]);
@@ -4446,6 +4703,9 @@ const handleConnect = (serverData: SavedServer) => {
           onChallengeDeathroll={(session) => gameState.invite(session)}
           onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
           duelChannelIds={duelChannelIds}
+          personalDuelChannelIds={personalDuelChannelIds}
+          committedDuelSessions={committedDuelSessions}
+          onOpenDuelQueue={setSelectedDuelChannelId}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -4681,6 +4941,8 @@ const handleConnect = (serverData: SavedServer) => {
             onPick={(pick) => gameState.sendAction({ pick })}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
           />
         ) : (
           <DeathrollModal
@@ -4694,11 +4956,126 @@ const handleConnect = (serverData: SavedServer) => {
             onRoll={gameState.roll}
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
           />
         )
       )}
 
+      {selectedDuelSnapshot && (
+        <DuelQueueModal
+          snapshot={selectedDuelSnapshot}
+          resolveName={resolveGamePlayerName}
+          onClose={() => setSelectedDuelChannelId(null)}
+        />
+      )}
+
       <div className="notification-stack">
+        {visibleCommandError && notifQueue.isVisible('game-command-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={true}
+            title={duelCommandErrorTitle(
+              visibleCommandError,
+              duelQueue.incomingRematch?.offerId ?? null,
+              gameState.incomingInvite?.offerId ?? null,
+            )}
+            detail={duelCommandErrorDetail(visibleCommandError)}
+            onDismiss={() => {
+              setDismissedCommandErrorRevision(visibleCommandError.revision);
+              notifQueue.unregister('game-command-error');
+            }}
+            onExited={() => notifQueue.unregister('game-command-error')}
+          />
+        )}
+        {visibleQueuedDuelConfirmation && notifQueue.isVisible('game-queued') && (
+          <Notification
+            status="info"
+            position="top-right"
+            visible={true}
+            title="Added to duel queue"
+            detail={
+              <>
+                <div>{pairLabel(visibleQueuedDuelConfirmation.players, resolveGamePlayerName)}</div>
+                <div>{gameDisplayName(visibleQueuedDuelConfirmation.gameType)} · {visibleQueuedDuelConfirmation.format}</div>
+              </>
+            }
+            onDismiss={dismissQueuedDuelConfirmation}
+          />
+        )}
+        {missedReadyCheck && notifQueue.isVisible('game-ready-missed') && (
+          <Notification
+            status={missedReadyBlamesOpponent ? 'info' : 'warning'}
+            position="top-right"
+            visible={true}
+            title={missedReadyBlamesOpponent ? 'Duel canceled' : 'Missed your duel'}
+            detail={missedReadyBlamesOpponent ? (
+              <div>
+                {pairLabel(missedReadyCheck.unreadyOpponents, resolveGamePlayerName)} did not ready up in time
+              </div>
+            ) : (
+              <>
+                <div>You did not ready up in time</div>
+                <div>
+                  {pairLabel(missedReadyCheck.players, resolveGamePlayerName)} removed from the queue
+                </div>
+              </>
+            )}
+            onDismiss={dismissMissedReadyCheck}
+          />
+        )}
+        {readyCheck && notifQueue.isVisible('game-ready') && (
+          <Notification
+            status="warning"
+            position="top-right"
+            duration={null}
+            countdownMs={readyCountdownMs}
+            visible={true}
+            title="Ready to play?"
+            detail={
+              <>
+                <div>{pairLabel(readyCheck.players, resolveGamePlayerName)}</div>
+                <div>
+                  {gameDisplayName(readyCheck.gameType)} · {readyCheck.format} · {estimateText(readyCheck.estimatedDuration)}
+                </div>
+              </>
+            }
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => submitReady(true)}
+                disabled={submittedReadyId === readyCheck.reservationId}
+              >
+                {submittedReadyId === readyCheck.reservationId ? 'Submitting' : 'Ready'}
+              </button>
+            }
+            onDismiss={() => submitReady(false)}
+            onExited={() => notifQueue.unregister('game-ready')}
+          />
+        )}
+        {duelQueue.incomingRematch && notifQueue.isVisible('game-rematch') && (
+          <Notification
+            status="info"
+            position="top-right"
+            duration={null}
+            countdownMs={rematchCountdownMs}
+            visible={true}
+            title="Rematch offered"
+            detail={`${gameDisplayName(duelQueue.incomingRematch.gameType)} rematch`}
+            actions={
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => submitRematch(true)}
+                disabled={submittedRematchId === duelQueue.incomingRematch.offerId}
+              >
+                {submittedRematchId === duelQueue.incomingRematch.offerId ? 'Submitting' : 'Accept'}
+              </button>
+            }
+            onDismiss={() => submitRematch(false)}
+            onExited={() => notifQueue.unregister('game-rematch')}
+          />
+        )}
         {paintBackgroundError
           && notifQueue.isVisible('paint-background-error')
           && (
@@ -4770,7 +5147,9 @@ const handleConnect = (serverData: SavedServer) => {
             ? { title: 'Challenge declined', detail: `${name} declined your challenge.` }
             : o.kind === 'expired'
               ? { title: 'No response', detail: `${name} didn't respond to your challenge.` }
-              : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
+              : o.kind === 'busy'
+                ? { title: 'Challenge unavailable', detail: `${name} is already in a duel.` }
+                : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
           return (
             <Notification
               status="info"

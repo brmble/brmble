@@ -24,6 +24,7 @@ internal sealed class GameService : IService
     private readonly Func<string?> _getApiUrl;
     private readonly Func<X509Certificate2, Uri, string, Task<ChannelRequestBridgeHandler.TlsCallResult>> _postJsonAsync;
     private readonly Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> _getAsync;
+    private readonly Func<X509Certificate2?> _getCertificate;
     private NativeBridge? _bridge;
 
     public GameService(
@@ -31,13 +32,15 @@ internal sealed class GameService : IService
         CertificateService? certService,
         Func<string?> getApiUrl,
         Func<X509Certificate2, Uri, string, Task<ChannelRequestBridgeHandler.TlsCallResult>> postJsonAsync,
-        Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> getAsync)
+        Func<X509Certificate2, Uri, Task<ChannelRequestBridgeHandler.TlsCallResult>> getAsync,
+        Func<X509Certificate2?>? getCertificate = null)
     {
         _bridge = bridge;
         _certService = certService;
         _getApiUrl = getApiUrl;
         _postJsonAsync = postJsonAsync;
         _getAsync = getAsync;
+        _getCertificate = getCertificate ?? (() => _certService?.GetExportableCertificate());
     }
 
     public string ServiceName => "games";
@@ -46,10 +49,13 @@ internal sealed class GameService : IService
 
     public void RegisterHandlers(NativeBridge bridge)
     {
-        bridge.RegisterHandler("game.invite", d => PostAsync("games/invite", d));
-        bridge.RegisterHandler("game.respond", d => PostAsync("games/respond", d));
-        bridge.RegisterHandler("game.action", d => PostAsync("games/action", d));
-        bridge.RegisterHandler("game.forfeit", d => PostAsync("games/forfeit", d));
+        bridge.RegisterHandler("game.invite", d => PostAsync("game.invite", "games/invite", d));
+        bridge.RegisterHandler("game.respond", d => PostAsync("game.respond", "games/respond", d));
+        bridge.RegisterHandler("game.cancelOffer", d => PostAsync("game.cancelOffer", "games/offers/cancel", d));
+        bridge.RegisterHandler("game.ready", d => PostAsync("game.ready", "games/ready", d));
+        bridge.RegisterHandler("game.rematch", d => PostAsync("game.rematch", "games/rematch", d));
+        bridge.RegisterHandler("game.action", d => PostAsync("game.action", "games/action", d));
+        bridge.RegisterHandler("game.forfeit", d => PostAsync("game.forfeit", "games/forfeit", d));
         bridge.RegisterHandler("games.request", HandleRequestAsync);
     }
 
@@ -62,31 +68,38 @@ internal sealed class GameService : IService
     /// </summary>
     private async Task HandleRequestAsync(JsonElement data)
     {
-        var requestId = data.TryGetProperty("requestId", out var requestIdProp) && requestIdProp.ValueKind == JsonValueKind.Number
-            ? requestIdProp.GetInt32()
+        var requestId = data.TryGetProperty("requestId", out var requestIdProp)
+            && requestIdProp.ValueKind == JsonValueKind.Number
+            && requestIdProp.TryGetInt32(out var parsedRequestId)
+            ? parsedRequestId
             : (int?)null;
-        var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
-        var apiUrl = _getApiUrl();
-
-        if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(apiUrl))
-        {
-            SendResponse(requestId, false, null, 0, "Not connected or invalid games request action");
-            return;
-        }
-
-        using var cert = _certService?.GetExportableCertificate();
-        if (cert is null)
-        {
-            SendResponse(requestId, false, null, 0, "No client certificate");
-            return;
-        }
-
-        var baseUri = new Uri(apiUrl, UriKind.Absolute);
 
         try
         {
+            var action = data.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
+            var apiUrl = _getApiUrl();
+            if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(apiUrl))
+            {
+                SendResponse(requestId, false, null, 0, "Not connected or invalid games request action");
+                return;
+            }
+
+            using var cert = _getCertificate();
+            if (cert is null)
+            {
+                SendResponse(requestId, false, null, 0, "No client certificate");
+                return;
+            }
+
+            var baseUri = new Uri(apiUrl, UriKind.Absolute);
             switch (action)
             {
+                case "queue":
+                {
+                    var result = await _getAsync(cert, new Uri(baseUri, "games/queue"));
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
                 case "stats":
                 {
                     var gameType = data.TryGetProperty("gameType", out var gtEl) ? gtEl.GetString() : null;
@@ -161,29 +174,27 @@ internal sealed class GameService : IService
     /// the matching games endpoint. On any failure, emits a <c>game.error</c>
     /// bridge event so the UI can react.
     /// </summary>
-    private async Task PostAsync(string path, JsonElement data)
+    private async Task PostAsync(string command, string path, JsonElement data)
     {
-        var apiUrl = _getApiUrl();
-        if (string.IsNullOrWhiteSpace(apiUrl))
-        {
-            SendError(path, "Not connected — no Brmble API URL");
-            return;
-        }
-
-        using var cert = _certService?.GetExportableCertificate();
-        if (cert is null)
-        {
-            SendError(path, "No client certificate");
-            return;
-        }
-
-        // Forward the frontend's payload exactly as received.
-        var body = data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null
-            ? "{}"
-            : data.GetRawText();
-
         try
         {
+            var apiUrl = _getApiUrl();
+            if (string.IsNullOrWhiteSpace(apiUrl))
+            {
+                SendError(command, path, data, "Not connected — no Brmble API URL");
+                return;
+            }
+
+            using var cert = _getCertificate();
+            if (cert is null)
+            {
+                SendError(command, path, data, "No client certificate");
+                return;
+            }
+
+            var body = data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null
+                ? "{}"
+                : data.GetRawText();
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var result = await _postJsonAsync(cert, new Uri(baseUri, path), body);
             if (!result.Success)
@@ -191,25 +202,26 @@ internal sealed class GameService : IService
                 // The server encodes a stable machine-readable "reason" code in the
                 // error body (e.g. {"error":"…","reason":"blocked"}). Surface it so the
                 // UI can branch on a code instead of pattern-matching the message text.
-                var (message, reason) = ParseErrorBody(result.Error, result.StatusCode);
-                SendError(path, message, result.StatusCode, reason);
+                var (message, reason) = ParseErrorBody(result.Body, result.Error, result.StatusCode);
+                SendError(command, path, data, message, result.StatusCode, reason);
             }
         }
         catch (Exception ex)
         {
-            SendError(path, ex.Message);
+            SendError(command, path, data, ex.Message);
         }
     }
 
     // Extracts a human-readable message and optional structured reason code from a
     // (possibly JSON) error body. Falls back to the raw text if it isn't JSON.
-    private static (string message, string? reason) ParseErrorBody(string? errorBody, int statusCode)
+    private static (string message, string? reason) ParseErrorBody(
+        string? responseBody, string? transportError, int statusCode)
     {
-        var fallback = errorBody ?? $"Request failed (HTTP {statusCode})";
-        if (string.IsNullOrWhiteSpace(errorBody)) return (fallback, null);
+        var fallback = transportError ?? responseBody ?? $"Request failed (HTTP {statusCode})";
+        if (string.IsNullOrWhiteSpace(responseBody)) return (fallback, null);
         try
         {
-            using var doc = JsonDocument.Parse(errorBody);
+            using var doc = JsonDocument.Parse(responseBody);
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return (fallback, null);
             var message = doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
                 ? e.GetString() ?? fallback
@@ -225,9 +237,23 @@ internal sealed class GameService : IService
         }
     }
 
-    private void SendError(string path, string? error, int statusCode = 0, string? reason = null)
+    private void SendError(string command, string path, JsonElement data, string? error, int statusCode = 0, string? reason = null)
     {
-        _bridge?.Send("game.error", new { path, error, statusCode, reason });
+        long? Id(string name) => data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out var id) ? id : null;
+        _bridge?.Send("game.error", new
+        {
+            command,
+            path,
+            error,
+            statusCode,
+            reason,
+            reservationId = Id("reservationId"),
+            offerId = Id("offerId"),
+            sourceMatchId = Id("sourceMatchId"),
+        });
         _bridge?.NotifyUiThread();
     }
 }

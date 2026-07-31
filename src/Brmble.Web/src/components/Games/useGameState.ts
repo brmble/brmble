@@ -9,6 +9,19 @@ const DEFAULT_TURN_MS = 15000;
 // auto-declined so an outdated peer can't open the wrong modal. Forward-compat only.
 const SUPPORTED_GAMES = ['deathroll', 'rps'];
 
+/**
+ * `game.error` ownership split.
+ *
+ * Both this hook and `useDuelQueueState` listen to `game.error`, and both render a
+ * persistent (duration: null) error notification. `useDuelQueueState` correlates
+ * these duel-queue commands back to the button that issued them and reports them
+ * as the specific `game-command-error` notification, so reporting them here as
+ * well would put two boxes on screen for one failure. Anything NOT listed here —
+ * including an error with no `command` at all — is this hook's to report, or it
+ * would go silent.
+ */
+const DUEL_QUEUE_OWNED_COMMANDS = new Set(['game.ready', 'game.respond', 'game.rematch']);
+
 /** Per-player Deathroll view (engine PublicView, camelCase). */
 export interface DeathrollView {
   players: number[];
@@ -57,7 +70,7 @@ export function isRpsView(view: GameView | null): view is RpsView {
 }
 
 export interface IncomingInvite {
-  matchId: number;
+  offerId: number;
   gameType: string;
   from: number;
   /** Server-owned invite window in ms (for the visual countdown). */
@@ -67,11 +80,14 @@ export interface IncomingInvite {
 export interface ActiveMatch {
   matchId: number;
   gameType: string;
+  format?: string;
+  rulesetVersion?: number;
+  options?: Record<string, unknown>;
 }
 
 /** Challenger-facing pending outgoing invite (waiting for the opponent to answer). */
 export interface OutgoingInvite {
-  matchId: number | null;
+  offerId: number | null;
   targetSession: number;
   gameType: string;
   inviteMs?: number;
@@ -82,14 +98,18 @@ export interface OutgoingInvite {
 
 export interface EndedMatch {
   matchId: number;
+  sourceMatchId: number;
   gameType: string;
+  format?: string;
+  rulesetVersion?: number;
+  options?: Record<string, unknown>;
   abandoned?: boolean;
   reason?: string;
   winnerId?: number;
   draw?: boolean;
 }
 
-export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked';
+export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked' | 'busy';
 
 export interface InviteOutcome {
   kind: InviteOutcomeKind;
@@ -166,8 +186,8 @@ export function useGameState(myUserId: number): GameState {
   const selfCanceledRef = useRef(false);
 
   // Set when the user requests a cancel before the server has confirmed the invite
-  // (no matchId yet). Once game.invitePending arrives we immediately forfeit that
-  // matchId so the server actually tears the pending invite down.
+  // (no offerId yet). Once game.invitePending arrives we immediately cancel that
+  // offer so the server actually tears the pending invite down.
   const pendingCancelRef = useRef(false);
 
   // Refs so bridge handlers (registered once) can read current values.
@@ -190,46 +210,48 @@ export function useGameState(myUserId: number): GameState {
 
   useEffect(() => {
     const handleInvited = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; from?: number; inviteMs?: number };
-      if (d.matchId == null || d.from == null) return;
+      const d = data as { offerId?: number; gameType?: string; from?: number; inviteMs?: number };
+      const offerId = d.offerId;
+      if (offerId == null || d.from == null) return;
       const gameType = d.gameType ?? 'deathroll';
       if (!SUPPORTED_GAMES.includes(gameType)) {
         // This client build doesn't know this game — decline instead of opening the
         // wrong modal. (Old clients that predate this check can't reach here.)
-        gamesApi.respond(d.matchId, false).catch(() => {});
+        gamesApi.respondOffer(offerId, false).catch(() => {});
         return;
       }
-      setIncomingInvite({ matchId: d.matchId, gameType, from: d.from, inviteMs: d.inviteMs });
+      setIncomingInvite({ offerId, gameType, from: d.from, inviteMs: d.inviteMs });
     };
 
     // Challenger side: the server confirms our outgoing invite and supplies its
-    // matchId (which the fire-and-forget WebView invite couldn't return). Fill in
+    // offerId (which the fire-and-forget WebView invite couldn't return). Fill in
     // the pending-invite state so the "waiting for opponent" UI and cancel work.
     const handleInvitePending = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; target?: number; inviteMs?: number };
-      if (d.matchId == null) return;
+      const d = data as { offerId?: number; gameType?: string; target?: number; inviteMs?: number };
+      const offerId = d.offerId;
+      if (offerId == null) return;
       const existing = outgoingInviteRef.current;
       // The user asked to cancel before this confirmation arrived. Now that we have
-      // a matchId, actually forfeit it server-side. Keep the pending ("canceling")
+      // an offerId, actually cancel it server-side. Keep the pending ("canceling")
       // UI until the resulting game.expired clears it.
       if (pendingCancelRef.current) {
         pendingCancelRef.current = false;
         selfCanceledRef.current = true;
         setOutgoing({
-          matchId: d.matchId,
+          offerId,
           targetSession: d.target ?? existing?.targetSession ?? 0,
           gameType: d.gameType ?? existing?.gameType ?? 'deathroll',
           inviteMs: d.inviteMs,
           canceling: true,
         });
-        gamesApi.forfeit(d.matchId).catch(e => {
+        gamesApi.cancelOffer(offerId).catch(e => {
           selfCanceledRef.current = false;
           setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
         });
         return;
       }
       setOutgoing({
-        matchId: d.matchId,
+        offerId,
         targetSession: d.target ?? existing?.targetSession ?? 0,
         gameType: d.gameType ?? existing?.gameType ?? 'deathroll',
         inviteMs: d.inviteMs,
@@ -237,9 +259,15 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleStarted = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; views?: unknown; turnMs?: number };
+      const d = data as { matchId?: number; gameType?: string; format?: string; rulesetVersion?: number; options?: Record<string, unknown>; views?: unknown; turnMs?: number };
       if (d.matchId == null) return;
-      setActiveMatch({ matchId: d.matchId, gameType: d.gameType ?? incomingInviteRef.current?.gameType ?? 'deathroll' });
+      setActiveMatch({
+        matchId: d.matchId,
+        gameType: d.gameType ?? incomingInviteRef.current?.gameType ?? 'deathroll',
+        format: d.format,
+        rulesetVersion: d.rulesetVersion,
+        options: d.options,
+      });
       setIncomingInvite(null);
       setEnded(null);
       setView(pickMyView(d.views, myUserIdRef.current));
@@ -274,7 +302,7 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleEnded = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; abandoned?: boolean; reason?: string; winnerId?: number; draw?: boolean };
+      const d = data as { matchId?: number; gameType?: string; format?: string; rulesetVersion?: number; options?: Record<string, unknown>; abandoned?: boolean; reason?: string; winnerId?: number; draw?: boolean };
       // Prefer the server-supplied winnerId (authoritative, and correct even for
       // forfeits where the local view has no loserId). Fall back to deriving it
       // from the local view for older servers that omit it.
@@ -287,7 +315,11 @@ export function useGameState(myUserId: number): GameState {
       }
       setEnded({
         matchId: d.matchId ?? activeMatchRef.current?.matchId ?? 0,
+        sourceMatchId: d.matchId ?? activeMatchRef.current?.matchId ?? 0,
         gameType: d.gameType ?? activeMatchRef.current?.gameType ?? 'deathroll',
+        format: d.format ?? activeMatchRef.current?.format,
+        rulesetVersion: d.rulesetVersion ?? activeMatchRef.current?.rulesetVersion,
+        options: d.options ?? activeMatchRef.current?.options,
         abandoned: d.abandoned,
         reason: d.reason,
         winnerId,
@@ -317,6 +349,23 @@ export function useGameState(myUserId: number): GameState {
       setAccepting(false);
     };
 
+    // The offer became a reservation (queued or starting). Clear only the matching
+    // challenge so its buttons can't send commands for an offer that no longer
+    // exists. Deliberately no outcome notification: the ongoing status is rendered
+    // from the queue snapshot instead (see useDuelQueueState). Any self-cancel
+    // marker is left intact so a late game.expired is still swallowed correctly.
+    const handleAccepted = (data: unknown) => {
+      const { offerId } = data as { offerId?: number };
+      if (offerId == null) return;
+      if (incomingInviteRef.current?.offerId === offerId) {
+        setIncomingInvite(null);
+        setAccepting(false);
+      }
+      if (outgoingInviteRef.current?.offerId === offerId) {
+        setOutgoing(null);
+      }
+    };
+
     const handleDeclined = () => resolveOutgoing('declined');
     const handleExpired = () => {
       // A self-initiated cancel produces a server `game.expired`; don't surface it as
@@ -340,21 +389,43 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleError = (data: unknown) => {
-      const d = data as { error?: string; reason?: string };
+      const d = data as { error?: string; reason?: string; command?: string };
       const msg = d.error || 'A game error occurred.';
       // Accept could not complete (e.g. invite already gone) — re-enable the button.
       setAccepting(false);
-      // In the WebView client, a rejected invite (e.g. a blocked target) comes
-      // back as a game.error rather than a rejected invite() promise. If we have
-      // a pending outgoing invite and the server flagged it as blocked, surface it
-      // as the friendly "blocked" outcome instead of a raw error. Prefer the
-      // structured reason code; fall back to matching the message for old servers.
+      const outgoing = outgoingInviteRef.current;
+      // In the WebView client, a rejected invite comes back as a game.error rather
+      // than a rejected invite() promise: gamesApi.invite posts over the bridge and
+      // always resolves, so invite()'s own .catch never runs. This is therefore the
+      // only signal that the optimistic pending challenge died, and it must be torn
+      // down here or the "waiting for opponent" notification (with its Cancel button
+      // and fallback countdown) stays on screen next to the error. Correlate on the
+      // originating command so an unrelated ready/rematch failure can't clear it.
+      // Also disarm any cancel deferred against this invite, otherwise it would fire
+      // on the next challenge's game.invitePending and cancel the wrong offer.
+      if (d.command === 'game.invite') {
+        pendingCancelRef.current = false;
+        setOutgoing(null);
+      }
+      // If the server flagged the target as blocked, surface the friendly "blocked"
+      // outcome instead of a raw error. Prefer the structured reason code; fall back
+      // to matching the message for old servers.
       const isBlocked = d.reason === 'blocked' || /isn't accepting challenges/i.test(msg);
-      if (outgoingInviteRef.current && isBlocked) {
-        setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current.targetSession });
+      if (outgoing && isBlocked) {
+        setInviteOutcome({ kind: 'blocked', targetSession: outgoing.targetSession });
         setOutgoing(null);
         return;
       }
+      // A player may only be queued or in one live game at a time, so challenging a
+      // busy opponent is a normal outcome, not a fault. Raw errors render in the
+      // `game-error` slot, whose duration is null — it would sit there until clicked
+      // away. Route it through the friendly, auto-dismissing outcome slot instead.
+      if (outgoing && d.reason === 'alreadyCommitted') {
+        setInviteOutcome({ kind: 'busy', targetSession: outgoing.targetSession });
+        setOutgoing(null);
+        return;
+      }
+      if (d.command != null && DUEL_QUEUE_OWNED_COMMANDS.has(d.command)) return;
       setLastError(msg);
     };
 
@@ -363,6 +434,7 @@ export function useGameState(myUserId: number): GameState {
     bridge.on('game.started', handleStarted);
     bridge.on('game.stateUpdated', handleStateUpdated);
     bridge.on('game.ended', handleEnded);
+    bridge.on('game.accepted', handleAccepted);
     bridge.on('game.declined', handleDeclined);
     bridge.on('game.expired', handleExpired);
     bridge.on('game.actionRejected', handleActionRejected);
@@ -374,6 +446,7 @@ export function useGameState(myUserId: number): GameState {
       bridge.off('game.started', handleStarted);
       bridge.off('game.stateUpdated', handleStateUpdated);
       bridge.off('game.ended', handleEnded);
+      bridge.off('game.accepted', handleAccepted);
       bridge.off('game.declined', handleDeclined);
       bridge.off('game.expired', handleExpired);
       bridge.off('game.actionRejected', handleActionRejected);
@@ -396,8 +469,8 @@ export function useGameState(myUserId: number): GameState {
       setLastError('Respond to your pending challenge first.');
       return;
     }
-    // Optimistic pending state; the server's game.invitePending fills in the matchId.
-    setOutgoing({ matchId: null, targetSession: targetSessionId, gameType });
+    // Optimistic pending state; the server's game.invitePending fills in the offerId.
+    setOutgoing({ offerId: null, targetSession: targetSessionId, gameType });
     setInviteOutcome(null);
     gamesApi.invite(targetSessionId, gameType, options).catch(e => {
       // A blocked target comes back as a rejected invite; surface it as an outcome.
@@ -415,16 +488,16 @@ export function useGameState(myUserId: number): GameState {
     });
   }, [setOutgoing]);
 
-  // Cancels a pending outgoing invite. Forfeiting a still-pending match cancels it
-  // server-side (emitting game.expired), which clears our outgoing state via the
-  // existing handler. Requires the matchId from game.invitePending.
+  // Cancels a pending outgoing invite server-side (emitting game.expired), which
+  // clears our outgoing state via the existing handler. Requires the offerId from
+  // game.invitePending.
   const cancelInvite = useCallback(() => {
     const out = outgoingInviteRef.current;
     if (!out) return;
-    if (out.matchId == null) {
+    if (out.offerId == null) {
       // The server hasn't confirmed the invite yet, so we don't know what to
-      // forfeit. Keep the pending UI (as "canceling") and defer the actual
-      // server-side cancel until game.invitePending delivers the matchId, rather
+      // cancel. Keep the pending UI (as "canceling") and defer the actual
+      // server-side cancel until game.invitePending delivers the offerId, rather
       // than clearing locally while the server still holds a pending invite.
       pendingCancelRef.current = true;
       setOutgoing({ ...out, canceling: true });
@@ -434,7 +507,7 @@ export function useGameState(myUserId: number): GameState {
     // as "opponent didn't respond", and keep the pending UI as "canceling" until it.
     selfCanceledRef.current = true;
     setOutgoing({ ...out, canceling: true });
-    gamesApi.forfeit(out.matchId).catch(e => {
+    gamesApi.cancelOffer(out.offerId).catch(e => {
       selfCanceledRef.current = false;
       setLastError(e instanceof Error ? e.message : 'Failed to cancel invite.');
     });
@@ -447,7 +520,7 @@ export function useGameState(myUserId: number): GameState {
     // the invite. accepting is reset on started/declined/expired/error.
     if (acceptingRef.current) return;
     setAccepting(true);
-    gamesApi.respond(inv.matchId, true).catch(e => {
+    gamesApi.respondOffer(inv.offerId, true).catch(e => {
       setAccepting(false);
       setLastError(e instanceof Error ? e.message : 'Failed to accept invite.');
     });
@@ -458,7 +531,7 @@ export function useGameState(myUserId: number): GameState {
     setIncomingInvite(null);
     setAccepting(false);
     if (!inv) return;
-    gamesApi.respond(inv.matchId, false).catch(e => {
+    gamesApi.respondOffer(inv.offerId, false).catch(e => {
       setLastError(e instanceof Error ? e.message : 'Failed to decline invite.');
     });
   }, []);

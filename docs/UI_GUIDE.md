@@ -281,6 +281,15 @@ inviting with that best-of length (`invite(session, 'rps', { bestOf })`). The me
 by the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused
 by both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
 
+A player may only be queued or in one live game at a time, and the server refuses the
+challenge if either side already holds a duel commitment. The entry is therefore rendered
+**disabled** (`ContextMenuItem.disabled`, no `children`, so no empty flyout) when either
+player is committed, and its label states the reason: `You're in a duel` when the local
+player is the blocker (this takes precedence, since it blocks every challenge), otherwise
+`<name> is in a duel`. Committed sessions come from the queue snapshot via
+`collectCommittedSessions` (`components/Games/committedSessions.ts`) and are threaded down
+as `committedDuelSessions` alongside `duelChannelIds`.
+
 #### Challenger pending-invite notification
 
 While an outgoing challenge is awaiting an answer, the challenger sees a single `info`
@@ -290,15 +299,138 @@ invite it uses `duration={null}` + `countdownMs` (the server owns the window) �
 client-side timer. `×`/Cancel both cancel. The matchId needed to cancel arrives from the
 server's `game.invitePending` event (the fire-and-forget WebView invite can't return it).
 
-#### One duel per channel + duel badge
+#### Project 1 Duel Queue Pattern
 
-The server allows only one live duel per channel and rejects a second with the reason
-`channelBusy` (surfaced to the challenger via the standard `game-error` notification). Channels
-with a live duel show a swords badge (`<Icon name="swords">`, `--accent-primary`) on the channel
-row, sourced from the server's channel-scoped `game.duelState` events (`{ channelId, active }`).
-App maintains the `Set<number>` of busy channels and threads it as `duelChannelIds` through
-`Sidebar` → `ChannelTree` (cleared on voice disconnect). Keep the badge inside the channel-row
-header next to the access-lock icon; do not invent a new row-status container.
+The server allows only one live duel per channel. During project 1, a channel with an active duel
+(including `starting`), ready check, or non-empty accepted-pair queue shows a swords badge button
+(`<Icon name="swords">`, `--accent-primary`) in the channel row. App derives `duelChannelIds` from
+complete `game.queueSnapshot` replacements and clears them on voice disconnect; do not use the old
+`game.duelState` event or `channelBusy` UI state. Keep the button next to the access-lock icon and do
+not invent a new row-status container. Activating it opens that channel's duel activity without
+selecting or joining the channel.
+
+Project 1's duel activity surface is a temporary shared modal using the standard token-styled modal
+shell. It contains metadata only: active/starting pair, ready-check state, accepted pairs in server
+order, game display name, format, and the server-provided static ETA (`About …` or exactly
+`Unknown`). It does not locally decrement or derive ETAs.
+
+Duel activity cards show two distinct server-owned values. `Estimated duration: ~25s` is that duel's
+own expected length (server full-duration median; `Unknown` when the server has too few samples).
+The live card additionally shows `Elapsed: 12s` and either `Ends in about 13s` or, past the estimate,
+`6s over estimate` in `--accent-danger`. Queued cards show `Starts in about 50s` (cumulative, excludes
+their own duration) or `Starts in: Unknown` when any earlier segment is unknown — showing each duel's
+own estimate is what makes that propagation legible, so never invent a partial ETA. Elapsed and
+over-estimate values tick once per second from the server `startedAt`; they are display-only and never
+end, delay, or otherwise control a match.
+
+Ready checks use one persistent top-right `warning` `<Notification>` under the stable id
+`game-ready`. Show it only when the local participant is not ready. Its single primary action is
+**Ready**; the `×` dismiss affordance declines. Its detail is two lines: the opponent pair, then
+`Deathroll · 1v1 · Estimated duration: ~10s`. The pair label and the estimate come from
+`components/Games/duelFormatting.ts` (`pairLabel`, `estimateText`); the game name comes from
+`utils/games.ts` (`gameDisplayName`), and the format is raw snapshot data. The duel activity modal's
+ready-check card calls the same helpers, so the wording of the pair and the estimate cannot drift
+between the two — the layout can and does: the card also shows the ruleset version and puts the
+estimate on its own line. Neither surface shows a start ETA, because participant readiness rather
+than queue position controls advancement.
+
+Incoming rematches use one persistent top-right `info` notification under `game-rematch`, with
+**Accept** as the single primary action and `×` as decline. Both it and the ready check may show a
+visual-only countdown derived from the server expiry and never own the authoritative timeout.
+Derive `countdownMs` only from a present, parseable expiry — an absent or malformed `expiresAt`
+must yield `undefined` (no bar), never `NaN`, and the value must be memoized per offer/reservation
+identity so unrelated re-renders don't restart the bar animation.
+
+A rejected duel command (`game.error` correlated to ready / rematch response / rematch request, or
+a direct request rejection) is surfaced as one persistent top-right `error` notification under the
+stable id `game-command-error`. Title names the failed operation (e.g. `Ready check failed`); the
+detail is the server `reason`. It is **not** gated behind optional notification settings — errors
+stay ungated per section 13. Dismissal is tracked by the hook's monotonic `commandError.revision`
+so the next failure re-shows.
+
+Rematch **requests** from the result modal are locked client-side on `sourceMatchId` the same way
+Ready/Accept are locked, because `outgoingRematch` only arrives after the server answers. The lock
+releases on a correlated `requestRematch` error or when the completed match changes.
+
+Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
+**Rematch** action beside **Close**. A pending request disables that action and leaves the result
+modal open.
+
+#### Duel queue confirmation
+
+When an accepted challenge enters the queue, each participant gets one `info` notification under the
+stable id `game-queued`, titled `Added to duel queue`, with the opponent pair and a `Deathroll · 1v1`
+game/format line as detail. It uses the default `info` auto-dismiss and has no actions; `×`
+dismisses. A later reservation replaces it under the same id rather than stacking — hence a stable
+id, not a per-reservation one: replacement happens without any dismissal in between, so a generated
+id would never be unregistered and would leak a queue slot forever.
+
+It is derived from queue snapshots, not from `game.accepted`: that event carries an `offerId` while
+snapshots carry a `reservationId`, and the two do not correlate. A pair accepted into an idle channel
+is promoted to a ready check before the snapshot is built, so it never appears queued and no
+confirmation fires — the ready check is the confirmation in that case. The first snapshot per channel
+**per session** is consumed as a baseline (`useQueuedDuelConfirmation` re-baselines whenever
+`selfSession` changes, i.e. on reconnect), so reconnecting never replays an old confirmation.
+
+Being a repeatable informational notification, it respects Notifications -> `Disable optional
+notifications` and the `Duel queue updates` (`notificationDuelQueued`) category toggle. The gate is
+applied before `register`, per section 13.
+
+#### Missed ready check
+
+An expired ready check is reported as one top-right `<Notification>` under the stable id
+`game-ready-missed`, in one of two forms:
+
+- `warning` / **Missed your duel** — detail `You did not ready up in time` then
+  `<pair> removed from the queue`. Persistent.
+- `info` / **Duel canceled** — detail `<opponent> did not ready up in time`. Auto-dismisses on
+  the default `info` timer.
+
+When neither player readied, both see the **Missed your duel** form.
+
+The persistent form passes no `duration` prop: `warning` defaults to `duration: null`
+(`Notification.tsx:53`). That is the point — the player who missed the check was away, so the
+report has to survive until they come back. Do not "fix" it with an explicit duration.
+
+Only `reason === 'expired'` on `game.commitmentCanceled` produces it. The handler allow-lists that
+one reason rather than deny-listing the others, so a reason added server-side later cannot silently
+start reporting itself as a missed check. The other reasons are `declined` (a deliberate refusal),
+`disconnected`, `leftChannel`, `channelRemoved`, and `startFailed` — none of them are the player
+failing to answer. Note that `startFailed` is published inline
+(`DuelOrchestrator.cs:662`) rather than through `PublishReservationCancellationAsync`, so
+enumerating that helper's callers does not give you the full reason list.
+
+The ready state is captured from raw queue snapshots, not from App's derived `readyCheck`: that
+value filters to checks the local player has **not** readied, so it goes null the instant they
+press Ready and the "I readied, they didn't" case would never fire.
+
+The **Duel canceled** form requires *both* that `localReadied` is true and that
+`unreadyOpponents` is non-empty; everything else falls back to **Missed your duel**. Both parts
+are load-bearing. `localReadied` carries the rule that missing your own check outranks the opponent
+missing theirs — without it the neither-readied case wrongly blames the opponent, since they are in
+`unreadyOpponents` too. The length check is the safety net: `pairLabel([])` returns an empty string,
+so a degenerate capture falls back to the pair form instead of rendering a bare
+" did not ready up in time". The registration effect and the render read the same derived flag.
+
+The ready-check notification (`game-ready`) is suppressed while a missed report exists for the
+**same reservation id**. Without that, the player saw a live "Ready to play?" with a running
+countdown and an enabled Ready button next to "Missed your duel" — and that button was live but
+dead: pressing it POSTed `games/ready` for a reservation the server had already dropped, got
+rejected, and raised a third notification under `game-command-error`. `useDuelQueueState` does not
+subscribe to `game.commitmentCanceled`, so the derived `readyCheck` only clears on the next
+snapshot, and the server publishes the cancellation inline while deferring the snapshot rebuild to
+an async worker lane (`DuelOrchestrator.ExpireReadyAsync`) — the cancellation usually wins that
+race. Match on reservation id so a newer ready check is never suppressed.
+
+It is **not** behind an optional notification setting, matching the other duel outcome
+notifications: it is the outcome of an action the player took, not ambient information.
+
+The queue holds accepted pairs, so an expired check drops the pair rather than returning either
+player to their old position. Getting back in means a fresh challenge, which joins at the back.
+That is by design, not a gap to paper over in the UI.
+
+Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel` foreground
+game state, or new toast system. Those belong to project 2.
 
 #### Head-to-head record
 
@@ -957,7 +1089,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
 | **Brmblegotchi — Stats** | `gotchi-hunger`, `gotchi-happiness`, `gotchi-cleanliness` | Pet stat indicators |
-| **Games** | `swords`, `game-deathroll`, `game-rps`, `rps-rock`, `rps-paper`, `rps-scissors` | `swords` = the "Challenge to a duel" menu parent; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`); `rps-*` are the RPS choice-button icons (object metaphors) |
+| **Games** | `swords`, `game-deathroll`, `game-rps`, `rps-rock`, `rps-paper`, `rps-scissors` | `swords` = the "Challenge to a duel" menu parent and the actionable duel activity badge; `game-*` are per-game avatars/menu icons keyed by `gameType` (see `utils/games.ts`); `rps-*` are the RPS choice-button icons (object metaphors) |
 
 Brmblegotchi icons are prefixed `gotchi-` and shared across all pet themes (`original`, `dino`, `cat`). If a pet theme needs unique icons, add them under a sub-header like `/* ── gotchi · dino ── */` in the icon map.
 
@@ -1080,6 +1212,7 @@ Every notification uses a **title + detail** pattern:
 
 - **Title** = what happened. Short, scannable, fits one line. Bold weight.
 - **Detail** = context or next step. Smaller, secondary color. Optional — omit if the title says it all.
+- **Multi-line detail** = two or more bare `<div>`s inside a fragment. No wrapper class and no `<br/>`: they sit inside `.notification__detail` and inherit its size, color and line height.
 
 The status icon aligns vertically with the title line.
 
@@ -1127,6 +1260,7 @@ Top-right notifications are managed by the `useNotificationQueue` hook (`src/Brm
 - When a notification is dismissed or exits, the next queued entry **re-appears** automatically.
 - `register(id, status)` — call when notification data exists (e.g. broken profile detected, update available, server imported).
 - `unregister(id)` — call from `onExited` (after exit animation), not from `onDismiss`. This ensures the exit animation completes before the slot is freed.
+- `onExited` only fires if the component survives the exit animation. A notification behind a render gate — `{data && q.isVisible(id) && <Notification visible={true} … />}` — unmounts the moment `data` clears, before the exit timer is ever scheduled, so its `onExited` is unreachable. Such a notification must unregister from the same effect that registers it (`if (show) register(id, status); else unregister(id)`), or it leaks its queue slot.
 - `isVisible(id)` — pass as the `visible` prop to `<Notification>`.
 
 ### Queue Lifecycle Checklist
@@ -1211,3 +1345,4 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 |---|---|---|---|---|---|
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
+| `game-command-error` (App) | `error` | `top-right` | No | `Ready check failed` / `Rematch response failed` / `Rematch request failed` | Server `reason` for the rejected duel command |

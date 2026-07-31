@@ -42,6 +42,10 @@ interface SidebarProps {
   onChallengeDeathroll?: (session: number) => void;
   onChallengeRps?: (session: number, bestOf: number) => void;
   duelChannelIds?: Set<number>;
+  personalDuelChannelIds?: Set<number>;
+  /** Sessions with a live duel commitment; challenging them is refused by the server. */
+  committedDuelSessions?: ReadonlySet<number>;
+  onOpenDuelQueue?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -80,6 +84,9 @@ export function Sidebar({
   onChallengeDeathroll,
   onChallengeRps,
   duelChannelIds,
+  personalDuelChannelIds,
+  committedDuelSessions,
+  onOpenDuelQueue,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -449,6 +456,9 @@ export function Sidebar({
           onChallengeDeathroll={onChallengeDeathroll}
           onChallengeRps={onChallengeRps}
           duelChannelIds={duelChannelIds}
+          personalDuelChannelIds={personalDuelChannelIds}
+          committedDuelSessions={committedDuelSessions}
+          onOpenDuelQueue={onOpenDuelQueue}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}
@@ -484,7 +494,15 @@ export function Sidebar({
                 && target.channelId != null
                 && target.channelId === selfChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps)];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps, {
+                committedSessions: committedDuelSessions,
+                // If the local user isn't in the roster yet this is undefined and
+                // detection degrades to the target only. Enabled is the safe default:
+                // the server still rejects the challenge, and useGameState renders that
+                // as the friendly "busy" outcome.
+                selfSession: users.find(u => u.self)?.session,
+                targetName: contextMenu.userName,
+              })];
             })(),
             {
               type: 'item' as const,

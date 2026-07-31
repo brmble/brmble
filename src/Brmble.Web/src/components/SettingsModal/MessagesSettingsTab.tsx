@@ -16,6 +16,7 @@ export interface MessagesSettings {
   notificationScreenShareStatus: boolean;
   notificationIdleWarning: boolean;
   notificationMovedChannel: boolean;
+  notificationDuelQueued: boolean;
 }
 
 export const DEFAULT_MESSAGES: MessagesSettings = {
@@ -27,6 +28,7 @@ export const DEFAULT_MESSAGES: MessagesSettings = {
   notificationScreenShareStatus: true,
   notificationIdleWarning: true,
   notificationMovedChannel: true,
+  notificationDuelQueued: true,
 };
 
 type IncomingMessagesSettings = Partial<MessagesSettings> & { notificationsEnabled?: boolean };
@@ -222,6 +224,19 @@ export function MessagesSettingsTab({ settings, onChange }: MessagesSettingsTabP
               checked={!localSettings.notificationsDisabled && localSettings.notificationMovedChannel}
               disabled={localSettings.notificationsDisabled}
               onChange={(e) => handleChange('notificationMovedChannel', e.target.checked)}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="notification-duel-queued">Duel queue updates</label>
+          <label className="brmble-toggle">
+            <input
+              id="notification-duel-queued"
+              type="checkbox"
+              checked={!localSettings.notificationsDisabled && localSettings.notificationDuelQueued}
+              disabled={localSettings.notificationsDisabled}
+              onChange={(e) => handleChange('notificationDuelQueued', e.target.checked)}
             />
             <span className="brmble-toggle-slider"></span>
           </label>
