@@ -29,7 +29,7 @@ public class AuthEndpointsCompanionTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostAuthCompanion_PersistsAndBroadcastsChannelScopedUpdate()
+    public async Task PostAuthCompanion_PersistsAndBroadcastsToAllClients()
     {
         var tokenResponse = await _client.PostAsync("/auth/token", null);
         tokenResponse.EnsureSuccessStatusCode();
@@ -38,10 +38,12 @@ public class AuthEndpointsCompanionTests : IDisposable
         channelMembership.Update(42, 7);
 
         _factory.SessionMappingMock
-            .Setup(m => m.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
-            .Returns((long _, out int sid) =>
+            .Setup(m => m.TryGetMappingByUserId(
+                It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long userId, out int sid, out SessionMapping? mapping) =>
             {
                 sid = 42;
+                mapping = new SessionMapping("@alice:test", "Alice", userId, "floppy");
                 return true;
             });
         _factory.SessionMappingMock
@@ -54,8 +56,78 @@ public class AuthEndpointsCompanionTests : IDisposable
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         _factory.SessionMappingMock.Verify(m => m.TryUpdateCompanionId(42, "floppy"), Times.Once);
-        _factory.EventBusMock.Verify(b => b.BroadcastToChannelAsync(7, It.Is<object>(payload =>
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"type\":\"companionChanged\""))), Times.Once);
+        _factory.EventBusMock.Verify(
+            b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task PostAuthCompanion_BroadcastsEvenWhenChannelIsUnknown()
+    {
+        var tokenResponse = await _client.PostAsync("/auth/token", null);
+        tokenResponse.EnsureSuccessStatusCode();
+
+        // Deliberately no channelMembership.Update: the session has no resolvable channel,
+        // which previously suppressed the broadcast entirely.
+        _factory.SessionMappingMock
+            .Setup(m => m.TryGetMappingByUserId(
+                It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long userId, out int sid, out SessionMapping? mapping) =>
+            {
+                sid = 99;
+                mapping = new SessionMapping("@alice:test", "Alice", userId, "floppy");
+                return true;
+            });
+        _factory.SessionMappingMock
+            .Setup(m => m.TryUpdateCompanionId(99, "retro"))
+            .Returns(true);
+
+        var response = await _client.PostAsync(
+            "/auth/companion",
+            new StringContent(JsonSerializer.Serialize(new { companionId = "retro" }), Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload).Contains("\"sessionId\":99"))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task PostAuthCompanion_DoesNotBroadcastWhenSessionMappingIsMissing()
+    {
+        var tokenResponse = await _client.PostAsync("/auth/token", null);
+        tokenResponse.EnsureSuccessStatusCode();
+
+        // _userIdToSession can outlive _sessionToMapping (TryAddMatrixUser writes the
+        // userId index even when the mapping add fails), so a userId lookup can resolve
+        // to a session that has no mapping — or one now owned by a different user.
+        _factory.SessionMappingMock
+            .Setup(m => m.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long _, out int sid) =>
+            {
+                sid = 42;
+                return true;
+            });
+        _factory.SessionMappingMock
+            .Setup(m => m.TryGetMappingByUserId(
+                It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long _, out int sid, out SessionMapping? mapping) =>
+            {
+                sid = 0;
+                mapping = null;
+                return false;
+            });
+
+        var response = await _client.PostAsync(
+            "/auth/companion",
+            new StringContent(JsonSerializer.Serialize(new { companionId = "bee" }), Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("bee", await _factory.Services
+            .GetRequiredService<Brmble.Server.Auth.UserRepository>().GetCompanionId(1));
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
+        _factory.SessionMappingMock.Verify(
+            m => m.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()), Times.Never);
     }
 
     [TestMethod]

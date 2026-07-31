@@ -267,7 +267,6 @@ public static class AuthEndpoints
             CustomCompanionEventCoordinator customCompanionEventCoordinator,
             CustomCompanionRepository customCompanionRepository,
             ISessionMappingService sessionMapping,
-            IChannelMembershipService channelMembership,
             IBrmbleEventBus eventBus,
             ILogger<AuthService> logger) =>
         {
@@ -299,7 +298,7 @@ public static class AuthEndpoints
 
                     return await PersistCompanionSelectionAsync(
                         user, companionId!, userRepository, sessionMapping,
-                        channelMembership, eventBus, logger);
+                        eventBus, logger);
                 }
             }
 
@@ -308,7 +307,7 @@ public static class AuthEndpoints
 
             return await PersistCompanionSelectionAsync(
                 user, normalized, userRepository, sessionMapping,
-                channelMembership, eventBus, logger);
+                eventBus, logger);
         });
 
         return app;
@@ -319,27 +318,31 @@ public static class AuthEndpoints
         string companionId,
         UserRepository userRepository,
         ISessionMappingService sessionMapping,
-        IChannelMembershipService channelMembership,
         IBrmbleEventBus eventBus,
         ILogger<AuthService> logger)
     {
         await userRepository.SetCompanionId(user.Id, companionId);
 
-        if (sessionMapping.TryGetSessionByUserId(user.Id, out var sessionId))
+        // Resolve through TryGetMappingByUserId rather than TryGetSessionByUserId: the
+        // userId→session index can outlive or disagree with the session→mapping table, so a
+        // bare session lookup can point at a session with no mapping, or one that has since
+        // been recycled to a different user. Announcing either would publish a change that
+        // did not happen — or attribute it to somebody else.
+        if (sessionMapping.TryGetMappingByUserId(user.Id, out var sessionId, out _)
+            && sessionMapping.TryUpdateCompanionId(sessionId, companionId))
         {
-            sessionMapping.TryUpdateCompanionId(sessionId, companionId);
-            if (channelMembership.TryGetChannel(sessionId, out var channelId))
+            var wire = CompanionWireSelection.FromPersisted(companionId);
+            // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
+            // delivery left everyone outside the user's channel with a stale selection until
+            // their next reconnect (nothing re-delivers it on channel move).
+            await eventBus.BroadcastAsync(new
             {
-                var wire = CompanionWireSelection.FromPersisted(companionId);
-                await eventBus.BroadcastToChannelAsync(channelId, new
-                {
-                    type = "companionChanged",
-                    sessionId,
-                    matrixUserId = user.MatrixUserId,
-                    companionId = wire.CompanionId,
-                    customCompanionId = wire.CustomCompanionId
-                });
-            }
+                type = "companionChanged",
+                sessionId,
+                matrixUserId = user.MatrixUserId,
+                companionId = wire.CompanionId,
+                customCompanionId = wire.CustomCompanionId
+            });
         }
 
         logger.LogInformation(

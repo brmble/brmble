@@ -27,7 +27,6 @@ public static class CustomCompanionEndpoints
             CustomCompanionRepository repository,
             IMatrixAppService matrixAppService,
             ISessionMappingService sessionMapping,
-            IChannelMembershipService channelMembership,
             IBrmbleEventBus eventBus,
             ILogger<CustomCompanionGalleryService> logger) =>
         {
@@ -69,10 +68,11 @@ public static class CustomCompanionEndpoints
                     }
 
                     if (sessionMapping.TryUpdateCompanionIdIfCurrent(
-                            sessionId, deletedCompanionId, "floppy") &&
-                        channelMembership.TryGetChannel(sessionId, out var channelId))
+                            sessionId, deletedCompanionId, "floppy"))
                     {
-                        await eventBus.BroadcastToChannelAsync(channelId, new
+                        // Broadcast server-wide: a channel lookup failure previously swallowed
+                        // the event, and out-of-channel clients were never told at all.
+                        await eventBus.BroadcastAsync(new
                         {
                             type = "companionChanged",
                             sessionId,

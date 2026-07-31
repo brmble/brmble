@@ -58,7 +58,7 @@ public sealed class CustomCompanionDeletionTests : IDisposable
     }
 
     [TestMethod]
-    public async Task Delete_ActiveRecordBroadcastsFloppyChangeToAffectedUserChannel()
+    public async Task Delete_ActiveRecordBroadcastsFloppyChangeToAllClients()
     {
         await InsertActiveAsync();
         _factory.SessionMappingMock.Object.TryAddMatrixUser(42, "@alice:test", "Alice", 1, "custom:$sprite:test");
@@ -71,9 +71,30 @@ public sealed class CustomCompanionDeletionTests : IDisposable
         var response = await _client.DeleteAsync("/companions/%24sprite%3Atest");
 
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
-        _factory.EventBusMock.Verify(bus => bus.BroadcastToChannelAsync(7, It.Is<object>(payload =>
+        _factory.EventBusMock.Verify(bus => bus.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload) ==
             "{\"type\":\"companionChanged\",\"sessionId\":42,\"matrixUserId\":\"@alice:test\",\"companionId\":\"floppy\",\"customCompanionId\":null}")), Times.Once);
+        _factory.EventBusMock.Verify(
+            bus => bus.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task Delete_BroadcastsEvenWhenAffectedUserChannelIsUnknown()
+    {
+        await InsertActiveAsync();
+        _factory.SessionMappingMock.Object.TryAddMatrixUser(42, "@alice:test", "Alice", 1, "custom:$sprite:test");
+        // Deliberately no channel membership: a failed channel lookup previously
+        // swallowed the event, leaving other clients with a stale selection.
+        _factory.AclAuthorizationMock.Setup(service => service.CanModerateServerAsync(1)).ReturnsAsync(true);
+        _factory.MatrixAppMock.Setup(service => service.RedactRoomEvent(
+                "!gallery:test", "$sprite:test", It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.DeleteAsync("/companions/%24sprite%3Atest");
+
+        Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+        _factory.EventBusMock.Verify(bus => bus.BroadcastAsync(It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload).Contains("\"sessionId\":42"))), Times.Once);
     }
 
     [TestMethod]
@@ -106,7 +127,7 @@ public sealed class CustomCompanionDeletionTests : IDisposable
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
         Assert.AreEqual("bee", await userRepository.GetCompanionId(1));
         Assert.AreEqual("bee", _factory.SessionMappingMock.Object.GetSnapshot()[42].CompanionId);
-        _factory.EventBusMock.Verify(bus => bus.BroadcastToChannelAsync(7, It.IsAny<object>()), Times.Never);
+        _factory.EventBusMock.Verify(bus => bus.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
     [TestMethod]
@@ -219,8 +240,10 @@ public sealed class CustomCompanionDeletionTests : IDisposable
         Assert.AreEqual(HttpStatusCode.NoContent, deletionResponse.StatusCode);
         Assert.AreEqual(HttpStatusCode.BadRequest, selectionResponse.StatusCode);
         Assert.AreEqual("floppy", _factory.SessionMappingMock.Object.GetSnapshot()[42].CompanionId);
+        // The broadcast payload is the last argument for both BroadcastAsync and
+        // BroadcastToChannelAsync, so this holds regardless of the fan-out method.
         Assert.IsFalse(_factory.EventBusMock.Invocations.Any(invocation =>
-            JsonSerializer.Serialize(invocation.Arguments[1])
+            JsonSerializer.Serialize(invocation.Arguments[^1])
                 .Contains("\"customCompanionId\":\"custom:$sprite:test\"", StringComparison.Ordinal)));
     }
 
