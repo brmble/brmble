@@ -73,6 +73,7 @@ import { getOrderedChannels } from './utils/channelOrder';
 import { formatBroadcastSummary } from './utils/formatBroadcastSummary';
 import { gameDisplayName } from './utils/games';
 import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
+import { useMissedReadyCheck } from './components/Games/useMissedReadyCheck';
 import { estimateText, pairLabel } from './components/Games/duelFormatting';
 import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
 import './App.css';
@@ -1032,15 +1033,36 @@ function App() {
   ), [duelQueue.byChannel, selfSession]);
   const { confirmation: queuedDuelConfirmation, dismiss: dismissQueuedDuelConfirmation } =
     useQueuedDuelConfirmation(duelQueue.byChannel, selfSession);
+  const { missed: missedReadyCheck, dismiss: dismissMissedReadyCheck } =
+    useMissedReadyCheck(duelQueue.byChannel, selfSession);
+  // Blame the opponent only when there is actually an opponent to name. Branching on
+  // `localReadied` instead would let a degenerate capture (readied local, empty
+  // opponents) render a bare " did not ready up in time", since pairLabel([]) is ''.
+  // The register effect and the render must agree, so both read this one value.
+  const missedReadyBlamesOpponent = (missedReadyCheck?.unreadyOpponents.length ?? 0) > 0;
   const visibleQueuedDuelConfirmation =
     shouldShowOptionalNotification(optionalNotificationSettings, 'notificationDuelQueued')
       ? queuedDuelConfirmation
       : null;
   const [selectedDuelChannelId, setSelectedDuelChannelId] = useState<number | null>(null);
   const selectedDuelSnapshot = selectedDuelChannelId == null ? null : duelQueue.byChannel.get(selectedDuelChannelId) ?? null;
-  const readyCheck = [...duelQueue.byChannel.values()]
+  const snapshotReadyCheck = [...duelQueue.byChannel.values()]
     .map(snapshot => snapshot.readyCheck)
     .find(check => check?.players.some(player => player.sessionId === selfSession && !player.ready)) ?? null;
+  // A missed report and the ready check it refers to must never be on screen together.
+  // useDuelQueueState does not subscribe to game.commitmentCanceled, and the server
+  // publishes the cancellation inline while deferring the snapshot rebuild to a worker
+  // lane (DuelOrchestrator.ExpireReadyAsync), so the expired check lingers in the
+  // snapshot. Rendering it would offer a live Ready button for a reservation the server
+  // has already dropped; pressing it can only produce a rejected games/ready.
+  //
+  // Matched on reservation id, and only when a report actually exists, so a newer pop is
+  // never suppressed. Every consumer below reads this suppressed value, so the dead
+  // reservation cannot leak into the countdown, the submit path, or the registration.
+  const readyCheck = missedReadyCheck
+    && snapshotReadyCheck?.reservationId === missedReadyCheck.reservationId
+    ? null
+    : snapshotReadyCheck;
   const readySubmissionRef = useRef<number | null>(null);
   // Memoized per offer identity: countdownUntil() reads Date.now(), so computing
   // it inline during render would hand <Notification> a new animationDuration on
@@ -1140,6 +1162,19 @@ function App() {
     if (visibleQueuedDuelConfirmation) notifQueueRef.current.register('game-queued', 'info');
     else notifQueueRef.current.unregister('game-queued');
   }, [visibleQueuedDuelConfirmation]);
+  useEffect(() => {
+    if (missedReadyCheck) {
+      notifQueueRef.current.register(
+        'game-ready-missed', missedReadyBlamesOpponent ? 'info' : 'warning');
+    } else {
+      // Cleanup must live here: behind a render gate the notification unmounts before
+      // its exit timer is scheduled, so `onExited` never fires (UI_GUIDE §13).
+      notifQueueRef.current.unregister('game-ready-missed');
+    }
+    // `register` is id-idempotent and ignores the status of an already-registered id
+    // (useNotificationQueue.ts:58), so the status dep only takes effect because the hook
+    // always sets `missed` back to null before a new capture, unregistering in between.
+  }, [missedReadyCheck, missedReadyBlamesOpponent]);
   useEffect(() => {
     if (duelQueue.incomingRematch) notifQueueRef.current.register('game-rematch', 'info', 2);
     else notifQueueRef.current.unregister('game-rematch');
@@ -4700,6 +4735,27 @@ const handleConnect = (serverData: SavedServer) => {
               </>
             }
             onDismiss={dismissQueuedDuelConfirmation}
+          />
+        )}
+        {missedReadyCheck && notifQueue.isVisible('game-ready-missed') && (
+          <Notification
+            status={missedReadyBlamesOpponent ? 'info' : 'warning'}
+            position="top-right"
+            visible={true}
+            title={missedReadyBlamesOpponent ? 'Duel canceled' : 'Missed your duel'}
+            detail={missedReadyBlamesOpponent ? (
+              <div>
+                {pairLabel(missedReadyCheck.unreadyOpponents, resolveGamePlayerName)} did not ready up in time
+              </div>
+            ) : (
+              <>
+                <div>You did not ready up in time</div>
+                <div>
+                  {pairLabel(missedReadyCheck.players, resolveGamePlayerName)} removed from the queue
+                </div>
+              </>
+            )}
+            onDismiss={dismissMissedReadyCheck}
           />
         )}
         {readyCheck && notifQueue.isVisible('game-ready') && (

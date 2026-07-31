@@ -178,8 +178,11 @@ const snapshot = (
   active: parts.active ?? null, readyCheck: parts.readyCheck ?? null, queue: parts.queue ?? [],
 });
 
-const connectSelf = (channelId: number) => act(() => (bridge as unknown as { __emit: (event: string, data: unknown) => void })
-  .__emit('voice.connected', { channelId, users: [{ session: selfSession, name: 'Me', self: true, channelId }] }));
+const emitBridge = (event: string, data?: unknown) => act(() =>
+  (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit(event, data));
+
+const connectSelf = (channelId: number) => emitBridge(
+  'voice.connected', { channelId, users: [{ session: selfSession, name: 'Me', self: true, channelId }] });
 
 /**
  * A test-harness artefact, not a property of the app. The queue confirmation lands two
@@ -580,5 +583,95 @@ describe('App duel orchestration', () => {
     // hold one of the three visible slots for the rest of the session.
     expect(mocks.ids.has('game-queued')).toBe(false);
     expect(screen.queryByText('Added to duel queue')).toBeNull();
+  });
+
+  it('tells you when you missed your own ready check', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [player(selfSession), { ...player(22), ready: true }] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Missed your duel')).toBeInTheDocument();
+    expect(screen.getByText(/Player 11 vs Player 22 removed from the queue/)).toBeInTheDocument();
+  });
+
+  it('names the opponent who did not ready', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [{ ...player(selfSession), ready: true }, player(22)] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Duel canceled')).toBeInTheDocument();
+    expect(screen.getByText(/Player 22 did not ready up in time/)).toBeInTheDocument();
+  });
+
+  it('hides the live ready check once its duel is missed', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [player(selfSession), { ...player(22), ready: true }] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+    expect(screen.getByText('Ready to play?')).toBeInTheDocument();
+
+    // The snapshot still carries the ready check: useDuelQueueState does not subscribe to
+    // game.commitmentCanceled, and the server publishes the cancellation inline while
+    // deferring the snapshot rebuild. Leaving both on screen would offer a live Ready
+    // button for a reservation the server has already dropped, whose only outcome is a
+    // rejected games/ready and a third notification.
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+
+    expect(screen.queryByText('Ready to play?')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ready' })).toBeNull();
+    expect(mocks.ids.has('game-ready')).toBe(false);
+    expect(screen.getByText('Missed your duel')).toBeInTheDocument();
+  });
+
+  it('still shows a newer ready check after a missed report', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [player(selfSession), { ...player(22), ready: true }] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+    expect(screen.queryByText('Ready to play?')).toBeNull();
+
+    // Suppression is keyed on the reservation, so a fresh pop must not be swallowed.
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ reservationId: 43, players: [player(selfSession), player(22)] }),
+    })]]);
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Ready to play?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ready' })).toBeEnabled();
+  });
+
+  it('releases the missed ready slot when dismissed', () => {
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [player(selfSession), { ...player(22), ready: true }] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+    expect(mocks.ids.has('game-ready-missed')).toBe(true);
+
+    // Unscoped on purpose: the missed report suppresses the ready check for the same
+    // reservation, so this is the only dismiss button on screen.
+    fireEvent.click(screen.getByLabelText('Dismiss notification'));
+    rerenderApp(rerender);
+
+    // Dismissing unmounts the notification through the render gate, so `onExited` never
+    // runs. Only the registration effect can release the slot.
+    expect(mocks.ids.has('game-ready-missed')).toBe(false);
   });
 });

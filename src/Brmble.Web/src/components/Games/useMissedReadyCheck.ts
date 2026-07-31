@@ -6,6 +6,14 @@ export interface MissedReadyCheck {
   reservationId: number;
   /** The pair as it stood when the check expired. */
   players: DuelPlayer[];
+  /**
+   * Whether the local player readied before the check expired.
+   *
+   * Retained deliberately as part of this hook's contract even though App branches its
+   * copy on `unreadyOpponents.length` instead: `pairLabel([])` is `''`, so keying the
+   * render off the array degrades to the pair form rather than to blank text for
+   * degenerate data. This stays the honest answer to "did I ready?".
+   */
   localReadied: boolean;
   /** Opponents who did not ready. Empty when only the local player failed. */
   unreadyOpponents: DuelPlayer[];
