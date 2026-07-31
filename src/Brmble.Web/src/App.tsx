@@ -4867,7 +4867,9 @@ const handleConnect = (serverData: SavedServer) => {
             ? { title: 'Challenge declined', detail: `${name} declined your challenge.` }
             : o.kind === 'expired'
               ? { title: 'No response', detail: `${name} didn't respond to your challenge.` }
-              : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
+              : o.kind === 'busy'
+                ? { title: 'Challenge unavailable', detail: `${name} is already in a duel.` }
+                : { title: 'Challenge blocked', detail: `${name} isn't accepting challenges.` };
           return (
             <Notification
               status="info"

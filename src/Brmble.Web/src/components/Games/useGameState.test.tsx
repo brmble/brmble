@@ -126,7 +126,38 @@ describe('useGameState', () => {
       });
 
       expect(result.current.outgoingInvite).toBeNull();
-      expect(result.current.lastError).toBe('A player is already committed.');
+    });
+
+    // "A player is already committed." is orchestrator vocabulary and renders as a
+    // never-auto-dismissing error box. A busy opponent is a normal outcome of a
+    // challenge, so route it through the friendly (auto-dismissing) outcome slot.
+    it('reports a busy opponent as a friendly invite outcome, not an error', () => {
+      const { result } = renderHook(() => useGameState(11));
+
+      act(() => result.current.invite(22, 'deathroll'));
+
+      emit('game.error', {
+        command: 'game.invite', path: 'games/invite',
+        error: 'A player is already committed.', statusCode: 400, reason: 'alreadyCommitted',
+      });
+
+      expect(result.current.inviteOutcome).toEqual({ kind: 'busy', targetSession: 22 });
+      expect(result.current.lastError).toBeNull();
+      expect(result.current.outgoingInvite).toBeNull();
+    });
+
+    it('still reports a non-busy invite failure as an error', () => {
+      const { result } = renderHook(() => useGameState(11));
+
+      act(() => result.current.invite(22, 'deathroll'));
+
+      emit('game.error', {
+        command: 'game.invite', path: 'games/invite',
+        error: 'That game type is unavailable.', statusCode: 400, reason: 'unknownGameType',
+      });
+
+      expect(result.current.inviteOutcome).toBeNull();
+      expect(result.current.lastError).toBe('That game type is unavailable.');
     });
 
     it('leaves the pending challenge intact when an unrelated command fails', () => {

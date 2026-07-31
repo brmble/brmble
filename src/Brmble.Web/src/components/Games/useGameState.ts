@@ -96,7 +96,7 @@ export interface EndedMatch {
   draw?: boolean;
 }
 
-export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked';
+export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked' | 'busy';
 
 export interface InviteOutcome {
   kind: InviteOutcomeKind;
@@ -400,6 +400,15 @@ export function useGameState(myUserId: number): GameState {
       const isBlocked = d.reason === 'blocked' || /isn't accepting challenges/i.test(msg);
       if (outgoing && isBlocked) {
         setInviteOutcome({ kind: 'blocked', targetSession: outgoing.targetSession });
+        setOutgoing(null);
+        return;
+      }
+      // A player may only be queued or in one live game at a time, so challenging a
+      // busy opponent is a normal outcome, not a fault. Raw errors render in the
+      // `game-error` slot, whose duration is null — it would sit there until clicked
+      // away. Route it through the friendly, auto-dismissing outcome slot instead.
+      if (outgoing && d.reason === 'alreadyCommitted') {
+        setInviteOutcome({ kind: 'busy', targetSession: outgoing.targetSession });
         setOutgoing(null);
         return;
       }
