@@ -17,7 +17,7 @@ public sealed class SessionMappingPaintPresence(ISessionMappingService sessions,
     {
         participant = null!;
         if (!sessions.TryGetMappingByUserId(userId, out var sessionId, out var mapping) || mapping is null ||
-            !mapping.IsBrmbleClient || !membership.TryGetChannel(sessionId, out var channelId))
+            mapping.IsBrmbleClient != true || !membership.TryGetChannel(sessionId, out var channelId))
             return false;
         participant = new PaintPresenceParticipant(userId, channelId, sessionId, mapping.MatrixUserId);
         return true;
@@ -27,7 +27,7 @@ public sealed class SessionMappingPaintPresence(ISessionMappingService sessions,
     {
         var snapshot = sessions.GetSnapshot();
         return membership.GetSessionsInChannel(channelId)
-            .Where(sessionId => snapshot.TryGetValue(sessionId, out var mapping) && mapping.IsBrmbleClient)
+            .Where(sessionId => snapshot.TryGetValue(sessionId, out var mapping) && mapping.IsBrmbleClient == true)
             .Select(sessionId =>
             {
                 var mapping = snapshot[sessionId];
@@ -41,7 +41,7 @@ public sealed class SessionMappingPaintPresence(ISessionMappingService sessions,
         participant = null!;
         var snapshot = sessions.GetSnapshot();
         if (!snapshot.TryGetValue(mumbleSessionId, out var mapping)
-            || !mapping.IsBrmbleClient
+            || mapping.IsBrmbleClient != true
             || !membership.TryGetChannel(mumbleSessionId, out var channelId))
             return false;
 

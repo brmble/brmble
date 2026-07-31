@@ -114,18 +114,19 @@ public class SessionMappingHandlerTests
     {
         var user = await _repo.Insert("abc123", "Alice");
         _mapping.Setup(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy")).Returns(false);
-        _mapping.Setup(m => m.TryUpdateBrmbleStatus(1, false)).Returns(true);
+        _mapping.Setup(m => m.TryUpdateBrmbleStatus(1, (bool?)null)).Returns(true);
         _mapping.Setup(m => m.TryUpdateCertHash(1, "abc123")).Returns(true);
 
         await _handler.OnUserConnected(new MumbleUser("Alice", "abc123", 1));
 
         _mapping.Verify(m => m.TryAddMatrixUser(1, user.MatrixUserId, "Alice", user.Id, "floppy"), Times.Once);
-        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, false), Times.Once);
+        // No socket has registered, so the status is unknown rather than a positive false.
+        _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, (bool?)null), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
             message.GetType().GetProperty("type")!.GetValue(message)!.Equals("userMappingAdded") &&
             message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1) &&
             message.GetType().GetProperty("certHash")!.GetValue(message)!.Equals("abc123") &&
-            message.GetType().GetProperty("isBrmbleClient")!.GetValue(message)!.Equals(false))), Times.Once);
+            message.GetType().GetProperty("isBrmbleClient")!.GetValue(message) == null)), Times.Once);
     }
 
     [TestMethod]
@@ -176,5 +177,45 @@ public class SessionMappingHandlerTests
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"companionId\":\"floppy\"") &&
             JsonSerializer.Serialize(payload).Contains("\"customCompanionId\":\"custom:$sprite:test\""))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_PublishesUnknownBrmbleStatusWhenNoActiveSession()
+    {
+        // No WebSocket has registered for this cert, so IActiveBrmbleSessions returns false.
+        // That is absence of evidence, not evidence of absence: it must go out as null.
+        await _repo.Insert("cert-alice", "Alice");
+        var broadcasts = new List<object>();
+        _bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(broadcasts.Add)
+            .Returns(Task.CompletedTask);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "cert-alice", 42));
+
+        var payload = broadcasts.Single(p =>
+            JsonSerializer.Serialize(p).Contains("\"type\":\"userMappingAdded\""));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+
+        Assert.AreEqual(JsonValueKind.Null,
+            doc.RootElement.GetProperty("isBrmbleClient").ValueKind);
+    }
+
+    [TestMethod]
+    public async Task OnUserConnected_PublishesTrueWhenSessionIsKnownActive()
+    {
+        await _repo.Insert("cert-alice", "Alice");
+        _activeSessions.Setup(s => s.IsBrmbleClient("cert-alice")).Returns(true);
+        var broadcasts = new List<object>();
+        _bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(broadcasts.Add)
+            .Returns(Task.CompletedTask);
+
+        await _handler.OnUserConnected(new MumbleUser("Alice", "cert-alice", 42));
+
+        var payload = broadcasts.Single(p =>
+            JsonSerializer.Serialize(p).Contains("\"type\":\"userMappingAdded\""));
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+
+        Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
     }
 }

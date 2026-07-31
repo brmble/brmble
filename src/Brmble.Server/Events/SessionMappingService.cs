@@ -92,7 +92,7 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
-    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)
+    public bool TryUpdateBrmbleStatus(int sessionId, bool? isBrmbleClient)
     {
         while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {

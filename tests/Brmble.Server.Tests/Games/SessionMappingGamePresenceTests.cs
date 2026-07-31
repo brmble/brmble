@@ -28,7 +28,7 @@ file sealed class FakeSessionMapping : ISessionMappingService
     public bool TryUpdateCompanionId(int sessionId, string companionId) => throw new NotImplementedException();
     public bool TryUpdateCompanionIdIfCurrent(int sessionId, string expectedCompanionId, string companionId) => throw new NotImplementedException();
     public bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId) => throw new NotImplementedException();
-    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient) => throw new NotImplementedException();
+    public bool TryUpdateBrmbleStatus(int sessionId, bool? isBrmbleClient) => throw new NotImplementedException();
     public bool TryUpdateCertHash(int sessionId, string certHash) => throw new NotImplementedException();
 }
 

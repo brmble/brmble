@@ -35,7 +35,10 @@ public class SessionMappingHandler : IMumbleEventHandler
         var companionId = await _userRepository.GetCompanionId(dbUser.Id);
 
         _activeSessions.TrackMumbleName(user.Name, user.CertHash);
-        var isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash);
+        // A registered WebSocket proves true. Nothing proves false here: after a restart
+        // _activeSessions is empty, so "not active" only means "not known yet". Publishing
+        // false would assert something we cannot know, and clients would believe it.
+        bool? isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash) ? true : null;
 
         var mappingAdded = _sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId);
         _sessionMapping.TryUpdateCertHash(user.SessionId, user.CertHash);
@@ -57,7 +60,7 @@ public class SessionMappingHandler : IMumbleEventHandler
             isBrmbleClient
         });
 
-        if (!mappingAdded && isBrmbleClient)
+        if (!mappingAdded && isBrmbleClient == true)
         {
             await _eventBus.BroadcastAsync(new
             {
