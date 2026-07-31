@@ -28,10 +28,12 @@ const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDial
 }));
 
 vi.mock('../ContextMenu/ContextMenu', () => ({
-  ContextMenu: ({ items }: { items: Array<{ label?: string; type: string; onClick?: () => void }> }) => (
+  ContextMenu: ({ items }: { items: Array<{ label?: string; type: string; onClick?: () => void; disabled?: boolean; children?: unknown[] }> }) => (
     <div data-testid="context-menu">
       {items.map((item, index) =>
-        item.type === 'item' ? <button key={`${item.label}-${index}`} onClick={item.onClick}>{item.label}</button> : <hr key={`divider-${index}`} />
+        item.type === 'item'
+          ? <button key={`${item.label}-${index}`} onClick={item.onClick} disabled={item.disabled} data-has-children={item.children ? 'yes' : 'no'}>{item.label}</button>
+          : <hr key={`divider-${index}`} />
       )}
     </div>
   ),
@@ -859,5 +861,58 @@ describe('ChannelTree duel activity badge', () => {
     );
 
     expect(screen.getByLabelText('Open duel activity for General')).not.toHaveClass('active');
+  });
+});
+
+// The server refuses a challenge when either side already holds a duel commitment, so
+// the entry is disabled rather than offered. These drive the real right-click path to
+// prove ChannelTree's own wiring — its `users.find(u => u.self)` lookup and the
+// `contextMenu.userName` hand-off — actually reaches buildChallengeMenuItem. That is the
+// only non-trivial logic in the App -> Sidebar -> ChannelTree chain.
+describe('ChannelTree challenge entry', () => {
+  const duelUsers = [
+    { session: 1, name: 'Me', channelId: 1, self: true, isBrmbleClient: true },
+    { session: 2, name: 'Alice', channelId: 1, isBrmbleClient: true },
+  ];
+
+  function renderTree(committedDuelSessions?: Set<number>) {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={duelUsers}
+        currentChannelId={1}
+        onJoinChannel={vi.fn()}
+        onChallengeDeathroll={vi.fn()}
+        onChallengeRps={vi.fn()}
+        committedDuelSessions={committedDuelSessions}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+  }
+
+  it('offers an enabled challenge with its game-type submenu when nobody is committed', () => {
+    renderTree(new Set([999]));
+
+    const entry = screen.getByRole('button', { name: 'Challenge to a duel' });
+    expect(entry).toBeEnabled();
+    expect(entry).toHaveAttribute('data-has-children', 'yes');
+  });
+
+  it('disables the entry and names the target when the target is in a duel', () => {
+    renderTree(new Set([2]));
+
+    const entry = screen.getByRole('button', { name: 'Alice is in a duel' });
+    expect(entry).toBeDisabled();
+    expect(entry).toHaveAttribute('data-has-children', 'no');
+    expect(screen.queryByText('Challenge to a duel')).not.toBeInTheDocument();
+  });
+
+  // Specifically covers the users.find(u => u.self)?.session lookup.
+  it('disables the entry with the self copy when the local player is in a duel', () => {
+    renderTree(new Set([1]));
+
+    const entry = screen.getByRole('button', { name: "You're in a duel" });
+    expect(entry).toBeDisabled();
+    expect(screen.queryByText('Alice is in a duel')).not.toBeInTheDocument();
   });
 });

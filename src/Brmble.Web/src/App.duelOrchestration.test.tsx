@@ -483,6 +483,24 @@ describe('App duel orchestration', () => {
     expect(mocks.sidebarProps.current?.personalDuelChannelIds).toEqual(new Set());
   });
 
+  // Guards the App -> Sidebar -> ChannelTree -> buildChallengeMenuItem wiring for the
+  // disabled "Challenge to a duel" entry. The unit tests cover the derivation and the
+  // menu item separately; only this proves the derived VALUE actually reaches the
+  // component. Type-checking proves the props connect, not that the right set flows.
+  it('threads every committed session to the sidebar for the challenge menu', () => {
+    mocks.duelQueue.byChannel = new Map<number, DuelQueueSnapshot>([
+      [7, snapshot(7, { queue: [queuedEntry([player(901), player(902)])] })],
+      [8, snapshot(8, {
+        readyCheck: readyCheck({ players: [player(903), player(904)] }),
+      })],
+    ]);
+    renderApp();
+    connectSelf(7);
+
+    expect(mocks.sidebarProps.current?.committedDuelSessions)
+      .toEqual(new Set([901, 902, 903, 904]));
+  });
+
   it('closes a selected modal when its snapshot is removed', () => {
     const activeSnapshot = {
       schemaVersion: 1 as const, channelId: 7, generation: 1, revision: 1, generatedAt: new Date().toISOString(), calculationTimeMs: 1,

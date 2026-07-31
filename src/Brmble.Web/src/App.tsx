@@ -42,6 +42,7 @@ import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
+import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -1031,6 +1032,12 @@ function App() {
         || snapshot.queue.some(entry => entry.players.some(player => player.sessionId === selfSession)))
       .map(snapshot => snapshot.channelId),
   ), [duelQueue.byChannel, selfSession]);
+  // Sessions the server holds a duel commitment for. A challenge involving either such
+  // player is rejected outright, so the challenge menu entry is disabled for them.
+  const committedDuelSessions = useMemo(
+    () => collectCommittedSessions(duelQueue.byChannel),
+    [duelQueue.byChannel],
+  );
   const { confirmation: queuedDuelConfirmation, dismiss: dismissQueuedDuelConfirmation } =
     useQueuedDuelConfirmation(duelQueue.byChannel, selfSession);
   const { missed: missedReadyCheck, dismiss: dismissMissedReadyCheck } =
@@ -4469,6 +4476,7 @@ const handleConnect = (serverData: SavedServer) => {
           onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
           duelChannelIds={duelChannelIds}
           personalDuelChannelIds={personalDuelChannelIds}
+          committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={setSelectedDuelChannelId}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}

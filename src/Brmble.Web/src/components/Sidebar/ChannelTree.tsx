@@ -62,6 +62,8 @@ interface ChannelTreeProps {
   duelChannelIds?: Set<number>;
   /** Subset of duelChannelIds where the local player is queued or in a ready check. */
   personalDuelChannelIds?: Set<number>;
+  /** Sessions with a live duel commitment; challenging them is refused by the server. */
+  committedDuelSessions?: ReadonlySet<number>;
   onOpenDuelQueue?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
@@ -94,7 +96,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -635,7 +637,15 @@ onClick: () => {
                 && contextMenu.channelId != null
                 && contextMenu.channelId === currentChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps)];
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps, {
+                committedSessions: committedDuelSessions,
+                // If the local user isn't in the roster yet this is undefined and
+                // detection degrades to the target only. Enabled is the safe default:
+                // the server still rejects the challenge, and useGameState renders that
+                // as the friendly "busy" outcome.
+                selfSession: users.find(u => u.self)?.session,
+                targetName: contextMenu.userName,
+              })];
             })(),
             {
               type: 'item' as const,

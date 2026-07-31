@@ -242,6 +242,15 @@ inviting with that best-of length (`invite(session, 'rps', { bestOf })`). The me
 by the shared `buildChallengeMenuItem` helper (`components/Games/challengeMenu.tsx`) and reused
 by both `Sidebar` and `ChannelTree` — add new games there so both user-row menus stay in sync.
 
+A player may only be queued or in one live game at a time, and the server refuses the
+challenge if either side already holds a duel commitment. The entry is therefore rendered
+**disabled** (`ContextMenuItem.disabled`, no `children`, so no empty flyout) when either
+player is committed, and its label states the reason: `You're in a duel` when the local
+player is the blocker (this takes precedence, since it blocks every challenge), otherwise
+`<name> is in a duel`. Committed sessions come from the queue snapshot via
+`collectCommittedSessions` (`components/Games/committedSessions.ts`) and are threaded down
+as `committedDuelSessions` alongside `duelChannelIds`.
+
 #### Challenger pending-invite notification
 
 While an outgoing challenge is awaiting an answer, the challenger sees a single `info`
