@@ -16,6 +16,8 @@ describe('paintCanvas', () => {
       moveTo: () => operations.push('moveTo'),
       lineTo: () => operations.push('lineTo'),
       stroke: () => operations.push('stroke'),
+      arc: (...args: number[]) => operations.push(`arc:${args.join(',')}`),
+      fill: () => operations.push('fill'),
       set globalCompositeOperation(value: string) { operations.push(value); },
       set strokeStyle(value: string) { operations.push(value); },
       set lineWidth(value: number) { operations.push(String(value)); },
@@ -37,6 +39,31 @@ describe('paintCanvas', () => {
     });
 
     expect(operations).toContain('destination-out');
+    expect(operations).toContain('arc:10,20,3,0,6.283185307179586');
+    expect(operations).toContain('fill');
+  });
+
+  it('renders a one-point pen stroke as a filled dot', () => {
+    const operations: string[] = [];
+    const ctx = {
+      beginPath: () => operations.push('beginPath'),
+      moveTo: () => operations.push('moveTo'),
+      arc: (...args: number[]) => operations.push(`arc:${args.join(',')}`),
+      fill: () => operations.push('fill'),
+      set globalCompositeOperation(value: string) { operations.push(value); },
+      set fillStyle(value: string) { operations.push(value); },
+      set strokeStyle(_value: string) {}, set lineWidth(_value: number) {}, lineCap: 'round', lineJoin: 'round',
+    } as unknown as CanvasRenderingContext2D;
+
+    applyPaintStrokeToContext(ctx, 100, 50, {
+      id: 'stroke-pen-dot', correlationId: 'corr-pen-dot', authorUserId: 1, authorMatrixUserId: '@alice:server',
+      sequence: 1, generation: 0, tool: 'pen', color: '#ef4444', width: 6,
+      points: [{ x: 0.1, y: 0.2 }], active: true,
+    });
+
+    expect(operations).toContain('source-over');
+    expect(operations).toContain('arc:10,10,3,0,6.283185307179586');
+    expect(operations).toContain('fill');
   });
 
   it('keeps the source layer intact when composing an erased annotation into a PNG', async () => {
@@ -47,9 +74,9 @@ describe('paintCanvas', () => {
       set globalCompositeOperation(value: string) { compositionOperations.push(value); },
     } as unknown as CanvasRenderingContext2D;
     const annotationContext = {
-      beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+      beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn(),
       set globalCompositeOperation(value: string) { annotationOperations.push(value); },
-      set strokeStyle(_value: string) {}, set lineWidth(_value: number) {}, lineCap: 'round', lineJoin: 'round',
+      set strokeStyle(_value: string) {}, set fillStyle(_value: string) {}, set lineWidth(_value: number) {}, lineCap: 'round', lineJoin: 'round',
     } as unknown as CanvasRenderingContext2D;
     const output = { width: 0, height: 0, getContext: vi.fn(() => compositionContext), toBlob: (callback: BlobCallback) => callback(new Blob(['png'])) } as unknown as HTMLCanvasElement;
     const annotations = { width: 0, height: 0, getContext: vi.fn(() => annotationContext) } as unknown as HTMLCanvasElement;

@@ -29,7 +29,7 @@ async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
   Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
   const drawImage = vi.fn();
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-    clearRect: vi.fn(), drawImage, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+    clearRect: vi.fn(), drawImage, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn(),
   } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(new Blob(['png'], { type: 'image/png' })));
 
@@ -116,6 +116,8 @@ describe('PaintEditor', () => {
       moveTo: vi.fn(),
       lineTo: vi.fn(),
       stroke,
+      arc: vi.fn(),
+      fill: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
     const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
@@ -211,6 +213,8 @@ describe('PaintEditor', () => {
       moveTo: vi.fn(),
       lineTo: vi.fn(),
       stroke,
+      arc: vi.fn(),
+      fill: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
     const paintApi = fakePaintApi();
     const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[]} currentUserId={1} />);
@@ -248,6 +252,8 @@ describe('PaintEditor', () => {
       moveTo: vi.fn(),
       lineTo,
       stroke,
+      arc: vi.fn(),
+      fill: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
     const paintApi = fakePaintApi();
     const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} previews={[]} currentUserId={1} />);
@@ -280,7 +286,7 @@ describe('PaintEditor', () => {
   it('removes an optimistic stroke and reports a rejected commit', async () => {
     const stroke = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke,
+      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke, arc: vi.fn(), fill: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
     const paintApi = { ...fakePaintApi(), commitStroke: vi.fn().mockRejectedValue(new Error('Stroke rejected')) };
     const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
@@ -313,7 +319,7 @@ describe('PaintEditor', () => {
   it('drops pending local strokes when the server advances the generation', () => {
     const stroke = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke,
+      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke, arc: vi.fn(), fill: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
     const paintApi = { ...fakePaintApi(), commitStroke: vi.fn(() => new Promise(() => {})) };
     const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
@@ -356,7 +362,7 @@ describe('PaintEditor', () => {
     Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 100 });
     Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
     const draw = vi.fn();
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ clearRect: vi.fn(), drawImage: draw, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ clearRect: vi.fn(), drawImage: draw, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn() } as unknown as CanvasRenderingContext2D);
 
     render(<PaintEditor sessionId="session-1" paintApi={{ commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() }} snapshot={{ ...activeSnapshot, strokes }} previews={[preview]} currentUserId={1} matrixClient={matrixClient} />);
 

@@ -17,7 +17,15 @@ export function applyPaintStrokeToContext(ctx: CanvasRenderingContext2D, width: 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.moveTo(first.x * width, first.y * height);
+  const x = first.x * width;
+  const y = first.y * height;
+  if (stroke.points.length === 1) {
+    ctx.fillStyle = stroke.color ?? '#000000';
+    ctx.arc(x, y, stroke.width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.moveTo(x, y);
   for (const point of stroke.points.slice(1)) ctx.lineTo(point.x * width, point.y * height);
   ctx.stroke();
 }
