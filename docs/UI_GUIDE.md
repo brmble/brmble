@@ -356,11 +356,13 @@ The ready state is captured from raw queue snapshots, not from App's derived `re
 value filters to checks the local player has **not** readied, so it goes null the instant they
 press Ready and the "I readied, they didn't" case would never fire.
 
-The render branches on `unreadyOpponents.length`, not on `localReadied`. `pairLabel([])` returns an
-empty string, so keying off the array makes degenerate data fall into the **Missed your duel** form
-instead of rendering a bare " did not ready up in time". `localReadied` stays part of the hook's
-contract as the honest answer to "did I ready?", but has no production consumer — the registration
-effect and the render must read the same derived flag.
+The **Duel canceled** form requires *both* that `localReadied` is true and that
+`unreadyOpponents` is non-empty; everything else falls back to **Missed your duel**. Both parts
+are load-bearing. `localReadied` carries the rule that missing your own check outranks the opponent
+missing theirs — without it the neither-readied case wrongly blames the opponent, since they are in
+`unreadyOpponents` too. The length check is the safety net: `pairLabel([])` returns an empty string,
+so a degenerate capture falls back to the pair form instead of rendering a bare
+" did not ready up in time". The registration effect and the render read the same derived flag.
 
 The ready-check notification (`game-ready`) is suppressed while a missed report exists for the
 **same reservation id**. Without that, the player saw a live "Ready to play?" with a running

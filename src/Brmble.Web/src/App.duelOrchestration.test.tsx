@@ -587,6 +587,8 @@ describe('App duel orchestration', () => {
 
   it('tells you when you missed your own ready check', () => {
     mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      // The opponent readied, so `unreadyOpponents` is empty here. That is why this test
+      // alone could not catch the neither-readied branch — see the test below.
       readyCheck: readyCheck({ players: [player(selfSession), { ...player(22), ready: true }] }),
     })]]);
     const { rerender } = renderApp();
@@ -597,6 +599,43 @@ describe('App duel orchestration', () => {
 
     expect(screen.getByText('Missed your duel')).toBeInTheDocument();
     expect(screen.getByText(/Player 11 vs Player 22 removed from the queue/)).toBeInTheDocument();
+  });
+
+  it('blames you, not the opponent, when neither player readied', () => {
+    // Both default to ready: false. Missing your own check outranks the opponent missing
+    // theirs, so this must be the persistent warning form even though the opponent is
+    // also in `unreadyOpponents`.
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({ players: [player(selfSession), player(22)] }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Missed your duel')).toBeInTheDocument();
+    expect(screen.getByText(/Player 11 vs Player 22 removed from the queue/)).toBeInTheDocument();
+    expect(screen.queryByText('Duel canceled')).toBeNull();
+  });
+
+  it('falls back to the missed form when there is no unready opponent to name', () => {
+    // Degenerate: the server should not expire a check everyone readied, but nothing in
+    // the types forbids it. pairLabel([]) is '', so blaming the opponent here would
+    // render a bare " did not ready up in time".
+    mocks.duelQueue.byChannel = new Map([[7, snapshot(7, {
+      readyCheck: readyCheck({
+        players: [{ ...player(selfSession), ready: true }, { ...player(22), ready: true }],
+      }),
+    })]]);
+    const { rerender } = renderApp();
+    connectSelf(7);
+
+    emitBridge('game.commitmentCanceled', { reservationId: 42, reason: 'expired' });
+    rerenderApp(rerender);
+
+    expect(screen.getByText('Missed your duel')).toBeInTheDocument();
+    expect(screen.queryByText('Duel canceled')).toBeNull();
   });
 
   it('names the opponent who did not ready', () => {

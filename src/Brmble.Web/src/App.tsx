@@ -1035,11 +1035,16 @@ function App() {
     useQueuedDuelConfirmation(duelQueue.byChannel, selfSession);
   const { missed: missedReadyCheck, dismiss: dismissMissedReadyCheck } =
     useMissedReadyCheck(duelQueue.byChannel, selfSession);
-  // Blame the opponent only when there is actually an opponent to name. Branching on
-  // `localReadied` instead would let a degenerate capture (readied local, empty
-  // opponents) render a bare " did not ready up in time", since pairLabel([]) is ''.
-  // The register effect and the render must agree, so both read this one value.
-  const missedReadyBlamesOpponent = (missedReadyCheck?.unreadyOpponents.length ?? 0) > 0;
+  // Blame the opponent only when BOTH hold: the local player readied, and there is
+  // actually an opponent to name. Missing your own check outranks the opponent missing
+  // theirs, so if neither readied the local player still sees the "Missed your duel"
+  // form — `unreadyOpponents` is non-empty in that case, which is why the readied test
+  // cannot be dropped. The empty-array test is the safety net: pairLabel([]) is '', so a
+  // degenerate capture falls back to the pair form rather than rendering a bare
+  // " did not ready up in time". The register effect and the render must agree, so both
+  // read this one value.
+  const missedReadyBlamesOpponent = !!missedReadyCheck?.localReadied
+    && missedReadyCheck.unreadyOpponents.length > 0;
   const visibleQueuedDuelConfirmation =
     shouldShowOptionalNotification(optionalNotificationSettings, 'notificationDuelQueued')
       ? queuedDuelConfirmation
