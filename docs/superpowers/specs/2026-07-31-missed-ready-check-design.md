@@ -18,9 +18,12 @@ reservation (`DuelOrchestrator.ExpireReadyAsync`) and publishes
 client has no handler for that event. The ready notification simply disappears when the ready check
 leaves the snapshot.
 
-The consequence is worse than it first appears: expiry removes the reservation entirely and promotes
-the next pair, so **both** players lose their place — including the one who did ready up. Neither is
-told why.
+Expiry removes the reservation and promotes the next pair. That is by design: the queue holds pairs,
+not individuals, and a player can hold only one commitment at a time, so there is no individual place
+to preserve and nobody to requeue a lone ready player against. Getting back in means issuing a fresh
+challenge, which joins the queue as a new pair at the back.
+
+The gap is purely that none of this is reported. Both players are dropped from the queue in silence.
 
 ## Queue Confirmation Copy
 
@@ -112,8 +115,8 @@ settings toggle. That matches the existing duel outcome notifications, which are
 ## Out of Scope
 
 - Any re-challenge or requeue action. Both notifications are informational; the player re-challenges
-  through the normal path.
-- Changing what expiry does on the server. The reservation is still dropped and the next pair
-  promoted.
+  through the normal path, which joins the queue as a new pair.
+- Changing what expiry does on the server. Dropping the pair and promoting the next one is correct
+  for a pair-keyed queue, not a limitation being deferred.
 - Reporting `declined` or `disconnected` outcomes, and adding a decline button to the ready check.
 - Any change to the badge highlight or the duel activity panel.
