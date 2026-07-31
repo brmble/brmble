@@ -328,6 +328,57 @@ Being a repeatable informational notification, it respects Notifications -> `Dis
 notifications` and the `Duel queue updates` (`notificationDuelQueued`) category toggle. The gate is
 applied before `register`, per section 13.
 
+#### Missed ready check
+
+An expired ready check is reported as one top-right `<Notification>` under the stable id
+`game-ready-missed`, in one of two forms:
+
+- `warning` / **Missed your duel** — detail `You did not ready up in time` then
+  `<pair> removed from the queue`. Persistent.
+- `info` / **Duel canceled** — detail `<opponent> did not ready up in time`. Auto-dismisses on
+  the default `info` timer.
+
+When neither player readied, both see the **Missed your duel** form.
+
+The persistent form passes no `duration` prop: `warning` defaults to `duration: null`
+(`Notification.tsx:53`). That is the point — the player who missed the check was away, so the
+report has to survive until they come back. Do not "fix" it with an explicit duration.
+
+Only `reason === 'expired'` on `game.commitmentCanceled` produces it. The handler allow-lists that
+one reason rather than deny-listing the others, so a reason added server-side later cannot silently
+start reporting itself as a missed check. The other reasons are `declined` (a deliberate refusal),
+`disconnected`, `leftChannel`, `channelRemoved`, and `startFailed` — none of them are the player
+failing to answer. Note that `startFailed` is published inline
+(`DuelOrchestrator.cs:662`) rather than through `PublishReservationCancellationAsync`, so
+enumerating that helper's callers does not give you the full reason list.
+
+The ready state is captured from raw queue snapshots, not from App's derived `readyCheck`: that
+value filters to checks the local player has **not** readied, so it goes null the instant they
+press Ready and the "I readied, they didn't" case would never fire.
+
+The render branches on `unreadyOpponents.length`, not on `localReadied`. `pairLabel([])` returns an
+empty string, so keying off the array makes degenerate data fall into the **Missed your duel** form
+instead of rendering a bare " did not ready up in time". `localReadied` stays part of the hook's
+contract as the honest answer to "did I ready?", but has no production consumer — the registration
+effect and the render must read the same derived flag.
+
+The ready-check notification (`game-ready`) is suppressed while a missed report exists for the
+**same reservation id**. Without that, the player saw a live "Ready to play?" with a running
+countdown and an enabled Ready button next to "Missed your duel" — and that button was live but
+dead: pressing it POSTed `games/ready` for a reservation the server had already dropped, got
+rejected, and raised a third notification under `game-command-error`. `useDuelQueueState` does not
+subscribe to `game.commitmentCanceled`, so the derived `readyCheck` only clears on the next
+snapshot, and the server publishes the cancellation inline while deferring the snapshot rebuild to
+an async worker lane (`DuelOrchestrator.ExpireReadyAsync`) — the cancellation usually wins that
+race. Match on reservation id so a newer ready check is never suppressed.
+
+It is **not** behind an optional notification setting, matching the other duel outcome
+notifications: it is the outcome of an action the player took, not ambient information.
+
+The queue holds accepted pairs, so an expired check drops the pair rather than returning either
+player to their old position. Getting back in means a fresh challenge, which joins at the back.
+That is by design, not a gap to paper over in the UI.
+
 Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel` foreground
 game state, or new toast system. Those belong to project 2.
 
