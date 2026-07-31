@@ -2279,8 +2279,11 @@ function App() {
             // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
             const certHash = d.certHash || existing.certHash;
             const matrixUserId = d.matrixUserId || existing.matrixUserId;
+            // A user state carries no companion for a session the client has no mapping for,
+            // which is not the same as the user having no companion.
+            const companionId = d.companionId ?? existing.companionId;
             const isBrmbleClient = d.isBrmbleClient !== undefined ? d.isBrmbleClient : existing.isBrmbleClient;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, isBrmbleClient } : u);
+            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, companionId, isBrmbleClient } : u);
           }
           return [...prev, d];
         });
@@ -2780,7 +2783,7 @@ function App() {
             ? {
               ...u,
               matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
-              companionId: d.action === 'added' ? d.companionId : u.companionId,
+              companionId: d.action === 'added' ? (d.companionId ?? u.companionId) : u.companionId,
               certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
               isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
             }

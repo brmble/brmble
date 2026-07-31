@@ -64,6 +64,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private string? _activeServerId;
     private Dictionary<string, string> _userMappings = new();
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
+
+    /// <summary>
+    /// Brmble status for sessions this client has not been told the mapping for yet. The
+    /// server may announce that a session became a Brmble client before this client learns
+    /// who that session is, and every later user state re-asserts the flag from the mapping
+    /// cache, so an activation that had nowhere to land would not merely be missed once, it
+    /// would be contradicted from then on.
+    /// </summary>
+    private readonly ConcurrentDictionary<uint, bool> _pendingBrmbleStatus = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
@@ -1951,7 +1960,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 _sessionMappings.Clear();
                 foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
-                    _sessionMappings[sid] = entry;
+                    _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
             }
 
             ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
@@ -2521,6 +2530,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return true;
     }
 
+    /// <summary>
+    /// Records a Brmble status announcement against the session's mapping, holding it aside
+    /// when the mapping is not known yet so the next mapping for that session adopts it.
+    /// </summary>
+    private void RecordBrmbleStatus(uint sessionId, bool isBrmbleClient)
+    {
+        if (_sessionMappings.TryGetValue(sessionId, out var entry))
+        {
+            _sessionMappings[sessionId] = entry with { IsBrmbleClient = isBrmbleClient };
+            _pendingBrmbleStatus.TryRemove(sessionId, out _);
+            return;
+        }
+
+        _pendingBrmbleStatus[sessionId] = isBrmbleClient;
+    }
+
+    /// <summary>
+    /// Folds a status announcement that arrived before this mapping into it. The announcement
+    /// is the newer of the two, so it wins over the status the mapping was built with.
+    /// </summary>
+    private SessionMappingEntry ApplyPendingBrmbleStatus(uint sessionId, SessionMappingEntry entry)
+        => _pendingBrmbleStatus.TryRemove(sessionId, out var pending)
+            ? entry with { IsBrmbleClient = pending }
+            : entry;
+
     private void HandleWebSocketMessage(string json)
     {
         try
@@ -2532,11 +2566,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             switch (type)
             {
                 case "sessionMappingSnapshot":
-                    _sessionMappings.Clear();
+        _sessionMappings.Clear();
+        _pendingBrmbleStatus.Clear();
                     if (root.TryGetProperty("mappings", out var mappings))
                     {
                         foreach (var (sid, entry) in ParseSessionMappings(mappings))
-                            _sessionMappings[sid] = entry;
+                            _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
                     }
                     _bridge?.Send("voice.sessionMappingSnapshot",
                         new
@@ -2557,13 +2592,22 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
                     var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
                     var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
-                    var addCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : "floppy";
+                    // An announcement that carries no companion is not a claim that the user has
+                    // none. It is sent for a session this client may already know in full, so the
+                    // known companion is kept rather than replaced with the default.
+                    var announcedCompanionId = root.TryGetProperty("companionId", out var companionProp) ? companionProp.GetString() : null;
                     var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
                     var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
-                    if (addSid > 0 && addMatrixId is not null && addName is not null && addCompanionId is not null)
+                    if (addSid > 0 && addMatrixId is not null && addName is not null)
                     {
-                        _sessionMappings[addSid] = new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = addIsBrmble, action = "added" });
+                        var knownCompanionId = _sessionMappings.TryGetValue(addSid, out var priorMapping)
+                            ? priorMapping.CompanionId
+                            : null;
+                        var addCompanionId = announcedCompanionId ?? knownCompanionId ?? "floppy";
+                        _sessionMappings[addSid] = ApplyPendingBrmbleStatus(
+                            addSid, new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash));
+                        var storedMapping = _sessionMappings[addSid];
+                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = storedMapping.IsBrmbleClient, action = "added" });
                         _bridge?.NotifyUiThread();
                     }
                     break;
@@ -2587,6 +2631,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     if (rmSid > 0)
                     {
                         _sessionMappings.TryRemove(rmSid, out _);
+                        _pendingBrmbleStatus.TryRemove(rmSid, out _);
                         _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
                         _bridge?.NotifyUiThread();
                     }
@@ -2594,9 +2639,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "brmbleClientActivated":
                     var actSid = root.TryGetProperty("sessionId", out var actSidProp) ? actSidProp.GetUInt32() : 0u;
-                    if (actSid > 0 && _sessionMappings.TryGetValue(actSid, out var actEntry))
+                    if (actSid > 0)
                     {
-                        _sessionMappings[actSid] = actEntry with { IsBrmbleClient = true };
+                        RecordBrmbleStatus(actSid, true);
                     }
                     _bridge?.Send("voice.brmbleClientActivated", new { sessionId = actSid });
                     _bridge?.NotifyUiThread();
@@ -2604,9 +2649,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                 case "brmbleClientDeactivated":
                     var deactSid = root.TryGetProperty("sessionId", out var deactSidProp) ? deactSidProp.GetUInt32() : 0u;
-                    if (deactSid > 0 && _sessionMappings.TryGetValue(deactSid, out var deactEntry))
+                    if (deactSid > 0)
                     {
-                        _sessionMappings[deactSid] = deactEntry with { IsBrmbleClient = false };
+                        RecordBrmbleStatus(deactSid, false);
                     }
                     _bridge?.Send("voice.brmbleClientDeactivated", new { sessionId = deactSid });
                     _bridge?.NotifyUiThread();
@@ -4087,7 +4132,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 certHash = u.CertificateHash ?? (hasMap ? sm!.CertHash : null),
                 matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
                 companionId = hasMap ? sm!.CompanionId : null,
-                isBrmbleClient = hasMap && sm!.IsBrmbleClient
+                isBrmbleClient = hasMap ? sm!.IsBrmbleClient : _pendingBrmbleStatus.GetValueOrDefault(u.Id)
             };
         }).ToList();
 
@@ -4211,7 +4256,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             certHash = user?.CertificateHash ?? (hasJoinMapping ? joinMapping!.CertHash : null),
             matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
             companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
-            isBrmbleClient = hasJoinMapping && joinMapping!.IsBrmbleClient
+            isBrmbleClient = hasJoinMapping
+                ? joinMapping!.IsBrmbleClient
+                : _pendingBrmbleStatus.GetValueOrDefault(userState.Session)
         });
         _bridge?.NotifyUiThread();
 

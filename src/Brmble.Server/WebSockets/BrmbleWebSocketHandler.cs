@@ -126,6 +126,7 @@ public static class BrmbleWebSocketHandler
         sessionId,
         matrixUserId = mapping.MatrixUserId,
         mumbleName = mapping.MumbleName,
+        companionId = mapping.CompanionId,
         certHash,
         isBrmbleClient = true
     };
