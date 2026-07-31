@@ -509,7 +509,7 @@ describe('App duel orchestration', () => {
     })]]);
     rerenderApp(rerender);
 
-    expect(screen.getByText('Challenge accepted')).toBeInTheDocument();
+    expect(screen.getByText('Added to duel queue')).toBeInTheDocument();
     expect(screen.getByText('Player 11 vs Player 22')).toBeInTheDocument();
     expect(screen.getByText('Rock Paper Scissors · bo3')).toBeInTheDocument();
   });
@@ -524,7 +524,7 @@ describe('App duel orchestration', () => {
     })]]);
     rerenderApp(rerender);
 
-    expect(screen.queryByText('Challenge accepted')).toBeNull();
+    expect(screen.queryByText('Added to duel queue')).toBeNull();
   });
 
   it('suppresses the queue confirmation when its category is disabled', () => {
@@ -539,7 +539,7 @@ describe('App duel orchestration', () => {
     })]]);
     rerenderApp(rerender);
 
-    expect(screen.queryByText('Challenge accepted')).toBeNull();
+    expect(screen.queryByText('Added to duel queue')).toBeNull();
   });
 
   it('releases the queue confirmation slot when the category is disabled mid-flight', () => {
@@ -559,7 +559,7 @@ describe('App duel orchestration', () => {
     // The registration must actually be released, not merely hidden by the render gate:
     // a stale entry would hold one of the three visible slots for the rest of the session.
     expect(mocks.ids.has('game-queued')).toBe(false);
-    expect(screen.queryByText('Challenge accepted')).toBeNull();
+    expect(screen.queryByText('Added to duel queue')).toBeNull();
   });
 
   it('releases the queue confirmation slot when it is dismissed', () => {
@@ -579,6 +579,6 @@ describe('App duel orchestration', () => {
     // runs. Only the registration effect can release the slot; without that the id would
     // hold one of the three visible slots for the rest of the session.
     expect(mocks.ids.has('game-queued')).toBe(false);
-    expect(screen.queryByText('Challenge accepted')).toBeNull();
+    expect(screen.queryByText('Added to duel queue')).toBeNull();
   });
 });

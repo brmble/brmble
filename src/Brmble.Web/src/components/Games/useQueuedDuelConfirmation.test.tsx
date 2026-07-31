@@ -186,7 +186,7 @@ describe('useQueuedDuelConfirmation', () => {
     rerender({ byChannel: channels(snapshot(7, { queue: [queued(41, [SELF, 22])] })) });
     expect(result.current.confirmation?.reservationId).toBe(41);
 
-    // Promoted to a ready check: "Challenge accepted" is stale, the ready check takes over.
+    // Promoted to a ready check: "Added to duel queue" is stale, the ready check takes over.
     rerender({ byChannel: channels(snapshot(7, { readyCheck: ready(41, [SELF, 22]) })) });
     expect(result.current.confirmation).toBeNull();
 

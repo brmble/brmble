@@ -4692,7 +4692,7 @@ const handleConnect = (serverData: SavedServer) => {
             status="info"
             position="top-right"
             visible={true}
-            title="Challenge accepted"
+            title="Added to duel queue"
             detail={
               <>
                 <div>{pairLabel(visibleQueuedDuelConfirmation.players, resolveGamePlayerName)}</div>

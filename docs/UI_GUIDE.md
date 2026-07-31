@@ -311,7 +311,7 @@ modal open.
 #### Duel queue confirmation
 
 When an accepted challenge enters the queue, each participant gets one `info` notification under the
-stable id `game-queued`, titled `Challenge accepted`, with the opponent pair and a `Deathroll · 1v1`
+stable id `game-queued`, titled `Added to duel queue`, with the opponent pair and a `Deathroll · 1v1`
 game/format line as detail. It uses the default `info` auto-dismiss and has no actions; `×`
 dismisses. A later reservation replaces it under the same id rather than stacking — hence a stable
 id, not a per-reservation one: replacement happens without any dismissal in between, so a generated
