@@ -1166,6 +1166,15 @@ function App() {
       setRequestedRematchMatchId(null);
     }
   }, [gameState.ended?.sourceMatchId]);
+  // A rematch of the ended match is already in flight in one direction or the
+  // other, so a second request would only be rejected as `alreadyCommitted`.
+  // Incoming counts too: the opponent has committed, and the Accept button on the
+  // "Rematch offered" notification is the action to take instead.
+  const endedSourceMatchId = gameState.ended?.sourceMatchId ?? null;
+  const rematchPending = endedSourceMatchId !== null && (
+    duelQueue.outgoingRematch?.sourceMatchId === endedSourceMatchId
+    || duelQueue.incomingRematch?.sourceMatchId === endedSourceMatchId
+    || requestedRematchMatchId === endedSourceMatchId);
   useEffect(() => {
     if (readyCheck) notifQueueRef.current.register('game-ready', 'warning');
     else notifQueueRef.current.unregister('game-ready');
@@ -4692,7 +4701,7 @@ const handleConnect = (serverData: SavedServer) => {
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
             onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={!!gameState.ended && (duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId || requestedRematchMatchId === gameState.ended.sourceMatchId)}
+            rematchPending={rematchPending}
           />
         ) : (
           <DeathrollModal
@@ -4707,7 +4716,7 @@ const handleConnect = (serverData: SavedServer) => {
             onForfeit={confirmForfeit}
             onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
             onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={!!gameState.ended && (duelQueue.outgoingRematch?.sourceMatchId === gameState.ended.sourceMatchId || requestedRematchMatchId === gameState.ended.sourceMatchId)}
+            rematchPending={rematchPending}
           />
         )
       )}

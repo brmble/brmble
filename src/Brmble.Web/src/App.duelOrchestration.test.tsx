@@ -410,6 +410,27 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = null;
   });
 
+  // An incoming offer means the opponent already committed to a rematch of this
+  // match, so our own request is guaranteed to be rejected with `alreadyCommitted`.
+  // The Accept button on the "Rematch offered" notification is the action to take.
+  it('disables the rematch action while an incoming offer for the same match is open', () => {
+    mocks.gameState.ended = ended;
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
+    renderApp();
+
+    expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
+    mocks.gameState.ended = null;
+  });
+
+  it('leaves the rematch action enabled for an offer from a different match', () => {
+    mocks.gameState.ended = ended;
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 92, gameType: 'rps' };
+    renderApp();
+
+    expect(screen.getByRole('button', { name: 'Rematch' })).toBeEnabled();
+    mocks.gameState.ended = null;
+  });
+
   it('locks a rematch request against double click and unlocks on a correlated error', () => {
     mocks.gameState.ended = ended;
     const { rerender } = renderApp();
