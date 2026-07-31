@@ -115,6 +115,24 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
+    public bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId)
+    {
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            // Compare-and-swap on the mapping we read: a session removed and recycled to a
+            // different user between the read and the write would otherwise have its owner's
+            // companion overwritten, and the change announced under the wrong identity.
+            if (existing.UserId != userId)
+                return false;
+
+            var updated = existing with { CompanionId = companionId };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+                return true;
+        }
+
+        return false;
+    }
+
     public bool TryUpdateCertHash(int sessionId, string certHash)
     {
         if (_sessionToMapping.TryGetValue(sessionId, out var existing))

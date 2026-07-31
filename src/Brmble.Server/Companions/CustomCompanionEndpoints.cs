@@ -38,6 +38,8 @@ public static class CustomCompanionEndpoints
             if (!await aclAuthorization.CanModerateServerAsync(user.Id))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
+            var resetSessions = new List<(int SessionId, string MatrixUserId)>();
+
             using (await eventCoordinator.AcquireAsync(eventId, httpContext.RequestAborted))
             {
                 var record = await repository.GetActiveByEventIdAsync(eventId);
@@ -70,21 +72,29 @@ public static class CustomCompanionEndpoints
                     if (sessionMapping.TryUpdateCompanionIdIfCurrent(
                             sessionId, deletedCompanionId, "floppy"))
                     {
-                        // Broadcast server-wide: a channel lookup failure previously swallowed
-                        // the event, and out-of-channel clients were never told at all.
-                        await eventBus.BroadcastAsync(new
-                        {
-                            type = "companionChanged",
-                            sessionId,
-                            matrixUserId = mapping.MatrixUserId,
-                            companionId = "floppy",
-                            customCompanionId = (string?)null
-                        });
+                        resetSessions.Add((sessionId, mapping.MatrixUserId));
                     }
                 }
-
-                return Results.NoContent();
             }
+
+            // Broadcast outside the coordinator lock: each announcement is a full-server
+            // fan-out and one deletion can affect every user wearing the skin, so holding the
+            // lock across that socket I/O would serialise unrelated deletions behind it.
+            foreach (var (sessionId, matrixUserId) in resetSessions)
+            {
+                // Broadcast server-wide: a channel lookup failure previously swallowed
+                // the event, and out-of-channel clients were never told at all.
+                await eventBus.BroadcastAsync(new
+                {
+                    type = "companionChanged",
+                    sessionId,
+                    matrixUserId,
+                    companionId = "floppy",
+                    customCompanionId = (string?)null
+                });
+            }
+
+            return Results.NoContent();
         });
 
         return app;

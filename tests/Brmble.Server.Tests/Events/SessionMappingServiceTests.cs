@@ -156,6 +156,36 @@ public class SessionMappingServiceTests
     }
 
     [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_UpdatesWhenSessionStillOwnedByUser()
+    {
+        _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
+
+        var updated = _svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy");
+
+        Assert.IsTrue(updated);
+        Assert.AreEqual("floppy", _svc.GetSnapshot()[42].CompanionId);
+    }
+
+    [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_RejectsRecycledSession()
+    {
+        // Session 42 was released by user 100 and reclaimed by user 200 — a write carrying
+        // the old owner's userId must not land on the new owner's mapping.
+        _svc.TryAddMatrixUser(42, "@bob:test", "Bob", 200L, "bee");
+
+        var updated = _svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy");
+
+        Assert.IsFalse(updated);
+        Assert.AreEqual("bee", _svc.GetSnapshot()[42].CompanionId);
+    }
+
+    [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_ReturnsFalseWhenMappingIsMissing()
+    {
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy"));
+    }
+
+    [TestMethod]
     public void TryUpdateCertHash_UpdatesExistingMapping()
     {
         _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");

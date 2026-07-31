@@ -327,9 +327,11 @@ public static class AuthEndpoints
         // userId→session index can outlive or disagree with the session→mapping table, so a
         // bare session lookup can point at a session with no mapping, or one that has since
         // been recycled to a different user. Announcing either would publish a change that
-        // did not happen — or attribute it to somebody else.
+        // did not happen — or attribute it to somebody else. The update is then done with a
+        // CAS on the owning userId, so a recycle racing between the lookup and the write
+        // cannot land on the new owner's mapping either.
         if (sessionMapping.TryGetMappingByUserId(user.Id, out var sessionId, out _)
-            && sessionMapping.TryUpdateCompanionId(sessionId, companionId))
+            && sessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, user.Id, companionId))
         {
             var wire = CompanionWireSelection.FromPersisted(companionId);
             // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped

@@ -13,6 +13,7 @@ public interface ISessionMappingService
     bool TryGetMappingByUserId(long userId, out int sessionId, out SessionMapping? mapping);
     bool TryUpdateCompanionId(int sessionId, string companionId);
     bool TryUpdateCompanionIdIfCurrent(int sessionId, string expectedCompanionId, string companionId);
+    bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId);
     bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient);
     bool TryUpdateCertHash(int sessionId, string certHash);
     IReadOnlyDictionary<int, SessionMapping> GetSnapshot();

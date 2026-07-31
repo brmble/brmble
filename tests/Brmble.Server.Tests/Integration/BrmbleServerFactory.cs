@@ -70,6 +70,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()))
             .Returns((int sessionId, string expectedCompanionId, string companionId) =>
                 defaultSessionMapping.TryUpdateCompanionIdIfCurrent(sessionId, expectedCompanionId, companionId));
+        SessionMappingMock.Setup(s => s.TryUpdateCompanionIdIfOwnedBy(
+                It.IsAny<int>(), It.IsAny<long>(), It.IsAny<string>()))
+            .Returns((int sessionId, long userId, string companionId) =>
+                defaultSessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, userId, companionId));
         SessionMappingMock.Setup(s => s.TryUpdateCertHash(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string certHash) => defaultSessionMapping.TryUpdateCertHash(sessionId, certHash));
         SessionMappingMock.Setup(s => s.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny))
