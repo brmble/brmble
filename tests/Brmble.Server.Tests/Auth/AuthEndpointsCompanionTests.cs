@@ -29,7 +29,7 @@ public class AuthEndpointsCompanionTests : IDisposable
     }
 
     [TestMethod]
-    public async Task PostAuthCompanion_PersistsAndBroadcastsChannelScopedUpdate()
+    public async Task PostAuthCompanion_PersistsAndBroadcastsToAllClients()
     {
         var tokenResponse = await _client.PostAsync("/auth/token", null);
         tokenResponse.EnsureSuccessStatusCode();
@@ -54,8 +54,38 @@ public class AuthEndpointsCompanionTests : IDisposable
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         _factory.SessionMappingMock.Verify(m => m.TryUpdateCompanionId(42, "floppy"), Times.Once);
-        _factory.EventBusMock.Verify(b => b.BroadcastToChannelAsync(7, It.Is<object>(payload =>
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"type\":\"companionChanged\""))), Times.Once);
+        _factory.EventBusMock.Verify(
+            b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task PostAuthCompanion_BroadcastsEvenWhenChannelIsUnknown()
+    {
+        var tokenResponse = await _client.PostAsync("/auth/token", null);
+        tokenResponse.EnsureSuccessStatusCode();
+
+        // Deliberately no channelMembership.Update: the session has no resolvable channel,
+        // which previously suppressed the broadcast entirely.
+        _factory.SessionMappingMock
+            .Setup(m => m.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long _, out int sid) =>
+            {
+                sid = 99;
+                return true;
+            });
+        _factory.SessionMappingMock
+            .Setup(m => m.TryUpdateCompanionId(99, "retro"))
+            .Returns(true);
+
+        var response = await _client.PostAsync(
+            "/auth/companion",
+            new StringContent(JsonSerializer.Serialize(new { companionId = "retro" }), Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
+            JsonSerializer.Serialize(payload).Contains("\"sessionId\":99"))), Times.Once);
     }
 
     [TestMethod]
