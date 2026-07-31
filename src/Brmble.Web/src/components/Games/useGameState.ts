@@ -376,18 +376,30 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleError = (data: unknown) => {
-      const d = data as { error?: string; reason?: string };
+      const d = data as { error?: string; reason?: string; command?: string };
       const msg = d.error || 'A game error occurred.';
       // Accept could not complete (e.g. invite already gone) — re-enable the button.
       setAccepting(false);
-      // In the WebView client, a rejected invite (e.g. a blocked target) comes
-      // back as a game.error rather than a rejected invite() promise. If we have
-      // a pending outgoing invite and the server flagged it as blocked, surface it
-      // as the friendly "blocked" outcome instead of a raw error. Prefer the
-      // structured reason code; fall back to matching the message for old servers.
+      const outgoing = outgoingInviteRef.current;
+      // In the WebView client, a rejected invite comes back as a game.error rather
+      // than a rejected invite() promise: gamesApi.invite posts over the bridge and
+      // always resolves, so invite()'s own .catch never runs. This is therefore the
+      // only signal that the optimistic pending challenge died, and it must be torn
+      // down here or the "waiting for opponent" notification (with its Cancel button
+      // and fallback countdown) stays on screen next to the error. Correlate on the
+      // originating command so an unrelated ready/rematch failure can't clear it.
+      // Also disarm any cancel deferred against this invite, otherwise it would fire
+      // on the next challenge's game.invitePending and cancel the wrong offer.
+      if (d.command === 'game.invite') {
+        pendingCancelRef.current = false;
+        setOutgoing(null);
+      }
+      // If the server flagged the target as blocked, surface the friendly "blocked"
+      // outcome instead of a raw error. Prefer the structured reason code; fall back
+      // to matching the message for old servers.
       const isBlocked = d.reason === 'blocked' || /isn't accepting challenges/i.test(msg);
-      if (outgoingInviteRef.current && isBlocked) {
-        setInviteOutcome({ kind: 'blocked', targetSession: outgoingInviteRef.current.targetSession });
+      if (outgoing && isBlocked) {
+        setInviteOutcome({ kind: 'blocked', targetSession: outgoing.targetSession });
         setOutgoing(null);
         return;
       }

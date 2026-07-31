@@ -107,4 +107,65 @@ describe('useGameState', () => {
       });
     });
   });
+
+  describe('game.error', () => {
+    // In the WebView client `gamesApi.invite` posts over the bridge and always
+    // resolves, so a rejected challenge arrives as a `game.error` rather than a
+    // rejected promise. The optimistic pending invite must be torn down here or
+    // the "waiting for opponent" notification (with its Cancel button and
+    // fallback countdown) stays on screen next to the error.
+    it('clears the pending challenge when the server rejects the invite', () => {
+      const { result } = renderHook(() => useGameState(11));
+
+      act(() => result.current.invite(22, 'deathroll'));
+      expect(result.current.outgoingInvite).not.toBeNull();
+
+      emit('game.error', {
+        command: 'game.invite', path: 'games/invite',
+        error: 'A player is already committed.', statusCode: 400, reason: 'alreadyCommitted',
+      });
+
+      expect(result.current.outgoingInvite).toBeNull();
+      expect(result.current.lastError).toBe('A player is already committed.');
+    });
+
+    it('leaves the pending challenge intact when an unrelated command fails', () => {
+      const { result } = renderHook(() => useGameState(11));
+
+      emit('game.invitePending', { offerId: 7, target: 22, gameType: 'deathroll' });
+      expect(result.current.outgoingInvite?.offerId).toBe(7);
+
+      emit('game.error', {
+        command: 'game.ready', path: 'games/ready',
+        error: 'This ready check is no longer available.', statusCode: 400, reason: 'stale',
+        reservationId: 12,
+      });
+
+      expect(result.current.outgoingInvite?.offerId).toBe(7);
+      expect(result.current.lastError).toBe('This ready check is no longer available.');
+    });
+
+    // Cancelling before the server confirms the offer arms a deferred cancel that
+    // fires on the next `game.invitePending`. If the challenge is then rejected,
+    // that armed cancel must be disarmed or it cancels the user's NEXT challenge.
+    it('disarms the deferred cancel so a later challenge survives', () => {
+      const { result } = renderHook(() => useGameState(11));
+
+      act(() => result.current.invite(22, 'deathroll'));
+      act(() => result.current.cancelInvite());
+      expect(result.current.outgoingInvite?.canceling).toBe(true);
+
+      emit('game.error', {
+        command: 'game.invite', path: 'games/invite',
+        error: 'A player is already committed.', statusCode: 400, reason: 'alreadyCommitted',
+      });
+
+      act(() => result.current.invite(33, 'deathroll'));
+      emit('game.invitePending', { offerId: 8, target: 33, gameType: 'deathroll' });
+
+      expect(api.cancelOffer).not.toHaveBeenCalled();
+      expect(result.current.outgoingInvite?.offerId).toBe(8);
+      expect(result.current.outgoingInvite?.canceling).toBeFalsy();
+    });
+  });
 });
