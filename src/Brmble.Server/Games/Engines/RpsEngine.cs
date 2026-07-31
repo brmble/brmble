@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.Games.Engines;
 
@@ -14,7 +15,30 @@ public sealed class RpsEngine : IGameEngine
     private static readonly int[] AllowedBestOf = { 3, 5, 7 };
 
     public string GameType => "rps";
+    public string RunnerKey => "discrete";
+    public int RulesetVersion => 1;
     public InteractionModel InteractionModel => InteractionModel.SimultaneousCommit;
+
+    public IReadOnlyDictionary<string, object?> NormalizeOptions(IReadOnlyDictionary<string, object?>? options)
+    {
+        if (options is null || !options.TryGetValue("bestOf", out var raw) || raw is null)
+            return new Dictionary<string, object?> { ["bestOf"] = DefaultBestOf };
+
+        var bestOf = raw switch
+        {
+            int value => value,
+            long value when value is >= int.MinValue and <= int.MaxValue => (int)value,
+            JsonElement value when value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var parsed) => parsed,
+            _ => -1,
+        };
+        if (Array.IndexOf(AllowedBestOf, bestOf) < 0)
+            throw new InvalidGameConfigurationException("RPS bestOf must be 3, 5, or 7.");
+
+        return new Dictionary<string, object?> { ["bestOf"] = bestOf };
+    }
+
+    public string MatchFormat(IReadOnlyDictionary<string, object?> normalizedOptions) =>
+        $"bo{(int)normalizedOptions["bestOf"]!}";
 
     private enum Throw { Rock, Paper, Scissors }
 

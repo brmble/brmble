@@ -24,12 +24,12 @@ public class GameStatsServiceTests
         var now = DateTimeOffset.UtcNow;
 
         // Old match (40 days ago) — user 10 wins
-        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", "decided", null,
+        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", 1, "decided", null,
             now.AddDays(-40), now.AddDays(-40).AddSeconds(10),
             new[] { new CompletedParticipant(10, 1, 3, "win"), new CompletedParticipant(20, 2, 1, "loss") }));
 
         // Recent match (2 days ago) — user 10 loses
-        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", "decided", null,
+        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", 1, "decided", null,
             now.AddDays(-2), now.AddDays(-2).AddSeconds(10),
             new[] { new CompletedParticipant(10, 2, 1, "loss"), new CompletedParticipant(20, 1, 5, "win") }));
 
@@ -51,15 +51,15 @@ public class GameStatsServiceTests
         var now = DateTimeOffset.UtcNow;
 
         // deathroll: 10 beats 20
-        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", "decided", null,
+        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", 1, "decided", null,
             now, now.AddSeconds(10),
             new[] { new CompletedParticipant(10, 1, 3, "win"), new CompletedParticipant(20, 2, 1, "loss") }));
         // deathroll: 20 beats 10
-        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", "decided", null,
+        await repo.SaveCompletedMatchAsync(new CompletedMatch("deathroll", 1, "1v1", 1, "decided", null,
             now, now.AddSeconds(10),
             new[] { new CompletedParticipant(10, 2, 1, "loss"), new CompletedParticipant(20, 1, 5, "win") }));
         // rps: 10 beats 20
-        await repo.SaveCompletedMatchAsync(new CompletedMatch("rps", 1, "bo3", "decided", null,
+        await repo.SaveCompletedMatchAsync(new CompletedMatch("rps", 1, "bo3", 1, "decided", null,
             now, now.AddSeconds(10),
             new[] { new CompletedParticipant(10, 1, 2, "win"), new CompletedParticipant(20, 2, 0, "loss") }));
 

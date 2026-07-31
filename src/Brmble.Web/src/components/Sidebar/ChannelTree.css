@@ -113,10 +113,27 @@
 }
 
 .channel-duel-icon {
+  /* Component-specific hit-target size — spacing tokens must not be reused for
+     element dimensions (UI_GUIDE §12 rule 3). */
+  --duel-badge-size: 32px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--duel-badge-size);
+  min-height: var(--duel-badge-size);
   color: var(--accent-primary);
   margin-left: var(--space-2xs);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* Same active treatment as the top-bar mute control (UserPanel.css). */
+.channel-duel-icon.active {
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
+  border-radius: var(--radius-sm);
 }
 
 .user-count {

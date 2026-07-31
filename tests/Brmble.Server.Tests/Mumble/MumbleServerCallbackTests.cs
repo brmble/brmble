@@ -2,8 +2,10 @@ using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.DependencyInjection;
 using Brmble.Server.Paint;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,7 +27,7 @@ public class MumbleServerCallbackTests
         IReadOnlyList<TimeSpan>? liveKitRevocationRetryDelays = null,
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null,
-        GameSessionManager? gameSessions = null,
+        IDuelOrchestrator? orchestrator = null,
         Mock<IPaintParticipationLifecycle>? paintParticipation = null)
     {
         if (mapping is null)
@@ -59,21 +61,145 @@ public class MumbleServerCallbackTests
             screenShareTracker ?? new ScreenShareTracker(),
             revocationScheduler,
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
-            gameSessions ?? CreateGameSessions(),
+            orchestrator ?? new Mock<IDuelOrchestrator>().Object,
             paintParticipation?.Object ?? new Mock<IPaintParticipationLifecycle>().Object,
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
-    private static GameSessionManager CreateGameSessions()
+    [TestMethod]
+    public async Task DispatchUserDisconnected_NotifiesOrchestratorBeforeDestructiveCleanup()
     {
-        var presence = new Mock<IGamePresence>().Object;
-        var publisher = new Mock<IGameEventPublisher>().Object;
-        return new GameSessionManager(
-            Array.Empty<IGameEngine>(),
-            new CryptoRandomSource(),
-            presence,
-            publisher,
-            Brmble.Server.Tests.Games.GameTestHelpers.NewRepo());
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var order = new List<string>();
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.Disconnected))
+            .Callback(() => order.Add("orchestrator")).Returns(Task.CompletedTask);
+        mapping.Setup(x => x.RemoveSession(42)).Callback(() => order.Add("mapping"));
+        var callback = CreateCallback([], mapping: mapping.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        CollectionAssert.AreEqual(new[] { "orchestrator", "mapping" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_NotifiesOrchestratorBeforeMembershipUpdate()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(m => m.TryGetChannel(42, out It.Ref<int>.IsAny)).Returns(true);
+        var order = new List<string>();
+        membership.Setup(m => m.Update(42, 10)).Callback(() => order.Add("membership"));
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.LeftChannel))
+            .Callback(() => order.Add("orchestrator")).Returns(Task.CompletedTask);
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        CollectionAssert.AreEqual(new[] { "orchestrator", "membership" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchChannelRemoved_NotifiesOrchestratorBeforeHandlers()
+    {
+        var order = new List<string>();
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>()))
+            .Callback(() => order.Add("handler")).Returns(Task.CompletedTask);
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandleChannelRemovedAsync(10))
+            .Callback(() => order.Add("orchestrator")).Returns(Task.CompletedTask);
+        var callback = CreateCallback([handler.Object], orchestrator: orchestrator.Object);
+
+        await callback.DispatchChannelRemoved(new MumbleChannel(10, "General"));
+
+        CollectionAssert.AreEqual(new[] { "orchestrator", "handler" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_OrchestratorFailureStillCleansUp()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.Disconnected))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Alice", "abc", 42));
+
+        mapping.Verify(x => x.RemoveSession(42), Times.Once);
+        membership.Verify(x => x.Remove(42), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_OrchestratorFailureStillUpdatesMembership()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>
+        {
+            [42] = new("@alice:test", "Alice", 100, "bee")
+        });
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(x => x.TryGetChannel(42, out It.Ref<int>.IsAny)).Returns(true);
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandlePresenceLostAsync(100, 42, DuelCancelReason.LeftChannel))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, orchestrator: orchestrator.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Alice", "abc", 42), 10);
+
+        membership.Verify(x => x.Update(42, 10), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchChannelRemoved_OrchestratorFailureStillCallsHandlers()
+    {
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>())).Returns(Task.CompletedTask);
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        orchestrator.Setup(x => x.HandleChannelRemovedAsync(10))
+            .ThrowsAsync(new InvalidOperationException("duel failed"));
+        var callback = CreateCallback([handler.Object], orchestrator: orchestrator.Object);
+
+        await callback.DispatchChannelRemoved(new MumbleChannel(10, "General"));
+
+        handler.Verify(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>()), Times.Once);
+    }
+
+    [TestMethod]
+    public void Construction_WithoutRegisteredDuelOrchestrator_FailsLoudly()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(new Mock<ISessionMappingService>().Object);
+        services.AddSingleton(new Mock<IBrmbleEventBus>().Object);
+        services.AddSingleton(new Mock<IChannelMembershipService>().Object);
+        services.AddSingleton(new ScreenShareTracker());
+        services.AddSingleton(new Mock<ILiveKitParticipantRevocationScheduler>().Object);
+        services.AddSingleton(new LiveKitParticipantTracker());
+        services.AddSingleton<MumbleServerCallback>();
+        // Deliberately no IDuelOrchestrator registration.
+        using var provider = services.BuildServiceProvider();
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => provider.GetRequiredService<MumbleServerCallback>());
     }
 
     [TestMethod]

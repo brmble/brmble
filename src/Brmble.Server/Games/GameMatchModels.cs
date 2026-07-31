@@ -5,6 +5,7 @@ public record GameMatch(
     string GameType,
     int ChannelId,
     string Format,
+    int RulesetVersion,
     string Outcome,
     string? AbandonReason,
     string StartedAt,
@@ -25,6 +26,7 @@ public record CompletedMatch(
     string GameType,
     int ChannelId,
     string Format,
+    int RulesetVersion,
     string Outcome,               // "decided" | "draw" | "abandoned"
     string? AbandonReason,        // null unless abandoned
     DateTimeOffset StartedAt,

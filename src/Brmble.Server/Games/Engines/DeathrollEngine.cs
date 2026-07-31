@@ -9,7 +9,14 @@ public sealed class DeathrollEngine : IGameEngine
     private const double PenaltyFactor = 0.8; // -20% per timeout step
 
     public string GameType => "deathroll";
+    public string RunnerKey => "discrete";
+    public int RulesetVersion => 1;
     public InteractionModel InteractionModel => InteractionModel.AlternatingTurns;
+
+    public IReadOnlyDictionary<string, object?> NormalizeOptions(IReadOnlyDictionary<string, object?>? options) =>
+        new Dictionary<string, object?>();
+
+    public string MatchFormat(IReadOnlyDictionary<string, object?> normalizedOptions) => "1v1";
 
     private sealed class State
     {

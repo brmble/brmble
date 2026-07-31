@@ -11,6 +11,7 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share status')).toBeChecked();
     expect(screen.getByLabelText('Idle reminders')).toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).toBeChecked();
+    expect(screen.getByLabelText('Duel queue updates')).toBeChecked();
     expect(screen.queryByText('Hide optional pop-up notifications. Critical warnings and one-time account or update notices may still appear.')).not.toBeInTheDocument();
   });
 
@@ -36,10 +37,12 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share status')).not.toBeChecked();
     expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).not.toBeChecked();
+    expect(screen.getByLabelText('Duel queue updates')).not.toBeChecked();
     expect(screen.getByLabelText('Screen share invitations')).toBeDisabled();
     expect(screen.getByLabelText('Screen share status')).toBeDisabled();
     expect(screen.getByLabelText('Idle reminders')).toBeDisabled();
     expect(screen.getByLabelText('Channel move notices')).toBeDisabled();
+    expect(screen.getByLabelText('Duel queue updates')).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText('Disable optional notifications'));
 
@@ -54,6 +57,7 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share status')).toBeChecked();
     expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).toBeChecked();
+    expect(screen.getByLabelText('Duel queue updates')).toBeChecked();
     expect(screen.getByLabelText('Screen share invitations')).not.toBeDisabled();
     expect(screen.getByLabelText('Idle reminders')).not.toBeDisabled();
   });
@@ -102,5 +106,29 @@ describe('MessagesSettingsTab optional notifications', () => {
     expect(screen.getByLabelText('Screen share status')).toBeChecked();
     expect(screen.getByLabelText('Idle reminders')).not.toBeChecked();
     expect(screen.getByLabelText('Channel move notices')).toBeChecked();
+  });
+
+  it('defaults the duel queue notification on and disables it with the global switch', () => {
+    render(<MessagesSettingsTab settings={DEFAULT_MESSAGES} onChange={vi.fn()} />);
+
+    expect(screen.getByLabelText('Duel queue updates')).toBeChecked();
+
+    fireEvent.click(screen.getByLabelText('Disable optional notifications'));
+
+    expect(screen.getByLabelText('Duel queue updates')).not.toBeChecked();
+    expect(screen.getByLabelText('Duel queue updates')).toBeDisabled();
+  });
+
+  it('binds the duel queue toggle to its own key', () => {
+    const onChange = vi.fn();
+    render(<MessagesSettingsTab settings={{ ...DEFAULT_MESSAGES, notificationDuelQueued: false }} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Duel queue updates')).not.toBeChecked();
+    expect(screen.getByLabelText('Channel move notices')).toBeChecked();
+    expect(screen.getByLabelText('Idle reminders')).toBeChecked();
+
+    fireEvent.click(screen.getByLabelText('Duel queue updates'));
+
+    expect(onChange).toHaveBeenLastCalledWith({ ...DEFAULT_MESSAGES, notificationDuelQueued: true });
   });
 });

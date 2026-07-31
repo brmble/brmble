@@ -98,6 +98,7 @@ public class Database
                 game_type       TEXT NOT NULL,
                 channel_id      INTEGER NOT NULL,
                 format          TEXT NOT NULL DEFAULT '1v1',
+                ruleset_version INTEGER NOT NULL DEFAULT 1,
                 outcome         TEXT NOT NULL,
                 abandon_reason  TEXT,
                 started_at      TEXT NOT NULL,
@@ -140,6 +141,16 @@ public class Database
             CREATE INDEX IF NOT EXISTS ix_game_matches_game_type ON game_matches(game_type);
             CREATE INDEX IF NOT EXISTS ix_gmp_user_id ON game_match_participants(user_id);
             CREATE INDEX IF NOT EXISTS ix_gmp_match_id ON game_match_participants(match_id);
+            """);
+
+        var hasRulesetVersion = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('game_matches') WHERE name='ruleset_version'");
+        if (hasRulesetVersion == 0)
+            conn.Execute("ALTER TABLE game_matches ADD COLUMN ruleset_version INTEGER NOT NULL DEFAULT 1");
+
+        conn.Execute("""
+            CREATE INDEX IF NOT EXISTS ix_game_matches_duration_group
+                ON game_matches(game_type, format, ruleset_version, ended_at);
             """);
 
         conn.Execute("""

@@ -268,7 +268,7 @@ public class BrmbleEventBusTests
         var recorded = new List<string>();
         var ws = CreateRecordingWebSocket(recorded);
 
-        await _bus.AddClientAsync(ws.Object, 1L, () => new { type = "sessionMappingSnapshot" });
+        await _bus.AddClientAsync(ws.Object, 1L, () => Snapshot("sessionMappingSnapshot"));
         await _bus.BroadcastAsync(new { type = "userMappingAdded" });
 
         CollectionAssert.AreEqual(
@@ -294,7 +294,7 @@ public class BrmbleEventBusTests
             // BroadcastAsync enqueues synchronously before returning its task, so by the
             // time this assignment completes the payload is queued for this socket.
             racing = _bus.BroadcastAsync(new { type = "userMappingAdded" });
-            return new { type = "sessionMappingSnapshot" };
+            return Snapshot("sessionMappingSnapshot");
         });
         await racing.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -344,7 +344,7 @@ public class BrmbleEventBusTests
             // Capacity is 1 and nothing is draining yet, so the second broadcast overflows.
             _ = bus.BroadcastAsync(new { type = "event0" });
             _ = bus.BroadcastAsync(new { type = "event1" });
-            return new { type = "sessionMappingSnapshot" };
+            return Snapshot("sessionMappingSnapshot");
         });
 
         await Assert.ThrowsExceptionAsync<WebSocketException>(
@@ -463,6 +463,100 @@ public class BrmbleEventBusTests
         // every client, so fail at startup rather than at runtime.
         Assert.ThrowsException<ArgumentOutOfRangeException>(() => CreateBus(socketQueueCapacity: 0));
     }
+
+    [TestMethod]
+    public async Task AddClientAsync_DeliversEveryInitialPayloadInOrderAheadOfRacingBroadcasts()
+    {
+        // A duel client bootstraps on two payloads, not one. Both have to reach the head of
+        // the queue, in order, or the queue snapshot is interpreted against a stale mapping.
+        var recorded = new List<string>();
+        var socket = CreateRecordingWebSocket(recorded);
+        var buildEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var registration = _bus.AddClientAsync(socket.Object, 1L, async () =>
+        {
+            buildEntered.TrySetResult();
+            await releaseBuild.Task;
+            return new object[]
+            {
+                new { type = "sessionMappingSnapshot" },
+                new { type = "game.queueSnapshot" },
+            };
+        });
+
+        await buildEntered.Task;
+        var racing = _bus.BroadcastAsync(new { type = "duringBuild" });
+        Assert.AreEqual(0, recorded.Count, "nothing may be sent before the initial payloads");
+
+        releaseBuild.TrySetResult();
+        await registration;
+        await racing;
+        await _bus.BroadcastAsync(new { type = "afterBuild" });
+
+        CollectionAssert.AreEqual(
+            new[] { "sessionMappingSnapshot", "game.queueSnapshot", "duringBuild", "afterBuild" },
+            recorded);
+    }
+
+    [TestMethod]
+    public async Task BroadcastExceptAsync_SkipsTheExcludedClientAndReachesTheRest()
+    {
+        // The registering client's own snapshot already carries the mapping being announced,
+        // so it must not also receive the announcement as a separate event.
+        var excludedSends = new List<string>();
+        var otherSends = new List<string>();
+        var excluded = CreateRecordingWebSocket(excludedSends);
+        var other = CreateRecordingWebSocket(otherSends);
+        await _bus.AddClientAsync(excluded.Object, 1L);
+        await _bus.AddClientAsync(other.Object, 2L);
+
+        await _bus.BroadcastExceptAsync(excluded.Object, new { type = "userMappingAdded" });
+
+        Assert.AreEqual(0, excludedSends.Count);
+        CollectionAssert.AreEqual(new[] { "userMappingAdded" }, otherSends);
+    }
+
+    [TestMethod]
+    public async Task AddClientAsync_ConcurrentRegistrationsAnnouncingToEachOtherComplete()
+    {
+        // Two clients connecting at the same time each announce themselves to the other from
+        // inside their registration window. Neither drains until its own registration returns,
+        // so each announcement must not be awaited against a queue the other end cannot drain.
+        var aSends = new List<string>();
+        var bSends = new List<string>();
+        var a = CreateRecordingWebSocket(aSends);
+        var b = CreateRecordingWebSocket(bSends);
+        var aEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var registerA = _bus.AddClientAsync(a.Object, 1L, async () =>
+        {
+            aEntered.TrySetResult();
+            await bEntered.Task;
+            await _bus.BroadcastExceptAsync(a.Object, new { type = "announceA" });
+            return new object[] { new { type = "snapshotA" } };
+        });
+        var registerB = _bus.AddClientAsync(b.Object, 2L, async () =>
+        {
+            bEntered.TrySetResult();
+            await aEntered.Task;
+            await _bus.BroadcastExceptAsync(b.Object, new { type = "announceB" });
+            return new object[] { new { type = "snapshotB" } };
+        });
+
+        var both = Task.WhenAll(registerA, registerB);
+        await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.IsTrue(both.IsCompleted, "concurrent registrations deadlocked on each other");
+        await both;
+        CollectionAssert.AreEqual(new[] { "snapshotA", "announceB" }, aSends);
+        CollectionAssert.AreEqual(new[] { "snapshotB", "announceA" }, bSends);
+    }
+
+    /// <summary>Wraps a single payload as the initial batch a registration hands back.</summary>
+    private static Task<IReadOnlyList<object>> Snapshot(string type) =>
+        Task.FromResult<IReadOnlyList<object>>([new { type }]);
 
     [TestMethod]
     public async Task BroadcastToUsersAsync_CoalescedPayloadsSupersedeQueuedOnesWithTheSameKey()

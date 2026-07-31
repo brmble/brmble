@@ -1,9 +1,10 @@
 using Brmble.Server.Data;
+using Brmble.Server.Games.Duels;
 using Dapper;
 
 namespace Brmble.Server.Games;
 
-public class GameRepository
+public class GameRepository : IDurationSampleRepository
 {
     private readonly Database _db;
 
@@ -17,9 +18,9 @@ public class GameRepository
 
         var matchId = await conn.QuerySingleAsync<long>("""
             INSERT INTO game_matches
-                (game_type, channel_id, format, outcome, abandon_reason, started_at, ended_at, duration_ms, metadata_json)
+                (game_type, channel_id, format, ruleset_version, outcome, abandon_reason, started_at, ended_at, duration_ms, metadata_json)
             VALUES
-                (@GameType, @ChannelId, @Format, @Outcome, @AbandonReason, @StartedAt, @EndedAt, @DurationMs, @MetadataJson);
+                (@GameType, @ChannelId, @Format, @RulesetVersion, @Outcome, @AbandonReason, @StartedAt, @EndedAt, @DurationMs, @MetadataJson);
             SELECT last_insert_rowid();
             """,
             new
@@ -27,6 +28,7 @@ public class GameRepository
                 match.GameType,
                 match.ChannelId,
                 match.Format,
+                match.RulesetVersion,
                 match.Outcome,
                 match.AbandonReason,
                 StartedAt = match.StartedAt.ToString("o"),
@@ -53,6 +55,23 @@ public class GameRepository
 
         tx.Commit();
         return matchId;
+    }
+
+    public async Task<GameMatch?> GetMatchAsync(long matchId)
+    {
+        using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync("""
+            SELECT id AS Id, game_type AS GameType, channel_id AS ChannelId, format AS Format,
+                   ruleset_version AS RulesetVersion, outcome AS Outcome, abandon_reason AS AbandonReason,
+                   started_at AS StartedAt, ended_at AS EndedAt, duration_ms AS DurationMs,
+                   metadata_json AS MetadataJson
+            FROM game_matches WHERE id = @matchId;
+            """, new { matchId });
+        if (row is null) return null;
+        return new GameMatch(
+            (long)row.Id, (string)row.GameType, (int)(long)row.ChannelId, (string)row.Format,
+            (int)(long)row.RulesetVersion, (string)row.Outcome, (string?)row.AbandonReason,
+            (string)row.StartedAt, (string)row.EndedAt, (long)row.DurationMs, (string?)row.MetadataJson);
     }
 
     private static async Task UpsertUserStatsAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
@@ -126,5 +145,32 @@ public class GameRepository
             (int)(long)row.Draws,
             (int)(long)row.Abandons,
             (int)(long)row.GamesPlayed);
+    }
+
+    public async Task<IReadOnlyList<DurationSample>> GetDurationSamplesAsync(
+        string gameType, string format, int rulesetVersion, long? elapsedGreaterThanMs)
+    {
+        using var conn = _db.CreateConnection();
+        // ended_at is TEXT. Ordering lexicographically is only equivalent to chronological
+        // ordering because every writer stores it via DateTimeOffset.ToString("o") normalised
+        // to UTC, i.e. a fixed-width "yyyy-MM-ddTHH:mm:ss.fffffff+00:00" string. Any writer
+        // that stores a non-UTC offset (or a different width) breaks this ORDER BY.
+        var rows = await conn.QueryAsync("""
+            SELECT id AS MatchId, duration_ms AS DurationMs, outcome AS Outcome, ended_at AS EndedAt
+            FROM game_matches
+            WHERE game_type=@gameType AND format=@format AND ruleset_version=@rulesetVersion
+            AND outcome IN ('decided','draw') AND duration_ms > 0
+            AND (@elapsedGreaterThanMs IS NULL OR duration_ms > @elapsedGreaterThanMs)
+            ORDER BY ended_at DESC, id DESC LIMIT 100;
+            """, new { gameType, format, rulesetVersion, elapsedGreaterThanMs });
+
+        return rows.Select(row => new DurationSample(
+            (long)row.MatchId,
+            (long)row.DurationMs,
+            (string)row.Outcome,
+            DateTimeOffset.Parse(
+                (string)row.EndedAt,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind))).ToList();
     }
 }

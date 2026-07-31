@@ -37,6 +37,89 @@ export interface InviteOptions {
   bestOf?: number;
 }
 
+export type EstimateMethod =
+  | 'fullMedian'
+  | 'conditionalRemaining'
+  | 'fullMedianFallback'
+  | 'readyWindow'
+  | 'insufficient';
+
+export interface DuelPlayer {
+  userId: number;
+  sessionId: number;
+  displayName: string;
+  ready: boolean;
+}
+
+export interface DurationEstimate {
+  status: 'known' | 'unknown';
+  milliseconds: number | null;
+  sampleCount: number;
+  method: EstimateMethod;
+  approximate: boolean;
+}
+
+export interface EstimateSegment {
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  sampleCount: number;
+  method: EstimateMethod;
+}
+
+export interface QueueEta {
+  status: 'known' | 'unknown';
+  estimatedStartAt: string | null;
+  milliseconds: number | null;
+  approximate: boolean;
+  segments: EstimateSegment[];
+}
+
+export interface ActiveDuel {
+  matchId: number;
+  status: 'starting' | 'live';
+  startedAt: string;
+  players: DuelPlayer[];
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  remaining: DurationEstimate;
+  estimatedDuration: DurationEstimate;
+}
+
+export interface ReadyCheck {
+  reservationId: number;
+  expiresAt: string;
+  players: DuelPlayer[];
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  estimatedDuration: DurationEstimate;
+}
+
+export interface QueuedDuel {
+  reservationId: number;
+  position: number;
+  players: DuelPlayer[];
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  eta: QueueEta;
+  estimatedDuration: DurationEstimate;
+}
+
+export interface DuelQueueSnapshot {
+  schemaVersion: 1;
+  generation: number;
+  revision: number;
+  channelId: number;
+  generatedAt: string;
+  calculationTimeMs: number;
+  active: ActiveDuel | null;
+  readyCheck: ReadyCheck | null;
+  queue: QueuedDuel[];
+}
+
 function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
@@ -103,16 +186,58 @@ export async function invite(
   return unwrap(response);
 }
 
-export async function respond(matchId: number, accept: boolean): Promise<void> {
+export async function respondOffer(offerId: number, accept: boolean): Promise<void> {
   if (isWebViewBridgeAvailable()) {
-    bridge.send('game.respond', { matchId, accept });
+    bridge.send('game.respond', { offerId, accept });
     return;
   }
 
   const response = await fetch('/games/respond', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ matchId, accept }),
+    body: JSON.stringify({ offerId, accept }),
+  });
+  return unwrap(response);
+}
+
+export async function cancelOffer(offerId: number): Promise<void> {
+  if (isWebViewBridgeAvailable()) {
+    bridge.send('game.cancelOffer', { offerId });
+    return;
+  }
+
+  const response = await fetch('/games/offers/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ offerId }),
+  });
+  return unwrap(response);
+}
+
+export async function respondReady(reservationId: number, ready: boolean): Promise<void> {
+  if (isWebViewBridgeAvailable()) {
+    bridge.send('game.ready', { reservationId, ready });
+    return;
+  }
+
+  const response = await fetch('/games/ready', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reservationId, ready }),
+  });
+  return unwrap(response);
+}
+
+export async function requestRematch(sourceMatchId: number): Promise<void> {
+  if (isWebViewBridgeAvailable()) {
+    bridge.send('game.rematch', { sourceMatchId });
+    return;
+  }
+
+  const response = await fetch('/games/rematch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceMatchId }),
   });
   return unwrap(response);
 }
@@ -205,6 +330,18 @@ function bridgeRequest<T>(
     }, timeoutMs);
     bridge.send('games.request', { ...payload, requestId });
   });
+}
+
+export async function getQueueSnapshot(): Promise<DuelQueueSnapshot> {
+  if (isWebViewBridgeAvailable()) {
+    return bridgeRequest<DuelQueueSnapshot>({ action: 'queue' });
+  }
+
+  const response = await fetch('/games/queue');
+  if (!response.ok) {
+    throw await toGameApiError(response);
+  }
+  return response.json() as Promise<DuelQueueSnapshot>;
 }
 
 export async function getStats(

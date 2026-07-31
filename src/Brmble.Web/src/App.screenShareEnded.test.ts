@@ -32,6 +32,7 @@ describe('shouldShowOptionalNotification', () => {
     'notificationScreenShareStatus',
     'notificationIdleWarning',
     'notificationMovedChannel',
+    'notificationDuelQueued',
   ] as const;
 
   const enabledSettings = {
@@ -40,6 +41,7 @@ describe('shouldShowOptionalNotification', () => {
     notificationScreenShareStatus: true,
     notificationIdleWarning: true,
     notificationMovedChannel: true,
+    notificationDuelQueued: true,
   };
 
   it('allows enabled categories when the global opt-out is off', () => {
@@ -70,6 +72,7 @@ describe('shouldShowOptionalNotification', () => {
     expect(shouldShowOptionalNotification(settings, 'notificationRemoteScreenShare')).toBe(true);
     expect(shouldShowOptionalNotification(settings, 'notificationScreenShareStatus')).toBe(true);
     expect(shouldShowOptionalNotification(settings, 'notificationMovedChannel')).toBe(true);
+    expect(shouldShowOptionalNotification(settings, 'notificationDuelQueued')).toBe(true);
   });
 
   it('maps legacy notificationsEnabled false to the global opt-out', () => {
