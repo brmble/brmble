@@ -66,6 +66,7 @@ import {
 } from './components/CompanionOverlay/overlayModel';
 import { migrateLocalStorage } from './utils/migrateLocalStorage';
 import { mapBrmbleServiceStatus } from './utils/brmbleServiceStatus';
+import { pruneFetchedAvatars, shouldFetchAvatar, type AvatarFetchRecord } from './utils/avatarFetch';
 import { areMatrixCredentialsEqual } from './utils/matrixCredentials';
 import { getSavedChannelPassword } from './utils/channelPasswords';
 import { getOrderedChannels } from './utils/channelOrder';
@@ -1302,8 +1303,8 @@ function App() {
   }, [currentUserAvatarUrl]);
 
   // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching.
-  // Maps matrixUserId -> number of fetch attempts so far (for retry logic).
-  const fetchedAvatarIdsRef = useRef<Map<string, number>>(new Map());
+  // Maps matrixUserId -> what is known about the fetch already made for them.
+  const fetchedAvatarIdsRef = useRef<Map<string, AvatarFetchRecord>>(new Map());
   // Track pending retry timers so they can be cancelled on cleanup
   const avatarRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   // Ref for fetchAvatarForUser so the safety-net useEffect can call it without
@@ -1319,15 +1320,10 @@ function App() {
 
     // Prune stale entries: if a user disconnected and reconnected, their matrixUserId
     // may still be in fetchedAvatarIdsRef from the previous session.
-    const currentMatrixIds = new Set(users.filter(u => u.matrixUserId).map(u => u.matrixUserId!));
-    for (const id of fetchedAvatarIdsRef.current.keys()) {
-      if (!currentMatrixIds.has(id)) {
-        fetchedAvatarIdsRef.current.delete(id);
-      }
-    }
+    pruneFetchedAvatars(fetchedAvatarIdsRef.current, users);
 
     for (const u of users) {
-      if (u.matrixUserId && !u.avatarUrl) {
+      if (shouldFetchAvatar(u, fetchedAvatarIdsRef.current) && u.matrixUserId) {
         fetchAvatarForUserRef.current(u.session, u.matrixUserId);
       }
     }
@@ -1634,16 +1630,14 @@ function App() {
   // backoff, and clearing the dedupe entry after max attempts so later events can retry.
   const fetchAvatarForUser = useCallback((session: number, matrixUserId: string) => {
     if (!matrixClientRef.current) return;
-    // Skip if already fetched or in-flight
-    if (fetchedAvatarIdsRef.current.has(matrixUserId)) return;
-    // Check if user already has an avatar
+    // Skip if already fetched for this session, in-flight, or already resolved
     const user = usersRef.current.find(u => u.session === session);
-    if (user?.avatarUrl) return;
+    if (!shouldFetchAvatar(user ?? { session, matrixUserId }, fetchedAvatarIdsRef.current)) return;
 
     const maxAttempts = 3;
 
     const attemptFetch = (attempt: number) => {
-      fetchedAvatarIdsRef.current.set(matrixUserId, attempt + 1);
+      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1, session });
       fetchAvatarUrlRef.current(matrixUserId).then((url) => {
         if (url) {
           setUsers(prev => prev.map(u =>
