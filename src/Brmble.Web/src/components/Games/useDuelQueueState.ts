@@ -41,6 +41,8 @@ export interface DuelCommandError {
   operation: 'ready' | 'respondOffer' | 'requestRematch';
   id: number;
   reason?: string;
+  /** The server's own error text, used as fallback copy when `reason` is unmapped. */
+  message?: string;
 }
 
 function validateRecoverySnapshot(
@@ -227,7 +229,7 @@ export function useDuelQueueState(): DuelQueueState {
       setOutgoingRematch(current => current?.offerId === offerId ? null : current);
     };
     const handleCommandError = (data: unknown) => {
-      const error = data as { command?: string; path?: string; reservationId?: number; offerId?: number; sourceMatchId?: number; reason?: string };
+      const error = data as { command?: string; path?: string; reservationId?: number; offerId?: number; sourceMatchId?: number; reason?: string; error?: string };
       const correlated = error.command === 'game.ready' && error.path === 'games/ready' && typeof error.reservationId === 'number'
         ? { operation: 'ready' as const, id: error.reservationId }
         : error.command === 'game.respond' && error.path === 'games/respond' && typeof error.offerId === 'number'
@@ -235,7 +237,7 @@ export function useDuelQueueState(): DuelQueueState {
           : error.command === 'game.rematch' && error.path === 'games/rematch' && typeof error.sourceMatchId === 'number'
             ? { operation: 'requestRematch' as const, id: error.sourceMatchId }
             : null;
-      if (correlated) setCommandError({ revision: ++commandErrorRevisionRef.current, ...correlated, reason: error.reason });
+      if (correlated) setCommandError({ revision: ++commandErrorRevisionRef.current, ...correlated, reason: error.reason, message: error.error });
     };
 
     bridge.on('game.queueSnapshot', handleSnapshot);

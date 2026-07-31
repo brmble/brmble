@@ -4,7 +4,7 @@ import App from './App';
 import bridge from './bridge';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
-import type { EndedMatch } from './components/Games/useGameState';
+import type { EndedMatch, IncomingInvite } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
 import type { DuelPlayer, QueuedDuel, ReadyCheck } from './api/games';
 import { ServiceStatusProvider } from './hooks/useServiceStatus';
@@ -13,14 +13,14 @@ import { knownEstimate, unknownEstimate } from './components/Games/duelTestHarne
 const mocks = vi.hoisted(() => {
   const ids = new Set<string>();
   const gameState = {
-    incomingInvite: null, outgoingInvite: null, inviteOutcome: null, activeMatch: null, view: null,
+    incomingInvite: null as IncomingInvite | null, outgoingInvite: null, inviteOutcome: null, activeMatch: null, view: null,
     ended: null as EndedMatch | null, lastError: null, turnDeadline: null, turnWindowMs: 0, penalty: false, accepting: false,
     invite: vi.fn(), cancelInvite: vi.fn(), acceptInvite: vi.fn(), declineInvite: vi.fn(), sendAction: vi.fn(),
     roll: vi.fn(), forfeit: vi.fn(), dismissEnded: vi.fn(), clearError: vi.fn(), clearInviteOutcome: vi.fn(), reset: vi.fn(),
   };
   const duelQueue = {
     byChannel: new Map<number, DuelQueueSnapshot>(), incomingRematch: null as RematchOffer | null, outgoingRematch: null as RematchOffer | null,
-    commandError: null as null | { revision: number; operation: string; id: number; reason?: string },
+    commandError: null as null | { revision: number; operation: string; id: number; reason?: string; message?: string },
     respondReady: vi.fn(), requestRematch: vi.fn(), respondOffer: vi.fn(), cancelOffer: vi.fn(),
     requestSnapshot: vi.fn().mockResolvedValue(undefined), reset: vi.fn(),
   };
@@ -200,6 +200,7 @@ describe('App duel orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.ids.clear();
+    mocks.gameState.incomingInvite = null;
     mocks.duelQueue.byChannel = new Map();
     mocks.duelQueue.incomingRematch = null;
     mocks.duelQueue.outgoingRematch = null;
@@ -454,15 +455,74 @@ describe('App duel orchestration', () => {
   });
 
   it('surfaces a rejected duel command as a dismissible error notification', () => {
-    mocks.duelQueue.commandError = { revision: 1, operation: 'ready', id: 42, reason: 'stale' };
+    mocks.duelQueue.commandError = { revision: 1, operation: 'ready', id: 42, reason: 'staleOffer' };
     renderApp();
 
     expect(mocks.notificationQueue.register).toHaveBeenCalledWith('game-command-error', 'error');
     expect(screen.getByText('Ready check failed')).toBeInTheDocument();
-    expect(screen.getByText('stale')).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Dismiss notification'));
     expect(screen.queryByText('Ready check failed')).not.toBeInTheDocument();
+  });
+
+  // Reason codes are orchestrator vocabulary (`alreadyCommitted`), not user-facing
+  // copy. See DuelWire.Reason / DuelRejectReason for the full server-side set.
+  it('renders readable copy for a known rejection reason', () => {
+    mocks.duelQueue.commandError = {
+      revision: 1, operation: 'requestRematch', id: 91,
+      reason: 'alreadyCommitted', message: 'A player is already committed.',
+    };
+    renderApp();
+
+    expect(screen.getByText('Rematch request failed')).toBeInTheDocument();
+    expect(screen.getByText('That player is already in another duel.')).toBeInTheDocument();
+    expect(screen.queryByText('alreadyCommitted')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the server message for an unmapped reason', () => {
+    mocks.duelQueue.commandError = {
+      revision: 1, operation: 'ready', id: 42,
+      reason: 'someFutureReason', message: 'The duel service is restarting.',
+    };
+    renderApp();
+
+    expect(screen.getByText('The duel service is restarting.')).toBeInTheDocument();
+    expect(screen.queryByText('someFutureReason')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic sentence when an unmapped reason has no message', () => {
+    mocks.duelQueue.commandError = { revision: 1, operation: 'ready', id: 42, reason: 'someFutureReason' };
+    renderApp();
+
+    expect(screen.getByText('The server rejected the request. Try again.')).toBeInTheDocument();
+    expect(screen.queryByText('someFutureReason')).not.toBeInTheDocument();
+  });
+
+  // `game.respond` carries both invite responses and rematch responses, so the
+  // title has to be resolved from the offer the id points at rather than looked up.
+  it('titles a failed rematch response as a rematch response', () => {
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
+    mocks.duelQueue.commandError = { revision: 1, operation: 'respondOffer', id: 73, reason: 'staleOffer' };
+    renderApp();
+
+    expect(screen.getByText('Rematch response failed')).toBeInTheDocument();
+  });
+
+  it('titles a failed invite response as a challenge response, not a rematch one', () => {
+    mocks.gameState.incomingInvite = { offerId: 55, gameType: 'rps', from: 22 };
+    mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
+    mocks.duelQueue.commandError = { revision: 1, operation: 'respondOffer', id: 55, reason: 'staleOffer' };
+    renderApp();
+
+    expect(screen.getByText('Challenge response failed')).toBeInTheDocument();
+    expect(screen.queryByText('Rematch response failed')).not.toBeInTheDocument();
+  });
+
+  it('titles a failed response neutrally when the offer it names is already gone', () => {
+    mocks.duelQueue.commandError = { revision: 1, operation: 'respondOffer', id: 55, reason: 'staleOffer' };
+    renderApp();
+
+    expect(screen.getByText('Duel response failed')).toBeInTheDocument();
   });
 
   it('marks only channels where the local player is queued or ready as personal', () => {

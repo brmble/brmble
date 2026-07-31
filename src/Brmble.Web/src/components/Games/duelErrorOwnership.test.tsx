@@ -29,6 +29,7 @@ describe('duel command error ownership', () => {
 
     expect(queue.result.current.commandError).toMatchObject({
       operation: 'requestRematch', id: 91, reason: 'alreadyCommitted',
+      message: 'A player is already committed.',
     });
     expect(game.result.current.lastError).toBeNull();
   });

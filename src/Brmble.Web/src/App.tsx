@@ -857,12 +857,60 @@ function countdownUntil(expiresAt: string | undefined | null): number | undefine
 
 /**
  * Titles for rejected duel queue commands surfaced as an error notification.
+ *
+ * `respondOffer` is deliberately absent: it covers both invite responses and
+ * rematch responses, so it cannot be resolved by a static lookup. See
+ * {@link duelCommandErrorTitle}.
  */
 const DUEL_COMMAND_ERROR_TITLES: Record<string, string> = {
   ready: 'Ready check failed',
-  respondOffer: 'Rematch response failed',
   requestRematch: 'Rematch request failed',
 };
+
+/**
+ * Resolves the title for a rejected duel command.
+ *
+ * The server sends one `game.respond` command for two different user actions —
+ * answering a duel invite and answering a rematch offer — so the correlated
+ * `respondOffer` error is disambiguated by the offer its id names. When it names
+ * neither (the offer has already expired or been resolved away by the time the
+ * error lands) neither specific title can be justified, so a neutral one is used
+ * rather than guessing and telling the user about the wrong thing.
+ */
+function duelCommandErrorTitle(
+  error: { operation: string; id: number },
+  incomingRematchOfferId: number | null,
+  incomingInviteOfferId: number | null,
+): string {
+  if (error.operation !== 'respondOffer') {
+    return DUEL_COMMAND_ERROR_TITLES[error.operation] ?? 'Duel command failed';
+  }
+  if (error.id === incomingRematchOfferId) return 'Rematch response failed';
+  if (error.id === incomingInviteOfferId) return 'Challenge response failed';
+  return 'Duel response failed';
+}
+
+/**
+ * User-facing copy for the server's rejection reason codes (see
+ * `DuelWire.Reason` / `DuelRejectReason` in Brmble.Server). The raw code is
+ * orchestrator vocabulary and must never reach the notification; anything
+ * unmapped falls back to the server's own message, then to a generic sentence.
+ */
+const DUEL_COMMAND_ERROR_REASONS: Record<string, string> = {
+  blocked: "That player isn't accepting challenges.",
+  alreadyCommitted: 'That player is already in another duel.',
+  notPresent: 'That player is no longer available.',
+  staleOffer: 'That request is no longer available.',
+  notParticipant: 'You are not a participant in that duel.',
+  invalidConfiguration: 'That duel could not be set up.',
+};
+
+/** Resolves the detail line for a rejected duel command, never leaking a reason code. */
+function duelCommandErrorDetail(error: { reason?: string; message?: string }): string {
+  return (error.reason ? DUEL_COMMAND_ERROR_REASONS[error.reason] : undefined)
+    ?? error.message
+    ?? 'The server rejected the request. Try again.';
+}
 
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
@@ -4735,8 +4783,12 @@ const handleConnect = (serverData: SavedServer) => {
             status="error"
             position="top-right"
             visible={true}
-            title={DUEL_COMMAND_ERROR_TITLES[visibleCommandError.operation] ?? 'Duel command failed'}
-            detail={visibleCommandError.reason ?? 'The server rejected the request. Try again.'}
+            title={duelCommandErrorTitle(
+              visibleCommandError,
+              duelQueue.incomingRematch?.offerId ?? null,
+              gameState.incomingInvite?.offerId ?? null,
+            )}
+            detail={duelCommandErrorDetail(visibleCommandError)}
             onDismiss={() => {
               setDismissedCommandErrorRevision(visibleCommandError.revision);
               notifQueue.unregister('game-command-error');
