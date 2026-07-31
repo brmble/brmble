@@ -750,7 +750,7 @@ Add `IMappingEventPublisher publisher` to the `/auth/companion` endpoint's DI pa
 
 `CustomCompanionEndpoints` deletion. `cd7b48fa` restructured this into "mutate inside the coordinator lock, collect, broadcast after". Preserve that shape — but note the publisher must do the *mutation* too, since it is the mutation that assigns the revision. Collect the returned tasks and await them after the lock releases.
 
-Replace the `resetSessions` list and the loop that follows it with:
+Replace the `resetSessions` declaration (`CustomCompanionEndpoints.cs:41`), the `resetSessions.Add(...)` call at `:75`, and the broadcast loop at `:83-95` with:
 
 ```csharp
             var sends = new List<Task>();
