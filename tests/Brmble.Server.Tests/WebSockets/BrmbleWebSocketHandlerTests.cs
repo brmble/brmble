@@ -173,6 +173,10 @@ public class BrmbleWebSocketHandlerTests
         mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
             .Returns((long _, out int sessionId) => { sessionId = 7; return true; });
         mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping> { [7] = mapping });
+        // Registration only announces when a mutation actually reported a change, so these must
+        // return true or no userMappingAdded is broadcast and this test waits forever.
+        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(true);
+        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(true);
         var realBus = CreateBus(mappings.Object);
         var bus = new BlockingMappingBroadcastBus(realBus);
         var snapshots = new Mock<IDuelSnapshotProvider>();
@@ -285,6 +289,118 @@ public class BrmbleWebSocketHandlerTests
     }
 
     [TestMethod]
+    public async Task InitializeAcceptedClientAsync_DoesNotAnnounceWhenTheMappingVanishedBeforeTheLock()
+    {
+        // The mapping is read outside the publisher's lock. If it is removed before the lock is
+        // taken, both mutations fail and no revision is produced — announcing anyway would emit
+        // a userMappingAdded for a mapping that no longer exists, stamped with a revision that
+        // another payload already owns.
+        var mapping = new SessionMapping("@alice:test", "Alice", 42, "bee");
+        var mappings = new Mock<ISessionMappingService>();
+        mappings.SetupGet(x => x.InstanceId).Returns("inst");
+        mappings.SetupGet(x => x.Revision).Returns(5L);
+        mappings.Setup(x => x.TryGetMappingByUserId(42, out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long _, out int sessionId, out SessionMapping? value) =>
+            {
+                sessionId = 7;
+                value = mapping;
+                return true;
+            });
+        // No duel queue session: keeps this test off the duel snapshot path entirely.
+        mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
+            .Returns((long _, out int sessionId) => { sessionId = 0; return false; });
+        mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        // The session is gone: every mutation reports no change.
+        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(false);
+        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(false);
+
+        var broadcasts = new List<object>();
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastExceptAsync(It.IsAny<WebSocket>(), It.IsAny<object>()))
+            .Callback((WebSocket _, object m) => { lock (broadcasts) broadcasts.Add(m); })
+            .Returns(Task.CompletedTask);
+        bus.Setup(b => b.AddClientAsync(It.IsAny<WebSocket>(), It.IsAny<long>(),
+                It.IsAny<Func<Task<IReadOnlyList<object>>>>()))
+            .Returns((WebSocket _, long _, Func<Task<IReadOnlyList<object>>>? build) => build!());
+
+        var socket = new Mock<WebSocket>();
+        socket.Setup(x => x.State).Returns(WebSocketState.Open);
+
+        await BrmbleWebSocketHandler.InitializeAcceptedClientAsync(
+            socket.Object, 42, "cert", mappings.Object, bus.Object,
+            new MappingEventPublisher(mappings.Object, bus.Object),
+            Mock.Of<IActiveBrmbleSessions>(), new Mock<IDuelSnapshotProvider>().Object);
+
+        Assert.AreEqual(0, broadcasts.Count,
+            "a mutation that changed nothing must not produce an announcement");
+    }
+
+    [TestMethod]
+    public async Task InitializeAcceptedClientAsync_AnnouncesThePostMutationMappingNotTheCapturedOne()
+    {
+        // A companionChanged landing between the read and the lock must not be undone. If the
+        // payload carried the captured companionId under this operation's newer revision, every
+        // client would overwrite the newer value with the stale one.
+        var captured = new SessionMapping("@alice:test", "Alice", 42, "bee");
+        var current = new SessionMapping("@alice:test", "Alice", 42, "retro");
+        var mappings = new Mock<ISessionMappingService>();
+        mappings.SetupGet(x => x.InstanceId).Returns("inst");
+        mappings.SetupGet(x => x.Revision).Returns(9L);
+        var reads = 0;
+        mappings.Setup(x => x.TryGetMappingByUserId(42, out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long _, out int sessionId, out SessionMapping? value) =>
+            {
+                sessionId = 7;
+                // First read is the one outside the lock; the second is the re-read inside it,
+                // by which point a concurrent companionChanged has landed.
+                value = Interlocked.Increment(ref reads) == 1 ? captured : current;
+                return true;
+            });
+        // No duel queue session: keeps this test off the duel snapshot path entirely.
+        mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
+            .Returns((long _, out int sessionId) => { sessionId = 0; return false; });
+        mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(true);
+        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(true);
+
+        var broadcasts = new List<object>();
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastExceptAsync(It.IsAny<WebSocket>(), It.IsAny<object>()))
+            .Callback((WebSocket _, object m) => { lock (broadcasts) broadcasts.Add(m); })
+            .Returns(Task.CompletedTask);
+        bus.Setup(b => b.AddClientAsync(It.IsAny<WebSocket>(), It.IsAny<long>(),
+                It.IsAny<Func<Task<IReadOnlyList<object>>>>()))
+            .Returns((WebSocket _, long _, Func<Task<IReadOnlyList<object>>>? build) => build!());
+
+        var socket = new Mock<WebSocket>();
+        socket.Setup(x => x.State).Returns(WebSocketState.Open);
+
+        await BrmbleWebSocketHandler.InitializeAcceptedClientAsync(
+            socket.Object, 42, "cert", mappings.Object, bus.Object,
+            new MappingEventPublisher(mappings.Object, bus.Object),
+            Mock.Of<IActiveBrmbleSessions>(), new Mock<IDuelSnapshotProvider>().Object);
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(broadcasts.Single()));
+        Assert.AreEqual("retro", doc.RootElement.GetProperty("companionId").GetString());
+    }
+
+    [TestMethod]
+    public async Task BuildInitialPayloadsAsync_SnapshotFromAFreshServerCarriesRevisionZero()
+    {
+        // A server that has not yet mutated anything is at revision 0, and its snapshot says so.
+        // Envelope assertions for snapshots must not require a positive revision.
+        var mappings = new SessionMappingService();
+
+        var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
+            new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
+            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
+        Assert.AreEqual(0L, doc.RootElement.GetProperty("revision").GetInt64());
+        Events.MappingPayloadEnvelopeTests.AssertHasSnapshotEnvelope(payloads[0], "sessionMappingSnapshot");
+    }
+
+    [TestMethod]
     public void CreateUserMappingAddedPayload_AssertsTrueBecauseASocketHasRegistered()
     {
         // This path runs only from InitializeAcceptedClientAsync, where registration itself
@@ -297,4 +413,6 @@ public class BrmbleWebSocketHandlerTests
         Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
     }
 }
+
+
 

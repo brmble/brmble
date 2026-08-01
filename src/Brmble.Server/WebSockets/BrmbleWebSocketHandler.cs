@@ -137,6 +137,8 @@ public static class BrmbleWebSocketHandler
             if (sessionMapping.TryGetMappingByUserId(userId, out var sessionId, out var mapping))
             {
                 activeSessions.TrackMumbleName(mapping!.MumbleName, certHash, active: true);
+
+                SessionMapping? announced = null;
                 // Mutations run inside the publisher's lock so the stamped revision is provably
                 // the one they produced; a concurrent registration would otherwise let two
                 // payloads claim the same revision.
@@ -144,11 +146,27 @@ public static class BrmbleWebSocketHandler
                     socket,
                     () =>
                     {
-                        sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
-                        sessionMapping.TryUpdateCertHash(sessionId, certHash);
-                        return true;
+                        var changed = sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
+                        changed |= sessionMapping.TryUpdateCertHash(sessionId, certHash);
+
+                        // Nothing moved, so the mapping was removed between the read above and
+                        // this lock. Announcing anyway would emit a userMappingAdded for a
+                        // mapping that no longer exists, stamped with a revision this operation
+                        // did not produce and which another payload already owns.
+                        if (!changed) return false;
+
+                        // Re-read under the lock rather than announcing the value captured
+                        // above. A companionChanged landing in between would otherwise be
+                        // undone: the payload would carry the older companionId under this
+                        // operation's newer revision, so every client would overwrite the newer
+                        // value with the stale one. Requiring the same session id also rejects
+                        // a mapping recycled to a different user mid-flight.
+                        return sessionMapping.TryGetMappingByUserId(
+                                   userId, out var currentSessionId, out announced)
+                               && currentSessionId == sessionId
+                               && announced is not null;
                     },
-                    envelope => CreateUserMappingAddedPayload(sessionId, mapping, certHash, envelope));
+                    envelope => CreateUserMappingAddedPayload(sessionId, announced!, certHash, envelope));
             }
 
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);

@@ -16,29 +16,56 @@ public class MappingPayloadEnvelopeTests
         "userMappingRemoved",
         "brmbleClientActivated",
         "brmbleClientDeactivated",
-        "companionChanged",
+        "companionChanged"
+    };
+
+    private static readonly string[] MappingSnapshotTypes =
+    {
         "sessionMappingSnapshot"
     };
 
     [TestMethod]
-    public void EveryMappingEventTypeIsCoveredByAnEnvelopeAssertion()
+    public void EveryMappingPayloadTypeIsCoveredByAnEnvelopeAssertion()
     {
-        // Guards against a new mapping event being added without an envelope test.
-        // Update this list and add a matching assertion in the suites listed in the plan.
-        Assert.AreEqual(6, MappingEventTypes.Length);
+        // Guards against a new mapping payload being added without an envelope test.
+        // Update these lists and add a matching assertion in the suites listed in the plan.
+        Assert.AreEqual(5, MappingEventTypes.Length);
+        Assert.AreEqual(1, MappingSnapshotTypes.Length);
     }
 
+    /// <summary>
+    /// For incremental events. An event always follows at least one successful mutation, so its
+    /// revision is necessarily above zero.
+    /// </summary>
     internal static void AssertHasEnvelope(object payload, string expectedType)
     {
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
-        Assert.AreEqual(expectedType, doc.RootElement.GetProperty("type").GetString());
-        Assert.IsTrue(doc.RootElement.TryGetProperty("instanceId", out var instanceId),
+        var root = AssertHasEnvelopeCore(payload, expectedType);
+        Assert.IsTrue(root.GetProperty("revision").GetInt64() > 0,
+            $"{expectedType} must carry the post-mutation revision");
+    }
+
+    /// <summary>
+    /// For snapshots, which are absolute rather than deltas. A snapshot taken from a freshly
+    /// started server that has not yet mutated legitimately carries revision 0, so this does not
+    /// require a positive value.
+    /// </summary>
+    internal static void AssertHasSnapshotEnvelope(object payload, string expectedType)
+    {
+        var root = AssertHasEnvelopeCore(payload, expectedType);
+        Assert.IsTrue(root.GetProperty("revision").GetInt64() >= 0,
+            $"{expectedType} must carry a revision");
+    }
+
+    private static JsonElement AssertHasEnvelopeCore(object payload, string expectedType)
+    {
+        var root = JsonDocument.Parse(JsonSerializer.Serialize(payload)).RootElement;
+        Assert.AreEqual(expectedType, root.GetProperty("type").GetString());
+        Assert.IsTrue(root.TryGetProperty("instanceId", out var instanceId),
             $"{expectedType} is missing instanceId");
         Assert.IsFalse(string.IsNullOrWhiteSpace(instanceId.GetString()),
             $"{expectedType} has a blank instanceId");
-        Assert.IsTrue(doc.RootElement.TryGetProperty("revision", out var revision),
+        Assert.IsTrue(root.TryGetProperty("revision", out _),
             $"{expectedType} is missing revision");
-        Assert.IsTrue(revision.GetInt64() > 0,
-            $"{expectedType} must carry the post-mutation revision");
+        return root;
     }
 }
