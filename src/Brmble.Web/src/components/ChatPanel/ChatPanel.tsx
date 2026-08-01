@@ -166,6 +166,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const unreadDividerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -413,6 +414,7 @@ const [replyState, setReplyState] = useState<{
     const container = messagesContainerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < SCROLL_THRESHOLD;
     const shouldShow = distanceFromBottom > SCROLL_THRESHOLD;
     setShowScrollButton(prev => prev !== shouldShow ? shouldShow : prev);
   }, []);
@@ -516,9 +518,10 @@ const [replyState, setReplyState] = useState<{
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    // Only auto-scroll if user is within threshold of bottom
-    if (distanceFromBottom < SCROLL_THRESHOLD) {
+    // Use the position from before the message update. Measuring after the
+    // update would count the new message as distance from the bottom and can
+    // incorrectly decide that the user has scrolled away.
+    if (shouldAutoScrollRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
@@ -527,6 +530,7 @@ const [replyState, setReplyState] = useState<{
   // Delay must exceed the slide transition (400ms) so layout has settled.
   // Also arm the one-shot ResizeObserver scroll for the slide-in transition.
   useEffect(() => {
+    shouldAutoScrollRef.current = true;
     pendingSlideScrollRef.current = true;
     const timer = setTimeout(() => {
       pendingSlideScrollRef.current = false;

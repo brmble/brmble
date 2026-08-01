@@ -197,6 +197,54 @@ describe('ChatPanel typing indicator', () => {
   });
 });
 
+describe('ChatPanel message scrolling', () => {
+  it('scrolls to a new message when the user was already at the bottom', () => {
+    const messages = [{
+      id: '$first',
+      channelId: '42',
+      sender: 'Alice',
+      content: 'first',
+      timestamp: new Date('2026-01-01T00:00:00Z'),
+      msgType: 'm.text' as const,
+    }];
+    const { container, rerender } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={messages}
+        onSendMessage={() => {}}
+      />,
+    );
+    const messagesContainer = container.querySelector('.chat-messages') as HTMLDivElement;
+    Object.defineProperties(messagesContainer, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 100 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    fireEvent.scroll(messagesContainer);
+    vi.clearAllMocks();
+
+    Object.defineProperty(messagesContainer, 'scrollHeight', { configurable: true, value: 300 });
+    rerender(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[...messages, {
+          id: '$second',
+          channelId: '42',
+          sender: 'Bob',
+          content: 'second',
+          timestamp: new Date('2026-01-01T00:01:00Z'),
+          msgType: 'm.text' as const,
+        }]}
+        onSendMessage={() => {}}
+      />,
+    );
+
+    expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+});
+
 describe('ChatPanel edit flow', () => {
   it('sends a Matrix replacement event when saving an edited message', async () => {
     const user = userEvent.setup();
