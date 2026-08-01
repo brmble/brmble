@@ -184,7 +184,23 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
         _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
         var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
-        _sessionMapping.RemoveSession(user.SessionId);
+        // RemoveSession stays in place, ordered against the LiveKit and channel-membership
+        // cleanup around it. The publish is hoisted here so the mutation and the revision read
+        // are one atomic unit; PublishAsync only enqueues, so the fan-out is still awaited
+        // below, in the position the broadcast previously occupied.
+        var removalSend = _publisher.PublishAsync(
+            () =>
+            {
+                _sessionMapping.RemoveSession(user.SessionId);
+                return true;
+            },
+            envelope => new
+            {
+                type = "userMappingRemoved",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
+                sessionId = user.SessionId
+            });
         _channelMembership.Remove(user.SessionId);
 
         if (snapshot.TryGetValue(user.SessionId, out mapping))
@@ -197,15 +213,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
         await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
 
-        await _publisher.PublishAsync(
-            () => true,   // RemoveSession already ran and bumped the revision
-            envelope => new
-            {
-                type = "userMappingRemoved",
-                instanceId = envelope.InstanceId,
-                revision = envelope.Revision,
-                sessionId = user.SessionId
-            });
+        await removalSend;
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
     }
 

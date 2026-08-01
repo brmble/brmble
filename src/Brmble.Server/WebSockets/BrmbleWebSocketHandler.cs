@@ -41,7 +41,9 @@ public static class BrmbleWebSocketHandler
         try
         {
             await InitializeAcceptedClientAsync(
-                ws, user.Id, hash, sessionMapping, eventBus, activeSessions,
+                ws, user.Id, hash, sessionMapping, eventBus,
+                context.RequestServices.GetRequiredService<IMappingEventPublisher>(),
+                activeSessions,
                 context.RequestServices.GetRequiredService<IDuelSnapshotProvider>());
 
             // Read loop until close. Messages are reassembled across frames; anything larger
@@ -70,11 +72,17 @@ public static class BrmbleWebSocketHandler
                 if (messageType != "requestSnapshot") continue;
 
                 sessionMapping.TryGetSessionByUserId(user.Id, out var resyncSessionId);
+                // Read the revision before the snapshot, never after. If a mutation lands in
+                // between, the snapshot then under-claims: the client re-applies an event it
+                // already reflects, which is idempotent. Reading it after would over-claim, and
+                // the client would discard the intervening events as duplicates forever.
+                var resyncEnvelope = new MappingEnvelope(
+                    sessionMapping.InstanceId, sessionMapping.Revision);
                 var payloads = await BuildInitialPayloadsAsync(
                     context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
                     resyncSessionId,
                     sessionMapping.GetSnapshot(),
-                    new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision));
+                    resyncEnvelope);
 
                 foreach (var payload in payloads)
                     await eventBus.SendToClientAsync(ws, payload);
@@ -121,6 +129,7 @@ public static class BrmbleWebSocketHandler
         string certHash,
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         IActiveBrmbleSessions activeSessions,
         IDuelSnapshotProvider snapshots) =>
         eventBus.AddClientAsync(socket, userId, async () =>
@@ -128,21 +137,27 @@ public static class BrmbleWebSocketHandler
             if (sessionMapping.TryGetMappingByUserId(userId, out var sessionId, out var mapping))
             {
                 activeSessions.TrackMumbleName(mapping!.MumbleName, certHash, active: true);
-                sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
-                sessionMapping.TryUpdateCertHash(sessionId, certHash);
-                await eventBus.BroadcastExceptAsync(
+                // Mutations run inside the publisher's lock so the stamped revision is provably
+                // the one they produced; a concurrent registration would otherwise let two
+                // payloads claim the same revision.
+                await publisher.PublishExceptAsync(
                     socket,
-                    CreateUserMappingAddedPayload(
-                        sessionId, mapping, certHash,
-                        // Stamped after the two mutations above, so their bumps are announced
-                        // rather than silent.
-                        new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision)));
+                    () =>
+                    {
+                        sessionMapping.TryUpdateBrmbleStatus(sessionId, true);
+                        sessionMapping.TryUpdateCertHash(sessionId, certHash);
+                        return true;
+                    },
+                    envelope => CreateUserMappingAddedPayload(sessionId, mapping, certHash, envelope));
             }
 
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);
+            // Revision before snapshot: see the note on the resync path. Under-claiming is
+            // self-correcting, over-claiming silently drops the intervening events.
+            var bootstrapEnvelope = new MappingEnvelope(
+                sessionMapping.InstanceId, sessionMapping.Revision);
             return await BuildInitialPayloadsAsync(
-                snapshots, queueSessionId, sessionMapping.GetSnapshot(),
-                new MappingEnvelope(sessionMapping.InstanceId, sessionMapping.Revision));
+                snapshots, queueSessionId, sessionMapping.GetSnapshot(), bootstrapEnvelope);
         });
 
     /// <summary>

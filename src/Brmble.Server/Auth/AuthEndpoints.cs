@@ -25,7 +25,7 @@ public static class AuthEndpoints
             CustomCompanionGalleryService customCompanionGalleryService,
             IAclAuthorizationService aclAuthorization,
             ISessionMappingService sessionMapping,
-            IBrmbleEventBus eventBus,
+            IMappingEventPublisher publisher,
             ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -90,48 +90,52 @@ public static class AuthEndpoints
                 sessionMapping.TryGetSessionId(resolvedName, out var sid))
             {
                 var companionId = await userRepository.GetCompanionId(result.UserId);
-                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId, companionId))
-                {
-                    sessionMapping.TryUpdateCertHash(sid, certHash);
-                    // This user just authenticated via Brmble, so mark them as a Brmble client
-                    // immediately. Authenticate() may have failed to update the mapping if
-                    // TryAddMatrixUser hadn't been called yet (race with SessionMappingHandler).
-                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
-                    var wire = CompanionWireSelection.FromPersisted(companionId);
-                    await eventBus.BroadcastAsync(new
+                var mappingAdded = false;
+                // Mutations run inside the publisher's lock so the stamped revision is provably
+                // the one they produced. Reading .Revision after mutating unsynchronised lets a
+                // concurrent registration bump in between, and two payloads then claim one
+                // revision — a client applies the first and discards the second as a duplicate.
+                await publisher.PublishAsync(
+                    () =>
                     {
-                        type = "userMappingAdded",
-                        // Stamped after the three mutations above, so their bumps are
-                        // announced rather than silent.
-                        instanceId = sessionMapping.InstanceId,
-                        revision = sessionMapping.Revision,
-                        sessionId = sid,
-                        matrixUserId = result.MatrixUserId,
-                        mumbleName = resolvedName,
-                        companionId = wire.CompanionId,
-                        customCompanionId = wire.CustomCompanionId,
-                        certHash,
-                        isBrmbleClient = true
-                    });
-                }
-                else
-                {
-                    // Mapping already existed (created by SessionMappingHandler.OnUserConnected).
-                    // Ensure Brmble status is up to date — Authenticate() sets _activeSessions
-                    // but TryUpdateBrmbleStatus may not have been called if the mapping
-                    // was created before auth completed.
-                    sessionMapping.TryUpdateCertHash(sid, certHash);
-                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
-                    // Both mutations bump the revision. Announcing is not optional: an
-                    // unannounced bump leaves every client with a permanent phantom gap.
-                    await eventBus.BroadcastAsync(new
+                        mappingAdded = sessionMapping.TryAddMatrixUser(
+                            sid, result.MatrixUserId, resolvedName, result.UserId, companionId);
+                        sessionMapping.TryUpdateCertHash(sid, certHash);
+                        // This user just authenticated via Brmble, so mark them as a Brmble
+                        // client immediately. Authenticate() may have failed to update the
+                        // mapping if TryAddMatrixUser hadn't been called yet (race with
+                        // SessionMappingHandler).
+                        sessionMapping.TryUpdateBrmbleStatus(sid, true);
+                        return true;
+                    },
+                    envelope =>
                     {
-                        type = "brmbleClientActivated",
-                        instanceId = sessionMapping.InstanceId,
-                        revision = sessionMapping.Revision,
-                        sessionId = sid
+                        var wire = CompanionWireSelection.FromPersisted(companionId);
+                        // A new mapping is announced as userMappingAdded; an existing one only
+                        // changed its Brmble status, so it is announced as an activation.
+                        // Either way the bumps above are announced rather than silent.
+                        return mappingAdded
+                            ? new
+                            {
+                                type = "userMappingAdded",
+                                instanceId = envelope.InstanceId,
+                                revision = envelope.Revision,
+                                sessionId = sid,
+                                matrixUserId = result.MatrixUserId,
+                                mumbleName = resolvedName,
+                                companionId = wire.CompanionId,
+                                customCompanionId = wire.CustomCompanionId,
+                                certHash,
+                                isBrmbleClient = true
+                            }
+                            : (object)new
+                            {
+                                type = "brmbleClientActivated",
+                                instanceId = envelope.InstanceId,
+                                revision = envelope.Revision,
+                                sessionId = sid
+                            };
                     });
-                }
             }
 
             logger.LogInformation(
@@ -215,6 +219,8 @@ public static class AuthEndpoints
                 userMappings,
                 // Same envelope the WebSocket snapshot carries: this is the bootstrap
                 // transport for the identical data, so it must be orderable too.
+                // Keep revision above sessionMappings — initialisers evaluate in source order,
+                // and a snapshot must never claim a revision newer than the data it holds.
                 instanceId = sessionMapping.InstanceId,
                 revision = sessionMapping.Revision,
                 sessionMappings = sessionMapping.GetSnapshot()

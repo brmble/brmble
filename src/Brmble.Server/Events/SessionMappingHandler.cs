@@ -40,19 +40,24 @@ public class SessionMappingHandler : IMumbleEventHandler
         // false would assert something we cannot know, and clients would believe it.
         bool? isBrmbleClient = _activeSessions.IsBrmbleClient(user.CertHash) ? true : null;
 
-        var mappingAdded = _sessionMapping.TryAddMatrixUser(user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId);
-        _sessionMapping.TryUpdateCertHash(user.SessionId, user.CertHash);
-        _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, isBrmbleClient);
-
-        _logger.LogInformation(
-            "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble}, added={Added})",
-            user.SessionId, user.Name, dbUser.MatrixUserId, isBrmbleClient, mappingAdded);
         var wire = CompanionWireSelection.FromPersisted(companionId);
+        var mappingAdded = false;
+        var announced = default(MappingEnvelope);
         await _publisher.PublishAsync(
-            // The mapping mutations above already happened; this announcement is unconditional.
-            () => true,
+            // The mutations run inside the lock so the revision stamped below is provably the
+            // one they produced. Doing them outside lets a concurrent registration bump the
+            // counter in between, and two payloads then claim the same revision.
+            () =>
+            {
+                mappingAdded = _sessionMapping.TryAddMatrixUser(
+                    user.SessionId, dbUser.MatrixUserId, user.Name, dbUser.Id, companionId);
+                _sessionMapping.TryUpdateCertHash(user.SessionId, user.CertHash);
+                _sessionMapping.TryUpdateBrmbleStatus(user.SessionId, isBrmbleClient);
+                return true;
+            },
             envelope =>
             {
+                announced = envelope;
                 // A dictionary rather than an anonymous type so isBrmbleClient can be omitted
                 // when unknown: an explicit null throws in the shipped client's parser.
                 // Keys are written in camelCase and pass through both serialiser configs
@@ -74,15 +79,23 @@ public class SessionMappingHandler : IMumbleEventHandler
                 return payload;
             });
 
+        _logger.LogInformation(
+            "Mapped session {Session} ({Name}) to {MatrixUserId} via cert (brmbleClient={IsBrmble}, added={Added})",
+            user.SessionId, user.Name, dbUser.MatrixUserId, isBrmbleClient, mappingAdded);
+
         if (!mappingAdded && isBrmbleClient == true)
         {
+            // A legacy-compatibility restatement of a fact the userMappingAdded above already
+            // carries; it performs no mutation of its own. It therefore reuses that payload's
+            // envelope rather than reading the counter again — a fresh read could pick up an
+            // unrelated concurrent bump and claim another event's revision.
             await _publisher.PublishAsync(
                 () => true,
-                envelope => new
+                _ => new
                 {
                     type = "brmbleClientActivated",
-                    instanceId = envelope.InstanceId,
-                    revision = envelope.Revision,
+                    instanceId = announced.InstanceId,
+                    revision = announced.Revision,
                     sessionId = user.SessionId
                 });
         }

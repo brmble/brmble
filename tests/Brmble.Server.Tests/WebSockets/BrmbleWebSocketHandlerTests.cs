@@ -119,6 +119,7 @@ public class BrmbleWebSocketHandlerTests
 
         var initialization = BrmbleWebSocketHandler.InitializeAcceptedClientAsync(
             socket.Object, 42, "cert", mappings.Object, bus,
+            new MappingEventPublisher(mappings.Object, bus),
             Mock.Of<IActiveBrmbleSessions>(), provider.Object);
         await Task.Delay(50);
 
@@ -151,6 +152,7 @@ public class BrmbleWebSocketHandlerTests
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
             BrmbleWebSocketHandler.InitializeAcceptedClientAsync(
                 socket.Object, 42, "cert", mappings.Object, bus,
+                new MappingEventPublisher(mappings.Object, bus),
                 Mock.Of<IActiveBrmbleSessions>(), provider.Object));
 
         Assert.IsFalse(bus.HasConnectedClient(42));
@@ -193,7 +195,9 @@ public class BrmbleWebSocketHandlerTests
             .Returns(Task.CompletedTask);
 
         var accepted = BrmbleWebSocketHandler.InitializeAcceptedClientAsync(
-            socket.Object, 42, "cert", mappings.Object, bus, activeSessions.Object, snapshots.Object);
+            socket.Object, 42, "cert", mappings.Object, bus,
+            new MappingEventPublisher(mappings.Object, bus),
+            activeSessions.Object, snapshots.Object);
         await bus.MappingBroadcastEntered.Task;
         // The socket is already registered, so this queues behind the bootstrap rather than
         // being dropped. It cannot be awaited yet: it only completes once the drain reaches it.
@@ -293,3 +297,4 @@ public class BrmbleWebSocketHandlerTests
         Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
     }
 }
+

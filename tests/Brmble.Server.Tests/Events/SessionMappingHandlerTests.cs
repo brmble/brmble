@@ -222,4 +222,37 @@ public class SessionMappingHandlerTests
 
         Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
     }
+
+    [TestMethod]
+    public async Task OnUserConnected_ConcurrentRegistrations_NeverReuseARevision()
+    {
+        // Mutating outside the publisher's lock and reading .Revision afterwards lets two
+        // threads observe the same value, so two payloads claim one revision and a client
+        // discards the second as a duplicate. Simultaneous registration is spec §8.
+        const int users = 40;
+        var mappings = new SessionMappingService();
+        var broadcasts = new List<object>();
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(b => b.BroadcastAsync(It.IsAny<object>()))
+            .Callback<object>(m => { lock (broadcasts) broadcasts.Add(m); })
+            .Returns(Task.CompletedTask);
+        var handler = new SessionMappingHandler(
+            mappings, new MappingEventPublisher(mappings, bus.Object), _repo,
+            _activeSessions.Object, NullLogger<SessionMappingHandler>.Instance);
+
+        for (var i = 0; i < users; i++)
+            await _repo.Insert($"cert-{i}", $"User{i}");
+
+        await Task.WhenAll(Enumerable.Range(0, users).Select(i =>
+            Task.Run(() => handler.OnUserConnected(new MumbleUser($"User{i}", $"cert-{i}", i + 1)))));
+
+        var revisions = broadcasts
+            .Select(p => JsonDocument.Parse(JsonSerializer.Serialize(p))
+                .RootElement.GetProperty("revision").GetInt64())
+            .ToList();
+
+        Assert.AreEqual(users, revisions.Count);
+        CollectionAssert.AllItemsAreUnique(revisions,
+            "two payloads claiming one revision means a client silently drops one");
+    }
 }

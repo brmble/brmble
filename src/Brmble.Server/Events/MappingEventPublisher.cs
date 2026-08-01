@@ -6,21 +6,34 @@ public sealed class MappingEventPublisher(
 {
     private readonly object _gate = new();
 
-    public Task PublishAsync(Func<bool> mutate, Func<MappingEnvelope, object> payload)
+    public Task PublishAsync(Func<bool> mutate, Func<MappingEnvelope, object> payload) =>
+        PublishCore(mutate, payload, static (bus, message) => bus.BroadcastAsync(message), eventBus);
+
+    public Task PublishExceptAsync(
+        System.Net.WebSockets.WebSocket excluded,
+        Func<bool> mutate,
+        Func<MappingEnvelope, object> payload) =>
+        PublishCore(mutate, payload, (bus, message) => bus.BroadcastExceptAsync(excluded, message), eventBus);
+
+    private Task PublishCore(
+        Func<bool> mutate,
+        Func<MappingEnvelope, object> payload,
+        Func<IBrmbleEventBus, object, Task> send,
+        IBrmbleEventBus bus)
     {
-        Task send;
+        Task pending;
         lock (_gate)
         {
             if (!mutate()) return Task.CompletedTask;
 
             var envelope = new MappingEnvelope(mappings.InstanceId, mappings.Revision);
 
-            // Safe under the lock: BrmbleEventBus.BroadcastCoreAsync is deliberately not async
-            // and enqueues to every per-socket queue before returning, so no socket I/O happens
+            // Safe under the lock: BrmbleEventBus's broadcast paths are deliberately not async
+            // and enqueue to every per-socket queue before returning, so no socket I/O happens
             // here. Awaiting inside the lock would be wrong; capturing the task is not.
-            send = eventBus.BroadcastAsync(payload(envelope));
+            pending = send(bus, payload(envelope));
         }
 
-        return send;
+        return pending;
     }
 }
