@@ -80,8 +80,13 @@ internal static class MumbleAdapterTestHarness
         SetField(adapter, "_audioManager", audioManager);
         SetField(adapter, "_channelPasswordRestrictions", new ConcurrentDictionary<uint, bool>());
         // GetUninitializedObject skips field initialisers, so every field the adapter constructs
-        // inline has to be seeded here or it is null at first use.
+        // inline has to be seeded here or it is null at first use. HandleWebSocketMessage
+        // swallows exceptions, so a missing one shows up as a silently dropped message rather
+        // than a failure.
         SetField(adapter, "_projection", new Brmble.Client.Services.Voice.Projection.UserProjectionStore());
+        SetField(adapter, "_resync", new Brmble.Client.Services.Voice.ResyncThrottle());
+        SetField(adapter, "_resyncClock", System.Diagnostics.Stopwatch.StartNew());
+        SetField(adapter, "_wsSendGate", new SemaphoreSlim(1, 1));
         return adapter;
     }
 
@@ -1036,10 +1041,20 @@ public class MumbleAdapterParseTests
         Assert.AreEqual("custom:$changed:test", LastRowFor(bridge, 43).GetProperty("companionId").GetString());
     }
 
+    /// <summary>
+    /// The latest wire row for a session, drained from either projection state event.
+    /// </summary>
     private static JsonElement LastRowFor(Brmble.Client.Bridge.NativeBridge bridge, uint session)
         => NativeBridgeTestHarness.DrainMessages(bridge)
-            .Where(m => m.Type == "voice.userJoined")
-            .Select(m => JsonDocument.Parse(m.DataJson).RootElement)
+            .Where(m => m.Type is "voice.usersChanged" or "voice.usersReset")
+            .SelectMany(m =>
+            {
+                var root = JsonDocument.Parse(m.DataJson).RootElement;
+                var rows = m.Type == "voice.usersReset"
+                    ? root.GetProperty("users")
+                    : root.GetProperty("changed");
+                return rows.EnumerateArray().ToList();
+            })
             .Last(e => e.GetProperty("session").GetUInt32() == session);
 
     [TestMethod]

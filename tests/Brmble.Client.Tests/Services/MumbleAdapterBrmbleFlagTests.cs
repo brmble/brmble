@@ -43,15 +43,26 @@ public class MumbleAdapterBrmbleFlagTests
             """{"type":"brmbleClientActivated","instanceId":"i","baseRevision":1,"revision":2,"sessionId":42}""");
         adapter.UserState(new UserState { Session = 42, Name = "Broan", ChannelId = 1 });
 
-        var joined = NativeBridgeTestHarness.DrainMessages(bridge)
-            .Where(m => m.Type == "voice.userJoined")
-            .Select(m => JsonDocument.Parse(m.DataJson).RootElement)
-            .Last(e => e.GetProperty("session").GetUInt32() == 42);
+        var joined = LastRowFor(bridge, 42);
 
         Assert.IsTrue(
             joined.GetProperty("isBrmbleClient").GetBoolean(),
             "the activation was dropped, so this user state reverts the badge to a plain Mumble user");
     }
+
+    /// <summary>The latest wire row for a session, from either projection state event.</summary>
+    private static JsonElement LastRowFor(Brmble.Client.Bridge.NativeBridge bridge, uint session)
+        => NativeBridgeTestHarness.DrainMessages(bridge)
+            .Where(m => m.Type is "voice.usersChanged" or "voice.usersReset")
+            .SelectMany(m =>
+            {
+                var root = JsonDocument.Parse(m.DataJson).RootElement;
+                var rows = m.Type == "voice.usersReset"
+                    ? root.GetProperty("users")
+                    : root.GetProperty("changed");
+                return rows.EnumerateArray().ToList();
+            })
+            .Last(e => e.GetProperty("session").GetUInt32() == session);
 
     [TestMethod]
     public void UserMappingAdded_WithoutACompanion_KeepsTheKnownCompanion()

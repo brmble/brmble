@@ -2558,24 +2558,40 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Relays a change set to the UI. Stage A keeps the legacy event set so React is unchanged;
-    /// Stage D replaces the body with two events.
+    /// Relays a change set to the UI as the projection's two state events.
     /// </summary>
     /// <remarks>
     /// Called after Apply* has returned and released the store's lock — never inside it.
+    ///
+    /// <para>
+    /// These two events are the only source of user state. <c>voice.userLeft</c> still fires
+    /// alongside them but is presentation-only: it announces "left your channel", which is not
+    /// a removal at all when the user merely moved.
+    /// </para>
     /// </remarks>
     private void EmitProjectionChange(Projection.ChangeSet change)
     {
         if (change.NeedsSnapshot) RequestSnapshot();
         if (change.IsEmpty) return;
 
-        foreach (var row in change.Changed)
-            _bridge?.Send("voice.userJoined", ProjectionWire.ToWireRow(row));
+        if (change.IsReset)
+        {
+            // Membership was replaced wholesale, so the consumer replaces its list rather than
+            // reconciling additions against removals.
+            _bridge?.Send("voice.usersReset", new
+            {
+                users = change.Changed.Select(ProjectionWire.ToWireRow).ToArray()
+            });
+            _bridge?.NotifyUiThread();
+            return;
+        }
 
-        foreach (var sessionId in change.Removed)
-            _bridge?.Send("voice.userLeft", new { session = sessionId, moved = false });
-
-        if (change.Changed.Count > 0 || change.Removed.Count > 0) _bridge?.NotifyUiThread();
+        _bridge?.Send("voice.usersChanged", new
+        {
+            changed = change.Changed.Select(ProjectionWire.ToWireRow).ToArray(),
+            removed = change.Removed.ToArray()
+        });
+        _bridge?.NotifyUiThread();
     }
 
     /// <summary>
@@ -4126,16 +4142,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             username = LocalUser?.Name,
             channelId,
             channels,
-            users = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray(),
             registered = LocalUser?.IsRegistered ?? false,
             registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
         });
+
+        // Membership travels as a reset rather than riding on voice.connected, so there is
+        // exactly one path by which the user list is ever populated.
+        var rows = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray();
+        _bridge?.Send("voice.usersReset", new { users = rows });
 
         // Voice lifecycle transition: force-release any held input so PTT
         // cannot remain latched across a reconnect (#538).
         _inputRouter?.ReleaseAllHeld();
 
-        Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {_projection.Snapshot().Count} users");
+        Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {rows.Length} users");
     }
 
     private object CreateChannelPayload(Channel channel) => new
@@ -4215,6 +4235,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             previousUserChannel == previousChannel && currentChannelId != previousChannel)
         {
             var leftUserName = user?.Name ?? userState.Name;
+            // Presentation only: the user still exists and their row is merely changed. State
+            // travels in voice.usersChanged; this drives the "left your channel" TTS line and
+            // the overlay's user-left event, neither of which a removal could express.
             _bridge?.Send("voice.userLeft", new { 
                 session = userState.Session, 
                 name = leftUserName, 
@@ -4417,7 +4440,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         base.UserRemove(userRemove);
 
         // The only path that deletes a row: Mumble alone owns existence.
-        _projection.ApplyMumbleUserRemove(userRemove.Session);
+        EmitProjectionChange(_projection.ApplyMumbleUserRemove(userRemove.Session));
 
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 
@@ -4425,6 +4448,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
         var certHash = user?.CertificateHash;
+        // Presentation only, as above: it carries the name, channel and cert hash the TTS,
+        // overlay and DM-presence side effects need. The row itself is removed by the
+        // ApplyMumbleUserRemove change set.
         _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
         _bridge?.NotifyUiThread();
 

@@ -42,8 +42,9 @@ public class MumbleAdapterBridgeTests
         """);
 
         var row = NativeBridgeTestHarness.DrainMessages(bridge)
-            .Where(m => m.Type == "voice.userJoined")
-            .Select(m => JsonDocument.Parse(m.DataJson).RootElement)
+            .Where(m => m.Type == "voice.usersChanged")
+            .SelectMany(m => JsonDocument.Parse(m.DataJson).RootElement
+                .GetProperty("changed").EnumerateArray().ToList())
             .Last(e => e.GetProperty("session").GetUInt32() == 42);
 
         Assert.AreEqual("retro", row.GetProperty("companionId").GetString());
