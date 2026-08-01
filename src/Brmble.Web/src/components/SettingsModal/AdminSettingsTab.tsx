@@ -19,8 +19,9 @@ interface AdminSettingsTabProps {
     name: string;
     channelId?: number;
     matrixUserId?: string;
-    companionId?: string;
-    isBrmbleClient?: boolean;
+    // Tri-state on the projection: null means the server has not said yet.
+    companionId?: string | null;
+    isBrmbleClient?: boolean | null;
   }>;
   customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
   customCompanionGallery?: CustomCompanionGalleryController;

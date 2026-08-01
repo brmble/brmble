@@ -8,8 +8,10 @@ export interface AdminConnectedUser {
   name: string;
   channelId?: number;
   matrixUserId?: string;
-  companionId?: string;
-  isBrmbleClient?: boolean;
+  // Both are tri-state on the projection: null means the server has not said yet, which is
+  // distinct from a known absence.
+  companionId?: string | null;
+  isBrmbleClient?: boolean | null;
 }
 
 export interface AdminBannedUser {

@@ -101,6 +101,17 @@ const {
       for (const handler of handlers.get(type) ?? []) {
         handler(data);
       }
+      // The client emits membership as voice.usersReset immediately after voice.connected,
+      // and every incremental row change as voice.usersChanged.
+      const users = (data as { users?: unknown[] } | undefined)?.users;
+      if (type === 'voice.connected' && users) {
+        for (const handler of handlers.get('voice.usersReset') ?? []) handler({ users });
+      }
+      if (type === 'voice.userJoined') {
+        for (const handler of handlers.get('voice.usersChanged') ?? []) {
+          handler({ changed: [data], removed: [] });
+        }
+      }
     },
   };
 
@@ -3457,11 +3468,19 @@ describe('active share discovery', () => {
     });
 
     act(() => {
-      bridge.emit('voice.userMappingUpdated', {
-        sessionId: 2,
-        matrixUserId: '@alice:example.com',
-        companionId: 'retro',
-        action: 'added',
+      // The mapping now arrives as a complete row on voice.usersChanged rather than as a
+      // field-level voice.userMappingUpdated patch.
+      bridge.emit('voice.usersChanged', {
+        changed: [{
+          session: 2,
+          name: 'alice',
+          self: false,
+          channelId: 1,
+          matrixUserId: '@alice:example.com',
+          companionId: 'retro',
+          isBrmbleClient: null,
+        }],
+        removed: [],
       });
     });
 

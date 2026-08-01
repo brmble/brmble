@@ -124,6 +124,11 @@ vi.mock('./bridge', () => {
       }),
       __emit: (event: string, data?: unknown) => {
         handlers.get(event)?.forEach(handler => handler(data));
+        // The client emits membership as voice.usersReset immediately after voice.connected.
+        const users = (data as { users?: unknown[] } | undefined)?.users;
+        if (event === 'voice.connected' && users) {
+          handlers.get('voice.usersReset')?.forEach(handler => handler({ users }));
+        }
       },
       __reset: () => handlers.clear(),
     },

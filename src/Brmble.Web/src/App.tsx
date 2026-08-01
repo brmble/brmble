@@ -1,8 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
+import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap, User } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
+import { useUserDirectory } from './hooks/useUserDirectory';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import type { LocalShareStopReason, ShareInfo, WatchedShareEndReason } from './hooks/useScreenShare';
@@ -59,7 +60,6 @@ import {
   BUILT_IN_COMPANIONS,
   DEFAULT_OVERLAY,
   companionForServer,
-  normalizeCompanionBridgeSelection,
   normalizeCompanionId,
   normalizeOverlaySettings,
   resolveCompanionDisplay,
@@ -648,20 +648,6 @@ interface Channel {
   canSendChat?: boolean;
 }
 
-interface User {
-  session: number;
-  name: string;
-  channelId?: number;
-  muted?: boolean;
-  deafened?: boolean;
-  self?: boolean;
-  comment?: string;
-  matrixUserId?: string;
-  avatarUrl?: string;
-  certHash?: string;
-  companionId?: CompanionId;
-  isBrmbleClient?: boolean;
-}
 
 interface BrmbleDMUser {
   matrixUserId: string;
@@ -1029,7 +1015,9 @@ function App() {
   const [serverLabel, setServerLabel] = useState('');
   
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  // The user list, its avatar map, and the ref consumers read from. Declared here rather than
+  // beside the other refs because resolveGamePlayerName below reads usersRef.
+  const { users, usersRef, reset: resetUsers, apply: applyUsers, setAvatar } = useUserDirectory();
   const [currentChannelId, setCurrentChannelIdRaw] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   // Snapshot of the read-marker timestamp at the moment a channel/DM is opened,
@@ -1431,9 +1419,7 @@ function App() {
     },
     onUserAvatarChanged: (matrixUserId: string, avatarUrl: string | null) => {
       fetchedAvatarIdsRef.current.delete(matrixUserId);
-      setUsers(prev => prev.map(u =>
-        u.matrixUserId === matrixUserId ? { ...u, avatarUrl: avatarUrl ?? undefined } : u
-      ));
+      setAvatar(matrixUserId, avatarUrl ?? undefined);
     },
   }), []);
   const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
@@ -1556,15 +1542,14 @@ function App() {
     });
   }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
-  // Keep the self user's avatarUrl in the users array in sync with currentUserAvatarUrl
+  // Keep the self user's avatar in the avatar map in sync with currentUserAvatarUrl.
+  // Keyed by matrix id like every other avatar, so it survives a reconnect.
   useEffect(() => {
     if (currentUserAvatarUrl === undefined) return;
-    setUsers(prev => {
-      const self = prev.find(u => u.self);
-      if (!self || self.avatarUrl === currentUserAvatarUrl) return prev;
-      return prev.map(u => u.self ? { ...u, avatarUrl: currentUserAvatarUrl } : u);
-    });
-  }, [currentUserAvatarUrl]);
+    const selfMatrixUserId = matrixCredentials?.userId;
+    if (!selfMatrixUserId) return;
+    setAvatar(selfMatrixUserId, currentUserAvatarUrl);
+  }, [currentUserAvatarUrl, matrixCredentials?.userId, setAvatar]);
 
   // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching.
   // Maps matrixUserId -> what is known about the fetch already made for them.
@@ -1610,30 +1595,30 @@ function App() {
       await matrixClient.client.setAvatarUrl(mxcUrl);
       const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
       setCurrentUserAvatarUrl(httpUrl ?? undefined);
-      // Also update the self user in the users list so channel tree / chat show the new avatar
-      if (httpUrl) {
-        setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: httpUrl } : u));
+      // Also update the self user in the avatar map so channel tree / chat show the new avatar
+      if (httpUrl && matrixCredentials?.userId) {
+        setAvatar(matrixCredentials.userId, httpUrl);
       }
       // Notify backend so Mumble texture sync won't overwrite this avatar
       bridge.send('avatar.setSource', { source: 'brmble' });
     } catch (e) {
       console.error('Failed to upload avatar:', e);
     }
-  }, [matrixClient.client]);
+  }, [matrixClient.client, matrixCredentials?.userId, setAvatar]);
 
   const onRemoveAvatar = useCallback(async () => {
     if (!matrixClient.client) return;
     try {
       await matrixClient.client.setAvatarUrl('');
       setCurrentUserAvatarUrl(undefined);
-      // Also clear the self user's avatar in the users list
-      setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: undefined } : u));
+      // Also clear the self user's avatar in the avatar map
+      if (matrixCredentials?.userId) setAvatar(matrixCredentials.userId, undefined);
       // Clear avatar source so Mumble textures can take over again
       bridge.send('avatar.setSource', { source: null });
     } catch (e) {
       console.error('Failed to remove avatar:', e);
     }
-  }, [matrixClient.client]);
+  }, [matrixClient.client, matrixCredentials?.userId, setAvatar]);
 
   // Build set of DM room IDs from matrixClient.dmRoomMap
   const dmRoomIds = useMemo(() => {
@@ -1775,8 +1760,6 @@ function App() {
   }, [bridge]);
 
   // Refs to avoid re-registering bridge handlers on every state change
-  const usersRef = useRef(users);
-  usersRef.current = users;
   const isSharingRef = useRef(false);
   const stopSharingRef = useRef<(() => Promise<void>) | null>(null);
   const previousChannelIdRef = useRef<Map<number, number | undefined>>(new Map());
@@ -1907,9 +1890,7 @@ function App() {
       fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1, session });
       fetchAvatarUrlRef.current(matrixUserId).then((url) => {
         if (url) {
-          setUsers(prev => prev.map(u =>
-            u.session === session ? { ...u, avatarUrl: url } : u
-          ));
+          setAvatar(matrixUserId, url);
           return;
         }
         // Avatar not available yet — schedule retry (e.g. Mumble texture still uploading)
@@ -2172,35 +2153,8 @@ function App() {
       if (d?.channels) {
         setChannels(getOrderedChannels(d.channels));
       }
-      if (d?.users) {
-        setUsers(d.users);
-        const selfUser = d.users.find(u => u.self);
-        if (selfUser) {
-          setSelfMuted(selfUser.muted || false);
-          setSelfDeafened(selfUser.deafened || false);
-          setSelfSession(selfUser.session);
-          const capability = matrixCredentialsRef.current?.customCompanions;
-          const storedSelection = capability
-            ? companionForServer(overlaySettingsRef.current, capability.galleryRoomId)
-            : normalizeCompanionId(overlaySettingsRef.current.myCompanion);
-          const desiredSelection = !capability && storedSelection.startsWith('custom:')
-            ? 'floppy'
-            : storedSelection;
-          if (selfUser.companionId && selfUser.companionId !== desiredSelection) {
-            const requestId = ++companionRequestIdRef.current;
-            pendingCompanionRef.current = {
-              requestId,
-            };
-            bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
-          }
-        }
-        // Fetch avatars for users already present at connect time
-        for (const u of d.users) {
-          if (u.matrixUserId && !u.self && !u.avatarUrl) {
-            fetchAvatarForUser(u.session, u.matrixUserId);
-          }
-        }
-      }
+      // Membership no longer rides on voice.connected; it arrives as voice.usersReset,
+      // which fires immediately after this and owns the self-state derivation.
 
       // Persist Mumble registration status to the saved server entry.
       // Password is intentionally omitted here (not stored in localStorage);
@@ -2270,7 +2224,7 @@ function App() {
         updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
-      setUsers([]);
+      resetUsers([]);
       setCurrentChannelId(undefined);
       setCurrentChannelName('');
       setSelfMuted(false);
@@ -2536,93 +2490,134 @@ function App() {
       }
     });
 
-    const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; companionId?: CompanionId; isBrmbleClient?: boolean } | undefined;
-      if (d?.session && d.channelId !== undefined) {
-        const previousChannelId = previousChannelIdRef.current.get(d.session);
-        const knownUser = usersRef.current.find(u => u.session === d.session);
-        const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
-        const selfUser = usersRef.current.find(u => u.self);
-        const selfChannelId = selfUser?.channelId;
-        const enteredSelfChannel = !d.self
-          && selfChannelId !== undefined
-          && d.channelId === selfChannelId
-          && lastKnownChannelId !== selfChannelId;
-        
-        setUsers(prev => {
-          const existing = prev.find(u => u.session === d.session);
-          if (existing) {
-            const updatedChannelId = d.channelId !== undefined ? d.channelId : existing.channelId;
-            // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
-            const certHash = d.certHash || existing.certHash;
-            const matrixUserId = d.matrixUserId || existing.matrixUserId;
-            // A user state carries no companion for a session the client has no mapping for,
-            // which is not the same as the user having no companion.
-            const companionId = d.companionId ?? existing.companionId;
-            const isBrmbleClient = d.isBrmbleClient !== undefined ? d.isBrmbleClient : existing.isBrmbleClient;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, companionId, isBrmbleClient } : u);
-          }
-          return [...prev, d];
-        });
+    /**
+     * Presentation side effects for one changed row: join/mute announcements, avatar fetch and
+     * DM presence. The row itself is applied by the caller; this only reacts to it.
+     *
+     * Must be called BEFORE the row is applied, because it compares against usersRef to decide
+     * what actually changed.
+     */
+    const announceRowChange = (d: User) => {
+      if (!d?.session || d.channelId === undefined) return;
 
-        // Fetch avatar for newly joined user if they have a matrixUserId
-        if (d.matrixUserId && !d.self) {
-          fetchAvatarForUser(d.session, d.matrixUserId);
-        }
+      const previousChannelId = previousChannelIdRef.current.get(d.session);
+      const knownUser = usersRef.current.find(u => u.session === d.session);
+      const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
+      const selfUser = usersRef.current.find(u => u.self);
+      const selfChannelId = selfUser?.channelId;
+      const enteredSelfChannel = !d.self
+        && selfChannelId !== undefined
+        && d.channelId === selfChannelId
+        && lastKnownChannelId !== selfChannelId;
 
+      // Fetch avatar for newly joined user if they have a matrixUserId
+      if (d.matrixUserId && !d.self) {
+        fetchAvatarForUser(d.session, d.matrixUserId);
+      }
+
+      if (enteredSelfChannel) {
+        speakText(`${d.name} joined`);
+      }
+
+      previousChannelIdRef.current.set(d.session, d.channelId);
+
+      const overlaySettings = overlaySettingsRef.current;
+      if (overlaySettings.overlayEnabled) {
         if (enteredSelfChannel) {
-          speakText(`${d.name} joined`);
-        }
-        
-        previousChannelIdRef.current.set(d.session, d.channelId);
-
-        const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled) {
-          if (enteredSelfChannel) {
+          setOverlaySnapshot((prev) => {
+            const now = Date.now();
+            const next = appendOverlayEvent(
+              prev,
+              createMembershipOverlayEvent({
+                kind: 'user-joined',
+                actorName: d.name,
+                currentChannelId: prev.currentChannelId,
+                eventChannelId: String(d.channelId),
+                timestamp: now,
+              }),
+              overlaySettings,
+            );
+            return resolveFullCompanionDisplay(next, now);
+          });
+        } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
+          const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
+          if (inSameChannel) {
             setOverlaySnapshot((prev) => {
               const now = Date.now();
               const next = appendOverlayEvent(
                 prev,
                 createMembershipOverlayEvent({
-                  kind: 'user-joined',
+                  kind: d.muted ? 'user-muted' : 'user-unmuted',
                   actorName: d.name,
                   currentChannelId: prev.currentChannelId,
-                  eventChannelId: String(d.channelId),
+                  eventChannelId: String(d.channelId ?? knownUser.channelId),
                   timestamp: now,
                 }),
                 overlaySettings,
               );
               return resolveFullCompanionDisplay(next, now);
             });
-          } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
-            const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
-            if (inSameChannel) {
-              setOverlaySnapshot((prev) => {
-                const now = Date.now();
-                const next = appendOverlayEvent(
-                  prev,
-                  createMembershipOverlayEvent({
-                    kind: d.muted ? 'user-muted' : 'user-unmuted',
-                    actorName: d.name,
-                    currentChannelId: prev.currentChannelId,
-                    eventChannelId: String(d.channelId ?? knownUser.channelId),
-                    timestamp: now,
-                  }),
-                  overlaySettings,
-                );
-                return resolveFullCompanionDisplay(next, now);
-              });
-            }
           }
         }
+      }
 
-        // Update Mumble DM contact session on reconnect
-        if (d.certHash && !d.self) {
-          dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
+      // Update Mumble DM contact session on reconnect
+      if (d.certHash && !d.self) {
+        dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
+      }
+    };
+
+    /**
+     * Membership replaced wholesale. Owns the self-state derivation that used to hang off
+     * voice.connected, so there is one path by which the list is populated.
+     */
+    const onVoiceUsersReset = ((data: unknown) => {
+      const d = data as { users: User[] } | undefined;
+      if (!d?.users) return;
+
+      resetUsers(d.users);
+
+      const selfUser = d.users.find(u => u.self);
+      if (selfUser) {
+        setSelfMuted(selfUser.muted || false);
+        setSelfDeafened(selfUser.deafened || false);
+        setSelfSession(selfUser.session);
+        const capability = matrixCredentialsRef.current?.customCompanions;
+        const storedSelection = capability
+          ? companionForServer(overlaySettingsRef.current, capability.galleryRoomId)
+          : normalizeCompanionId(overlaySettingsRef.current.myCompanion);
+        const desiredSelection = !capability && storedSelection.startsWith('custom:')
+          ? 'floppy'
+          : storedSelection;
+        if (selfUser.companionId && selfUser.companionId !== desiredSelection) {
+          const requestId = ++companionRequestIdRef.current;
+          pendingCompanionRef.current = { requestId };
+          bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
         }
+      }
 
+      for (const u of d.users) {
+        if (u.matrixUserId && !u.self) {
+          fetchAvatarForUser(u.session, u.matrixUserId);
+        }
+        if (u.channelId !== undefined) previousChannelIdRef.current.set(u.session, u.channelId);
       }
     });
+
+    /**
+     * The only incremental user-state event. Rows are complete, so they replace by session id;
+     * announcements run first, while usersRef still holds the previous state.
+     */
+    const onVoiceUsersChanged = ((data: unknown) => {
+      const d = data as { changed: User[]; removed: number[] } | undefined;
+      if (!d) return;
+
+      for (const row of d.changed ?? []) announceRowChange(row);
+      for (const session of d.removed ?? []) previousChannelIdRef.current.delete(session);
+
+      applyUsers({ changed: d.changed ?? [], removed: d.removed ?? [] });
+    });
+
 
     const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as Channel | undefined;
@@ -2762,7 +2757,8 @@ function App() {
           });
         }
 
-        setUsers(prev => prev.filter(u => u.session !== d.session));
+        // No list mutation: voice.userLeft is presentation only. The row is removed by the
+        // removed[] entry in voice.usersChanged, which is the sole owner of membership.
       }
     });
 
@@ -2883,15 +2879,6 @@ function App() {
           );
           return resolveFullCompanionDisplay(next, now);
         });
-      }
-    });
-
-    const onVoiceUserCommentChanged = ((data: unknown) => {
-      const d = data as { session: number; comment?: string } | undefined;
-      if (d?.session !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.session ? { ...u, comment: d.comment } : u
-        ));
       }
     });
 
@@ -3040,7 +3027,7 @@ function App() {
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
-      setUsers([]);
+      resetUsers([]);
       setCurrentChannelId(undefined);
       setCurrentChannelName('');
       setSelfMuted(false);
@@ -3050,58 +3037,6 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setCurrentUserAvatarUrl(undefined);
-    };
-
-    const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean; action: string } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId
-            ? {
-              ...u,
-              matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
-              companionId: d.action === 'added' ? (d.companionId ?? u.companionId) : u.companionId,
-              certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
-              isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
-            }
-            : u
-        ));
-        // Fetch avatar for the newly mapped user if they don't have one yet
-        if (d.action === 'added' && d.matrixUserId) {
-          fetchAvatarForUser(d.sessionId, d.matrixUserId);
-        }
-      }
-    };
-
-    const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }> } | undefined;
-      if (d?.mappings && typeof d.mappings === 'object') {
-        setUsers(prev => {
-          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }>();
-          for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, certHash: entry.certHash, isBrmbleClient: entry.isBrmbleClient });
-          }
-          return prev.map(u => {
-            const m = mappingMap.get(u.session);
-            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, certHash: m.certHash ?? u.certHash, isBrmbleClient: m.isBrmbleClient } : u;
-          });
-        });
-        // Fetch avatars for users that gained a matrixUserId
-        for (const [sid, entry] of Object.entries(d.mappings)) {
-          fetchAvatarForUser(Number(sid), entry.matrixUserId);
-        }
-      }
-    };
-
-    const onVoiceCompanionChanged = (data: unknown) => {
-      const d = data as {
-        session?: number;
-        companionId?: unknown;
-        customCompanionId?: unknown;
-      } | undefined;
-      if (d?.session === undefined) return;
-      const companionId = normalizeCompanionBridgeSelection(d);
-      setUsers(prev => prev.map(u => u.session === d.session ? { ...u, companionId } : u));
     };
 
     const onVoiceSetCompanionResponse = (data: unknown) => {
@@ -3127,24 +3062,6 @@ function App() {
       }
       setConnectionError(d?.error ?? 'Failed to sync companion');
       notifQueue.register('companion-sync-error', 'error');
-    };
-
-    const onBrmbleClientActivated = (data: unknown) => {
-      const d = data as { sessionId: number } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId ? { ...u, isBrmbleClient: true } : u
-        ));
-      }
-    };
-
-    const onBrmbleClientDeactivated = (data: unknown) => {
-      const d = data as { sessionId: number } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId ? { ...u, isBrmbleClient: false } : u
-        ));
-      }
     };
 
     const onRegistrationStatus = (data: unknown) => {
@@ -3208,7 +3125,8 @@ function App() {
     bridge.on('voice.message', onVoiceMessage);
     bridge.on('voice.system', onVoiceSystem);
     bridge.on('game.feed', onGameFeed);
-    bridge.on('voice.userJoined', onVoiceUserJoined);
+    bridge.on('voice.usersReset', onVoiceUsersReset);
+    bridge.on('voice.usersChanged', onVoiceUsersChanged);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.channelRemoved', onVoiceChannelRemoved);
     bridge.on('voice.userLeft', onVoiceUserLeft);
@@ -3220,7 +3138,6 @@ function App() {
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('voice.moderation', onVoiceModeration);
-    bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
     bridge.on('voice.toggleDmScreen', onToggleDmScreen);
@@ -3263,12 +3180,7 @@ function App() {
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
     bridge.on('voice.authError', onVoiceAuthError);
-    bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
-    bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
-    bridge.on('voice.companionChanged', onVoiceCompanionChanged);
     bridge.on('voice.setCompanionResponse', onVoiceSetCompanionResponse);
-    bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
-    bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
     bridge.on('chat.channelAccess', onChatChannelAccess);
     bridge.on('chat.channelAccessError', onChatChannelAccessError);
@@ -3298,7 +3210,8 @@ function App() {
       bridge.off('voice.message', onVoiceMessage);
       bridge.off('voice.system', onVoiceSystem);
       bridge.off('game.feed', onGameFeed);
-      bridge.off('voice.userJoined', onVoiceUserJoined);
+      bridge.off('voice.usersReset', onVoiceUsersReset);
+      bridge.off('voice.usersChanged', onVoiceUsersChanged);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.channelRemoved', onVoiceChannelRemoved);
       bridge.off('voice.userLeft', onVoiceUserLeft);
@@ -3310,7 +3223,6 @@ function App() {
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('voice.moderation', onVoiceModeration);
-      bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.loss', onVoiceLoss);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
@@ -3330,12 +3242,7 @@ function App() {
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
       bridge.off('voice.authError', onVoiceAuthError);
-      bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
-      bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
-      bridge.off('voice.companionChanged', onVoiceCompanionChanged);
       bridge.off('voice.setCompanionResponse', onVoiceSetCompanionResponse);
-      bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
-      bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
       bridge.off('chat.channelAccess', onChatChannelAccess);
       bridge.off('chat.channelAccessError', onChatChannelAccessError);
@@ -3715,7 +3622,7 @@ const handleConnect = (serverData: SavedServer) => {
         setServerAddress('');
         setUsername('');
         setChannels([]);
-        setUsers([]);
+        resetUsers([]);
         setCurrentChannelId(undefined);
         setCurrentChannelName('');
         setSelfMuted(false);

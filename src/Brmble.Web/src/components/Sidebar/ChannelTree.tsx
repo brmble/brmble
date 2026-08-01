@@ -30,7 +30,8 @@ interface User {
   comment?: string;
   matrixUserId?: string;
   avatarUrl?: string;
-  isBrmbleClient?: boolean;
+  /** Tri-state: null means the server has not said yet. Renders as "not a Brmble user". */
+  isBrmbleClient?: boolean | null;
 }
 
 interface Channel {
