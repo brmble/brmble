@@ -170,7 +170,8 @@ describe('CompanionPicker', () => {
     });
 
     const sprite = await waitFor(() => screen.getByTestId('companion-picker-custom-sprite'));
-    expect(sprite).toHaveStyle('background-image: url(blob:thumbnail)');
+    expect(sprite.style.getPropertyValue('--companion-picker-custom-sprite-image'))
+      .toBe('url(blob:thumbnail)');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 });

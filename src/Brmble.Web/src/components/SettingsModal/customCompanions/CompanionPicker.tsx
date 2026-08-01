@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useViewportThumbnail } from '../../../customCompanions/useViewportThumbnail';
 import type { CustomCompanionEntry } from '../../../customCompanions/customCompanionTypes';
 import type { CustomCompanionGalleryController } from '../../../hooks/useCustomCompanionGallery';
@@ -40,7 +41,17 @@ function CustomCompanionRow({
   onSelect: () => void;
 }) {
   const { ref, thumbnailUrl } = useViewportThumbnail(entry, gallery);
+  const customSpriteRef = useRef<HTMLSpanElement>(null);
   const accessibleName = `${entry.name}, uploaded by ${entry.uploaderDisplayName}`;
+
+  useEffect(() => {
+    if (thumbnailUrl) {
+      customSpriteRef.current?.style.setProperty(
+        '--companion-picker-custom-sprite-image',
+        `url(${thumbnailUrl})`,
+      );
+    }
+  }, [thumbnailUrl]);
 
   return (
     <button
@@ -54,8 +65,8 @@ function CustomCompanionRow({
       <span className="companion-picker-thumbnail" aria-hidden="true">
         {thumbnailUrl ? (
           <span
+            ref={customSpriteRef}
             className="companion-picker-custom-sprite"
-            style={{ backgroundImage: `url(${thumbnailUrl})` }}
             data-testid="companion-picker-custom-sprite"
           />
         ) : (

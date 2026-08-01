@@ -150,6 +150,7 @@
 .companion-picker-custom-sprite {
   width: var(--companion-picker-built-in-size);
   height: var(--companion-picker-built-in-size);
+  background-image: var(--companion-picker-custom-sprite-image);
   background-repeat: no-repeat;
   background-size: calc(100% * 8) calc(100% * 9);
   background-position: 0 0;
