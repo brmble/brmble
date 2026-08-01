@@ -55,7 +55,7 @@ public class BrmbleWebSocketHandlerTests
             CertHash: null,
             IsBrmbleClient: false);
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L, 0L));
 
         Assert.AreEqual("fresh-hash", payload.GetType().GetProperty("certHash")!.GetValue(payload));
     }
@@ -74,7 +74,7 @@ public class BrmbleWebSocketHandlerTests
     {
         var mapping = new SessionMapping("@alice:test", "Alice", 42, "custom:$sprite:test");
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L, 0L));
 
         Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
         Assert.AreEqual("custom:$sprite:test", payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
@@ -85,7 +85,7 @@ public class BrmbleWebSocketHandlerTests
     {
         var mapping = new SessionMapping("@alice:test", "Alice", 42, "floppy");
 
-        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L));
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(7, mapping, "fresh-hash", new MappingEnvelope("inst", 1L, 0L));
 
         Assert.AreEqual("floppy", payload.GetType().GetProperty("companionId")!.GetValue(payload));
         Assert.IsNull(payload.GetType().GetProperty("customCompanionId")!.GetValue(payload));
@@ -226,7 +226,7 @@ public class BrmbleWebSocketHandlerTests
 
         var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
             new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
-            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+            MappingEnvelope.Snapshot(mappings.InstanceId, mappings.Revision));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
         Assert.AreEqual("sessionMappingSnapshot", doc.RootElement.GetProperty("type").GetString());
@@ -257,7 +257,7 @@ public class BrmbleWebSocketHandlerTests
         // bumped the revision. Unstamped, those bumps are silent and every client sees a gap.
         var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(
             42, new SessionMapping("@alice:test", "Alice", 1L, "floppy"), "cert",
-            new MappingEnvelope("inst", 9L));
+            new MappingEnvelope("inst", 9L, 8L));
 
         Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
     }
@@ -276,7 +276,7 @@ public class BrmbleWebSocketHandlerTests
 
         var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
             new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
-            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+            MappingEnvelope.Snapshot(mappings.InstanceId, mappings.Revision));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
         var entries = doc.RootElement.GetProperty("mappings");
@@ -392,7 +392,7 @@ public class BrmbleWebSocketHandlerTests
 
         var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
             new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
-            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+            MappingEnvelope.Snapshot(mappings.InstanceId, mappings.Revision));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
         Assert.AreEqual(0L, doc.RootElement.GetProperty("revision").GetInt64());
@@ -406,7 +406,7 @@ public class BrmbleWebSocketHandlerTests
         // is the proof. It is the one place true is knowledge rather than an assumption.
         var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(
             42, new SessionMapping("@alice:test", "Alice", 1L, "floppy", IsBrmbleClient: null),
-            "cert", new MappingEnvelope("inst", 9L));
+            "cert", new MappingEnvelope("inst", 9L, 8L));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
         Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());

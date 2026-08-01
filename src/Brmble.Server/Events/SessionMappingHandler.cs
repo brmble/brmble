@@ -66,6 +66,7 @@ public class SessionMappingHandler : IMumbleEventHandler
                 {
                     ["type"] = "userMappingAdded",
                     ["instanceId"] = envelope.InstanceId,
+                    ["baseRevision"] = envelope.BaseRevision,
                     ["revision"] = envelope.Revision,
                     ["sessionId"] = user.SessionId,
                     ["matrixUserId"] = dbUser.MatrixUserId,
@@ -95,6 +96,7 @@ public class SessionMappingHandler : IMumbleEventHandler
                 {
                     type = "brmbleClientActivated",
                     instanceId = announced.InstanceId,
+                    baseRevision = announced.BaseRevision,
                     revision = announced.Revision,
                     sessionId = user.SessionId
                 });

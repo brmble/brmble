@@ -265,6 +265,7 @@ public class AuthService : IActiveBrmbleSessions
             {
                 type = "brmbleClientActivated",
                 instanceId = envelope.InstanceId,
+                baseRevision = envelope.BaseRevision,
                 revision = envelope.Revision,
                 sessionId = activatedSessionId
             });
@@ -290,6 +291,7 @@ public class AuthService : IActiveBrmbleSessions
                     {
                         type = "brmbleClientDeactivated",
                         instanceId = envelope.InstanceId,
+                        baseRevision = envelope.BaseRevision,
                         revision = envelope.Revision,
                         sessionId = deactivatedSessionId
                     });

@@ -42,6 +42,10 @@ public class MappingPayloadEnvelopeTests
         var root = AssertHasEnvelopeCore(payload, expectedType);
         Assert.IsTrue(root.GetProperty("revision").GetInt64() > 0,
             $"{expectedType} must carry the post-mutation revision");
+        Assert.IsTrue(root.TryGetProperty("baseRevision", out var baseRevision),
+            $"{expectedType} is missing baseRevision, so a client cannot tell a gap from a jump");
+        Assert.IsTrue(baseRevision.GetInt64() <= root.GetProperty("revision").GetInt64(),
+            $"{expectedType} has baseRevision above revision");
     }
 
     /// <summary>
@@ -54,6 +58,8 @@ public class MappingPayloadEnvelopeTests
         var root = AssertHasEnvelopeCore(payload, expectedType);
         Assert.IsTrue(root.GetProperty("revision").GetInt64() >= 0,
             $"{expectedType} must carry a revision");
+        Assert.IsFalse(root.TryGetProperty("baseRevision", out _),
+            $"{expectedType} is a snapshot and must not carry baseRevision");
     }
 
     private static JsonElement AssertHasEnvelopeCore(object payload, string expectedType)

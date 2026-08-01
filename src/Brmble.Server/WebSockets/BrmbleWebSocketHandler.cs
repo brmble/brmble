@@ -131,6 +131,7 @@ public static class BrmbleWebSocketHandler
         {
             type = "userMappingAdded",
             instanceId = envelope.InstanceId,
+            baseRevision = envelope.BaseRevision,
             revision = envelope.Revision,
             sessionId,
             matrixUserId = mapping.MatrixUserId,
@@ -184,7 +185,7 @@ public static class BrmbleWebSocketHandler
             sessionMapping.TryGetSessionByUserId(userId, out var queueSessionId);
             // Revision before snapshot: see the note on the resync path. Under-claiming is
             // self-correcting, over-claiming silently drops the intervening events.
-            var bootstrapEnvelope = new MappingEnvelope(
+            var bootstrapEnvelope = MappingEnvelope.Snapshot(
                 sessionMapping.InstanceId, sessionMapping.Revision);
             return await BuildInitialPayloadsAsync(
                 snapshots, queueSessionId, sessionMapping.GetSnapshot(), bootstrapEnvelope);
