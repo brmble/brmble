@@ -67,7 +67,7 @@ public class MappingEventPublisherTests
         // were written. A snapshot is absolute, not a delta: it sets the client's cursor rather
         // than advancing it, so it must be its own base and must carry no baseRevision on the
         // wire. Stamping a real range here would make the client treat a repair as a delta and
-        // and leave the gap it was sent to close.
+        // leave the gap it was sent to close.
         _mappings.TryUpdateCompanionId(1, "retro");
         var socket = new Moq.Mock<System.Net.WebSockets.WebSocket>().Object;
         MappingEnvelope captured = default;
