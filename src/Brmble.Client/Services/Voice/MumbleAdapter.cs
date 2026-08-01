@@ -66,6 +66,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
 
     /// <summary>
+    /// The authoritative user projection. Replaces _sessionMappings, _pendingBrmbleStatus and
+    /// _userMappings: it merges Mumble presence and Brmble identity under one set of rules
+    /// rather than three ad-hoc ones spread across the adapter and App.tsx.
+    /// </summary>
+    private readonly Projection.UserProjectionStore _projection = new();
+
+    /// <summary>
     /// Brmble status for sessions this client has not been told the mapping for yet. The
     /// server may announce that a session became a Brmble client before this client learns
     /// who that session is, and every later user state re-asserts the flag from the mapping
@@ -4171,10 +4178,29 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <c>LocalUser.Channel.Id</c>.  This avoids a race when the server hasn't
     /// echoed a channel move yet (e.g. fresh connect moving to root).
     /// </param>
+    /// <summary>
+    /// Reduces a MumbleSharp user to the fields Mumble owns. Muted folds server mute, self mute
+    /// and both deafen flags together, matching what the UI has always shown.
+    /// </summary>
+    private Projection.MumbleUserInput ToProjectionInput(MumbleSharp.Model.User user) =>
+        new(user.Id,
+            user.Name,
+            (uint)(user.Channel?.Id ?? 0),
+            user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf,
+            user.Deaf || user.SelfDeaf,
+            user.Comment,
+            user.CertificateHash,
+            user == LocalUser);
+
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(CreateChannelPayload).ToList();
+
+        // A reconnect replaces membership wholesale. Server-owned fields survive for sessions
+        // present both before and after, so a voice reconnect costs no identity.
+        _projection.ApplyMumbleReset([.. Users.Select(ToProjectionInput)]);
+
         var users = Users.Select(u =>
         {
             var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
@@ -4261,6 +4287,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         base.UserState(userState);
 
         UserDictionary.TryGetValue(userState.Session, out var user);
+
+        // Mumble resends the complete UserState on every change, so this is authoritative for
+        // every Mumble-owned field including the ones that went empty.
+        if (user is not null) _projection.ApplyMumbleUserState(ToProjectionInput(user));
 
         // Request full comment if only hash was received
         if (userState.ShouldSerializeCommentHash() && !userState.ShouldSerializeComment())
@@ -4503,6 +4533,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         base.UserRemove(userRemove);
+
+        // The only path that deletes a row: Mumble alone owns existence.
+        _projection.ApplyMumbleUserRemove(userRemove.Session);
 
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 

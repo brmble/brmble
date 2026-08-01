@@ -82,6 +82,9 @@ internal static class MumbleAdapterTestHarness
         SetField(adapter, "_sessionMappings", new ConcurrentDictionary<uint, MumbleAdapter.SessionMappingEntry>());
         SetField(adapter, "_pendingBrmbleStatus", new ConcurrentDictionary<uint, bool>());
         SetField(adapter, "_channelPasswordRestrictions", new ConcurrentDictionary<uint, bool>());
+        // GetUninitializedObject skips field initialisers, so every field the adapter constructs
+        // inline has to be seeded here or it is null at first use.
+        SetField(adapter, "_projection", new Brmble.Client.Services.Voice.Projection.UserProjectionStore());
         return adapter;
     }
 
