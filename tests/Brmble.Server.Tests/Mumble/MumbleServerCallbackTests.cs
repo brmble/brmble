@@ -53,10 +53,12 @@ public class MumbleServerCallbackTests
             NullLogger<LiveKitParticipantRevocationScheduler>.Instance,
             liveKitRevocationRetryDelays ?? []);
 
+        var effectiveBus = bus ?? new Mock<IBrmbleEventBus>().Object;
         return new MumbleServerCallback(
             handlers,
             mapping,
-            bus ?? new Mock<IBrmbleEventBus>().Object,
+            effectiveBus,
+            new MappingEventPublisher(mapping, effectiveBus),
             channelMembership ?? new Mock<IChannelMembershipService>().Object,
             screenShareTracker ?? new ScreenShareTracker(),
             revocationScheduler,

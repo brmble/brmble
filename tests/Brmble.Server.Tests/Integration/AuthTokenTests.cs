@@ -185,6 +185,63 @@ public class AuthTokenTests : IDisposable
     }
 
     [TestMethod]
+    public async Task PostAuthToken_StampsResponseWithEnvelope()
+    {
+        using var factory = new BrmbleServerFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsTrue(doc.RootElement.TryGetProperty("instanceId", out var instanceId),
+            "/auth/token is the bootstrap snapshot transport and must be orderable");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(instanceId.GetString()));
+        Assert.IsTrue(doc.RootElement.TryGetProperty("revision", out _));
+    }
+
+    [TestMethod]
+    public async Task PostAuthToken_NewMappingBroadcastsStampedUserMappingAdded()
+    {
+        // The endpoint bumps the revision three times (add, certHash, brmbleStatus) before
+        // announcing. An unstamped announcement makes all three bumps silent.
+        using var factory = new RecordingBusFactory();
+        using var client = factory.CreateClient();
+        factory.Services.GetRequiredService<ISessionMappingService>()
+            .SetNameForSession("Alice", 1);
+
+        var body = new StringContent(
+            JsonSerializer.Serialize(new { mumbleUsername = "Alice" }),
+            Encoding.UTF8, "application/json");
+        (await client.PostAsync("/auth/token", body)).EnsureSuccessStatusCode();
+
+        var payload = factory.Broadcasts
+            .Single(p => JsonSerializer.Serialize(p).Contains("\"type\":\"userMappingAdded\""));
+        Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
+    }
+
+    /// <summary>Swaps the real event bus for one that records broadcasts.</summary>
+    private sealed class RecordingBusFactory : BrmbleServerFactory
+    {
+        public List<object> Broadcasts { get; } = new();
+
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureServices(services =>
+            {
+                var existing = services.FirstOrDefault(d => d.ServiceType == typeof(IBrmbleEventBus));
+                if (existing is not null) services.Remove(existing);
+                var bus = new Moq.Mock<IBrmbleEventBus>();
+                bus.Setup(b => b.BroadcastAsync(Moq.It.IsAny<object>()))
+                    .Callback<object>(m => { lock (Broadcasts) Broadcasts.Add(m); })
+                    .Returns(Task.CompletedTask);
+                services.AddSingleton(bus.Object);
+            });
+        }
+    }
+
+    [TestMethod]
     public async Task PostAuthToken_IncludesPasswordProtectedChannelIdsWithoutTokenPlaintext()
     {
         var snapshots = _factory.Services.GetRequiredService<IAclSnapshotRepository>();

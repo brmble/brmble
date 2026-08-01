@@ -30,6 +30,7 @@ public class MumbleIceServiceTests
             Enumerable.Empty<IMumbleEventHandler>(),
             new Mock<ISessionMappingService>().Object,
             new Mock<IBrmbleEventBus>().Object,
+            new Mock<IMappingEventPublisher>().Object,
             new Mock<IChannelMembershipService>().Object,
             new ScreenShareTracker(),
             revocationScheduler,

@@ -11,6 +11,7 @@ public static class MumbleExtensions
             .BindConfiguration("Ice");
         services.AddSingleton<ISessionMappingService, SessionMappingService>();
         services.AddSingleton<IChannelMembershipService, ChannelMembershipService>();
+        services.AddSingleton<IMappingEventPublisher, MappingEventPublisher>();
         services.AddOptions<EventBusSettings>()
             .BindConfiguration("EventBus");
         services.AddSingleton<IBrmbleEventBus, BrmbleEventBus>();

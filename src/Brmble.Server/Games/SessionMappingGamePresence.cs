@@ -23,7 +23,7 @@ public sealed class SessionMappingGamePresence : IGamePresence
         userId = 0;
         if (!_sessions.GetSnapshot().TryGetValue((int)sessionId, out var mapping) || mapping is null)
             return false;
-        isBrmble = mapping.IsBrmbleClient;
+        isBrmble = mapping.IsBrmbleClient == true;
         userId = mapping.UserId;
         return _membership.TryGetChannel((int)sessionId, out channelId);
     }

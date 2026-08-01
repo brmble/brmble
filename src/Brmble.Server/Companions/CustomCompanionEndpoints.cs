@@ -27,7 +27,7 @@ public static class CustomCompanionEndpoints
             CustomCompanionRepository repository,
             IMatrixAppService matrixAppService,
             ISessionMappingService sessionMapping,
-            IBrmbleEventBus eventBus,
+            IMappingEventPublisher publisher,
             ILogger<CustomCompanionGalleryService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -37,6 +37,8 @@ public static class CustomCompanionEndpoints
             if (user is null) return Results.Unauthorized();
             if (!await aclAuthorization.CanModerateServerAsync(user.Id))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var sends = new List<Task>();
 
             using (await eventCoordinator.AcquireAsync(eventId, httpContext.RequestAborted))
             {
@@ -67,24 +69,34 @@ public static class CustomCompanionEndpoints
                         continue;
                     }
 
-                    if (sessionMapping.TryUpdateCompanionIdIfCurrent(
-                            sessionId, deletedCompanionId, "floppy"))
-                    {
-                        // Broadcast server-wide: a channel lookup failure previously swallowed
-                        // the event, and out-of-channel clients were never told at all.
-                        await eventBus.BroadcastAsync(new
+                    // PublishAsync returns as soon as the payload is enqueued, so the
+                    // coordinator lock is not held across the fan-out. Awaiting these here
+                    // would reintroduce exactly what cd7b48fa removed.
+                    //
+                    // Broadcast server-wide: a channel lookup failure previously swallowed
+                    // the event, and out-of-channel clients were never told at all.
+                    sends.Add(publisher.PublishAsync(
+                        () => sessionMapping.TryUpdateCompanionIdIfCurrent(
+                            sessionId, deletedCompanionId, "floppy"),
+                        envelope => new
                         {
                             type = "companionChanged",
+                            instanceId = envelope.InstanceId,
+                            revision = envelope.Revision,
                             sessionId,
                             matrixUserId = mapping.MatrixUserId,
                             companionId = "floppy",
                             customCompanionId = (string?)null
-                        });
-                    }
+                        }));
                 }
-
-                return Results.NoContent();
             }
+
+            // Awaited outside the coordinator lock: each announcement is a full-server
+            // fan-out and one deletion can affect every user wearing the skin, so holding the
+            // lock across that socket I/O would serialise unrelated deletions behind it.
+            await Task.WhenAll(sends);
+
+            return Results.NoContent();
         });
 
         return app;

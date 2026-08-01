@@ -9,6 +9,7 @@ public interface IBrmbleEventBus
     void RemoveClient(WebSocket ws);
     bool HasConnectedClient(long userId);
     Task BroadcastAsync(object message);
+    Task SendToClientAsync(WebSocket socket, object message);
     Task BroadcastExceptAsync(WebSocket excluded, object message);
     Task BroadcastToChannelAsync(int channelId, object message);
     Task<IReadOnlySet<long>> GetConnectedUserIdsAsync();

@@ -25,7 +25,7 @@ public static class AuthEndpoints
             CustomCompanionGalleryService customCompanionGalleryService,
             IAclAuthorizationService aclAuthorization,
             ISessionMappingService sessionMapping,
-            IBrmbleEventBus eventBus,
+            IMappingEventPublisher publisher,
             ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -90,35 +90,57 @@ public static class AuthEndpoints
                 sessionMapping.TryGetSessionId(resolvedName, out var sid))
             {
                 var companionId = await userRepository.GetCompanionId(result.UserId);
-                if (sessionMapping.TryAddMatrixUser(sid, result.MatrixUserId, resolvedName, result.UserId, companionId))
-                {
-                    sessionMapping.TryUpdateCertHash(sid, certHash);
-                    // This user just authenticated via Brmble, so mark them as a Brmble client
-                    // immediately. Authenticate() may have failed to update the mapping if
-                    // TryAddMatrixUser hadn't been called yet (race with SessionMappingHandler).
-                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
-                    var wire = CompanionWireSelection.FromPersisted(companionId);
-                    await eventBus.BroadcastAsync(new
+                var mappingAdded = false;
+                // Mutations run inside the publisher's lock so the stamped revision is provably
+                // the one they produced. Reading .Revision after mutating unsynchronised lets a
+                // concurrent registration bump in between, and two payloads then claim one
+                // revision — a client applies the first and discards the second as a duplicate.
+                await publisher.PublishAsync(
+                    () =>
                     {
-                        type = "userMappingAdded",
-                        sessionId = sid,
-                        matrixUserId = result.MatrixUserId,
-                        mumbleName = resolvedName,
-                        companionId = wire.CompanionId,
-                        customCompanionId = wire.CustomCompanionId,
-                        certHash,
-                        isBrmbleClient = true
+                        mappingAdded = sessionMapping.TryAddMatrixUser(
+                            sid, result.MatrixUserId, resolvedName, result.UserId, companionId);
+
+                        // This user just authenticated via Brmble, so mark them as a Brmble
+                        // client immediately. Authenticate() may have failed to update the
+                        // mapping if TryAddMatrixUser hadn't been called yet (race with
+                        // SessionMappingHandler).
+                        //
+                        // Ownership-constrained: `sid` came from a name lookup made outside this
+                        // lock, so the session may since have been recycled to a different user.
+                        // Updating by raw session id would write this user's certificate and
+                        // status into that user's mapping and then announce it as their own.
+                        return sessionMapping.TryClaimBrmbleSession(
+                            sid, result.UserId, certHash, out _);
+                    },
+                    envelope =>
+                    {
+                        var wire = CompanionWireSelection.FromPersisted(companionId);
+                        // A new mapping is announced as userMappingAdded; an existing one only
+                        // changed its Brmble status, so it is announced as an activation.
+                        // Either way the bumps above are announced rather than silent.
+                        return mappingAdded
+                            ? new
+                            {
+                                type = "userMappingAdded",
+                                instanceId = envelope.InstanceId,
+                                revision = envelope.Revision,
+                                sessionId = sid,
+                                matrixUserId = result.MatrixUserId,
+                                mumbleName = resolvedName,
+                                companionId = wire.CompanionId,
+                                customCompanionId = wire.CustomCompanionId,
+                                certHash,
+                                isBrmbleClient = true
+                            }
+                            : (object)new
+                            {
+                                type = "brmbleClientActivated",
+                                instanceId = envelope.InstanceId,
+                                revision = envelope.Revision,
+                                sessionId = sid
+                            };
                     });
-                }
-                else
-                {
-                    // Mapping already existed (created by SessionMappingHandler.OnUserConnected).
-                    // Ensure Brmble status is up to date — Authenticate() sets _activeSessions
-                    // but TryUpdateBrmbleStatus may not have been called if the mapping
-                    // was created before auth completed.
-                    sessionMapping.TryUpdateCertHash(sid, certHash);
-                    sessionMapping.TryUpdateBrmbleStatus(sid, true);
-                }
             }
 
             logger.LogInformation(
@@ -200,22 +222,16 @@ public static class AuthEndpoints
             {
                 matrix = matrixPayload,
                 userMappings,
+                // Same envelope the WebSocket snapshot carries: this is the bootstrap
+                // transport for the identical data, so it must be orderable too.
+                // Keep revision above sessionMappings — initialisers evaluate in source order,
+                // and a snapshot must never claim a revision newer than the data it holds.
+                instanceId = sessionMapping.InstanceId,
+                revision = sessionMapping.Revision,
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp =>
-                        {
-                            var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
-                            return new
-                            {
-                            matrixUserId = kvp.Value.MatrixUserId,
-                            mumbleName = kvp.Value.MumbleName,
-                            companionId = wire.CompanionId,
-                            customCompanionId = wire.CustomCompanionId,
-                            certHash = kvp.Value.CertHash,
-                            isBrmbleClient = kvp.Value.IsBrmbleClient
-                            };
-                        }),
+                        kvp => SessionMappingWire.From(kvp.Value)),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
                 passwordProtectedChannelIds,
@@ -267,7 +283,7 @@ public static class AuthEndpoints
             CustomCompanionEventCoordinator customCompanionEventCoordinator,
             CustomCompanionRepository customCompanionRepository,
             ISessionMappingService sessionMapping,
-            IBrmbleEventBus eventBus,
+            IMappingEventPublisher publisher,
             ILogger<AuthService> logger) =>
         {
             var certHash = certHashExtractor.GetCertHash(httpContext);
@@ -298,7 +314,7 @@ public static class AuthEndpoints
 
                     return await PersistCompanionSelectionAsync(
                         user, companionId!, userRepository, sessionMapping,
-                        eventBus, logger);
+                        publisher, logger);
                 }
             }
 
@@ -307,7 +323,7 @@ public static class AuthEndpoints
 
             return await PersistCompanionSelectionAsync(
                 user, normalized, userRepository, sessionMapping,
-                eventBus, logger);
+                publisher, logger);
         });
 
         return app;
@@ -318,7 +334,7 @@ public static class AuthEndpoints
         string companionId,
         UserRepository userRepository,
         ISessionMappingService sessionMapping,
-        IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         ILogger<AuthService> logger)
     {
         await userRepository.SetCompanionId(user.Id, companionId);
@@ -327,23 +343,30 @@ public static class AuthEndpoints
         // userId→session index can outlive or disagree with the session→mapping table, so a
         // bare session lookup can point at a session with no mapping, or one that has since
         // been recycled to a different user. Announcing either would publish a change that
-        // did not happen — or attribute it to somebody else.
-        if (sessionMapping.TryGetMappingByUserId(user.Id, out var sessionId, out _)
-            && sessionMapping.TryUpdateCompanionId(sessionId, companionId))
-        {
-            var wire = CompanionWireSelection.FromPersisted(companionId);
-            // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
-            // delivery left everyone outside the user's channel with a stale selection until
-            // their next reconnect (nothing re-delivers it on channel move).
-            await eventBus.BroadcastAsync(new
+        // did not happen — or attribute it to somebody else. The update is then done with a
+        // CAS on the owning userId, so a recycle racing between the lookup and the write
+        // cannot land on the new owner's mapping either.
+        var sessionId = 0;
+        // Broadcast server-wide: clients keep a server-wide user list, and channel-scoped
+        // delivery left everyone outside the user's channel with a stale selection until
+        // their next reconnect (nothing re-delivers it on channel move).
+        await publisher.PublishAsync(
+            () => sessionMapping.TryGetMappingByUserId(user.Id, out sessionId, out _)
+                  && sessionMapping.TryUpdateCompanionIdIfOwnedBy(sessionId, user.Id, companionId),
+            envelope =>
             {
-                type = "companionChanged",
-                sessionId,
-                matrixUserId = user.MatrixUserId,
-                companionId = wire.CompanionId,
-                customCompanionId = wire.CustomCompanionId
+                var wire = CompanionWireSelection.FromPersisted(companionId);
+                return new
+                {
+                    type = "companionChanged",
+                    instanceId = envelope.InstanceId,
+                    revision = envelope.Revision,
+                    sessionId,
+                    matrixUserId = user.MatrixUserId,
+                    companionId = wire.CompanionId,
+                    customCompanionId = wire.CustomCompanionId
+                };
             });
-        }
 
         logger.LogInformation(
             "Companion updated: UserId={UserId}, CompanionId={CompanionId}",

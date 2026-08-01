@@ -9,6 +9,15 @@ public class SessionMappingService : ISessionMappingService
     private readonly ConcurrentDictionary<int, string> _sessionToName = new();
     private readonly ConcurrentDictionary<long, int> _userIdToSession = new();
 
+    private readonly string _instanceId = Guid.NewGuid().ToString("N");
+    private long _revision;
+
+    public string InstanceId => _instanceId;
+
+    public long Revision => Interlocked.Read(ref _revision);
+
+    private void Bump() => Interlocked.Increment(ref _revision);
+
     public void SetNameForSession(string name, int sessionId)
     {
         _nameToSession[name] = sessionId;
@@ -20,20 +29,54 @@ public class SessionMappingService : ISessionMappingService
         if (_sessionToMapping.TryAdd(sessionId, new SessionMapping(matrixUserId, mumbleName, userId, companionId)))
         {
             _userIdToSession[userId] = sessionId;
+            Bump();
             return true;
         }
 
-        _userIdToSession[userId] = sessionId;
+        // The session already has a mapping. Only refresh the index when that mapping is this
+        // user's own: pointing a user at a session somebody else owns makes every later by-user
+        // lookup resolve to — and mutate — the wrong projection.
+        if (_sessionToMapping.TryGetValue(sessionId, out var existing) && existing.UserId == userId)
+            _userIdToSession[userId] = sessionId;
+
+        return false;
+    }
+
+    public bool TryClaimBrmbleSession(int sessionId, long userId, string certHash, out SessionMapping? mapping)
+    {
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            // Ownership is checked inside the CAS, not before it, so a recycle racing this call
+            // loses rather than being overwritten.
+            if (existing.UserId != userId)
+            {
+                mapping = null;
+                return false;
+            }
+
+            var updated = existing with { IsBrmbleClient = true, CertHash = certHash };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                _userIdToSession[userId] = sessionId;
+                Bump();
+                mapping = updated;
+                return true;
+            }
+        }
+
+        mapping = null;
         return false;
     }
 
     public void RemoveSession(int sessionId)
     {
+        var changed = false;
         if (_sessionToMapping.TryRemove(sessionId, out var mapping))
         {
             // Only remove userId→session if it still points to this session
             ((ICollection<KeyValuePair<long, int>>)_userIdToSession)
                 .Remove(new KeyValuePair<long, int>(mapping.UserId, sessionId));
+            changed = true;
         }
         if (_sessionToName.TryRemove(sessionId, out var name))
         {
@@ -42,6 +85,7 @@ public class SessionMappingService : ISessionMappingService
             ((ICollection<KeyValuePair<string, int>>)_nameToSession)
                 .Remove(new KeyValuePair<string, int>(name, sessionId));
         }
+        if (changed) Bump();
     }
 
     public bool TryGetMatrixUserId(int sessionId, out string? matrixUserId)
@@ -79,22 +123,31 @@ public class SessionMappingService : ISessionMappingService
         return false;
     }
 
-    public bool TryUpdateBrmbleStatus(int sessionId, bool isBrmbleClient)
+    public bool TryUpdateBrmbleStatus(int sessionId, bool? isBrmbleClient)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { IsBrmbleClient = isBrmbleClient };
-            return true;
+            var updated = existing with { IsBrmbleClient = isBrmbleClient };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
+
         return false;
     }
 
     public bool TryUpdateCompanionId(int sessionId, string companionId)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { CompanionId = companionId };
-            return true;
+            var updated = existing with { CompanionId = companionId };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
 
         return false;
@@ -109,7 +162,31 @@ public class SessionMappingService : ISessionMappingService
 
             var updated = existing with { CompanionId = companionId };
             if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId)
+    {
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            // Compare-and-swap on the mapping we read: a session removed and recycled to a
+            // different user between the read and the write would otherwise have its owner's
+            // companion overwritten, and the change announced under the wrong identity.
+            if (existing.UserId != userId)
+                return false;
+
+            var updated = existing with { CompanionId = companionId };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
 
         return false;
@@ -117,10 +194,14 @@ public class SessionMappingService : ISessionMappingService
 
     public bool TryUpdateCertHash(int sessionId, string certHash)
     {
-        if (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
         {
-            _sessionToMapping[sessionId] = existing with { CertHash = certHash };
-            return true;
+            var updated = existing with { CertHash = certHash };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                Bump();
+                return true;
+            }
         }
 
         return false;

@@ -99,11 +99,14 @@ public class SessionMappingServiceTests
     [TestMethod]
     public void TryAddMatrixUser_ExistingSession_RefreshesUserIdIndex()
     {
+        // Re-adding a mapping the same user already owns is a no-op that still leaves the index
+        // pointing at it. The cross-user case is deliberately *not* refreshed — see
+        // TryAddMatrixUser_FailedAdd_DoesNotRepointTheIndexAtAnotherUsersSession.
         Assert.IsTrue(_svc.TryAddMatrixUser(1, "@old:server", "Alice", 10L, "bee"));
 
-        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 42L, "bee"));
+        Assert.IsFalse(_svc.TryAddMatrixUser(1, "@new:server", "Alice", 10L, "bee"));
 
-        Assert.IsTrue(_svc.TryGetSessionByUserId(42L, out var sessionId));
+        Assert.IsTrue(_svc.TryGetSessionByUserId(10L, out var sessionId));
         Assert.AreEqual(1, sessionId);
     }
 
@@ -156,6 +159,36 @@ public class SessionMappingServiceTests
     }
 
     [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_UpdatesWhenSessionStillOwnedByUser()
+    {
+        _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
+
+        var updated = _svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy");
+
+        Assert.IsTrue(updated);
+        Assert.AreEqual("floppy", _svc.GetSnapshot()[42].CompanionId);
+    }
+
+    [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_RejectsRecycledSession()
+    {
+        // Session 42 was released by user 100 and reclaimed by user 200 — a write carrying
+        // the old owner's userId must not land on the new owner's mapping.
+        _svc.TryAddMatrixUser(42, "@bob:test", "Bob", 200L, "bee");
+
+        var updated = _svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy");
+
+        Assert.IsFalse(updated);
+        Assert.AreEqual("bee", _svc.GetSnapshot()[42].CompanionId);
+    }
+
+    [TestMethod]
+    public void TryUpdateCompanionIdIfOwnedBy_ReturnsFalseWhenMappingIsMissing()
+    {
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfOwnedBy(42, 100L, "floppy"));
+    }
+
+    [TestMethod]
     public void TryUpdateCertHash_UpdatesExistingMapping()
     {
         _svc.TryAddMatrixUser(42, "@alice:test", "Alice", 100L, "bee");
@@ -164,5 +197,137 @@ public class SessionMappingServiceTests
 
         Assert.IsTrue(updated);
         Assert.AreEqual("cert-alice", _svc.GetSnapshot()[42].CertHash);
+    }
+
+    [TestMethod]
+    public void Revision_StartsAtZeroAndIncrementsOnEverySuccessfulMutation()
+    {
+        Assert.AreEqual(0L, _svc.Revision);
+
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        Assert.AreEqual(1L, _svc.Revision);
+
+        _svc.TryUpdateCompanionId(1, "retro");
+        Assert.AreEqual(2L, _svc.Revision);
+
+        _svc.TryUpdateBrmbleStatus(1, true);
+        Assert.AreEqual(3L, _svc.Revision);
+
+        _svc.TryUpdateCertHash(1, "abc");
+        Assert.AreEqual(4L, _svc.Revision);
+
+        _svc.TryUpdateCompanionIdIfOwnedBy(1, 1L, "pip");
+        Assert.AreEqual(5L, _svc.Revision);
+
+        _svc.RemoveSession(1);
+        Assert.AreEqual(6L, _svc.Revision);
+    }
+
+    [TestMethod]
+    public void Revision_DoesNotIncrementWhenMutationDoesNotApply()
+    {
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        var before = _svc.Revision;
+
+        // Session 99 has no mapping, so none of these change anything.
+        Assert.IsFalse(_svc.TryUpdateCompanionId(99, "retro"));
+        Assert.IsFalse(_svc.TryUpdateBrmbleStatus(99, true));
+        Assert.IsFalse(_svc.TryUpdateCertHash(99, "abc"));
+        _svc.RemoveSession(99);
+
+        // A CAS whose expected value does not match must not bump either.
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfCurrent(1, "notthecurrentone", "pip"));
+
+        // Nor one whose owning userId does not match.
+        Assert.IsFalse(_svc.TryUpdateCompanionIdIfOwnedBy(1, 999L, "pip"));
+
+        Assert.AreEqual(before, _svc.Revision);
+    }
+
+    [TestMethod]
+    public void InstanceId_IsStableWithinAnInstanceAndDiffersAcrossInstances()
+    {
+        var first = _svc.InstanceId;
+
+        _svc.TryAddMatrixUser(1, "@1:server", "Alice", 1L, "bee");
+        Assert.AreEqual(first, _svc.InstanceId, "InstanceId must not change while the process lives");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(first));
+
+        var replacement = new SessionMappingService();
+        Assert.AreNotEqual(first, replacement.InstanceId, "a restart must be observable");
+        Assert.AreEqual(0L, replacement.Revision);
+    }
+
+    [TestMethod]
+    public void Revision_IsMonotonicUnderConcurrentMutations()
+    {
+        for (var i = 0; i < 200; i++)
+            _svc.TryAddMatrixUser(i, $"@{i}:server", $"U{i}", i, "bee");
+
+        Parallel.For(0, 200, i => _svc.TryUpdateCompanionId(i, "retro"));
+
+        // 200 adds + 200 updates, none of them lost to a read-modify-write race.
+        Assert.AreEqual(400L, _svc.Revision);
+    }
+
+    [TestMethod]
+    public void TryAddMatrixUser_FailedAdd_DoesNotRepointTheIndexAtAnotherUsersSession()
+    {
+        // Session 1 belongs to Alice. Bob authenticating against a recycled session id must not
+        // leave his userId pointing at her mapping - every later by-user lookup would resolve to
+        // her session and mutate her projection.
+        _svc.TryAddMatrixUser(1, "@alice:server", "Alice", 100L, "bee");
+
+        var added = _svc.TryAddMatrixUser(1, "@bob:server", "Bob", 200L, "retro");
+
+        Assert.IsFalse(added);
+        Assert.IsFalse(_svc.TryGetSessionByUserId(200L, out _),
+            "a failed add must not create an index entry pointing at somebody else's session");
+        Assert.IsTrue(_svc.TryGetSessionByUserId(100L, out var aliceSession));
+        Assert.AreEqual(1, aliceSession);
+    }
+
+    [TestMethod]
+    public void TryClaimBrmbleSession_SetsBothFieldsAtomicallyAndReturnsThePostState()
+    {
+        _svc.TryAddMatrixUser(1, "@alice:server", "Alice", 100L, "bee");
+        var before = _svc.Revision;
+
+        var claimed = _svc.TryClaimBrmbleSession(1, 100L, "cert-alice", out var mapping);
+
+        Assert.IsTrue(claimed);
+        Assert.IsNotNull(mapping);
+        Assert.AreEqual(true, mapping!.IsBrmbleClient);
+        Assert.AreEqual("cert-alice", mapping.CertHash);
+        Assert.AreEqual("bee", mapping.CompanionId, "the claim must not disturb other fields");
+        Assert.AreEqual(before + 1, _svc.Revision, "one logical claim is one bump");
+    }
+
+    [TestMethod]
+    public void TryClaimBrmbleSession_RefusesASessionOwnedBySomebodyElseAndMutatesNothing()
+    {
+        // The blocker: writing Bob's certificate and Brmble status into Alice's mapping, then
+        // suppressing the announcement because the ownership check failed afterwards.
+        _svc.TryAddMatrixUser(1, "@alice:server", "Alice", 100L, "bee");
+        var before = _svc.Revision;
+
+        var claimed = _svc.TryClaimBrmbleSession(1, 200L, "cert-bob", out var mapping);
+
+        Assert.IsFalse(claimed);
+        Assert.IsNull(mapping);
+        var alice = _svc.GetSnapshot()[1];
+        Assert.IsNull(alice.IsBrmbleClient, "another user's status must not be written");
+        Assert.IsNull(alice.CertHash, "another user's certificate must not be written");
+        Assert.AreEqual(before, _svc.Revision, "a refused claim must not bump the revision");
+    }
+
+    [TestMethod]
+    public void TryClaimBrmbleSession_RefusesAnUnknownSession()
+    {
+        var before = _svc.Revision;
+
+        Assert.IsFalse(_svc.TryClaimBrmbleSession(99, 100L, "cert", out var mapping));
+        Assert.IsNull(mapping);
+        Assert.AreEqual(before, _svc.Revision);
     }
 }

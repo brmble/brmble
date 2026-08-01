@@ -12,6 +12,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly IEnumerable<IMumbleEventHandler> _handlers;
     private readonly ISessionMappingService _sessionMapping;
     private readonly IBrmbleEventBus _eventBus;
+    private readonly IMappingEventPublisher _publisher;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ScreenShareTracker _screenShareTracker;
     private readonly ILiveKitParticipantRevocationScheduler _liveKitRevocationScheduler;
@@ -25,6 +26,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         IEnumerable<IMumbleEventHandler> handlers,
         ISessionMappingService sessionMapping,
         IBrmbleEventBus eventBus,
+        IMappingEventPublisher publisher,
         IChannelMembershipService channelMembership,
         ScreenShareTracker screenShareTracker,
         ILiveKitParticipantRevocationScheduler liveKitRevocationScheduler,
@@ -36,6 +38,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _handlers = handlers;
         _sessionMapping = sessionMapping;
         _eventBus = eventBus;
+        _publisher = publisher;
         _channelMembership = channelMembership;
         _screenShareTracker = screenShareTracker;
         _liveKitRevocationScheduler = liveKitRevocationScheduler;
@@ -181,7 +184,23 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
         _liveKitParticipantTracker.MarkSessionRevoking(user.SessionId);
         var revokedRecords = _liveKitParticipantTracker.RemoveBySession(user.SessionId);
-        _sessionMapping.RemoveSession(user.SessionId);
+        // RemoveSession stays in place, ordered against the LiveKit and channel-membership
+        // cleanup around it. The publish is hoisted here so the mutation and the revision read
+        // are one atomic unit; PublishAsync only enqueues, so the fan-out is still awaited
+        // below, in the position the broadcast previously occupied.
+        var removalSend = _publisher.PublishAsync(
+            () =>
+            {
+                _sessionMapping.RemoveSession(user.SessionId);
+                return true;
+            },
+            envelope => new
+            {
+                type = "userMappingRemoved",
+                instanceId = envelope.InstanceId,
+                revision = envelope.Revision,
+                sessionId = user.SessionId
+            });
         _channelMembership.Remove(user.SessionId);
 
         if (snapshot.TryGetValue(user.SessionId, out mapping))
@@ -194,7 +213,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
         await _liveKitRevocationScheduler.RevokeParticipants(revokedRecords);
 
-        await _eventBus.BroadcastAsync(new { type = "userMappingRemoved", sessionId = user.SessionId });
+        await removalSend;
         await Task.WhenAll(_handlers.Select(h => h.OnUserDisconnected(user)));
     }
 

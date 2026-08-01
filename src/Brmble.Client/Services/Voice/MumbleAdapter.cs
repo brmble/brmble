@@ -127,7 +127,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var certHash = prop.Value.TryGetProperty("certHash", out var h) ? h.GetString() : null;
                 if (matrixId is not null && name is not null && companionId is not null)
                 {
-                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b) && b.GetBoolean();
+                    // Only an explicit `true` counts. A JSON null means "unknown" and
+                    // TryGetProperty reports it as present, so GetBoolean() would throw.
+                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b)
+                        && b.ValueKind == System.Text.Json.JsonValueKind.True;
                     result[sid] = new SessionMappingEntry(matrixId, name, companionId, isBrmble, certHash);
                 }
             }
@@ -2647,7 +2650,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     // known companion is kept rather than replaced with the default.
                     var announcedCompanionId = ParseWireCompanionIdOrNull(root);
                     var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
-                    var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp) && brmbleProp.GetBoolean();
+                    // As in ParseSessionMappings: null means unknown, not false, and
+                    // GetBoolean() would throw on it.
+                    var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp)
+                        && brmbleProp.ValueKind == System.Text.Json.JsonValueKind.True;
                     if (addSid > 0 && addMatrixId is not null && addName is not null)
                     {
                         var knownCompanionId = _sessionMappings.TryGetValue(addSid, out var priorMapping)

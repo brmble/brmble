@@ -47,7 +47,7 @@ public class AuthEndpointsCompanionTests : IDisposable
                 return true;
             });
         _factory.SessionMappingMock
-            .Setup(m => m.TryUpdateCompanionId(42, "floppy"))
+            .Setup(m => m.TryUpdateCompanionIdIfOwnedBy(42, 1, "floppy"))
             .Returns(true);
 
         var response = await _client.PostAsync(
@@ -55,9 +55,14 @@ public class AuthEndpointsCompanionTests : IDisposable
             new StringContent(JsonSerializer.Serialize(new { companionId = "floppy" }), Encoding.UTF8, "application/json"));
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
-        _factory.SessionMappingMock.Verify(m => m.TryUpdateCompanionId(42, "floppy"), Times.Once);
+        _factory.SessionMappingMock.Verify(m => m.TryUpdateCompanionIdIfOwnedBy(42, 1, "floppy"), Times.Once);
         _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.Is<object>(payload =>
             JsonSerializer.Serialize(payload).Contains("\"type\":\"companionChanged\""))), Times.Once);
+        var companionPayload = _factory.EventBusMock.Invocations
+            .Where(i => i.Method.Name == nameof(IBrmbleEventBus.BroadcastAsync))
+            .Select(i => i.Arguments[0])
+            .Single(p => JsonSerializer.Serialize(p).Contains("\"type\":\"companionChanged\""));
+        Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(companionPayload, "companionChanged");
         _factory.EventBusMock.Verify(
             b => b.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
     }
@@ -80,7 +85,7 @@ public class AuthEndpointsCompanionTests : IDisposable
                 return true;
             });
         _factory.SessionMappingMock
-            .Setup(m => m.TryUpdateCompanionId(99, "retro"))
+            .Setup(m => m.TryUpdateCompanionIdIfOwnedBy(99, 1, "retro"))
             .Returns(true);
 
         var response = await _client.PostAsync(
@@ -127,7 +132,40 @@ public class AuthEndpointsCompanionTests : IDisposable
             .GetRequiredService<Brmble.Server.Auth.UserRepository>().GetCompanionId(1));
         _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
         _factory.SessionMappingMock.Verify(
-            m => m.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+            m => m.TryUpdateCompanionIdIfOwnedBy(It.IsAny<int>(), It.IsAny<long>(), It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task PostAuthCompanion_DoesNotBroadcastWhenSessionIsRecycledDuringUpdate()
+    {
+        var tokenResponse = await _client.PostAsync("/auth/token", null);
+        tokenResponse.EnsureSuccessStatusCode();
+
+        // The mapping lookup validates ownership, but the session can still be removed and
+        // recycled to a different user before the write lands. The CAS on userId rejects it,
+        // so nothing is announced under the new owner's session.
+        _factory.SessionMappingMock
+            .Setup(m => m.TryGetMappingByUserId(
+                It.IsAny<long>(), out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
+            .Returns((long userId, out int sid, out SessionMapping? mapping) =>
+            {
+                sid = 42;
+                mapping = new SessionMapping("@alice:test", "Alice", userId, "floppy");
+                return true;
+            });
+        _factory.SessionMappingMock
+            .Setup(m => m.TryUpdateCompanionIdIfOwnedBy(42, It.IsAny<long>(), It.IsAny<string>()))
+            .Returns(false);
+
+        var response = await _client.PostAsync(
+            "/auth/companion",
+            new StringContent(JsonSerializer.Serialize(new { companionId = "bee" }), Encoding.UTF8, "application/json"));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("bee", await _factory.Services
+            .GetRequiredService<Brmble.Server.Auth.UserRepository>().GetCompanionId(1));
+        _factory.EventBusMock.Verify(b => b.BroadcastAsync(It.IsAny<object>()), Times.Never);
     }
 
     [TestMethod]
@@ -226,6 +264,9 @@ public class AuthEndpointsCompanionTests : IDisposable
                 if (eventBusDescriptor is not null) services.Remove(eventBusDescriptor);
 
                 SessionMappingMock.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+                // The bare mock still has to look like a live table to the publisher.
+                SessionMappingMock.SetupGet(m => m.InstanceId).Returns("test-instance");
+                SessionMappingMock.SetupGet(m => m.Revision).Returns(1L);
                 SessionMappingMock.Setup(m => m.TryGetSessionId(It.IsAny<string>(), out It.Ref<int>.IsAny)).Returns(false);
                 SessionMappingMock.Setup(m => m.TryAddMatrixUser(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>())).Returns(false);
                 SessionMappingMock.Setup(m => m.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool>())).Returns(true);

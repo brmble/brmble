@@ -71,9 +71,21 @@ public sealed class CustomCompanionDeletionTests : IDisposable
         var response = await _client.DeleteAsync("/companions/%24sprite%3Atest");
 
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
-        _factory.EventBusMock.Verify(bus => bus.BroadcastAsync(It.Is<object>(payload =>
-            JsonSerializer.Serialize(payload) ==
-            "{\"type\":\"companionChanged\",\"sessionId\":42,\"matrixUserId\":\"@alice:test\",\"companionId\":\"floppy\",\"customCompanionId\":null}")), Times.Once);
+        // instanceId is a per-process GUID, so this asserts structurally rather than on an
+        // exact serialised string.
+        var companionPayload = _factory.EventBusMock.Invocations
+            .Where(i => i.Method.Name == nameof(IBrmbleEventBus.BroadcastAsync))
+            .Select(i => i.Arguments[0])
+            .Single(p => JsonSerializer.Serialize(p).Contains("\"type\":\"companionChanged\""));
+        Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(companionPayload, "companionChanged");
+        using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(companionPayload)))
+        {
+            Assert.AreEqual(42, doc.RootElement.GetProperty("sessionId").GetInt32());
+            Assert.AreEqual("@alice:test", doc.RootElement.GetProperty("matrixUserId").GetString());
+            Assert.AreEqual("floppy", doc.RootElement.GetProperty("companionId").GetString());
+            Assert.AreEqual(JsonValueKind.Null,
+                doc.RootElement.GetProperty("customCompanionId").ValueKind);
+        }
         _factory.EventBusMock.Verify(
             bus => bus.BroadcastToChannelAsync(It.IsAny<int>(), It.IsAny<object>()), Times.Never);
     }
