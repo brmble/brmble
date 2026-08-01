@@ -233,6 +233,11 @@ public static class AuthEndpoints
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
+                        // Legacy split deliberately. /auth/token carries no projection version --
+                        // it is fetched before the WebSocket exists -- and the split is lossless
+                        // to a projection-aware reader, which prefers customCompanionId. An old
+                        // client still needs the split, so there is nothing to gain by changing
+                        // this and a compatibility break to lose.
                         kvp => SessionMappingWire.From(kvp.Value)),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,

@@ -2240,7 +2240,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Keep the original scheme for TCP connection; we do TLS via BouncyCastle
         var host = builder.Host;
         var port = builder.Port > 0 ? builder.Port : (builder.Scheme == "https" ? 443 : 80);
-        var wsPath = builder.Path.TrimEnd('/') + "/ws";
+        // Announce projection version 1: send one truthful companion field rather than the split.
+        var wsPath = builder.Path.TrimEnd('/') + "/ws?pv=1";
 
         _ = Task.Run(async () =>
         {
