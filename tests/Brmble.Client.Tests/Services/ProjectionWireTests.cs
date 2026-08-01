@@ -139,4 +139,40 @@ public class ProjectionWireTests
         Assert.IsNull(ProjectionWire.ReadEvent("companionChanged",
             Json("""{ "instanceId": "i", "revision": 2 }""")));
     }
+
+    [TestMethod]
+    public void ToWireRow_EmitsEveryFieldWithNullsExplicit()
+    {
+        var row = new UserProjection
+        {
+            SessionId = 3,
+            Name = "Alice",
+            ChannelId = 5,
+            Muted = true,
+            Deafened = false,
+            Comment = "hi",
+            MumbleCertHash = "live",
+            IsSelf = true,
+            MatrixUserId = "@alice:test",
+            CompanionId = null,
+            IsBrmbleClient = null,
+            ServerCertHash = "stored"
+        };
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(ProjectionWire.ToWireRow(row)));
+        var json = doc.RootElement;
+
+        Assert.AreEqual(3, json.GetProperty("session").GetInt32());
+        Assert.AreEqual("Alice", json.GetProperty("name").GetString());
+        Assert.AreEqual(5, json.GetProperty("channelId").GetInt32());
+        Assert.IsTrue(json.GetProperty("muted").GetBoolean());
+        Assert.IsTrue(json.GetProperty("self").GetBoolean());
+        Assert.AreEqual("live", json.GetProperty("certHash").GetString(),
+            "the live certificate wins over the server's recorded copy");
+
+        // Nulls must be present rather than omitted: React replaces rows wholesale, so an
+        // absent key and a null key must not mean different things.
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("companionId").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("isBrmbleClient").ValueKind);
+    }
 }

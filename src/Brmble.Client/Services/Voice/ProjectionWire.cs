@@ -84,6 +84,25 @@ internal static class ProjectionWire
     }
 
     /// <summary>
+    /// The single wire shape for a user row. Every field is always present, nulls included, so a
+    /// consumer replaces by session id and never merges field-by-field.
+    /// </summary>
+    internal static object ToWireRow(UserProjection row) => new
+    {
+        session = row.SessionId,
+        name = row.Name,
+        channelId = row.ChannelId,
+        muted = row.Muted,
+        deafened = row.Deafened,
+        self = row.IsSelf,
+        comment = row.Comment,
+        certHash = row.CertHash,
+        matrixUserId = row.MatrixUserId,
+        companionId = row.CompanionId,
+        isBrmbleClient = row.IsBrmbleClient
+    };
+
+    /// <summary>
     /// Reads the server-owned half of one session. Every absent field becomes null, which the
     /// store reads as "not known" — this is where the old parser's <c>"floppy"</c> default and
     /// its <c>isBrmbleClient: false</c> default are removed.
