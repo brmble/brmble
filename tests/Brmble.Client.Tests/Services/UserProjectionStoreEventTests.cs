@@ -142,10 +142,11 @@ public class UserProjectionStoreEventTests
     }
 
     [TestMethod]
-    public void ApplyServerEvent_ForASessionMumbleHasNotShownIsIgnoredButAdvancesTheCursor()
+    public void ApplyServerEvent_ForASessionMumbleHasNotShownIsHeldAndAdvancesTheCursor()
     {
-        // The row does not exist yet, so there is nothing to enrich — but the event was still
-        // observed, and treating it as a gap would resync on every unrelated user's join.
+        // The row does not exist yet, so there is nothing to enrich — the entry is held for
+        // when it appears. The cursor still advances, because the event was observed, and
+        // treating it as a gap would resync on every unrelated user's join.
         var change = _store.ApplyServerEvent(
             new ServerEvent(ServerEventKind.CompanionChanged, "inst-a", 10, 11, 77,
                 new ServerMappingEntry(null, "bee", null, null)));

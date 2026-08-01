@@ -165,7 +165,7 @@ Client rules:
 | `revision <= ours` | Ignore — duplicate or reorder, already applied |
 | `revision == ours + 1` | Apply |
 | `revision > ours + 1` | Gap — apply nothing, request snapshot |
-| Event for a session Mumble has not shown us | Buffer briefly, then request snapshot |
+| Event for a session Mumble has not shown us | Hold the entry until the row appears (§11 Q2) |
 
 **This requires all projection events to be broadcast server-wide.** Channel-scoped delivery would
 make out-of-channel clients observe phantom gaps and resync continuously. PR #617 already made
@@ -451,10 +451,34 @@ Absent `pv` means version 0, which gets the legacy `companionId` / `customCompan
 Implemented in **Phase 3**, alongside the companion field collapse it exists to serve — reading a
 query parameter is purely additive, so no earlier phase needs to reserve anything for it.
 
-**2. How long is "buffer briefly" for an event naming an unknown session? → Deferred to Phase 2.**
+**2. How long is "buffer briefly" for an event naming an unknown session? → Resolved in Phase 2: no timeout. The entry is held until the row appears or the server supersedes it.**
 
-Purely client-side, with no effect on the wire contract. Decide it against the real store, where
-the trade-off between a redundant resync and a delayed row can actually be measured.
+"Briefly" turned out to be the wrong axis. A timeout only helps if the alternative to waiting is a
+resync that would fix things — but an event for an unannounced session is not evidence of a gap.
+The cursor is contiguous, the client has missed nothing, and Mumble simply has not delivered that
+`UserState` yet. Resyncing would fetch the same data the client is already holding, and would fire
+on every unrelated user's join.
+
+So the store holds the entry indefinitely and consumes it when `ApplyMumbleUserState` or
+`ApplyMumbleReset` first creates the row. Lifetime is bounded by events, not by a clock:
+
+- A snapshot replaces the held set outright, so any hold it omits is dropped — the snapshot is
+  authoritative for server-known membership (§4.3).
+- A `userMappingRemoved` for a held session drops that hold.
+- A hold is removed when consumed, so a session that leaves and rejoins is re-enriched by the
+  server rather than by a stale hold.
+
+Holds are capped at 1024 entries, evicting oldest-first, because the map is fed by a remote server
+and must not be an unbounded allocation. The legitimate population is "sessions this client has not
+seen a `UserState` for yet", which is at most the server's user count for the few hundred
+milliseconds between `/auth/token` resolving and the `UserState` batch arriving; reaching the cap
+means the server is misbehaving rather than busy.
+
+This also fixes the case that made the question urgent, which the original wording did not
+anticipate: **snapshots have the same race, and worse consequences.** On voice connect
+`/auth/token` routinely resolves before Mumble's `UserState` batch. Without holds, every
+server-owned field for every user is discarded at connect, and nothing re-delivers it — no gap
+occurs, so no resync is triggered. §4.2's table row should be read as covering snapshots too.
 
 **3. Does `userMappingRemoved` still earn its place? → Yes.**
 
