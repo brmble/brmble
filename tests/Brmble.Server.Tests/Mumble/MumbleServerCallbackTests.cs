@@ -648,10 +648,19 @@ public class MumbleServerCallbackTests
     [TestMethod]
     public async Task DispatchUserStateChanged_RevokesPaintOnlyForRealChannelChange()
     {
+        // Paint participation is dispatched fire-and-forget (DispatchPaintParticipation wraps it
+        // in Task.Run), so it has not necessarily run by the time DispatchUserStateChanged
+        // returns. Signal from the stub and wait for it rather than racing the scheduler — the
+        // sibling fan-out test does the same thing for the same reason.
+        var paintCalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var paint = new Mock<IPaintParticipationLifecycle>();
         paint.Setup(service =>
                 service.HandleSessionChannelChangedAsync(42, 5, 10))
-            .Returns(Task.CompletedTask);
+            .Returns(() =>
+            {
+                paintCalled.TrySetResult();
+                return Task.CompletedTask;
+            });
         var membership = new Mock<IChannelMembershipService>();
         membership.Setup(service => service.TryGetChannel(42, out It.Ref<int>.IsAny))
             .Returns((int _, out int channelId) =>
@@ -672,6 +681,9 @@ public class MumbleServerCallbackTests
             new MumbleUser("Alice", "abc", 42),
             10);
 
+        Assert.AreSame(paintCalled.Task,
+            await Task.WhenAny(paintCalled.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            "paint participation was never dispatched");
         paint.Verify(service =>
             service.HandleSessionChannelChangedAsync(42, 5, 10),
             Times.Once);

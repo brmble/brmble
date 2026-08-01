@@ -61,6 +61,31 @@ public class MappingEventPublisherTests
     }
 
     [TestMethod]
+    public async Task PublishSnapshotAsync_StampsASnapshotEnvelopeThatIsItsOwnBase()
+    {
+        // The resync path is a second way to deliver a snapshot, added after the envelope rules
+        // were written. A snapshot is absolute, not a delta: it sets the client's cursor rather
+        // than advancing it, so it must be its own base and must carry no baseRevision on the
+        // wire. Stamping a real range here would make the client treat a repair as a delta and
+        // and leave the gap it was sent to close.
+        _mappings.TryUpdateCompanionId(1, "retro");
+        var socket = new Moq.Mock<System.Net.WebSockets.WebSocket>().Object;
+        MappingEnvelope captured = default;
+
+        await _publisher.PublishSnapshotAsync(socket, (envelope, snapshot) =>
+        {
+            captured = envelope;
+            return Brmble.Server.WebSockets.BrmbleWebSocketHandler
+                .CreateSessionMappingSnapshotPayload(snapshot, envelope);
+        });
+
+        Assert.AreEqual(captured.Revision, captured.BaseRevision,
+            "a snapshot is its own base");
+        MappingPayloadEnvelopeTests.AssertHasSnapshotEnvelope(
+            _bus.Broadcasts.Single(), "sessionMappingSnapshot");
+    }
+
+    [TestMethod]
     public async Task PublishAsync_StampsTheRevisionRangeTheMutationSpanned()
     {
         // One logical operation may bump several times. baseRevision is the revision before
