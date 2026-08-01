@@ -53,7 +53,11 @@ function CustomCompanionRow({
     >
       <span className="companion-picker-thumbnail" aria-hidden="true">
         {thumbnailUrl ? (
-          <img src={thumbnailUrl} alt="" />
+          <span
+            className="companion-picker-custom-sprite"
+            style={{ backgroundImage: `url(${thumbnailUrl})` }}
+            data-testid="companion-picker-custom-sprite"
+          />
         ) : (
           <Icon name="palette" />
         )}
