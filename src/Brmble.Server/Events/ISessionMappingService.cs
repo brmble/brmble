@@ -13,8 +13,15 @@ public interface ISessionMappingService
 
     /// <summary>
     /// Monotonic counter, incremented once per successful mutation. Stamped on every payload so
-    /// a client can detect a gap (revision > last + 1) and request a snapshot.
+    /// a client can order and deduplicate events.
     /// </summary>
+    /// <remarks>
+    /// One logical operation may increment this several times — a first registration does add,
+    /// certHash and brmbleStatus under a single announcement, moving it by three — so
+    /// <c>revision == last + 1</c> is <b>not</b> a valid gap test. Phase 2 stamps the range's
+    /// start alongside it (<c>baseRevision</c>) precisely so a client can distinguish a
+    /// multi-bump operation from a genuine gap.
+    /// </remarks>
     long Revision { get; }
 
     void SetNameForSession(string name, int sessionId);
