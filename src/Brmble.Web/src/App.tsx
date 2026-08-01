@@ -1887,7 +1887,7 @@ function App() {
     const maxAttempts = 3;
 
     const attemptFetch = (attempt: number) => {
-      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1, session });
+      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1 });
       fetchAvatarUrlRef.current(matrixUserId).then((url) => {
         if (url) {
           setAvatar(matrixUserId, url);

@@ -109,8 +109,15 @@ export function normalizeCompanionBridgeSelection(payload: {
     : normalizeCompanionId(payload.companionId);
 }
 
+/**
+ * Resolves a companion selection to something renderable.
+ *
+ * `null` means the server has not told us this session's companion yet. It resolves to
+ * `floppy` for display only — the caller must never write that back, or an unknown value
+ * becomes a wrong one and the row stops self-correcting when the real value arrives.
+ */
 export function resolveCompanionDisplay(
-  selection: CompanionSelection,
+  selection: CompanionSelection | null,
   gallery: CompanionDisplayGallery,
 ): ResolvedCompanionDisplay {
   const normalized = normalizeCompanionId(selection);
