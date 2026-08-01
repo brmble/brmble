@@ -17,7 +17,7 @@
 ```powershell
 git rev-parse --abbrev-ref HEAD     # feature/user-projection-phase-3
 dotnet build                        # 0 warnings, 0 errors
-dotnet test                         # 1299: Server 782, Client 345, MumbleVoiceEngine 99, Audio 73
+dotnet test                         # 1308: Server 791, Client 345, MumbleVoiceEngine 99, Audio 73
 cd src/Brmble.Web; npm run test -- --run; cd ../..
 ```
 
@@ -60,6 +60,18 @@ Both behaviours invert the design's rule 2. The translator written in Stage A re
 ### The WebSocket stream is a local variable
 
 `:2318` — `var stream = tlsProtocol.Stream;` — lives inside the reconnect loop in `StartWebSocketConnection`. `SendWebSocketFrame` (`:2536`) is `static` and is only ever called from inside `ReadWebSocketFrame` to answer a ping (`:2503`, `:2519`). There is no way to send an application message from outside the loop. Stage B hoists it.
+
+### What Phase 1's late review fixes changed under this plan
+
+`3c996dd1` landed on the Phase 1 branch after Phase 2 was written and was rebased in. It moves ground this plan stands on:
+
+- **`PublishSnapshotAsync`** (new on `IMappingEventPublisher`) captures the revision, the mappings, and the enqueue under one gate. Snapshots and events on a socket are now delivered in revision order. The client store already tolerates reordering, so this only *strengthens* its assumptions — no store change needed.
+- **Snapshot delivery is now two paths sharing one builder** (`CreateSessionMappingSnapshotPayload`). See Task C1 — the version has to reach both.
+- **`requestSnapshot` is rate-limited server-side** at 1/second per socket, silently. See Task B2.
+- **The read loop drops non-text frames** and discards oversized messages whole. The client must send opcode `0x1` (text); Task B2 does.
+- **`TryClaimBrmbleSession`** replaced the `TryUpdateBrmbleStatus` + `TryUpdateCertHash` pair in `InitializeAcceptedClientAsync` with one ownership-constrained CAS that bumps once.
+
+That last one does **not** weaken the case for `baseRevision`. Registration is now a single bump, but two multi-bump operations remain in one `PublishAsync` each — `SessionMappingHandler.OnUserConnected` (`TryAddMatrixUser` + `TryUpdateCertHash` + `TryUpdateBrmbleStatus`, three bumps) and `/auth/token` (`TryAddMatrixUser` + `TryClaimBrmbleSession`, two). A client applying on `revision == ours + 1` would still read both as gaps.
 
 ### Threading
 
@@ -810,6 +822,13 @@ git commit -m "refactor: hoist the websocket stream so the client can send"
 
 **Why:** item 7 — a persistent mismatch must never become a hot loop. Extract the throttle so it is testable without a socket.
 
+**The server already rate-limits this**, added in Phase 1's `3c996dd1`: `BrmbleWebSocketHandler.HandleAsync` holds a one-second per-socket cooldown and silently `continue`s past a request that arrives too soon. Two consequences for this task:
+
+- The client's `MinimumSpacing` must be **at least** one second. Below that, the extra requests are not merely wasteful — they are dropped with no reply at all, so the client would sit waiting for a snapshot the server already decided not to send.
+- A refused request produces **no response of any kind**. So `Complete()` must fire when the request is *sent*, not when a snapshot arrives, or one silent refusal wedges the throttle permanently at `_inFlight = true`. The implementation below does this correctly — do not "improve" it into completing on receipt.
+
+The server's cooldown is a floor that protects the server; the client's backoff is a ceiling that protects the client from a mismatch it cannot repair. Both are wanted.
+
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
@@ -1110,7 +1129,17 @@ Call it in `HandleAsync` **before** `AcceptWebSocketAsync`, so the version is kn
         var projectionVersion = ParseProjectionVersion(context.Request.Query["pv"]);
 ```
 
-Thread it through `InitializeAcceptedClientAsync` and `BuildInitialPayloadsAsync` as a parameter.
+Thread it through **three** paths, not one. Phase 1's `3c996dd1` split snapshot delivery into a shared payload builder plus two callers:
+
+| Path | Entry point | Notes |
+|---|---|---|
+| Bootstrap | `InitializeAcceptedClientAsync` → `BuildInitialPayloadsAsync` | per-socket, version known |
+| Resync | the `requestSnapshot` branch → `publisher.PublishSnapshotAsync` | per-socket, version known — **easy to miss** |
+| Both | `CreateSessionMappingSnapshotPayload(mappings, envelope)` | the shared builder; gains a `projectionVersion` parameter |
+
+`CreateSessionMappingSnapshotPayload` is where `SessionMappingWire.From` is called, so the version has to reach it or a resyncing `pv=1` client silently gets the legacy split — the one case where a client that asked for the truthful field is told a floppy instead, and the hardest to notice because it only happens after a gap.
+
+**Watch the mocks when you change `InitializeAcceptedClientAsync`'s signature.** Its fixture stubs `TryClaimBrmbleSession` (also new in `3c996dd1`, replacing the old `TryUpdateBrmbleStatus`/`TryUpdateCertHash` pair). An unstubbed `Mock<ISessionMappingService>` returns `false` from it, no `userMappingAdded` is broadcast, and any test awaiting that broadcast **hangs forever** rather than failing.
 
 - [ ] **Step 4: Run, then commit**
 
@@ -1178,7 +1207,9 @@ Keep `FromPersisted` as the version-0 implementation so existing callers and tes
 
 - [ ] **Step 3: Thread the version through every mapping payload builder**
 
-`CreateUserMappingAddedPayload`, `SessionMappingWire.From`, `AuthEndpoints`' `/auth/token` and `PersistCompanionSelectionAsync`, `CustomCompanionEndpoints`, `SessionMappingHandler`. Broadcast events go to clients at mixed versions, so a broadcast **must** send the legacy split; only per-socket payloads (initial snapshot, and anything sent with `SendToClientAsync`) can use version 1.
+`CreateUserMappingAddedPayload`, `CreateSessionMappingSnapshotPayload`, `SessionMappingWire.From`, `AuthEndpoints`' `/auth/token` and `PersistCompanionSelectionAsync`, `CustomCompanionEndpoints`, `SessionMappingHandler`. Broadcast events go to clients at mixed versions, so a broadcast **must** send the legacy split; only per-socket payloads (bootstrap snapshot, resync snapshot, and anything sent with `SendToClientAsync`) can use version 1.
+
+Note `CreateUserMappingAddedPayload` is reached from **both** kinds of caller — `PublishExceptAsync` in `InitializeAcceptedClientAsync` (a broadcast, so version 0) and nothing else today. Keep it on the legacy shape and say so, rather than parameterising a builder whose only caller broadcasts.
 
 **Write this down in a comment at each broadcast site**, because it is the non-obvious constraint of this stage:
 
@@ -1550,7 +1581,7 @@ Recorded in spec §9 with reasoning; all are follow-ups:
 ## Done when
 
 - [ ] `dotnet build` clean, 0 warnings; `npx tsc --noEmit` clean
-- [ ] `dotnet test` green with more than the 1299 baseline; `npm run test -- --run` green
+- [ ] `dotnet test` green with more than the 1308 baseline; `npm run test -- --run` green
 - [ ] `Select-String -Path src/Brmble.Client/Services/Voice/MumbleAdapter.cs -Pattern "_sessionMappings|_pendingBrmbleStatus|_userMappings"` returns nothing
 - [ ] `Select-String -Path src/Brmble.Client/Services/Voice/Projection/*.cs -Pattern "MumbleSharp|HttpClient|JsonElement|System.Text.Json"` still returns nothing
 - [ ] `(Select-String -Path src/Brmble.Web/src/App.tsx -Pattern "setUsers\(").Count` is 0 — all writes go through `useUserDirectory`
