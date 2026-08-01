@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CustomCompanionEntry } from '../../../customCompanions/customCompanionTypes';
 import type { CustomCompanionGalleryController } from '../../../hooks/useCustomCompanionGallery';
 import { CompanionPicker } from './CompanionPicker';
@@ -58,6 +58,10 @@ describe('CompanionPicker', () => {
       unobserve() {}
       disconnect() {}
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('keeps built-ins visible while the custom section is loading', () => {
