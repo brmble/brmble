@@ -80,6 +80,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// </summary>
     private Stream? _wsStream;
     private readonly SemaphoreSlim _wsSendGate = new(1, 1);
+    private readonly ResyncThrottle _resync = new();
+    private readonly System.Diagnostics.Stopwatch _resyncClock = System.Diagnostics.Stopwatch.StartNew();
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
@@ -2557,6 +2559,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// </remarks>
     private void EmitProjectionChange(Projection.ChangeSet change)
     {
+        if (change.NeedsSnapshot) RequestSnapshot();
         if (change.IsEmpty) return;
 
         foreach (var row in change.Changed)
@@ -2566,6 +2569,40 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _bridge?.Send("voice.userLeft", new { session = sessionId, moved = false });
 
         if (change.Changed.Count > 0 || change.Removed.Count > 0) _bridge?.NotifyUiThread();
+    }
+
+    /// <summary>
+    /// Asks the server to restate the mapping table. Fire-and-forget: the reply arrives as a
+    /// normal sessionMappingSnapshot on the read loop.
+    /// </summary>
+    private void RequestSnapshot()
+    {
+        if (!_resync.TryBegin(_resyncClock.Elapsed)) return;
+
+        var stream = _wsStream;
+        if (stream is null)
+        {
+            // No socket: the reconnect will bring a bootstrap snapshot anyway.
+            _resync.Complete(_resyncClock.Elapsed);
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var payload = System.Text.Json.JsonSerializer.Serialize(new { type = "requestSnapshot" });
+                await SendWebSocketFrame(stream, 0x1, System.Text.Encoding.UTF8.GetBytes(payload));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Brmble] resync request failed: {ex.Message}");
+            }
+            finally
+            {
+                _resync.Complete(_resyncClock.Elapsed);
+            }
+        });
     }
 
     private void HandleWebSocketMessage(string json)
@@ -2581,7 +2618,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (type == "sessionMappingSnapshot")
             {
                 if (ProjectionWire.ReadSnapshot(root) is { } wsSnapshot)
+                {
                     EmitProjectionChange(_projection.ApplyServerSnapshot(wsSnapshot));
+                    _resync.OnSnapshotApplied();
+                }
                 return;
             }
 
