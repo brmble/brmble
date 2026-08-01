@@ -55,7 +55,7 @@ Both behaviours invert the design's rule 2. The translator written in Stage A re
 
 ### `voice.userJoined` is not a join event
 
-`:4303` emits `voice.userJoined` on **every** `UserState` — channel moves, mutes, comment changes. React's upsert at `App.tsx:2552` exists to cope with that. This is why item 3's "rows must be complete" matters: once the store owns merging, the C# side can emit a complete row on every change and React can replace by session id with no field logic at all.
+`:4305` emits `voice.userJoined` on **every** `UserState` — channel moves, mutes, comment changes. React's upsert at `App.tsx:2552` exists to cope with that. This is why item 3's "rows must be complete" matters: once the store owns merging, the C# side can emit a complete row on every change and React can replace by session id with no field logic at all.
 
 ### The WebSocket stream is a local variable
 
