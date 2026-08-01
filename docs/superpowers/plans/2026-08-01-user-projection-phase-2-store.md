@@ -73,10 +73,12 @@ Mumble supplies `CertificateHash` on `UserState`; the server supplies `certHash`
 | `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs` | *Modify* — stamp `baseRevision` |
 | `src/Brmble.Server/Mumble/MumbleServerCallback.cs` | *Modify* — stamp `baseRevision` |
 | `src/Brmble.Server/WebSockets/BrmbleWebSocketHandler.cs` | *Modify* — stamp `baseRevision` on `userMappingAdded`; snapshot factory |
-| `src/Brmble.Client/Services/Voice/UserProjection/UserProjection.cs` | *Create* — the row record |
-| `src/Brmble.Client/Services/Voice/UserProjection/ProjectionInputs.cs` | *Create* — dependency-free input records |
-| `src/Brmble.Client/Services/Voice/UserProjection/ChangeSet.cs` | *Create* — the output of every `Apply*` |
-| `src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs` | *Create* — the store itself |
+| `src/Brmble.Client/Services/Voice/Projection/UserProjection.cs` | *Create* — the row record |
+| `src/Brmble.Client/Services/Voice/Projection/ProjectionInputs.cs` | *Create* — dependency-free input records |
+| `src/Brmble.Client/Services/Voice/Projection/ChangeSet.cs` | *Create* — the output of every `Apply*` |
+| `src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs` | *Create* — the store itself |
+
+The namespace is `Brmble.Client.Services.Voice.Projection`, deliberately **not** `...Voice.UserProjection`. A namespace whose last segment matches a type it contains (`UserProjection`) trips CA1724 and can produce a `CS0118 'namespace used like a type'` when the type is referenced from inside that namespace. Do not "tidy" the folder name to match the type.
 
 ---
 
@@ -344,9 +346,9 @@ git commit -m "feat: stamp baseRevision so clients can apply across multi-bump o
 ## Task 2: Projection row, inputs and change set
 
 **Files:**
-- Create: `src/Brmble.Client/Services/Voice/UserProjection/UserProjection.cs`
-- Create: `src/Brmble.Client/Services/Voice/UserProjection/ProjectionInputs.cs`
-- Create: `src/Brmble.Client/Services/Voice/UserProjection/ChangeSet.cs`
+- Create: `src/Brmble.Client/Services/Voice/Projection/UserProjection.cs`
+- Create: `src/Brmble.Client/Services/Voice/Projection/ProjectionInputs.cs`
+- Create: `src/Brmble.Client/Services/Voice/Projection/ChangeSet.cs`
 - Test: `tests/Brmble.Client.Tests/Services/UserProjectionTests.cs` (create)
 
 **Why:** Ownership is enforced by the shape of these types. `MumbleUserInput` has no server-owned field to write and `ServerMappingEntry` has no Mumble-owned one, so a cross-write cannot compile. Getting these right is what makes the store's logic small.
@@ -356,7 +358,7 @@ git commit -m "feat: stamp baseRevision so clients can apply across multi-bump o
 Create `tests/Brmble.Client.Tests/Services/UserProjectionTests.cs`:
 
 ```csharp
-using Brmble.Client.Services.Voice.UserProjection;
+using Brmble.Client.Services.Voice.Projection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -403,10 +405,10 @@ Expected: FAIL — compile error, `The type or namespace name 'UserProjection' c
 
 - [ ] **Step 3: Create the row record**
 
-Create `src/Brmble.Client/Services/Voice/UserProjection/UserProjection.cs`:
+Create `src/Brmble.Client/Services/Voice/Projection/UserProjection.cs`:
 
 ```csharp
-namespace Brmble.Client.Services.Voice.UserProjection;
+namespace Brmble.Client.Services.Voice.Projection;
 
 /// <summary>
 /// One row of the authoritative user projection: Mumble-native presence merged with
@@ -452,10 +454,10 @@ Expected: PASS, three tests.
 
 - [ ] **Step 5: Create the input records**
 
-Create `src/Brmble.Client/Services/Voice/UserProjection/ProjectionInputs.cs`. These deliberately reference no Mumble, HTTP or JSON type — the caller translates before handing them over, which is what keeps the store unit-testable:
+Create `src/Brmble.Client/Services/Voice/Projection/ProjectionInputs.cs`. These deliberately reference no Mumble, HTTP or JSON type — the caller translates before handing them over, which is what keeps the store unit-testable:
 
 ```csharp
-namespace Brmble.Client.Services.Voice.UserProjection;
+namespace Brmble.Client.Services.Voice.Projection;
 
 /// <summary>
 /// A Mumble <c>UserState</c>, reduced to the fields Mumble owns. Complete every time: Mumble
@@ -519,10 +521,10 @@ internal sealed record ServerEvent(
 
 - [ ] **Step 6: Create the change set**
 
-Create `src/Brmble.Client/Services/Voice/UserProjection/ChangeSet.cs`:
+Create `src/Brmble.Client/Services/Voice/Projection/ChangeSet.cs`:
 
 ```csharp
-namespace Brmble.Client.Services.Voice.UserProjection;
+namespace Brmble.Client.Services.Voice.Projection;
 
 /// <summary>
 /// What one <c>Apply</c> changed. Rows in <see cref="Changed"/> are always complete — every
@@ -555,7 +557,7 @@ Run: `dotnet build`
 Expected: clean, 0 warnings.
 
 ```bash
-git add src/Brmble.Client/Services/Voice/UserProjection/ tests/Brmble.Client.Tests/Services/UserProjectionTests.cs
+git add src/Brmble.Client/Services/Voice/Projection/ tests/Brmble.Client.Tests/Services/UserProjectionTests.cs
 git commit -m "feat: add user projection row, inputs and change set types"
 ```
 
@@ -564,7 +566,7 @@ git commit -m "feat: add user projection row, inputs and change set types"
 ## Task 3: The store and its Mumble inputs
 
 **Files:**
-- Create: `src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs`
+- Create: `src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs`
 - Test: `tests/Brmble.Client.Tests/Services/UserProjectionStoreMumbleTests.cs` (create)
 
 **Why:** Mumble alone owns session existence (spec §3.3). If the Brmble server is down, rows still appear, move channel and mute — they just carry stale enrichment. That property comes from this task.
@@ -574,7 +576,7 @@ git commit -m "feat: add user projection row, inputs and change set types"
 Create `tests/Brmble.Client.Tests/Services/UserProjectionStoreMumbleTests.cs`:
 
 ```csharp
-using Brmble.Client.Services.Voice.UserProjection;
+using Brmble.Client.Services.Voice.Projection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -683,10 +685,10 @@ Expected: FAIL — compile error, `The type or namespace name 'UserProjectionSto
 
 - [ ] **Step 3: Create the store with its Mumble inputs**
 
-Create `src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs`. `ApplyServerSnapshot` and `ApplyServerEvent` are stubbed here and implemented in Tasks 4 and 5 — the tests above need `ApplyServerSnapshot` to work, so it gets a minimal real body now and its reconciliation rules in Task 4:
+Create `src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs`. `ApplyServerSnapshot` and `ApplyServerEvent` are stubbed here and implemented in Tasks 4 and 5 — the tests above need `ApplyServerSnapshot` to work, so it gets a minimal real body now and its reconciliation rules in Task 4:
 
 ```csharp
-namespace Brmble.Client.Services.Voice.UserProjection;
+namespace Brmble.Client.Services.Voice.Projection;
 
 /// <summary>
 /// The single authoritative user projection. Merges Mumble presence and Brmble identity under
@@ -822,7 +824,7 @@ Expected: PASS, seven tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreMumbleTests.cs
+git add src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreMumbleTests.cs
 git commit -m "feat: add user projection store with Mumble-owned inputs"
 ```
 
@@ -831,7 +833,7 @@ git commit -m "feat: add user projection store with Mumble-owned inputs"
 ## Task 4: Snapshot reconciliation
 
 **Files:**
-- Modify: `src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs`
+- Modify: `src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs`
 - Test: `tests/Brmble.Client.Tests/Services/UserProjectionStoreSnapshotTests.cs` (create)
 
 **Why:** Spec §4.3 changes what a snapshot *means*. Today it only patches rows that already exist and never clears, so a session that vanished during an outage keeps stale enrichment forever. A snapshot is now the complete set of server-known sessions: anything absent has its server-owned fields reset to unknown. It still cannot delete a row — only Mumble owns existence.
@@ -841,7 +843,7 @@ git commit -m "feat: add user projection store with Mumble-owned inputs"
 Create `tests/Brmble.Client.Tests/Services/UserProjectionStoreSnapshotTests.cs`:
 
 ```csharp
-using Brmble.Client.Services.Voice.UserProjection;
+using Brmble.Client.Services.Voice.Projection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -1023,7 +1025,7 @@ Expected: PASS — the seven Mumble tests and the seven snapshot tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreSnapshotTests.cs
+git add src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreSnapshotTests.cs
 git commit -m "feat: make snapshots authoritative for server-owned membership"
 ```
 
@@ -1032,7 +1034,7 @@ git commit -m "feat: make snapshots authoritative for server-owned membership"
 ## Task 5: Incremental events and sequencing
 
 **Files:**
-- Modify: `src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs`
+- Modify: `src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs`
 - Test: `tests/Brmble.Client.Tests/Services/UserProjectionStoreEventTests.cs` (create)
 
 **Why:** This is where a lost or reordered event stops producing a confidently wrong value. The four sequencing branches from the Background table live here.
@@ -1042,7 +1044,7 @@ git commit -m "feat: make snapshots authoritative for server-owned membership"
 Create `tests/Brmble.Client.Tests/Services/UserProjectionStoreEventTests.cs`:
 
 ```csharp
-using Brmble.Client.Services.Voice.UserProjection;
+using Brmble.Client.Services.Voice.Projection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -1291,7 +1293,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Brmble.Client/Services/Voice/UserProjection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreEventTests.cs
+git add src/Brmble.Client/Services/Voice/Projection/UserProjectionStore.cs tests/Brmble.Client.Tests/Services/UserProjectionStoreEventTests.cs
 git commit -m "feat: apply server events with base-revision sequencing"
 ```
 
@@ -1309,7 +1311,7 @@ git commit -m "feat: apply server events with base-revision sequencing"
 Create `tests/Brmble.Client.Tests/Services/UserProjectionConvergenceTests.cs`:
 
 ```csharp
-using Brmble.Client.Services.Voice.UserProjection;
+using Brmble.Client.Services.Voice.Projection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Brmble.Client.Tests.Services;
@@ -1481,7 +1483,7 @@ git commit -m "test: prove the projection converges under reordering and loss"
 - [ ] `dotnet test` passes in all four projects, with more tests than the 1250 baseline
 - [ ] Every mapping **event** carries `baseRevision`; every **snapshot** carries `instanceId` and `revision` and no `baseRevision`
 - [ ] Consecutive events from one publisher are contiguous: each event's `baseRevision` equals the previous event's `revision`
-- [ ] `UserProjectionStore` references no Mumble, HTTP or JSON type. Verify: `Select-String -Path src/Brmble.Client/Services/Voice/UserProjection/*.cs -Pattern "MumbleSharp|HttpClient|JsonElement|System.Text.Json"` returns nothing
+- [ ] `UserProjectionStore` references no Mumble, HTTP or JSON type. Verify: `Select-String -Path src/Brmble.Client/Services/Voice/Projection/*.cs -Pattern "MumbleSharp|HttpClient|JsonElement|System.Text.Json"` returns nothing
 - [ ] A server input can only reach server-owned fields and a Mumble input only Mumble-owned ones — enforced by the input types, not by a guard
 - [ ] The convergence test passes with 500 trials
 - [ ] **Nothing calls the store yet.** `MumbleAdapter.cs` and `App.tsx` are untouched by this phase. Verify: `git diff --stat main -- src/Brmble.Client/Services/Voice/MumbleAdapter.cs src/Brmble.Web/src/App.tsx` shows no changes
@@ -1503,3 +1505,4 @@ Connect and confirm the user list, badges and companions render exactly as befor
 ## Next
 
 **Phase 3** wires the store in and is where the user-visible fixes land: delete `_sessionMappings`, translate wire payloads into the input records from Task 2, collapse the 17 `setUsers` sites to 2, move avatars into their own state keyed by `matrixUserId`, and add client version negotiation via a `pv` query parameter so the server can send a single truthful `companionId` (spec §4.4) instead of the legacy `companionId`/`customCompanionId` split. It touches the two most actively edited files in the repo, so it is planned against shipped code after Phase 2 lands.
+
