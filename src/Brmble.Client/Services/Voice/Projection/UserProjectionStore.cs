@@ -150,4 +150,64 @@ internal sealed class UserProjectionStore
             IsBrmbleClient = entry.IsBrmbleClient ?? row.IsBrmbleClient,
             ServerCertHash = entry.CertHash ?? row.ServerCertHash
         };
+
+    /// <summary>
+    /// Applies one incremental server event, or reports that a snapshot is needed.
+    /// </summary>
+    /// <remarks>
+    /// Sequencing uses <c>BaseRevision</c>, not <c>Revision - 1</c>: a single server operation
+    /// may bump the counter several times, so only the range's start tells us whether we are
+    /// contiguous. An event that cannot be applied changes nothing at all — a partially applied
+    /// gap is what produces a confidently wrong row.
+    /// </remarks>
+    public ChangeSet ApplyServerEvent(ServerEvent evt)
+    {
+        lock (_gate)
+        {
+            // No cursor yet: nothing to sequence against, so ask for the snapshot that
+            // establishes one.
+            if (_instanceId is null)
+                return new ChangeSet([], [], NeedsSnapshot: true);
+
+            // The server restarted. Everything it told us belongs to a table that no longer
+            // exists, so take nothing from this event and resync.
+            if (!string.Equals(evt.InstanceId, _instanceId, StringComparison.Ordinal))
+                return new ChangeSet([], [], NeedsSnapshot: true);
+
+            // Already reflected — a duplicate or a reorder. Silently correct.
+            if (evt.BaseRevision < _revision) return ChangeSet.Empty;
+
+            // A genuine gap: we missed something in between and cannot infer it.
+            if (evt.BaseRevision > _revision)
+                return new ChangeSet([], [], NeedsSnapshot: true);
+
+            // Contiguous. Advance the cursor even if the event turns out not to touch a row we
+            // hold, or the next event would look like a gap.
+            _revision = evt.Revision;
+
+            if (!_rows.TryGetValue(evt.SessionId, out var existing))
+                return ChangeSet.Empty;
+
+            var updated = evt.Kind switch
+            {
+                ServerEventKind.MappingRemoved => existing with
+                {
+                    MatrixUserId = null,
+                    CompanionId = null,
+                    IsBrmbleClient = null,
+                    ServerCertHash = null
+                },
+                // Activation and deactivation are both knowledge, so they write a real bool.
+                ServerEventKind.BrmbleActivated => existing with { IsBrmbleClient = true },
+                ServerEventKind.BrmbleDeactivated => existing with { IsBrmbleClient = false },
+                // Everything else carries a partial entry: null means unknown, so leave it.
+                _ => evt.Entry is null ? existing : WithServerFields(existing, evt.Entry)
+            };
+
+            if (existing == updated) return ChangeSet.Empty;
+
+            _rows[evt.SessionId] = updated;
+            return new ChangeSet([updated], []);
+        }
+    }
 }
