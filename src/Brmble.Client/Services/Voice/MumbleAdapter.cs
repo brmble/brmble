@@ -72,6 +72,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
+
+    /// <summary>
+    /// The live WebSocket stream, or null when disconnected. Hoisted out of the reconnect loop
+    /// so application messages can be sent; guarded by _wsSendGate because the read loop answers
+    /// pings on the same socket and two interleaved frames corrupt the stream.
+    /// </summary>
+    private Stream? _wsStream;
+    private readonly SemaphoreSlim _wsSendGate = new(1, 1);
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
@@ -2259,8 +2267,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     tlsProtocol.Connect(tlsClient);
 
                     var stream = tlsProtocol.Stream;
+                    _wsStream = stream;
 
-                    // Perform WebSocket upgrade handshake
                     var wsKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
                     var hostHeader = port == 443 ? host : $"{host}:{port}";
                     var upgradeRequest =
@@ -2361,6 +2369,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 finally
                 {
+                    // Cleared before the stream is disposed so no send can pick up a dead socket.
+                    _wsStream = null;
                     try { tlsProtocol?.Close(); } catch { }
                     try { tcp?.Dispose(); } catch { }
                 }
@@ -2385,7 +2395,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Handles continuation frames, ping/pong, and close frames.
     /// Returns null on connection close.
     /// </summary>
-    private static async Task<string?> ReadWebSocketFrame(Stream stream, CancellationToken ct)
+    private async Task<string?> ReadWebSocketFrame(Stream stream, CancellationToken ct)
     {
         using var payload = new MemoryStream();
 
@@ -2476,40 +2486,52 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>
     /// Sends a masked WebSocket frame (client-to-server frames must be masked per RFC 6455).
     /// </summary>
-    private static async Task SendWebSocketFrame(Stream stream, int opcode, byte[] data)
+    /// <remarks>
+    /// Serialised on _wsSendGate: the read loop answers pings on this same socket, and two
+    /// frames interleaved mid-write corrupt the stream for both.
+    /// </remarks>
+    private async Task SendWebSocketFrame(Stream stream, int opcode, byte[] data)
     {
-        // Client frames must be masked
-        var maskKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
-
-        using var frame = new MemoryStream();
-        frame.WriteByte((byte)(0x80 | opcode)); // FIN + opcode
-
-        if (data.Length < 126)
-            frame.WriteByte((byte)(0x80 | data.Length)); // masked + length
-        else if (data.Length <= 65535)
+        await _wsSendGate.WaitAsync();
+        try
         {
-            frame.WriteByte(0x80 | 126);
-            frame.WriteByte((byte)(data.Length >> 8));
-            frame.WriteByte((byte)(data.Length & 0xFF));
+            // Client frames must be masked
+            var maskKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+
+            using var frame = new MemoryStream();
+            frame.WriteByte((byte)(0x80 | opcode)); // FIN + opcode
+
+            if (data.Length < 126)
+                frame.WriteByte((byte)(0x80 | data.Length)); // masked + length
+            else if (data.Length <= 65535)
+            {
+                frame.WriteByte(0x80 | 126);
+                frame.WriteByte((byte)(data.Length >> 8));
+                frame.WriteByte((byte)(data.Length & 0xFF));
+            }
+            else
+            {
+                frame.WriteByte(0x80 | 127);
+                var len = (long)data.Length;
+                for (int i = 7; i >= 0; i--)
+                    frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+            }
+
+            frame.Write(maskKey, 0, 4);
+
+            var masked = new byte[data.Length];
+            for (int i = 0; i < data.Length; i++)
+                masked[i] = (byte)(data[i] ^ maskKey[i % 4]);
+            frame.Write(masked, 0, masked.Length);
+
+            var bytes = frame.ToArray();
+            await stream.WriteAsync(bytes, 0, bytes.Length);
+            await stream.FlushAsync();
         }
-        else
+        finally
         {
-            frame.WriteByte(0x80 | 127);
-            var len = (long)data.Length;
-            for (int i = 7; i >= 0; i--)
-                frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+            _wsSendGate.Release();
         }
-
-        frame.Write(maskKey, 0, 4);
-
-        var masked = new byte[data.Length];
-        for (int i = 0; i < data.Length; i++)
-            masked[i] = (byte)(data[i] ^ maskKey[i % 4]);
-        frame.Write(masked, 0, masked.Length);
-
-        var bytes = frame.ToArray();
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-        await stream.FlushAsync();
     }
 
     /// <summary>Reads exactly count bytes from stream. Returns false on EOF.</summary>
