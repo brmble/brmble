@@ -518,8 +518,10 @@ namespace Brmble.Client.Services.Voice.Projection;
 /// field present — so a consumer replaces by session id and never merges field-by-field.
 /// </summary>
 /// <param name="IsReset">
-/// The caller should replace its whole list rather than patch it. Set by a Mumble reset and by
-/// a snapshot that changed membership.
+/// The caller should replace its whole list rather than patch it. Set by a Mumble reset only.
+/// A snapshot never sets it: <see cref="UserProjectionStore.ApplyServerSnapshot"/> can change
+/// what the server knows about a session, but it can neither add nor remove a row, because only
+/// Mumble owns existence (spec §4.3). Every row it resets is reported in <see cref="Changed"/>.
 /// </param>
 /// <param name="NeedsSnapshot">
 /// The store detected a gap or a restart and cannot proceed from incremental events. The caller
@@ -909,7 +911,7 @@ public class UserProjectionStoreSnapshotTests
     }
 
     [TestMethod]
-    public void ApplyServerSnapshot_FlagsAResetWhenMembershipChanged()
+    public void ApplyServerSnapshot_ReportsRowsItResets()
     {
         _store.ApplyServerSnapshot(Snapshot(5,
             (1, new ServerMappingEntry("@alice:test", null, null, null)),

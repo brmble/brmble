@@ -322,8 +322,10 @@ than a rewrite.
 In scope because the work lands here; not a general refactor:
 
 - `MumbleAdapter.cs` is 4,698 lines and not `partial`. `UserProjectionStore` and `UserProjection`
-  become standalone types in `Services/Voice/UserProjection/` with no Mumble dependency, so they
-  unit-test without a protocol stack.
+  become standalone types in `Services/Voice/Projection/` with no Mumble dependency, so they
+  unit-test without a protocol stack. The folder is `Projection/`, not `UserProjection/`: a
+  namespace whose last segment matches a type it contains trips CA1724 and can produce
+  `CS0118 'namespace used like a type'` when that type is referenced from inside it.
 - `App.tsx` is 5,623 lines. User and avatar state move into a `useUserDirectory` hook alongside the
   existing 20 hooks, exposing `users` (joined), `usersRef` and the avatar map. Consumers keep the
   same row shape and do not change.

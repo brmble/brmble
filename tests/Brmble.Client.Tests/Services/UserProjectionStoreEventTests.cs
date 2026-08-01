@@ -142,6 +142,20 @@ public class UserProjectionStoreEventTests
     }
 
     [TestMethod]
+    public void ApplyServerEvent_RejectsARangeThatEndsBeforeItStarts()
+    {
+        // The server should never emit this, but the store is the trust boundary. Applying it
+        // would drag the cursor backwards and make every later event look like a duplicate.
+        var change = _store.ApplyServerEvent(Companion(10, 4, "bee"));
+
+        Assert.IsTrue(change.NeedsSnapshot);
+        Assert.AreEqual("retro", _store.Snapshot()[1].CompanionId, "a malformed range must apply nothing");
+
+        var next = _store.ApplyServerEvent(Companion(10, 11, "pip"));
+        Assert.AreEqual("pip", _store.Snapshot()[1].CompanionId, "the cursor must not have moved");
+    }
+
+    [TestMethod]
     public void ApplyServerEvent_ForASessionMumbleHasNotShownIsHeldAndAdvancesTheCursor()
     {
         // The row does not exist yet, so there is nothing to enrich — the entry is held for

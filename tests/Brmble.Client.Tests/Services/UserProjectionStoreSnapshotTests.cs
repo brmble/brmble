@@ -77,7 +77,7 @@ public class UserProjectionStoreSnapshotTests
     }
 
     [TestMethod]
-    public void ApplyServerSnapshot_FlagsAResetWhenMembershipChanged()
+    public void ApplyServerSnapshot_ReportsRowsItResets()
     {
         _store.ApplyServerSnapshot(Snapshot(5,
             (1, new ServerMappingEntry("@alice:test", null, null, null)),
