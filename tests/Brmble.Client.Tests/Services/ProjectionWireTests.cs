@@ -141,6 +141,49 @@ public class ProjectionWireTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_SkipsNonNumericSessionKeys()
+    {
+        // Ported from ParseSessionMappings_SkipsNonNumericKeys.
+        var snapshot = ProjectionWire.ReadSnapshot(Json("""
+        { "instanceId": "i", "revision": 1,
+          "mappings": { "abc": { "matrixUserId": "@x:t" },
+                        "42":  { "matrixUserId": "@y:t" } } }
+        """));
+
+        Assert.AreEqual(1, snapshot!.Mappings.Count);
+        Assert.IsTrue(snapshot.Mappings.ContainsKey(42));
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_EmptyMappingsIsAnEmptyTableNotAFailure()
+    {
+        // Ported from ParseSessionMappings_EmptyObject_ReturnsEmpty. An empty table is a
+        // legitimate statement: the server knows about nobody.
+        var snapshot = ProjectionWire.ReadSnapshot(Json("""
+        { "instanceId": "i", "revision": 1, "mappings": {} }
+        """));
+
+        Assert.IsNotNull(snapshot);
+        Assert.AreEqual(0, snapshot!.Mappings.Count);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_ExplicitFalseIsBrmbleClientIsKnowledge()
+    {
+        // Ported from ParseSessionMappings_WithIsBrmbleClient_RoundTrips. An explicit false is
+        // a fact and must survive as false, distinct from the absent case above.
+        var snapshot = ProjectionWire.ReadSnapshot(Json("""
+        { "instanceId": "i", "revision": 1,
+          "mappings": { "1": { "matrixUserId": "@alice:t", "isBrmbleClient": true },
+                        "2": { "matrixUserId": "@bob:t",   "isBrmbleClient": false } } }
+        """));
+
+        Assert.AreEqual(true, snapshot!.Mappings[1].IsBrmbleClient);
+        Assert.AreEqual(false, snapshot.Mappings[2].IsBrmbleClient);
+        Assert.AreEqual("@alice:t", snapshot.Mappings[1].MatrixUserId);
+    }
+
+    [TestMethod]
     public void ToWireRow_EmitsEveryFieldWithNullsExplicit()
     {
         var row = new UserProjection

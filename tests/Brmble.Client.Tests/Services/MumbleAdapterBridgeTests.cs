@@ -21,15 +21,32 @@ namespace Brmble.Client.Tests.Services;
 public class MumbleAdapterBridgeTests
 {
     [TestMethod]
-    public void HandleWebSocketMessage_CompanionChanged_EmitsBridgeEvent()
+    public void HandleWebSocketMessage_CompanionChanged_EmitsTheUpdatedRow()
     {
-        var adapter = CreateAdapterWithBridge(out var bridge);
+        // The dedicated voice.companionChanged event is gone: a companion change is just a
+        // change to a server-owned field, so it arrives as the complete row like any other.
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        var connection = new MumbleConnection(
+            new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 64738), adapter, voiceSupport: false);
+        adapter.Initialise(connection);
+        adapter.ChannelState(new MumbleProto.ChannelState { ChannelId = 0, Name = "Root" });
+        adapter.UserState(new MumbleProto.UserState { Session = 42, Name = "Alice", ChannelId = 0 });
 
-        InvokePrivate(adapter, "HandleWebSocketMessage", """
-        {"type":"companionChanged","sessionId":42,"matrixUserId":"@alice:test","companionId":"retro"}
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter,
+            """{"type":"sessionMappingSnapshot","instanceId":"i","revision":1,"mappings":{}}""");
+        _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+        MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
+        {"type":"companionChanged","instanceId":"i","baseRevision":1,"revision":2,"sessionId":42,"matrixUserId":"@alice:test","companionId":"retro"}
         """);
 
-        AssertBridgeSent(bridge, "voice.companionChanged");
+        var row = NativeBridgeTestHarness.DrainMessages(bridge)
+            .Where(m => m.Type == "voice.userJoined")
+            .Select(m => JsonDocument.Parse(m.DataJson).RootElement)
+            .Last(e => e.GetProperty("session").GetUInt32() == 42);
+
+        Assert.AreEqual("retro", row.GetProperty("companionId").GetString());
     }
 
     [TestMethod]
