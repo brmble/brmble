@@ -173,10 +173,10 @@ public class BrmbleWebSocketHandlerTests
         mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
             .Returns((long _, out int sessionId) => { sessionId = 7; return true; });
         mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping> { [7] = mapping });
-        // Registration only announces when a mutation actually reported a change, so these must
-        // return true or no userMappingAdded is broadcast and this test waits forever.
-        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(true);
-        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(true);
+        // Registration announces only when the ownership-constrained claim succeeds, so this
+        // must be stubbed or no userMappingAdded is broadcast and this test waits forever.
+        mappings.Setup(x => x.TryClaimBrmbleSession(7, 42, It.IsAny<string>(), out It.Ref<SessionMapping?>.IsAny))
+            .Returns((int _, long _, string _, out SessionMapping? m) => { m = mapping; return true; });
         var realBus = CreateBus(mappings.Object);
         var bus = new BlockingMappingBroadcastBus(realBus);
         var snapshots = new Mock<IDuelSnapshotProvider>();
@@ -310,9 +310,10 @@ public class BrmbleWebSocketHandlerTests
         mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
             .Returns((long _, out int sessionId) => { sessionId = 0; return false; });
         mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
-        // The session is gone: every mutation reports no change.
-        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(false);
-        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(false);
+        // The session was recycled or removed, so the ownership-constrained claim refuses it and
+        // must leave the mapping table untouched rather than half-writing then suppressing.
+        mappings.Setup(x => x.TryClaimBrmbleSession(7, 42, It.IsAny<string>(), out It.Ref<SessionMapping?>.IsAny))
+            .Returns((int _, long _, string _, out SessionMapping? m) => { m = null; return false; });
 
         var broadcasts = new List<object>();
         var bus = new Mock<IBrmbleEventBus>();
@@ -340,28 +341,26 @@ public class BrmbleWebSocketHandlerTests
     {
         // A companionChanged landing between the read and the lock must not be undone. If the
         // payload carried the captured companionId under this operation's newer revision, every
-        // client would overwrite the newer value with the stale one.
+        // client would overwrite the newer value with the stale one. The claim returns the
+        // post-mutation mapping precisely so the payload cannot use the captured one.
         var captured = new SessionMapping("@alice:test", "Alice", 42, "bee");
         var current = new SessionMapping("@alice:test", "Alice", 42, "retro");
         var mappings = new Mock<ISessionMappingService>();
         mappings.SetupGet(x => x.InstanceId).Returns("inst");
         mappings.SetupGet(x => x.Revision).Returns(9L);
-        var reads = 0;
         mappings.Setup(x => x.TryGetMappingByUserId(42, out It.Ref<int>.IsAny, out It.Ref<SessionMapping?>.IsAny))
             .Returns((long _, out int sessionId, out SessionMapping? value) =>
             {
                 sessionId = 7;
-                // First read is the one outside the lock; the second is the re-read inside it,
-                // by which point a concurrent companionChanged has landed.
-                value = Interlocked.Increment(ref reads) == 1 ? captured : current;
+                value = captured;
                 return true;
             });
         // No duel queue session: keeps this test off the duel snapshot path entirely.
         mappings.Setup(x => x.TryGetSessionByUserId(42, out It.Ref<int>.IsAny))
             .Returns((long _, out int sessionId) => { sessionId = 0; return false; });
         mappings.Setup(x => x.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
-        mappings.Setup(x => x.TryUpdateBrmbleStatus(7, It.IsAny<bool?>())).Returns(true);
-        mappings.Setup(x => x.TryUpdateCertHash(7, It.IsAny<string>())).Returns(true);
+        mappings.Setup(x => x.TryClaimBrmbleSession(7, 42, It.IsAny<string>(), out It.Ref<SessionMapping?>.IsAny))
+            .Returns((int _, long _, string _, out SessionMapping? m) => { m = current; return true; });
 
         var broadcasts = new List<object>();
         var bus = new Mock<IBrmbleEventBus>();
@@ -412,7 +411,26 @@ public class BrmbleWebSocketHandlerTests
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
         Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
     }
+
+    [TestMethod]
+    public void TryParseClientMessage_RejectsATruncatedOversizedMessage()
+    {
+        // The abuse shape: a valid short prefix followed by padding that pushes the message past
+        // the cap. Truncating and honouring the prefix turns a size limit into an amplifier, so
+        // the whole message has to be discarded. The read loop signals this by passing null,
+        // but the parser must also reject the fragment it would otherwise see.
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage(
+            "{\"type\":\"requestSnapshot\"", out _), "an unterminated fragment is not valid JSON");
+    }
+
+    [TestMethod]
+    public void TryParseClientMessage_RejectsNonObjectAndNonStringType()
+    {
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("[1,2,3]", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("\"requestSnapshot\"", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":42}", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":null}", out _));
+        Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":\"\"}", out _));
+    }
 }
-
-
 

@@ -100,13 +100,18 @@ public static class AuthEndpoints
                     {
                         mappingAdded = sessionMapping.TryAddMatrixUser(
                             sid, result.MatrixUserId, resolvedName, result.UserId, companionId);
-                        sessionMapping.TryUpdateCertHash(sid, certHash);
+
                         // This user just authenticated via Brmble, so mark them as a Brmble
                         // client immediately. Authenticate() may have failed to update the
                         // mapping if TryAddMatrixUser hadn't been called yet (race with
                         // SessionMappingHandler).
-                        sessionMapping.TryUpdateBrmbleStatus(sid, true);
-                        return true;
+                        //
+                        // Ownership-constrained: `sid` came from a name lookup made outside this
+                        // lock, so the session may since have been recycled to a different user.
+                        // Updating by raw session id would write this user's certificate and
+                        // status into that user's mapping and then announce it as their own.
+                        return sessionMapping.TryClaimBrmbleSession(
+                            sid, result.UserId, certHash, out _);
                     },
                     envelope =>
                     {

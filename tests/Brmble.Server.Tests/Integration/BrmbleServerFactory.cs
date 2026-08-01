@@ -67,6 +67,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 defaultSessionMapping.TryAddMatrixUser(sessionId, matrixUserId, mumbleName, userId, companionId));
         SessionMappingMock.Setup(s => s.TryUpdateBrmbleStatus(It.IsAny<int>(), It.IsAny<bool?>()))
             .Returns((int sessionId, bool? isBrmbleClient) => defaultSessionMapping.TryUpdateBrmbleStatus(sessionId, isBrmbleClient));
+        SessionMappingMock.Setup(s => s.TryClaimBrmbleSession(
+                It.IsAny<int>(), It.IsAny<long>(), It.IsAny<string>(), out It.Ref<SessionMapping?>.IsAny))
+            .Returns((int sessionId, long userId, string certHash, out SessionMapping? mapping) =>
+                defaultSessionMapping.TryClaimBrmbleSession(sessionId, userId, certHash, out mapping));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionId(It.IsAny<int>(), It.IsAny<string>()))
             .Returns((int sessionId, string companionId) => defaultSessionMapping.TryUpdateCompanionId(sessionId, companionId));
         SessionMappingMock.Setup(s => s.TryUpdateCompanionIdIfCurrent(

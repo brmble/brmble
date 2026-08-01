@@ -83,4 +83,73 @@ public class MappingEventPublisherTests
         public Task BroadcastToUsersAsync(IReadOnlySet<long> userIds, object message, EventDeliveryOptions options = default) =>
             BroadcastAsync(message);
     }
+
+    [TestMethod]
+    public void PublishSnapshotAsync_CapturesRevisionAndMappingsAndEnqueuesUnderOneGate()
+    {
+        // The capture and the enqueue must not be separable. If a mutation could land between
+        // them, an event at a later revision could reach the socket ahead of the snapshot it was
+        // supposed to be repaired by.
+        _mappings.TryUpdateCompanionId(1, "retro");
+        var socket = new Moq.Mock<System.Net.WebSockets.WebSocket>().Object;
+
+        _publisher.PublishSnapshotAsync(socket, (envelope, snapshot) => new
+        {
+            type = "sessionMappingSnapshot",
+            instanceId = envelope.InstanceId,
+            revision = envelope.Revision,
+            count = snapshot.Count,
+            companion = snapshot[1].CompanionId
+        });
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(_bus.Broadcasts.Single()));
+        Assert.AreEqual(_mappings.Revision, doc.RootElement.GetProperty("revision").GetInt64());
+        Assert.AreEqual(_mappings.InstanceId, doc.RootElement.GetProperty("instanceId").GetString());
+        Assert.AreEqual("retro", doc.RootElement.GetProperty("companion").GetString(),
+            "the snapshot must reflect the state at the revision it claims");
+    }
+
+    [TestMethod]
+    public async Task PublishSnapshotAsync_NoEventCanBeEnqueuedBetweenTheCaptureAndTheSnapshot()
+    {
+        // Hammer both paths concurrently. Every snapshot's claimed revision must match the
+        // mapping state it carries, and never trail an event that was already delivered.
+        var socket = new Moq.Mock<System.Net.WebSockets.WebSocket>().Object;
+
+        await Task.WhenAll(
+            Task.Run(() =>
+            {
+                for (var i = 0; i < 200; i++)
+                    _publisher.PublishAsync(
+                        () => _mappings.TryUpdateCompanionId(1, $"c{i}"),
+                        envelope => new
+                        {
+                            type = "companionChanged",
+                            revision = envelope.Revision,
+                            companion = _mappings.GetSnapshot()[1].CompanionId
+                        });
+            }),
+            Task.Run(() =>
+            {
+                for (var i = 0; i < 200; i++)
+                    _publisher.PublishSnapshotAsync(socket, (envelope, snapshot) => new
+                    {
+                        type = "sessionMappingSnapshot",
+                        revision = envelope.Revision,
+                        companion = snapshot[1].CompanionId
+                    });
+            }));
+
+        // Enqueue order is delivery order, so revisions must never go backwards across the
+        // combined stream of events and snapshots.
+        var revisions = _bus.Broadcasts
+            .Select(p => JsonDocument.Parse(JsonSerializer.Serialize(p))
+                .RootElement.GetProperty("revision").GetInt64())
+            .ToList();
+
+        Assert.AreEqual(400, revisions.Count);
+        CollectionAssert.AreEqual(revisions.OrderBy(r => r).ToList(), revisions,
+            "a snapshot delivered after a newer event rolls the client back and is never replayed");
+    }
 }
+

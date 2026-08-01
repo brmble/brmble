@@ -33,7 +33,38 @@ public class SessionMappingService : ISessionMappingService
             return true;
         }
 
-        _userIdToSession[userId] = sessionId;
+        // The session already has a mapping. Only refresh the index when that mapping is this
+        // user's own: pointing a user at a session somebody else owns makes every later by-user
+        // lookup resolve to — and mutate — the wrong projection.
+        if (_sessionToMapping.TryGetValue(sessionId, out var existing) && existing.UserId == userId)
+            _userIdToSession[userId] = sessionId;
+
+        return false;
+    }
+
+    public bool TryClaimBrmbleSession(int sessionId, long userId, string certHash, out SessionMapping? mapping)
+    {
+        while (_sessionToMapping.TryGetValue(sessionId, out var existing))
+        {
+            // Ownership is checked inside the CAS, not before it, so a recycle racing this call
+            // loses rather than being overwritten.
+            if (existing.UserId != userId)
+            {
+                mapping = null;
+                return false;
+            }
+
+            var updated = existing with { IsBrmbleClient = true, CertHash = certHash };
+            if (_sessionToMapping.TryUpdate(sessionId, updated, existing))
+            {
+                _userIdToSession[userId] = sessionId;
+                Bump();
+                mapping = updated;
+                return true;
+            }
+        }
+
+        mapping = null;
         return false;
     }
 

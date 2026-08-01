@@ -36,5 +36,21 @@ public interface ISessionMappingService
     bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId);
     bool TryUpdateBrmbleStatus(int sessionId, bool? isBrmbleClient);
     bool TryUpdateCertHash(int sessionId, string certHash);
+
+    /// <summary>
+    /// Marks a session as an active Brmble client and records its certificate hash, but only if
+    /// the session still belongs to <paramref name="userId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Atomic and ownership-constrained on purpose. Doing this as separate
+    /// <see cref="TryUpdateBrmbleStatus"/> and <see cref="TryUpdateCertHash"/> calls guarded by a
+    /// later ownership check writes one user's certificate and status into another user's
+    /// mapping whenever a session is recycled in between, and then suppresses the announcement —
+    /// corrupting the projection and leaving unannounced revision bumps behind. It is also one
+    /// bump rather than two, so the announced range covers exactly this change.
+    /// </remarks>
+    /// <param name="mapping">The post-claim mapping to announce, or null if the claim was refused.</param>
+    bool TryClaimBrmbleSession(int sessionId, long userId, string certHash, out SessionMapping? mapping);
+
     IReadOnlyDictionary<int, SessionMapping> GetSnapshot();
 }
