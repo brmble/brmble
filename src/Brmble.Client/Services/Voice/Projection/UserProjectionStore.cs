@@ -89,18 +89,46 @@ internal sealed class UserProjectionStore
         };
     }
 
+    /// <summary>
+    /// Applies a complete statement of server-known sessions. Sessions the snapshot omits have
+    /// their server-owned fields reset to unknown — stale enrichment is worse than none — but
+    /// their rows survive, because only Mumble owns existence.
+    /// </summary>
     public ChangeSet ApplyServerSnapshot(ServerSnapshot snapshot)
     {
         lock (_gate)
         {
+            // A different instance means the old revision line is meaningless. Nothing special
+            // is needed beyond taking this snapshot as truth, which the reset below does.
             _instanceId = snapshot.InstanceId;
             _revision = snapshot.Revision;
 
             var changed = new List<UserProjection>();
-            foreach (var (sessionId, entry) in snapshot.Mappings)
+
+            foreach (var sessionId in _rows.Keys.ToArray())
             {
-                if (!_rows.TryGetValue(sessionId, out var existing)) continue;
-                var updated = WithServerFields(existing, entry);
+                var existing = _rows[sessionId];
+
+                var updated = snapshot.Mappings.TryGetValue(sessionId, out var entry)
+                    // Present: overwrite the server half outright. A snapshot states every
+                    // server-owned field, so null here is knowledge, not absence — this is the
+                    // one place the null-means-unknown rule does not apply.
+                    ? existing with
+                    {
+                        MatrixUserId = entry.MatrixUserId,
+                        CompanionId = entry.CompanionId,
+                        IsBrmbleClient = entry.IsBrmbleClient,
+                        ServerCertHash = entry.CertHash
+                    }
+                    // Absent: the server does not know this session. Back to unknown.
+                    : existing with
+                    {
+                        MatrixUserId = null,
+                        CompanionId = null,
+                        IsBrmbleClient = null,
+                        ServerCertHash = null
+                    };
+
                 if (existing == updated) continue;
                 _rows[sessionId] = updated;
                 changed.Add(updated);
