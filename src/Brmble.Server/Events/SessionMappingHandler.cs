@@ -51,18 +51,27 @@ public class SessionMappingHandler : IMumbleEventHandler
         await _publisher.PublishAsync(
             // The mapping mutations above already happened; this announcement is unconditional.
             () => true,
-            envelope => new
+            envelope =>
             {
-                type = "userMappingAdded",
-                instanceId = envelope.InstanceId,
-                revision = envelope.Revision,
-                sessionId = user.SessionId,
-                matrixUserId = dbUser.MatrixUserId,
-                mumbleName = user.Name,
-                companionId = wire.CompanionId,
-                customCompanionId = wire.CustomCompanionId,
-                certHash = user.CertHash,
-                isBrmbleClient
+                // A dictionary rather than an anonymous type so isBrmbleClient can be omitted
+                // when unknown: an explicit null throws in the shipped client's parser.
+                // Keys are written in camelCase and pass through both serialiser configs
+                // unchanged, since DictionaryKeyPolicy is not set on the event bus.
+                var payload = new Dictionary<string, object?>
+                {
+                    ["type"] = "userMappingAdded",
+                    ["instanceId"] = envelope.InstanceId,
+                    ["revision"] = envelope.Revision,
+                    ["sessionId"] = user.SessionId,
+                    ["matrixUserId"] = dbUser.MatrixUserId,
+                    ["mumbleName"] = user.Name,
+                    ["companionId"] = wire.CompanionId,
+                    ["customCompanionId"] = wire.CustomCompanionId,
+                    ["certHash"] = user.CertHash
+                };
+                if (isBrmbleClient.HasValue)
+                    payload["isBrmbleClient"] = isBrmbleClient.Value;
+                return payload;
             });
 
         if (!mappingAdded && isBrmbleClient == true)

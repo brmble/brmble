@@ -253,4 +253,43 @@ public class BrmbleWebSocketHandlerTests
 
         Events.MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
     }
+
+    [TestMethod]
+    public async Task BuildInitialPayloadsAsync_OmitsIsBrmbleClientWhenUnknownButKeepsExplicitFalse()
+    {
+        // An explicit null throws in the shipped client's ParseSessionMappings. Absent means
+        // the same thing to a new client and reads as false on an old one.
+        var mappings = new SessionMappingService();
+        mappings.TryAddMatrixUser(1, "@unknown:test", "Unknown", 1L, "floppy");
+        mappings.TryAddMatrixUser(2, "@known:test", "Known", 2L, "floppy");
+        mappings.TryUpdateBrmbleStatus(2, false);
+        mappings.TryAddMatrixUser(3, "@active:test", "Active", 3L, "floppy");
+        mappings.TryUpdateBrmbleStatus(3, true);
+
+        var payloads = await BrmbleWebSocketHandler.BuildInitialPayloadsAsync(
+            new Mock<IDuelSnapshotProvider>().Object, 0, mappings.GetSnapshot(),
+            new MappingEnvelope(mappings.InstanceId, mappings.Revision));
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payloads[0]));
+        var entries = doc.RootElement.GetProperty("mappings");
+
+        Assert.IsFalse(entries.GetProperty("1").TryGetProperty("isBrmbleClient", out _),
+            "unknown must be omitted entirely");
+        Assert.IsFalse(entries.GetProperty("2").GetProperty("isBrmbleClient").GetBoolean(),
+            "an observed deactivation is knowledge and stays explicit");
+        Assert.IsTrue(entries.GetProperty("3").GetProperty("isBrmbleClient").GetBoolean());
+    }
+
+    [TestMethod]
+    public void CreateUserMappingAddedPayload_AssertsTrueBecauseASocketHasRegistered()
+    {
+        // This path runs only from InitializeAcceptedClientAsync, where registration itself
+        // is the proof. It is the one place true is knowledge rather than an assumption.
+        var payload = BrmbleWebSocketHandler.CreateUserMappingAddedPayload(
+            42, new SessionMapping("@alice:test", "Alice", 1L, "floppy", IsBrmbleClient: null),
+            "cert", new MappingEnvelope("inst", 9L));
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        Assert.IsTrue(doc.RootElement.GetProperty("isBrmbleClient").GetBoolean());
+    }
 }

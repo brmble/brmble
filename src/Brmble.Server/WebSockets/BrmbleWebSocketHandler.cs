@@ -158,19 +158,7 @@ public static class BrmbleWebSocketHandler
     {
         var snapshot = mappings.ToDictionary(
             kvp => kvp.Key.ToString(),
-            kvp =>
-            {
-                var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
-                return new
-                {
-                    matrixUserId = kvp.Value.MatrixUserId,
-                    mumbleName = kvp.Value.MumbleName,
-                    companionId = wire.CompanionId,
-                    customCompanionId = wire.CustomCompanionId,
-                    certHash = kvp.Value.CertHash,
-                    isBrmbleClient = kvp.Value.IsBrmbleClient,
-                };
-            });
+            kvp => SessionMappingWire.From(kvp.Value));
         var initial = new List<object>
         {
             new

@@ -1061,6 +1061,24 @@ public class MumbleAdapterParseTests
     }
 
     [TestMethod]
+    public void ParseSessionMappings_ExplicitNullIsBrmbleClient_DoesNotThrow()
+    {
+        // TryGetProperty returns true for an explicit JSON null and GetBoolean() throws on it.
+        // This runs inside /auth/token credential handling, so a null would take the client
+        // down on connect. Absent and null must both mean "unknown", rendering as false today.
+        var json = JsonDocument.Parse("""
+        {
+            "5": { "matrixUserId": "@user:localhost", "mumbleName": "User", "isBrmbleClient": null }
+        }
+        """);
+
+        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.IsFalse(result[5].IsBrmbleClient);
+    }
+
+    [TestMethod]
     public void ParseSessionMappings_SkipsEntriesWithMissingRequiredFields()
     {
         var json = JsonDocument.Parse("""

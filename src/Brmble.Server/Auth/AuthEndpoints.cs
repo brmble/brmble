@@ -220,19 +220,7 @@ public static class AuthEndpoints
                 sessionMappings = sessionMapping.GetSnapshot()
                     .ToDictionary(
                         kvp => kvp.Key.ToString(),
-                        kvp =>
-                        {
-                            var wire = CompanionWireSelection.FromPersisted(kvp.Value.CompanionId);
-                            return new
-                            {
-                            matrixUserId = kvp.Value.MatrixUserId,
-                            mumbleName = kvp.Value.MumbleName,
-                            companionId = wire.CompanionId,
-                            customCompanionId = wire.CustomCompanionId,
-                            certHash = kvp.Value.CertHash,
-                            isBrmbleClient = kvp.Value.IsBrmbleClient
-                            };
-                        }),
+                        kvp => SessionMappingWire.From(kvp.Value)),
                 registered = result.IsRegistered,
                 registeredName = result.DisplayName,
                 passwordProtectedChannelIds,

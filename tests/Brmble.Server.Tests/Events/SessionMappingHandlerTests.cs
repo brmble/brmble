@@ -126,10 +126,11 @@ public class SessionMappingHandlerTests
         // No socket has registered, so the status is unknown rather than a positive false.
         _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, (bool?)null), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
-            message.GetType().GetProperty("type")!.GetValue(message)!.Equals("userMappingAdded") &&
-            message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1) &&
-            message.GetType().GetProperty("certHash")!.GetValue(message)!.Equals("abc123") &&
-            message.GetType().GetProperty("isBrmbleClient")!.GetValue(message) == null)), Times.Once);
+            JsonSerializer.Serialize(message).Contains("\"type\":\"userMappingAdded\"") &&
+            JsonSerializer.Serialize(message).Contains("\"sessionId\":1") &&
+            JsonSerializer.Serialize(message).Contains("\"certHash\":\"abc123\"") &&
+            // Unknown is an absent property, never an explicit null.
+            !JsonSerializer.Serialize(message).Contains("isBrmbleClient"))), Times.Once);
     }
 
     [TestMethod]
@@ -144,8 +145,8 @@ public class SessionMappingHandlerTests
 
         _mapping.Verify(m => m.TryUpdateBrmbleStatus(1, true), Times.Once);
         _bus.Verify(b => b.BroadcastAsync(It.Is<object>(message =>
-            message.GetType().GetProperty("type")!.GetValue(message)!.Equals("brmbleClientActivated") &&
-            message.GetType().GetProperty("sessionId")!.GetValue(message)!.Equals(1))), Times.Once);
+            JsonSerializer.Serialize(message).Contains("\"type\":\"brmbleClientActivated\"") &&
+            JsonSerializer.Serialize(message).Contains("\"sessionId\":1"))), Times.Once);
     }
 
     [TestMethod]
@@ -199,11 +200,10 @@ public class SessionMappingHandlerTests
             JsonSerializer.Serialize(p).Contains("\"type\":\"userMappingAdded\""));
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
 
-        Assert.AreEqual(JsonValueKind.Null,
-            doc.RootElement.GetProperty("isBrmbleClient").ValueKind);
+        Assert.IsFalse(doc.RootElement.TryGetProperty("isBrmbleClient", out _),
+            "unknown must be an absent property: an explicit null throws in the shipped client");
         MappingPayloadEnvelopeTests.AssertHasEnvelope(payload, "userMappingAdded");
     }
-
     [TestMethod]
     public async Task OnUserConnected_PublishesTrueWhenSessionIsKnownActive()
     {
