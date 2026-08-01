@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CustomCompanionEntry } from '../../../customCompanions/customCompanionTypes';
@@ -45,8 +45,15 @@ function gallery(
 }
 
 describe('CompanionPicker', () => {
+  let intersectionCallback: IntersectionObserverCallback | undefined;
+
   beforeEach(() => {
+    intersectionCallback = undefined;
     vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersectionCallback = callback;
+      }
+
       observe() {}
       unobserve() {}
       disconnect() {}
@@ -139,5 +146,31 @@ describe('CompanionPicker', () => {
 
     expect(readyGallery.requestThumbnail).not.toHaveBeenCalled();
     expect(readyGallery.requestAtlas).not.toHaveBeenCalled();
+  });
+
+  it('renders a loaded custom thumbnail as a cropped sprite background', async () => {
+    const readyGallery = gallery('ready', [entry('$orbit:test', 'Alice', 1)]);
+
+    render(
+      <CompanionPicker
+        value="floppy"
+        gallery={readyGallery}
+        onChange={vi.fn()}
+        onUpload={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('companion-picker-custom-sprite')).not.toBeInTheDocument();
+
+    act(() => {
+      intersectionCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    const sprite = await waitFor(() => screen.getByTestId('companion-picker-custom-sprite'));
+    expect(sprite).toHaveStyle('background-image: url(blob:thumbnail)');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 });
