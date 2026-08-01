@@ -1990,8 +1990,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _sawServerHealthFailureSinceCredentials = false;
             SendBrmbleServiceStatus("server", "connected");
 
-            // Start WebSocket connection for real-time session mapping updates
-            StartWebSocketConnection(apiUrl);
+            // Start WebSocket connection for real-time session mapping updates.
+            // Only connect if we do not already have a live socket. A credential refresh -- which
+            // the health check can trigger at any time -- must not tear down a working
+            // connection: the old read loop and the new one would then race, and the survivor
+            // may be the one being torn down.
+            if (_wsStream is null) StartWebSocketConnection(apiUrl);
 
             // Start periodic health checks (runs from C# to avoid CORS issues)
             StartHealthCheck(apiUrl);
@@ -2543,7 +2547,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         while (totalRead < count)
         {
             ct.ThrowIfCancellationRequested();
-            var read = await stream.ReadAsync(buffer, offset + totalRead, count - totalRead);
+            // Pass the token: without it the read only unblocks when the stream is disposed,
+            // so a cancelled connection lingers and races its own replacement.
+            var read = await stream.ReadAsync(buffer.AsMemory(offset + totalRead, count - totalRead), ct);
             if (read == 0) return false;
             totalRead += read;
         }
