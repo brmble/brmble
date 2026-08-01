@@ -243,6 +243,12 @@ describe('DMContactList directory behavior', () => {
     expect(dmContactListCss).toContain('min-width: var(--messages-rail-width, 48px);');
   });
 
+  it('keeps each conversation slide exactly the width of the main content viewport', () => {
+    expect(appCss).toContain('width: 100%;\n  height: 100%;');
+    expect(appCss).toContain('transform: translateX(-100%);');
+    expect(appCss).toContain('flex: 0 0 100%;');
+  });
+
   it('keeps search results in their route sections when both routes match', async () => {
     const user = userEvent.setup();
     renderList();
