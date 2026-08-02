@@ -613,4 +613,60 @@ describe('PaintSessionSetupModal', () => {
       resolveCreate({ sessionId: 'session-1', matrixRoomId: '!paint:server', channelId: 5 });
     });
   });
+
+  it('disables source file selection while the session is being started', async () => {
+    const user = userEvent.setup();
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    paintApi.createSession.mockImplementation(() => new Promise(() => {}));
+    render(
+      <PaintSessionSetupModal
+        channelId={5}
+        channelRoomId="!channel:server"
+        candidates={[]}
+        hostUserId={7}
+        paintApi={paintApi}
+        matrixClient={matrixClient}
+        onAttachSource={attachSource}
+        initialSourceFile={new File(['existing'], 'existing.png', { type: 'image/png' })}
+      />,
+    );
+
+    const sourceInput = screen.getByLabelText('Source image');
+    await user.click(screen.getByRole('button', { name: 'Start paint' }));
+
+    expect(sourceInput).toBeDisabled();
+  });
+
+  it('keeps file staging valid when a non-image paste occurs during validation', async () => {
+    let resolveMediaConfig!: (config: { 'm.upload.size': number }) => void;
+    const { paintApi, matrixClient, attachSource } = createHarness();
+    matrixClient.getMediaConfig.mockImplementation(() => new Promise((resolve) => {
+      resolveMediaConfig = resolve;
+    }));
+    render(
+      <PaintSessionSetupModal
+        channelId={5}
+        channelRoomId="!channel:server"
+        candidates={[]}
+        hostUserId={7}
+        paintApi={paintApi}
+        matrixClient={matrixClient}
+        onAttachSource={attachSource}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.upload(
+      screen.getByLabelText('Source image'),
+      new File(['image'], 'selected.png', { type: 'image/png' }),
+    );
+    pasteClipboardItems([{ type: 'text/plain', getAsFile: () => null }]);
+
+    resolveMediaConfig({ 'm.upload.size': 1024 });
+
+    expect(await screen.findByText('selected.png')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The clipboard does not contain an image.',
+    );
+  });
 });

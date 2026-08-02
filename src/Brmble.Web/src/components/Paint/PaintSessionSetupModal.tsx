@@ -143,16 +143,12 @@ export function PaintSessionSetupModal({
     event.preventDefault();
 
     if (!imageItem) {
-      ++sourceRevisionRef.current;
-      setPreparingSource(false);
       setError('The clipboard does not contain an image.');
       return;
     }
 
     const candidate = imageItem.getAsFile();
     if (!candidate) {
-      ++sourceRevisionRef.current;
-      setPreparingSource(false);
       setError(
         'This clipboard image cannot be used. Try copying another image or choose a file.',
       );
@@ -279,6 +275,7 @@ export function PaintSessionSetupModal({
             type="file"
             accept={PAINT_SOURCE_ACCEPT}
             onChange={handleFileChange}
+            disabled={saving}
           />
         </label>
         {file && previewUrl && (
