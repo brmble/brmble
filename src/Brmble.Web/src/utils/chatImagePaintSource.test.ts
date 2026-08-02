@@ -37,7 +37,13 @@ function installDecodeHarness(options: {
 function successfulFetch(blob: Blob): typeof fetch {
   return vi.fn().mockResolvedValue({
     ok: true,
-    blob: vi.fn().mockResolvedValue(blob),
+    headers: new Headers({ 'content-type': blob.type }),
+    body: new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new Uint8Array(await blob.arrayBuffer()));
+        controller.close();
+      },
+    }),
   }) as unknown as typeof fetch;
 }
 
@@ -144,6 +150,42 @@ describe('prepareChatImagePaintSource', () => {
     )))).rejects.toThrow(
       'This chat image is too large to use as a Paint source.',
     );
+  });
+
+  it('stops reading a streamed chat image when it exceeds the Paint 10 MiB limit', async () => {
+    const firstChunk = new Uint8Array(TEN_MIB);
+    const secondChunk = new Uint8Array(1);
+    let pullCount = 0;
+    let cancelReason: unknown;
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pullCount += 1;
+          if (pullCount === 1) {
+            controller.enqueue(firstChunk);
+          } else if (pullCount === 2) {
+            controller.enqueue(secondChunk);
+          }
+        },
+        cancel(reason) {
+          cancelReason = reason;
+        },
+      }),
+      headers: new Headers({ 'content-type': 'image/png' }),
+      blob: vi.fn().mockRejectedValue(new Error('full body was materialized')),
+    });
+
+    await expect(prepareChatImagePaintSource({
+      type: 'image',
+      url: 'https://matrix.example/streaming-large',
+      mimetype: 'image/png',
+    }, fetcher as unknown as typeof fetch)).rejects.toThrow(
+      'This chat image is too large to use as a Paint source.',
+    );
+
+    expect(pullCount).toBeLessThanOrEqual(3);
+    expect(cancelReason).toBeDefined();
   });
 
   it('rejects a downloaded chat image above 4096 pixels', async () => {

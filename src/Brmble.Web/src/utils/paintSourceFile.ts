@@ -3,7 +3,7 @@ export type PaintSourceOrigin = 'file' | 'paste' | 'chat';
 export const PAINT_SOURCE_ACCEPT =
   '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp';
 
-const MAX_PAINT_SOURCE_BYTES = 10 * 1024 * 1024;
+export const MAX_PAINT_SOURCE_BYTES = 10 * 1024 * 1024;
 const MAX_PAINT_SOURCE_DIMENSION = 4096;
 const EXTENSION_BY_MIME: Record<string, 'png' | 'jpg' | 'webp'> = {
   'image/png': 'png',
