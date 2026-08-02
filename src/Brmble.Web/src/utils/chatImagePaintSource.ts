@@ -1,13 +1,11 @@
 import type { MediaAttachment } from '../types';
-import { ALLOWED_MIMETYPES } from './parseMessageMedia';
+import {
+  isSupportedPaintSourceMimeType,
+  paintSourceExtension,
+  preparePaintSourceFile,
+} from './paintSourceFile';
 
 const DOWNLOAD_TIMEOUT_MS = 15_000;
-const EXTENSION_BY_MIME: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
 
 function normalizedMime(value?: string): string {
   return value?.split(';', 1)[0].trim().toLowerCase() ?? '';
@@ -19,8 +17,8 @@ export function isPaintSourceAttachment(
   if (!attachment.url.trim()) return false;
   const mime = normalizedMime(attachment.mimetype);
   return mime
-    ? ALLOWED_MIMETYPES.includes(mime)
-    : attachment.type === 'image' || attachment.type === 'gif';
+    ? isSupportedPaintSourceMimeType(mime)
+    : attachment.type === 'image';
 }
 
 export async function prepareChatImagePaintSource(
@@ -41,24 +39,10 @@ export async function prepareChatImagePaintSource(
   const blob = await response.blob();
   const mime = normalizedMime(attachment.mimetype)
     || normalizedMime(blob.type);
-  if (!ALLOWED_MIMETYPES.includes(mime)) {
-    throw new Error('This image type cannot be used for paint.');
-  }
-
+  const extension = paintSourceExtension(mime);
   const filename = attachment.filename?.trim()
-    || `chat-image.${EXTENSION_BY_MIME[mime]}`;
+    || (extension ? `chat-image.${extension}` : 'chat-image');
   const file = new File([blob], filename, { type: mime });
-  const objectUrl = URL.createObjectURL(file);
 
-  try {
-    const image = new Image();
-    image.src = objectUrl;
-    await image.decode();
-  } catch {
-    throw new Error('Unable to decode the chat image.');
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  return file;
+  return preparePaintSourceFile(file, 'chat');
 }
