@@ -84,6 +84,11 @@ describe('InterfaceSettingsTypes', () => {
       const result = normalizeOverlaySettings({});
 
       expect(result).toEqual(DEFAULT_OVERLAY);
+      expect(result.showLocalCompanionWhenIdle).toBe(true);
+    });
+
+    it('preserves the local idle companion preference', () => {
+      expect(normalizeOverlaySettings({ showLocalCompanionWhenIdle: false }).showLocalCompanionWhenIdle).toBe(false);
     });
 
     it('merges partial settings with defaults', () => {

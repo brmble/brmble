@@ -47,7 +47,8 @@ public record OverlaySettings(
     bool ShowDirectMessages = true,
     bool ShowJoinLeaveEvents = true,
     bool ShowModerationEvents = true,
-    bool ShowActiveSpeakers = true
+    bool ShowActiveSpeakers = true,
+    bool ShowLocalCompanionWhenIdle = true
 )
 {
     public Dictionary<string, string> CompanionSelectionsByServer { get; init; } =

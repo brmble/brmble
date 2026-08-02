@@ -123,6 +123,51 @@ describe('overlayModel', () => {
     }));
   });
 
+  it('hides the local companion when idle visibility is disabled', () => {
+    const snapshot = resolveFullCompanionDisplay(
+      createOverlaySnapshot('7', 'Raid'),
+      1_000,
+      { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false },
+    );
+
+    expect(snapshot.fullCompanion.activeDisplay).toBeNull();
+  });
+
+  it('clears an existing idle display when idle visibility is disabled', () => {
+    let snapshot = resolveFullCompanionDisplay(createOverlaySnapshot('7', 'Raid'), 1_000, DEFAULT_OVERLAY);
+
+    snapshot = resolveFullCompanionDisplay(
+      snapshot,
+      1_100,
+      { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false },
+    );
+
+    expect(snapshot.fullCompanion.activeDisplay).toBeNull();
+  });
+
+  it('still shows activity while idle visibility is disabled', () => {
+    let snapshot = createOverlaySnapshot('7', 'Raid');
+    const settings = { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false };
+    snapshot = appendOverlayEvent(
+      snapshot,
+      createChannelMessageOverlayEvent({
+        actorName: 'Milo',
+        text: 'Heads up',
+        channelId: '7',
+        currentChannelId: '7',
+        timestamp: 1_000,
+      }),
+      settings,
+    );
+
+    snapshot = resolveFullCompanionDisplay(snapshot, 1_000, settings);
+
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'chat',
+      bubble: 'Milo: Heads up',
+    }));
+  });
+
   it('refreshes the idle display when the local companion changes', () => {
     let snapshot = resolveFullCompanionDisplay(createOverlaySnapshot('7', 'Raid'), 1_000);
 
@@ -224,6 +269,42 @@ describe('overlayModel', () => {
       representedName: 'Milo',
       row: 9,
       bubble: null,
+    }));
+  });
+
+  it('keeps the last speaker visible during the speaker decay window', () => {
+    let snapshot = createOverlaySnapshot('7', 'Raid');
+    snapshot = setSpeakerActivity(snapshot, { session: 11, name: 'Milo', channelId: 7 }, true, 1_000);
+    snapshot = resolveFullCompanionDisplay(snapshot, 1_500, { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false });
+    snapshot = setSpeakerActivity(snapshot, { session: 11, name: 'Milo', channelId: 7 }, false, 1_600);
+
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'speaking',
+      representedName: 'Milo',
+      expiresAt: 4_600,
+    }));
+
+    snapshot = resolveFullCompanionDisplay(snapshot, 4_599, { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false });
+    expect(snapshot.fullCompanion.activeDisplay?.representedName).toBe('Milo');
+
+    snapshot = resolveFullCompanionDisplay(snapshot, 4_601, { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false });
+    expect(snapshot.fullCompanion.activeDisplay).toBeNull();
+  });
+
+  it('hands the companion to a new speaker during the previous speaker decay window', () => {
+    let snapshot = createOverlaySnapshot('7', 'Raid');
+    const settings = { ...DEFAULT_OVERLAY, showLocalCompanionWhenIdle: false };
+    snapshot = setSpeakerActivity(snapshot, { session: 11, name: 'Milo', channelId: 7 }, true, 1_000);
+    snapshot = resolveFullCompanionDisplay(snapshot, 1_500, settings);
+    snapshot = setSpeakerActivity(snapshot, { session: 11, name: 'Milo', channelId: 7 }, false, 1_600);
+    snapshot = setSpeakerActivity(snapshot, { session: 22, name: 'Kira', channelId: 7 }, true, 1_700);
+
+    snapshot = resolveFullCompanionDisplay(snapshot, 2_200, settings);
+
+    expect(snapshot.fullCompanion.activeDisplay).toEqual(expect.objectContaining({
+      kind: 'speaking',
+      representedSession: 22,
+      representedName: 'Kira',
     }));
   });
 
