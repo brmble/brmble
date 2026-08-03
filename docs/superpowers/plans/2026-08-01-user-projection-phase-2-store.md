@@ -10,14 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-31-user-projection-design.md` §3.1, §3.2, §4.2, §4.3, §6.6, §8.
 
-**Depends on:** Phase 1 (`feature/user-projection-phase-1`, HEAD `1f5aa25e`). Confirm before starting:
+**Depends on:** Phase 1, merged into this branch. Work on `feature/user-projection-phase-2`, branched from `feature/user-projection-phase-1` at `50ee5f07`. Confirm before starting:
 
 ```powershell
-git log --oneline -1                    # expect 1f5aa25e
+git rev-parse --abbrev-ref HEAD        # feature/user-projection-phase-2
+git log --oneline -1                   # expect 50ee5f07 if no Phase 2 work has started
 Select-String -Path src/Brmble.Server/Events/MappingEventPublisher.cs -Pattern PublishExceptAsync
 ```
 
-Baseline: `dotnet build` clean with 0 warnings, `dotnet test` 1250 passing (Server 777, Client 301, MumbleVoiceEngine 99, Audio 73). Confirm this so you can tell your own failures from pre-existing ones.
+Baseline: `dotnet build` clean with 0 warnings, `dotnet test` 1253 passing (Server 780, Client 301, MumbleVoiceEngine 99, Audio 73). Confirm this so you can tell your own failures from pre-existing ones.
 
 ---
 
@@ -152,40 +153,24 @@ Add to `tests/Brmble.Server.Tests/Events/MappingEventPublisherTests.cs`, inside 
     }
 ```
 
-Then tighten the shared assertion in `tests/Brmble.Server.Tests/Events/MappingPayloadEnvelopeTests.cs`. Replace `AssertHasEnvelope` with two methods — snapshots are absolute and carry no `baseRevision`:
+Then tighten the event assertion in `tests/Brmble.Server.Tests/Events/MappingPayloadEnvelopeTests.cs`.
+
+**Note:** the split into `AssertHasEnvelope` (events) and `AssertHasSnapshotEnvelope` (snapshots) **already exists** — it landed in `b632d0a3` from Phase 1 review feedback, along with the shared `AssertHasEnvelopeCore` helper. Do not recreate it. Only the `baseRevision` requirement is missing, and it belongs on the event helper alone: snapshots are absolute and must never carry one.
+
+Add to `AssertHasEnvelope`, after the existing `revision > 0` assertion:
 
 ```csharp
-    internal static void AssertHasEnvelope(object payload, string expectedType)
-    {
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
-        Assert.AreEqual(expectedType, doc.RootElement.GetProperty("type").GetString());
-        Assert.IsTrue(doc.RootElement.TryGetProperty("instanceId", out var instanceId),
-            $"{expectedType} is missing instanceId");
-        Assert.IsFalse(string.IsNullOrWhiteSpace(instanceId.GetString()),
-            $"{expectedType} has a blank instanceId");
-        Assert.IsTrue(doc.RootElement.TryGetProperty("revision", out var revision),
-            $"{expectedType} is missing revision");
-        Assert.IsTrue(revision.GetInt64() > 0,
-            $"{expectedType} must carry the post-mutation revision");
-        Assert.IsTrue(doc.RootElement.TryGetProperty("baseRevision", out var baseRevision),
+        Assert.IsTrue(root.TryGetProperty("baseRevision", out var baseRevision),
             $"{expectedType} is missing baseRevision, so a client cannot tell a gap from a jump");
-        Assert.IsTrue(baseRevision.GetInt64() < revision.GetInt64()
-                      || baseRevision.GetInt64() == revision.GetInt64(),
+        Assert.IsTrue(baseRevision.GetInt64() <= root.GetProperty("revision").GetInt64(),
             $"{expectedType} has baseRevision above revision");
-    }
+```
 
-    /// <summary>
-    /// Snapshots are absolute rather than deltas: they set the client's cursor outright, so
-    /// they carry no baseRevision.
-    /// </summary>
-    internal static void AssertHasSnapshotEnvelope(object payload, string expectedType)
-    {
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(payload));
-        Assert.AreEqual(expectedType, doc.RootElement.GetProperty("type").GetString());
-        Assert.IsFalse(string.IsNullOrWhiteSpace(
-            doc.RootElement.GetProperty("instanceId").GetString()));
-        Assert.IsTrue(doc.RootElement.TryGetProperty("revision", out _));
-    }
+Leave `AssertHasSnapshotEnvelope` untouched, and add one assertion to it proving the absence is deliberate rather than accidental:
+
+```csharp
+        Assert.IsFalse(root.TryGetProperty("baseRevision", out _),
+            $"{expectedType} is a snapshot and must not carry baseRevision");
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -328,7 +313,9 @@ Keep the existing comments about reading the revision before the snapshot — th
 
 Run: `dotnet build`
 
-Any remaining two-argument `new MappingEnvelope(...)` in tests will fail to compile. In `tests/Brmble.Server.Tests/WebSockets/BrmbleWebSocketHandlerTests.cs` there are several `new MappingEnvelope("inst", 9L)` and `new MappingEnvelope(mappings.InstanceId, mappings.Revision)` calls — give each an explicit third argument (`new MappingEnvelope("inst", 9L, 8L)`) or switch snapshot-shaped ones to `MappingEnvelope.Snapshot(...)`.
+Any remaining two-argument `new MappingEnvelope(...)` will fail to compile. There are 11 construction sites — 3 in `src/` (`MappingEventPublisher.cs`, and two in `BrmbleWebSocketHandler.cs`) and 8 in `tests/Brmble.Server.Tests/WebSockets/BrmbleWebSocketHandlerTests.cs`. Give each an explicit third argument (`new MappingEnvelope("inst", 9L, 8L)`), or switch snapshot-shaped ones to `MappingEnvelope.Snapshot(...)`.
+
+Two of the test sites assert snapshot behaviour specifically — `BuildInitialPayloadsAsync_StampsSnapshotWithEnvelope` and `BuildInitialPayloadsAsync_SnapshotFromAFreshServerCarriesRevisionZero` — and both should use `MappingEnvelope.Snapshot(...)`. The second exists because a freshly started server legitimately serves a snapshot at revision 0; do not "fix" it by seeding a mutation.
 
 Run: `dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj`
 
@@ -531,8 +518,10 @@ namespace Brmble.Client.Services.Voice.Projection;
 /// field present — so a consumer replaces by session id and never merges field-by-field.
 /// </summary>
 /// <param name="IsReset">
-/// The caller should replace its whole list rather than patch it. Set by a Mumble reset and by
-/// a snapshot that changed membership.
+/// The caller should replace its whole list rather than patch it. Set by a Mumble reset only.
+/// A snapshot never sets it: <see cref="UserProjectionStore.ApplyServerSnapshot"/> can change
+/// what the server knows about a session, but it can neither add nor remove a row, because only
+/// Mumble owns existence (spec §4.3). Every row it resets is reported in <see cref="Changed"/>.
 /// </param>
 /// <param name="NeedsSnapshot">
 /// The store detected a gap or a restart and cannot proceed from incremental events. The caller
@@ -922,7 +911,7 @@ public class UserProjectionStoreSnapshotTests
     }
 
     [TestMethod]
-    public void ApplyServerSnapshot_FlagsAResetWhenMembershipChanged()
+    public void ApplyServerSnapshot_ReportsRowsItResets()
     {
         _store.ApplyServerSnapshot(Snapshot(5,
             (1, new ServerMappingEntry("@alice:test", null, null, null)),
@@ -1480,7 +1469,7 @@ git commit -m "test: prove the projection converges under reordering and loss"
 ## Done when
 
 - [ ] `dotnet build` is clean with 0 warnings
-- [ ] `dotnet test` passes in all four projects, with more tests than the 1250 baseline
+- [ ] `dotnet test` passes in all four projects, with more tests than the 1253 baseline
 - [ ] Every mapping **event** carries `baseRevision`; every **snapshot** carries `instanceId` and `revision` and no `baseRevision`
 - [ ] Consecutive events from one publisher are contiguous: each event's `baseRevision` equals the previous event's `revision`
 - [ ] `UserProjectionStore` references no Mumble, HTTP or JSON type. Verify: `Select-String -Path src/Brmble.Client/Services/Voice/Projection/*.cs -Pattern "MumbleSharp|HttpClient|JsonElement|System.Text.Json"` returns nothing
@@ -1505,4 +1494,5 @@ Connect and confirm the user list, badges and companions render exactly as befor
 ## Next
 
 **Phase 3** wires the store in and is where the user-visible fixes land: delete `_sessionMappings`, translate wire payloads into the input records from Task 2, collapse the 17 `setUsers` sites to 2, move avatars into their own state keyed by `matrixUserId`, and add client version negotiation via a `pv` query parameter so the server can send a single truthful `companionId` (spec §4.4) instead of the legacy `companionId`/`customCompanionId` split. It touches the two most actively edited files in the repo, so it is planned against shipped code after Phase 2 lands.
+
 

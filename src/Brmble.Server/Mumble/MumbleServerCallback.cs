@@ -198,6 +198,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
             {
                 type = "userMappingRemoved",
                 instanceId = envelope.InstanceId,
+                baseRevision = envelope.BaseRevision,
                 revision = envelope.Revision,
                 sessionId = user.SessionId
             });

@@ -82,6 +82,7 @@ public static class CustomCompanionEndpoints
                         {
                             type = "companionChanged",
                             instanceId = envelope.InstanceId,
+                            baseRevision = envelope.BaseRevision,
                             revision = envelope.Revision,
                             sessionId,
                             matrixUserId = mapping.MatrixUserId,

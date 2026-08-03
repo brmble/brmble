@@ -27,7 +27,9 @@ public sealed class MappingEventPublisher(
             // revision, or enqueued after the snapshot and so applies on top of it. Splitting
             // these — capturing here and enqueuing after an await — lets a later event overtake
             // the snapshot it was supposed to be repaired by.
-            var envelope = new MappingEnvelope(mappings.InstanceId, mappings.Revision);
+            // A snapshot is absolute rather than a delta, so it is its own base and carries no
+            // baseRevision: it sets the client's cursor outright instead of advancing it.
+            var envelope = MappingEnvelope.Snapshot(mappings.InstanceId, mappings.Revision);
             pending = eventBus.SendToClientAsync(target, payload(envelope, mappings.GetSnapshot()));
         }
 
@@ -43,9 +45,12 @@ public sealed class MappingEventPublisher(
         Task pending;
         lock (_gate)
         {
+            // Read before, mutate, read after — all inside the lock, so the range provably
+            // belongs to this mutation and cannot straddle a concurrent one.
+            var baseRevision = mappings.Revision;
             if (!mutate()) return Task.CompletedTask;
 
-            var envelope = new MappingEnvelope(mappings.InstanceId, mappings.Revision);
+            var envelope = new MappingEnvelope(mappings.InstanceId, mappings.Revision, baseRevision);
 
             // Safe under the lock: BrmbleEventBus's broadcast paths are deliberately not async
             // and enqueue to every per-socket queue before returning, so no socket I/O happens

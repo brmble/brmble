@@ -124,6 +124,7 @@ public static class AuthEndpoints
                             {
                                 type = "userMappingAdded",
                                 instanceId = envelope.InstanceId,
+                                baseRevision = envelope.BaseRevision,
                                 revision = envelope.Revision,
                                 sessionId = sid,
                                 matrixUserId = result.MatrixUserId,
@@ -137,6 +138,7 @@ public static class AuthEndpoints
                             {
                                 type = "brmbleClientActivated",
                                 instanceId = envelope.InstanceId,
+                                baseRevision = envelope.BaseRevision,
                                 revision = envelope.Revision,
                                 sessionId = sid
                             };
@@ -360,6 +362,7 @@ public static class AuthEndpoints
                 {
                     type = "companionChanged",
                     instanceId = envelope.InstanceId,
+                    baseRevision = envelope.BaseRevision,
                     revision = envelope.Revision,
                     sessionId,
                     matrixUserId = user.MatrixUserId,

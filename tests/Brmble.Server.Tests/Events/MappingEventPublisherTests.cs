@@ -60,6 +60,87 @@ public class MappingEventPublisherTests
             "enqueue order must match revision order, or clients discard newer payloads as duplicates");
     }
 
+    [TestMethod]
+    public async Task PublishSnapshotAsync_StampsASnapshotEnvelopeThatIsItsOwnBase()
+    {
+        // The resync path is a second way to deliver a snapshot, added after the envelope rules
+        // were written. A snapshot is absolute, not a delta: it sets the client's cursor rather
+        // than advancing it, so it must be its own base and must carry no baseRevision on the
+        // wire. Stamping a real range here would make the client treat a repair as a delta and
+        // leave the gap it was sent to close.
+        _mappings.TryUpdateCompanionId(1, "retro");
+        var socket = new Moq.Mock<System.Net.WebSockets.WebSocket>().Object;
+        MappingEnvelope captured = default;
+
+        await _publisher.PublishSnapshotAsync(socket, (envelope, snapshot) =>
+        {
+            captured = envelope;
+            return Brmble.Server.WebSockets.BrmbleWebSocketHandler
+                .CreateSessionMappingSnapshotPayload(snapshot, envelope);
+        });
+
+        Assert.AreEqual(captured.Revision, captured.BaseRevision,
+            "a snapshot is its own base");
+        MappingPayloadEnvelopeTests.AssertHasSnapshotEnvelope(
+            _bus.Broadcasts.Single(), "sessionMappingSnapshot");
+    }
+
+    [TestMethod]
+    public async Task PublishAsync_StampsTheRevisionRangeTheMutationSpanned()
+    {
+        // One logical operation may bump several times. baseRevision is the revision before
+        // the mutation, revision the one after, so a client can apply on "baseRevision ==
+        // ours" without caring how many bumps happened in between.
+        var before = _mappings.Revision;
+
+        await _publisher.PublishAsync(
+            () =>
+            {
+                _mappings.TryUpdateCompanionId(1, "retro");
+                _mappings.TryUpdateCertHash(1, "abc");
+                return true;
+            },
+            envelope => new
+            {
+                type = "companionChanged",
+                instanceId = envelope.InstanceId,
+                baseRevision = envelope.BaseRevision,
+                revision = envelope.Revision
+            });
+
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(_bus.Broadcasts.Single()));
+        Assert.AreEqual(before, doc.RootElement.GetProperty("baseRevision").GetInt64());
+        Assert.AreEqual(before + 2, doc.RootElement.GetProperty("revision").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task PublishAsync_RangesAreContiguousUnderConcurrency()
+    {
+        // Each event's baseRevision must equal the previous event's revision, or a client
+        // applying on "baseRevision == ours" stalls and resyncs forever.
+        await Task.WhenAll(Enumerable.Range(0, 100).Select(i => Task.Run(() =>
+            _publisher.PublishAsync(
+                () => _mappings.TryUpdateCompanionId(1, $"c{i}"),
+                envelope => new
+                {
+                    type = "companionChanged",
+                    instanceId = envelope.InstanceId,
+                    baseRevision = envelope.BaseRevision,
+                    revision = envelope.Revision
+                }))));
+
+        var ranges = _bus.Broadcasts
+            .Select(p => JsonDocument.Parse(JsonSerializer.Serialize(p)).RootElement)
+            .Select(e => (Base: e.GetProperty("baseRevision").GetInt64(),
+                          Rev: e.GetProperty("revision").GetInt64()))
+            .ToList();
+
+        Assert.AreEqual(100, ranges.Count);
+        for (var i = 1; i < ranges.Count; i++)
+            Assert.AreEqual(ranges[i - 1].Rev, ranges[i].Base,
+                $"event {i} does not start where event {i - 1} ended");
+    }
+
     private sealed class RecordingEventBus : IBrmbleEventBus
     {
         private readonly object _gate = new();
