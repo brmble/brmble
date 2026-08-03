@@ -45,9 +45,10 @@ type RenderOptions = {
   registeredUsers?: Partial<RegisteredUsersFixture>;
 };
 
-const { saveSpy, refreshSpy, aclAdminState, registeredUsersState, groupCatalogState } = vi.hoisted(() => ({
+const { saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, registeredUsersState } = vi.hoisted(() => ({
   saveSpy: vi.fn(),
   refreshSpy: vi.fn(),
+  aclAdminChannelIds: [] as Array<number | null>,
   aclAdminState: {
     snapshot: null as SnapshotState | null,
     loading: false,
@@ -55,13 +56,6 @@ const { saveSpy, refreshSpy, aclAdminState, registeredUsersState, groupCatalogSt
   },
   registeredUsersState: {
     registeredUsers: [] as RegisteredUserState[],
-    loading: false,
-    error: null as string | null,
-    refresh: vi.fn(),
-  },
-  groupCatalogState: {
-    groups: [] as SnapshotState['groups'],
-    acls: [] as AclRule[],
     loading: false,
     error: null as string | null,
     refresh: vi.fn(),
@@ -112,12 +106,6 @@ function renderAdminGroupsSection(options: RenderOptions = {}) {
   return render(<AdminGroupsSection />);
 }
 
-function renderCatalogAdminGroupsSection(options: RenderOptions = {}) {
-  setAclAdminState(options.aclAdmin);
-  setRegisteredUsersState(options.registeredUsers);
-  return render(<AdminGroupsSection channels={[{ id: 5, name: 'General' }, { id: 7, name: 'Raid' }]} />);
-}
-
 function getPaneByHeading(name: string) {
   const heading = screen.getByRole('heading', { name });
   const pane = heading.parentElement;
@@ -147,13 +135,16 @@ function renderOperationalPanelFixture() {
 }
 
 vi.mock('../../../hooks/useAclAdmin', () => ({
-  useAclAdmin: () => ({
+  useAclAdmin: (channelId: number | null) => {
+    aclAdminChannelIds.push(channelId);
+    return {
     snapshot: aclAdminState.snapshot,
     loading: aclAdminState.loading,
     error: aclAdminState.error,
     refresh: refreshSpy,
     save: saveSpy,
-  }),
+    };
+  },
 }));
 
 vi.mock('./useAdminRegisteredUsers', () => ({
@@ -165,25 +156,11 @@ vi.mock('./useAdminRegisteredUsers', () => ({
   }),
 }));
 
-vi.mock('./useAdminGroupCatalog', () => ({
-  useAdminGroupCatalog: () => ({
-    groups: groupCatalogState.groups,
-    acls: groupCatalogState.acls,
-    loading: groupCatalogState.loading,
-    error: groupCatalogState.error,
-    refresh: groupCatalogState.refresh,
-  }),
-}));
-
 afterEach(() => {
   saveSpy.mockReset();
   refreshSpy.mockReset();
+  aclAdminChannelIds.length = 0;
   registeredUsersState.refresh.mockReset();
-  groupCatalogState.groups = [];
-  groupCatalogState.acls = [];
-  groupCatalogState.loading = false;
-  groupCatalogState.error = null;
-  groupCatalogState.refresh.mockReset();
   setAclAdminState();
   setRegisteredUsersState();
 });
@@ -511,20 +488,22 @@ describe('AdminGroupsSection', () => {
     expect(statusMessage.compareDocumentPosition(transferWorkspaceHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows aggregated mumble groups from the channel catalog when channels are provided', () => {
-    groupCatalogState.groups = [
-      { name: 'Officers', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [1] },
-    ];
-    groupCatalogState.acls = [
-      { applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: Permission.Traverse, deny: 0 },
-      { applyHere: true, applySubs: false, inherited: false, userId: null, group: 'auth', allow: Permission.Enter, deny: 0 },
-    ];
+  it('keeps the root groups editor editable when channels are populated', () => {
+    setAclAdminState({
+      snapshot: createSnapshot({
+        groups: [{ name: 'Root Officers', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [] }],
+      }),
+    });
 
-    renderCatalogAdminGroupsSection();
+    render(<AdminGroupsSection channels={[{ id: 5, name: 'General' }]} />);
 
-    expect(screen.getByRole('button', { name: '@Officers' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '@all' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '@auth' })).toBeInTheDocument();
-    expect(screen.queryByText('Not connected or invalid channel')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '@Root Officers' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Group' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete Group' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Read Channels' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
+    expect(screen.queryByText('Showing groups aggregated from all Mumble channels.')).not.toBeInTheDocument();
+    expect(aclAdminChannelIds).toContain(0);
   });
 });
