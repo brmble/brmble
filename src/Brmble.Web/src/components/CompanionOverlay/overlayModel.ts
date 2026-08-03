@@ -1,4 +1,4 @@
-import type { OverlaySettings } from '../SettingsModal/InterfaceSettingsTypes';
+import { DEFAULT_OVERLAY, type OverlaySettings } from '../SettingsModal/InterfaceSettingsTypes';
 import type {
   CompanionId,
   CompanionOverlayEvent,
@@ -439,8 +439,13 @@ export function setSpeakerActivity(
     fullCompanion: {
       ...snapshot.fullCompanion,
       speakerCandidates,
-      activeDisplay: !speaking && snapshot.fullCompanion.activeDisplay?.kind === 'speaking' && snapshot.fullCompanion.activeDisplay.representedSession === speaker.session
-        ? null
+      activeDisplay: !speaking
+        && snapshot.fullCompanion.activeDisplay?.kind === 'speaking'
+        && snapshot.fullCompanion.activeDisplay.representedSession === speaker.session
+        ? {
+          ...snapshot.fullCompanion.activeDisplay,
+          expiresAt: now + SPEAKER_DECAY_MS,
+        }
         : snapshot.fullCompanion.activeDisplay,
     },
     visualState: deriveVisualState(snapshot.recentEvents, next, now),
@@ -505,12 +510,20 @@ export function pruneOverlaySnapshot(snapshot: CompanionOverlaySnapshot, now: nu
   };
 }
 
-export function resolveFullCompanionDisplay(snapshot: CompanionOverlaySnapshot, now: number): CompanionOverlaySnapshot {
+export function resolveFullCompanionDisplay(
+  snapshot: CompanionOverlaySnapshot,
+  now: number,
+  settings: OverlaySettings = DEFAULT_OVERLAY,
+): CompanionOverlaySnapshot {
   const active = snapshot.fullCompanion.activeDisplay;
   const activeExpired = active?.expiresAt !== null && active?.expiresAt !== undefined && active.expiresAt <= now;
   let nextState = snapshot.fullCompanion;
 
   if (activeExpired) {
+    nextState = { ...nextState, activeDisplay: null };
+  }
+
+  if (!settings.showLocalCompanionWhenIdle && nextState.activeDisplay?.kind === 'idle') {
     nextState = { ...nextState, activeDisplay: null };
   }
 
@@ -527,7 +540,11 @@ export function resolveFullCompanionDisplay(snapshot: CompanionOverlaySnapshot, 
   }
 
   const currentActive = nextState.activeDisplay;
-  const canReplaceForSpeaking = !currentActive || currentActive.kind === 'idle' || currentActive.kind === 'join' || currentActive.kind === 'leave';
+  const canReplaceForSpeaking = !currentActive
+    || currentActive.kind === 'idle'
+    || currentActive.kind === 'join'
+    || currentActive.kind === 'leave'
+    || (currentActive.kind === 'speaking' && currentActive.expiresAt !== null);
   const speaker = canReplaceForSpeaking ? eligibleSpeaker({ ...snapshot, fullCompanion: nextState }, now) : null;
   if (speaker) {
     return {
@@ -551,7 +568,7 @@ export function resolveFullCompanionDisplay(snapshot: CompanionOverlaySnapshot, 
     };
   }
 
-  if (!nextState.activeDisplay) {
+  if (!nextState.activeDisplay && settings.showLocalCompanionWhenIdle) {
     nextState = {
       ...nextState,
       activeDisplay: idleDisplay({ ...snapshot, fullCompanion: nextState }, now),

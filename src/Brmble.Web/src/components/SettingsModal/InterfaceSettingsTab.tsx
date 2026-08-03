@@ -221,6 +221,21 @@ export function InterfaceSettingsTab({
             <span className="brmble-toggle-slider"></span>
           </label>
         </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-show-local-idle">Show My Companion When Idle</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-show-local-idle"
+              type="checkbox"
+              checked={overlaySettings.showLocalCompanionWhenIdle}
+              onChange={() => onOverlayChange({
+                ...overlaySettings,
+                showLocalCompanionWhenIdle: !overlaySettings.showLocalCompanionWhenIdle,
+              })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
       </div>
 
       {uploadDialogOpen && customCompanionGallery && customCompanionMatrixClient && (
