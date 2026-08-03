@@ -4118,6 +4118,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Reduces a MumbleSharp user to the fields Mumble owns. Muted folds server mute, self mute
     /// and both deafen flags together, matching what the UI has always shown.
     /// </summary>
+    /// <remarks>
+    /// The certificate hash is normalised to null when empty. MumbleSharp initialises
+    /// <c>CertificateHash</c> to <see cref="string.Empty"/> and never nulls it, so an
+    /// unauthenticated user would otherwise reach the store as "has a certificate, and it is the
+    /// empty string". Two such users then compare equal, which lets the reset occupant check
+    /// carry one user's identity onto another across a session-id reuse, and also stops
+    /// <c>UserProjection.CertHash</c> falling back to the server's recorded copy.
+    /// </remarks>
     private Projection.MumbleUserInput ToProjectionInput(MumbleSharp.Model.User user) =>
         new(user.Id,
             user.Name,
@@ -4125,7 +4133,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf,
             user.Deaf || user.SelfDeaf,
             user.Comment,
-            user.CertificateHash,
+            string.IsNullOrEmpty(user.CertificateHash) ? null : user.CertificateHash,
             user == LocalUser);
 
     private void SendVoiceConnected(uint? overrideChannelId = null)
