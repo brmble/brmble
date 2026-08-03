@@ -41,8 +41,12 @@ export function applyChangeSet(previous: User[], change: UserChangeSet): User[] 
 
 /**
  * Owns the user list and the avatar map, joining them for consumers.
+ *
+ * @param selfMatrixUserId
+ * This client's own Matrix id, taken from its own credentials. It is the one identity the
+ * client knows without being told, and the join falls back to it for the self row.
  */
-export function useUserDirectory() {
+export function useUserDirectory(selfMatrixUserId?: string) {
   const [users, setUsers] = useState<User[]>([]);
   // Keyed by matrixUserId, not session: an avatar belongs to a person, not to a connection, so
   // it survives reconnects and is shared by every session that person has open.
@@ -64,12 +68,22 @@ export function useUserDirectory() {
   }, []);
 
   // The join happens at read time so a snapshot can never clobber an avatar.
+  //
+  // The self row falls back to this client's own Matrix id. A server that has not stated our
+  // mapping -- a Brmble restart, before it has re-synced its session table from Mumble --
+  // correctly resets the server-owned half of every row to unknown, matrixUserId included.
+  // Our own avatar comes from our own Matrix client, not from the server, so it must not
+  // vanish when the server goes quiet about us.
+  //
+  // The fallback is deliberately confined to the self row: for anybody else an unknown mapping
+  // genuinely means there is no identity to look up, and substituting one would show a face
+  // that is not theirs.
   const joined = useMemo(
-    () => users.map(user => ({
-      ...user,
-      avatarUrl: user.matrixUserId ? avatars.get(user.matrixUserId) : undefined,
-    })),
-    [users, avatars],
+    () => users.map(user => {
+      const key = user.self ? (user.matrixUserId ?? selfMatrixUserId) : user.matrixUserId;
+      return { ...user, avatarUrl: key ? avatars.get(key) : undefined };
+    }),
+    [users, avatars, selfMatrixUserId],
   );
 
   // Tracks the joined list so callbacks can read the current users without re-subscribing.

@@ -1015,9 +1015,13 @@ function App() {
   const [serverLabel, setServerLabel] = useState('');
   
   const [channels, setChannels] = useState<Channel[]>([]);
+  // Hoisted above useUserDirectory, which needs our own Matrix id to resolve the self avatar
+  // without depending on the server having stated our mapping.
+  const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   // The user list, its avatar map, and the ref consumers read from. Declared here rather than
   // beside the other refs because resolveGamePlayerName below reads usersRef.
-  const { users, usersRef, reset: resetUsers, apply: applyUsers, setAvatar } = useUserDirectory();
+  const { users, usersRef, reset: resetUsers, apply: applyUsers, setAvatar } =
+    useUserDirectory(matrixCredentials?.userId);
   const [currentChannelId, setCurrentChannelIdRaw] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   // Snapshot of the read-marker timestamp at the moment a channel/DM is opened,
@@ -1375,7 +1379,6 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
 
-  const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const [brmbleDMUsers, setBrmbleDMUsers] = useState<BrmbleDMUser[]>([]);
   const matrixOverlayCallbacks = useMemo(() => ({
     onChannelMessage: (channelId: string, message: ChatMessage) => {
