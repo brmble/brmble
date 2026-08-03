@@ -15,7 +15,7 @@ internal static class ProjectionWire
 {
     /// <summary>
     /// Reads a <c>sessionMappingSnapshot</c> or an <c>/auth/token</c> body. Returns null when the
-    /// payload carries no envelope, because a snapshot without one cannot establish a cursor.
+    /// payload carries no envelope or no mappings block, because neither can establish a cursor.
     /// </summary>
     internal static ServerSnapshot? ReadSnapshot(JsonElement root)
     {
@@ -24,17 +24,46 @@ internal static class ProjectionWire
         if (!root.TryGetProperty("revision", out var revision) ||
             revision.ValueKind != JsonValueKind.Number) return null;
 
+        // The two bootstrap transports name the same block differently: the WebSocket snapshot
+        // calls it "mappings", the /auth/token body "sessionMappings". Both must be understood,
+        // because the store takes whatever it is handed as the complete truth about every session.
+        if (!TryReadMappingsBlock(root, out var raw))
+            // No block under either name means this is a payload we failed to understand, not a
+            // server stating that it knows nobody. Applying an empty table as authoritative would
+            // reset every row's identity on the strength of a parsing miss -- precisely the
+            // "absent is not known-empty" rule the projection exists to enforce.
+            return null;
+
         var mappings = new Dictionary<uint, ServerMappingEntry>();
-        if (root.TryGetProperty("mappings", out var raw) && raw.ValueKind == JsonValueKind.Object)
+        foreach (var property in raw.EnumerateObject())
         {
-            foreach (var property in raw.EnumerateObject())
-            {
-                if (!uint.TryParse(property.Name, out var sessionId)) continue;
-                mappings[sessionId] = ReadEntry(property.Value);
-            }
+            if (!uint.TryParse(property.Name, out var sessionId)) continue;
+            mappings[sessionId] = ReadEntry(property.Value);
         }
 
         return new ServerSnapshot(instanceId, revision.GetInt64(), mappings);
+    }
+
+    /// <summary>
+    /// Finds the mappings object under either transport's name. An explicitly empty object is a
+    /// legitimate statement and succeeds; a missing one does not.
+    /// </summary>
+    private static bool TryReadMappingsBlock(JsonElement root, out JsonElement mappings)
+    {
+        if (root.TryGetProperty("mappings", out var wire) && wire.ValueKind == JsonValueKind.Object)
+        {
+            mappings = wire;
+            return true;
+        }
+
+        if (root.TryGetProperty("sessionMappings", out var auth) && auth.ValueKind == JsonValueKind.Object)
+        {
+            mappings = auth;
+            return true;
+        }
+
+        mappings = default;
+        return false;
     }
 
     /// <summary>

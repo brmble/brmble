@@ -184,6 +184,40 @@ public class ProjectionWireTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_ReadsTheAuthTokenBodyWhichNamesItsMappingsDifferently()
+    {
+        // /auth/token carries the identical data under "sessionMappings"; the WebSocket calls it
+        // "mappings". Reading only one name yields an envelope with no entries, which
+        // ApplyServerSnapshot then applies as "the server knows nobody", wiping every identity
+        // the client holds.
+        var snapshot = ProjectionWire.ReadSnapshot(Json("""
+        {
+          "instanceId": "inst-a",
+          "revision": 4,
+          "sessionMappings": {
+            "3": { "matrixUserId": "@alice:test", "companionId": "retro", "isBrmbleClient": true }
+          }
+        }
+        """));
+
+        Assert.IsNotNull(snapshot);
+        Assert.AreEqual(1, snapshot!.Mappings.Count);
+        Assert.AreEqual("@alice:test", snapshot.Mappings[3].MatrixUserId);
+        Assert.AreEqual("retro", snapshot.Mappings[3].CompanionId);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_RefusesAPayloadThatNamesNoMappingsBlockAtAll()
+    {
+        // An envelope with no mappings block under either name is a payload we failed to
+        // understand, not a server asserting an empty table. Applying it as authoritative would
+        // reset every row to unknown on the strength of a parsing miss.
+        Assert.IsNull(ProjectionWire.ReadSnapshot(Json("""
+        { "instanceId": "inst-a", "revision": 4 }
+        """)));
+    }
+
+    [TestMethod]
     public void ToWireRow_EmitsEveryFieldWithNullsExplicit()
     {
         var row = new UserProjection
