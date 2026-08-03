@@ -91,6 +91,54 @@ public class UserProjectionStoreSnapshotTests
     }
 
     [TestMethod]
+    public void ApplyServerSnapshot_IgnoresAStaleSnapshotFromTheSameInstance()
+    {
+        // Snapshots reach the store over two transports with no ordering between them: the
+        // /auth/token HTTP body and the WebSocket sessionMappingSnapshot. Phase 1's publisher
+        // gate orders snapshot-against-event on one socket; it cannot order HTTP against WS.
+        // A slow /auth/token captured at an older revision must not rewind the cursor and
+        // overwrite newer state — nothing repairs that until the next server mutation.
+        _store.ApplyServerSnapshot(Snapshot(12,
+            (1, new ServerMappingEntry("@alice:test", "retro", true, null))));
+
+        var change = _store.ApplyServerSnapshot(Snapshot(10,
+            (1, new ServerMappingEntry("@alice:test", "bee", null, null))));
+
+        Assert.IsTrue(change.IsEmpty);
+        Assert.AreEqual("retro", _store.Snapshot()[1].CompanionId, "the newer snapshot must stand");
+        Assert.AreEqual(true, _store.Snapshot()[1].IsBrmbleClient);
+    }
+
+    [TestMethod]
+    public void ApplyServerSnapshot_AStaleSnapshotDoesNotDisturbTheCursor()
+    {
+        // The rewind is the dangerous part: a rolled-back cursor makes the next legitimate
+        // event look like a gap and forces a needless resync.
+        _store.ApplyServerSnapshot(Snapshot(12, (1, new ServerMappingEntry("@alice:test", "retro", true, null))));
+        _store.ApplyServerSnapshot(Snapshot(10, (1, new ServerMappingEntry("@alice:test", "bee", null, null))));
+
+        var change = _store.ApplyServerEvent(new ServerEvent(
+            ServerEventKind.CompanionChanged, "inst-a", 12, 13, 1,
+            new ServerMappingEntry(null, "pip", null, null)));
+
+        Assert.IsFalse(change.NeedsSnapshot);
+        Assert.AreEqual("pip", _store.Snapshot()[1].CompanionId);
+    }
+
+    [TestMethod]
+    public void ApplyServerSnapshot_AcceptsAnOlderRevisionFromADifferentInstance()
+    {
+        // A restart resets the revision line, so a lower number from a new instance is not
+        // stale — it is the only truth there is.
+        _store.ApplyServerSnapshot(Snapshot(90, (1, new ServerMappingEntry("@alice:test", "retro", true, null))));
+
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst-b", 2,
+            new Dictionary<uint, ServerMappingEntry> { [1] = new("@alice:test", "bee", null, null) }));
+
+        Assert.AreEqual("bee", _store.Snapshot()[1].CompanionId);
+    }
+
+    [TestMethod]
     public void ApplyServerSnapshot_FromANewInstanceReplacesEverything()
     {
         _store.ApplyServerSnapshot(Snapshot(90, (1, new ServerMappingEntry("@alice:test", "retro", true, null))));

@@ -83,8 +83,8 @@ internal sealed class UserProjectionStore
 
     /// <summary>
     /// Replaces membership wholesale on voice connect or reconnect. Server-owned fields survive
-    /// for sessions present in both the old and new list, and sessions appearing for the first
-    /// time claim any held server data.
+    /// only where the session is demonstrably still the same person; every other row is rebuilt
+    /// from scratch and claims any held server data.
     /// </summary>
     public ChangeSet ApplyMumbleReset(IReadOnlyList<MumbleUserInput> users)
     {
@@ -94,8 +94,14 @@ internal sealed class UserProjectionStore
             foreach (var input in users)
             {
                 _rows.TryGetValue(input.SessionId, out var existing);
-                var row = WithMumbleFields(existing, input);
-                if (existing is null) row = TakePending(input.SessionId, row);
+
+                // A reset happens precisely when the client has been away and may have missed
+                // events, and Mumble recycles session ids. Carrying a row across by id alone
+                // would hand a new occupant the previous one's identity.
+                var continues = existing is not null && IsSameOccupant(existing, input);
+
+                var row = WithMumbleFields(continues ? existing : null, input);
+                if (!continues) row = TakePending(input.SessionId, row);
                 rebuilt[input.SessionId] = row;
             }
 
@@ -104,6 +110,33 @@ internal sealed class UserProjectionStore
 
             return new ChangeSet([.. rebuilt.Values], [], IsReset: true);
         }
+    }
+
+    /// <summary>
+    /// Whether a session id that appears on both sides of a reset still holds the same person.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately conservative. Losing enrichment we still had is a brief cosmetic gap that
+    /// the next snapshot repairs; keeping enrichment that now belongs to somebody else shows one
+    /// user under another's identity. The design trades the first for the second every time.
+    /// <para>
+    /// Not applied to <see cref="ApplyMumbleUserState"/>: within a live connection Mumble sends
+    /// <c>UserRemove</c> before reusing an id, so there is no missed-event window there, and a
+    /// legitimate rename by a user without a certificate would otherwise discard identity that
+    /// is still correct.
+    /// </para>
+    /// </remarks>
+    private static bool IsSameOccupant(UserProjection existing, MumbleUserInput input)
+    {
+        // A certificate identifies a person independently of the session id, so when both sides
+        // have one it settles the question outright — including across a rename.
+        if (existing.MumbleCertHash is { } previousCert && input.CertHash is { } currentCert)
+            return string.Equals(previousCert, currentCert, StringComparison.Ordinal);
+
+        // Otherwise the name is all there is. Mumble keeps names unique among connected users,
+        // so an id that kept its name across a reconnect kept its occupant.
+        return existing.Name is not null
+               && string.Equals(existing.Name, input.Name, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -175,6 +208,18 @@ internal sealed class UserProjectionStore
     {
         lock (_gate)
         {
+            // Snapshots arrive over two transports with no ordering between them — the
+            // /auth/token HTTP body and the WebSocket sessionMappingSnapshot — so a slow
+            // response can land after a newer snapshot. Applying it would rewind the cursor,
+            // overwrite newer state, reset sessions the older snapshot happens to omit, and
+            // replace held entries with stale ones, with nothing to repair it until the next
+            // server mutation. This is the snapshot-side twin of the duplicate/reorder guard in
+            // ApplyServerEvent. A lower revision from a *different* instance is not stale: a
+            // restart resets the revision line, so that case must still apply.
+            if (string.Equals(snapshot.InstanceId, _instanceId, StringComparison.Ordinal)
+                && snapshot.Revision < _revision)
+                return ChangeSet.Empty;
+
             // A different instance means the old revision line is meaningless. Nothing special
             // is needed beyond taking this snapshot as truth, which the reset below does.
             _instanceId = snapshot.InstanceId;

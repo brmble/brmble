@@ -96,4 +96,90 @@ public class UserProjectionStoreMumbleTests
 
         Assert.AreEqual("@alice:test", _store.Snapshot()[1].MatrixUserId);
     }
+
+    private static MumbleUserInput UserWithCert(uint session, string name, string? certHash) =>
+        new(session, name, 0, false, false, null, certHash, false);
+
+    [TestMethod]
+    public void ApplyMumbleReset_DropsServerFieldsWhenTheCertificateOnASessionChanged()
+    {
+        // Mumble recycles session ids. If the client misses Alice's UserRemove while
+        // disconnected and session 7 has been reassigned to Bob by the time it reconnects,
+        // carrying the row across by session id alone would show Bob as Alice — the exact
+        // "confidently wrong value" this design exists to remove.
+        _store.ApplyMumbleUserState(UserWithCert(7, "Alice", "cert-alice"));
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst", 5, new Dictionary<uint, ServerMappingEntry>
+        {
+            [7] = new("@alice:test", "retro", true, "cert-alice")
+        }));
+
+        _store.ApplyMumbleReset([UserWithCert(7, "Bob", "cert-bob")]);
+
+        var row = _store.Snapshot()[7];
+        Assert.AreEqual("Bob", row.Name);
+        Assert.IsNull(row.MatrixUserId, "Bob must not inherit Alice's identity");
+        Assert.IsNull(row.CompanionId);
+        Assert.IsNull(row.IsBrmbleClient);
+        Assert.AreEqual("cert-bob", row.CertHash, "and must not inherit her certificate either");
+    }
+
+    [TestMethod]
+    public void ApplyMumbleReset_DropsServerFieldsWhenTheNameOnASessionChangedAndThereIsNoCert()
+    {
+        // Without certificates the name is the only continuity signal available. Mumble keeps
+        // names unique among connected users, so a changed name on a recycled id is a changed
+        // occupant.
+        _store.ApplyMumbleUserState(User(7, "Alice"));
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst", 5, new Dictionary<uint, ServerMappingEntry>
+        {
+            [7] = new("@alice:test", "retro", true, null)
+        }));
+
+        _store.ApplyMumbleReset([User(7, "Bob")]);
+
+        Assert.IsNull(_store.Snapshot()[7].MatrixUserId);
+    }
+
+    [TestMethod]
+    public void ApplyMumbleReset_KeepsServerFieldsWhenTheCertificateMatchesAcrossARename()
+    {
+        // A certificate identifies a person independently of the session id, so it settles
+        // continuity outright — including across a legitimate rename, where the name check
+        // alone would wrongly discard identity we still know to be correct.
+        _store.ApplyMumbleUserState(UserWithCert(7, "Alice", "cert-alice"));
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst", 5, new Dictionary<uint, ServerMappingEntry>
+        {
+            [7] = new("@alice:test", "retro", true, "cert-alice")
+        }));
+
+        _store.ApplyMumbleReset([UserWithCert(7, "Alice In Chains", "cert-alice")]);
+
+        Assert.AreEqual("@alice:test", _store.Snapshot()[7].MatrixUserId);
+        Assert.AreEqual("retro", _store.Snapshot()[7].CompanionId);
+    }
+
+    [TestMethod]
+    public void ApplyMumbleReset_ANewOccupantIsEnrichedByTheSnapshotThatFollows()
+    {
+        // Dropping the previous occupant's identity leaves the row unknown, not wrong, and the
+        // snapshot that follows a reconnect fills it in correctly. Unknown-then-correct is the
+        // trade this design makes against confidently-wrong every time.
+        _store.ApplyMumbleUserState(UserWithCert(7, "Alice", "cert-alice"));
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst", 5, new Dictionary<uint, ServerMappingEntry>
+        {
+            [7] = new("@alice:test", "retro", true, "cert-alice")
+        }));
+
+        _store.ApplyMumbleReset([UserWithCert(7, "Bob", "cert-bob")]);
+        Assert.IsNull(_store.Snapshot()[7].MatrixUserId, "Alice's identity must not survive");
+
+        _store.ApplyServerSnapshot(new ServerSnapshot("inst", 6, new Dictionary<uint, ServerMappingEntry>
+        {
+            [7] = new("@bob:test", "bee", true, "cert-bob")
+        }));
+
+        Assert.AreEqual("@bob:test", _store.Snapshot()[7].MatrixUserId);
+        Assert.AreEqual("bee", _store.Snapshot()[7].CompanionId);
+    }
 }
+
