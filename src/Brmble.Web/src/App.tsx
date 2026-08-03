@@ -5092,6 +5092,7 @@ const handleConnect = (serverData: SavedServer) => {
         customCompanionGallery={customCompanionGallery}
         customCompanionMatrixClient={matrixClient.client ?? undefined}
         onCustomCompanionAtlasRequest={requestSettingsCompanionAtlas}
+        selectedCompanion={requestedLocalCompanion}
         liveUsers={users}
         channels={channels}
         onChannelsChange={setChannels}
