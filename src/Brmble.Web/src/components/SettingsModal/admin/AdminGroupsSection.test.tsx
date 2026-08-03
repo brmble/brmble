@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useCallback, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Permission, type AclRule } from '../../../types/acl';
 import { AdminGroupsSection } from './AdminGroupsSection';
@@ -45,10 +46,11 @@ type RenderOptions = {
   registeredUsers?: Partial<RegisteredUsersFixture>;
 };
 
-const { saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, registeredUsersState } = vi.hoisted(() => ({
+const { saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, autoRefreshSnapshot, registeredUsersState } = vi.hoisted(() => ({
   saveSpy: vi.fn(),
   refreshSpy: vi.fn(),
   aclAdminChannelIds: [] as Array<number | null>,
+  autoRefreshSnapshot: { value: false },
   aclAdminState: {
     snapshot: null as SnapshotState | null,
     loading: false,
@@ -136,12 +138,25 @@ function renderOperationalPanelFixture() {
 
 vi.mock('../../../hooks/useAclAdmin', () => ({
   useAclAdmin: (channelId: number | null) => {
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const refresh = useCallback(() => {
+      refreshSpy();
+      if (!autoRefreshSnapshot.value) return;
+
+      setIsRefreshing(true);
+      setTimeout(() => {
+        aclAdminState.snapshot = createSnapshot();
+        aclAdminState.loading = false;
+        setIsRefreshing(false);
+      }, 0);
+    }, []);
+
     aclAdminChannelIds.push(channelId);
     return {
     snapshot: aclAdminState.snapshot,
-    loading: aclAdminState.loading,
+    loading: isRefreshing || aclAdminState.loading,
     error: aclAdminState.error,
-    refresh: refreshSpy,
+    refresh,
     save: saveSpy,
     };
   },
@@ -159,6 +174,7 @@ vi.mock('./useAdminRegisteredUsers', () => ({
 afterEach(() => {
   saveSpy.mockReset();
   refreshSpy.mockReset();
+  autoRefreshSnapshot.value = false;
   aclAdminChannelIds.length = 0;
   registeredUsersState.refresh.mockReset();
   setAclAdminState();
@@ -519,6 +535,21 @@ describe('AdminGroupsSection', () => {
 
     expect(screen.queryByRole('button', { name: '@Officers' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '@Members' })).not.toBeInTheDocument();
+  });
+
+  it('hydrates once when refresh transitions from an empty snapshot to loaded data', async () => {
+    autoRefreshSnapshot.value = true;
+    renderAdminGroupsSection({
+      aclAdmin: {
+        snapshot: null,
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '@Officers' })).toBeInTheDocument();
+    });
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
   });
 
   it('shows the connection status message above the transfer workspace', () => {

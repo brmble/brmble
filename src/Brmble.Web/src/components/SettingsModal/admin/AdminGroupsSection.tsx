@@ -5,6 +5,8 @@ import { Permission, type AclGroup, type AclRule } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 
 const PASSWORD_MARKER_PREFIX = '__brmble_password_marker__:';
+const EMPTY_GROUPS: AclGroup[] = [];
+const EMPTY_ACLS: AclRule[] = [];
 
 type DisplayGroup = AclGroup & {
   aclOnly: boolean;
@@ -78,8 +80,8 @@ interface AdminGroupsSectionProps {
 export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
   const { snapshot, loading, error, refresh, save } = useAclAdmin(0);
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
-  const sourceGroups = snapshot?.groups ?? [];
-  const sourceAcls = snapshot?.acls ?? [];
+  const sourceGroups = snapshot?.groups ?? EMPTY_GROUPS;
+  const sourceAcls = snapshot?.acls ?? EMPTY_ACLS;
   const [draftGroups, setDraftGroups] = useState<AclGroup[]>(sourceGroups);
   const [draftAcls, setDraftAcls] = useState<AclRule[]>(sourceAcls);
   const [selectedGroupName, setSelectedGroupName] = useState('');
