@@ -70,6 +70,13 @@ internal static class ProjectionWire
     /// Reads one incremental mapping event. Returns null for any payload that is not one — the
     /// caller dispatches every WebSocket message through here.
     /// </summary>
+    /// <remarks>
+    /// Rejecting a payload drops its revision as well as its content, so the next event looks
+    /// like a gap and costs one resync. That is the intended trade: a resync repairs, whereas
+    /// advancing the cursor past an event we could not interpret would silently skip whatever
+    /// the server actually changed, with nothing left to detect it. Cheap and self-correcting
+    /// beats quiet and permanent.
+    /// </remarks>
     internal static ServerEvent? ReadEvent(string? type, JsonElement root)
     {
         var kind = type switch

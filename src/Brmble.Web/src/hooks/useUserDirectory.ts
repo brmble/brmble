@@ -31,9 +31,12 @@ export function applyChangeSet(previous: User[], change: UserChangeSet): User[] 
       const replacement = incoming.get(user.session);
       return replacement ? replacement : user;
     });
-    for (const user of change.changed) {
-      if (!previous.some(existing => existing.session === user.session)) next = [...next, user];
-    }
+    // Membership is decided against `previous`, not `next`, so a row replaced above is not
+    // also appended. Set membership and one concatenation keep this linear; a scan per
+    // candidate would go quadratic on a large snapshot arriving after a reset.
+    const known = new Set(previous.map(user => user.session));
+    const appended = change.changed.filter(user => !known.has(user.session));
+    if (appended.length > 0) next = [...next, ...appended];
   }
 
   return next;

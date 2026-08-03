@@ -1976,6 +1976,16 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 var change = _projection.ApplyServerSnapshot(tokenSnapshot);
                 EmitProjectionChange(change);
             }
+            else
+            {
+                // A rejected snapshot leaves the store without a cursor, so every subsequent
+                // event asks for a resync that this payload was supposed to satisfy. Nothing
+                // recovers on its own, and the visible result is only that identities are
+                // blank, so say so here rather than leaving it to be inferred.
+                Console.WriteLine(
+                    "[Brmble] /auth/token carried no usable mapping snapshot (missing envelope " +
+                    "or mappings block); identities will stay unknown until one arrives");
+            }
 
             ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
 
@@ -2644,6 +2654,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 {
                     EmitProjectionChange(_projection.ApplyServerSnapshot(wsSnapshot));
                     _resync.OnSnapshotApplied();
+                }
+                else
+                {
+                    // As on the /auth/token path: without a cursor every later event asks for a
+                    // resync this payload should have satisfied, and the only symptom is blank
+                    // identities. Make the cause visible.
+                    Console.WriteLine(
+                        "[Brmble] sessionMappingSnapshot carried no usable envelope or mappings " +
+                        "block; identities will stay unknown until one arrives");
                 }
                 return;
             }
