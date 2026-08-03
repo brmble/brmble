@@ -69,6 +69,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// rather than three ad-hoc ones spread across the adapter and App.tsx.
     /// </summary>
     private readonly Projection.UserProjectionStore _projection = new();
+
+    /// <summary>
+    /// Serializes apply+emit pairs. The store's own lock orders the applies, but emission
+    /// happens after release from three threads, and the consumer replaces rows wholesale —
+    /// so a change set computed first must also be enqueued first, or a stale full row
+    /// enqueued late silently wins until the next event for that session.
+    /// </summary>
+    private readonly object _projectionEmitGate = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
@@ -510,6 +518,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        // The read loop clears _wsStream asynchronously, and cancellation of a read blocked
+        // inside the TLS stream is not prompt. A quick reconnect would otherwise see the stale
+        // stream, skip StartWebSocketConnection, and nothing would ever start the socket again.
+        _wsStream = null;
         Interlocked.Increment(ref _wsGeneration);
         StopHealthCheck();
         _serverHealthWasConnected = false;
@@ -519,6 +531,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         UserDictionary.Clear();
         ChannelDictionary.Clear();
         _channelPasswordRestrictions.Clear();
+        // The store's within-connection invariants (session-id continuity, one revision line)
+        // do not hold across connections: a different or restarted server reuses session ids,
+        // and leftover rows would hand its users the previous server's identities.
+        _projection.Reset();
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
@@ -1973,8 +1989,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // gap and the client resyncs immediately.
             if (ProjectionWire.ReadSnapshot(credentials.Value) is { } tokenSnapshot)
             {
-                var change = _projection.ApplyServerSnapshot(tokenSnapshot);
-                EmitProjectionChange(change);
+                lock (_projectionEmitGate)
+                {
+                    EmitProjectionChange(_projection.ApplyServerSnapshot(tokenSnapshot));
+                }
             }
             else
             {
@@ -1982,7 +2000,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // event asks for a resync that this payload was supposed to satisfy. Nothing
                 // recovers on its own, and the visible result is only that identities are
                 // blank, so say so here rather than leaving it to be inferred.
-                Console.WriteLine(
+                LogToFile(
                     "[Brmble] /auth/token carried no usable mapping snapshot (missing envelope " +
                     "or mappings block); identities will stay unknown until one arrives");
             }
@@ -2004,7 +2022,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // Only connect if we do not already have a live socket. A credential refresh -- which
             // the health check can trigger at any time -- must not tear down a working
             // connection: the old read loop and the new one would then race, and the survivor
-            // may be the one being torn down.
+            // may be the one being torn down. Disconnect() nulls _wsStream synchronously, so a
+            // reconnect always passes this guard even while the old read loop is still unwinding.
             if (_wsStream is null) StartWebSocketConnection(apiUrl);
 
             // Start periodic health checks (runs from C# to avoid CORS issues)
@@ -2262,6 +2281,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 TlsClientProtocol? tlsProtocol = null;
                 TcpClient? tcp = null;
+                Stream? stream = null;
                 try
                 {
                     using var cert = _certService?.GetExportableCertificate();
@@ -2283,10 +2303,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     tlsProtocol = new TlsClientProtocol(tcp.GetStream());
                     tlsProtocol.Connect(tlsClient);
 
-                    var stream = tlsProtocol.Stream;
-                    _wsStream = stream;
+                    stream = tlsProtocol.Stream;
 
-                    var wsKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+                    var wsKey =Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
                     var hostHeader = port == 443 ? host : $"{host}:{port}";
                     var upgradeRequest =
                         $"GET {wsPath} HTTP/1.1\r\n" +
@@ -2367,6 +2386,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         throw new InvalidOperationException("WebSocket upgrade rejected");
                     }
 
+                    // Published only after the upgrade is validated: a pre-upgrade publish would
+                    // let a concurrent RequestSnapshot interleave a masked frame with the HTTP
+                    // handshake and corrupt it.
+                    _wsStream = stream;
+
                     backoff = TimeSpan.FromSeconds(1); // reset on successful connect
                     Debug.WriteLine("[WS] Connected to Brmble WebSocket (BouncyCastle TLS)");
                     SendBrmbleServiceStatus("session", "connected");
@@ -2387,7 +2411,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 finally
                 {
                     // Cleared before the stream is disposed so no send can pick up a dead socket.
-                    _wsStream = null;
+                    // CAS, not assignment: Disconnect() nulls the field synchronously and a
+                    // successor loop may already have published a new stream — only clear our own.
+                    Interlocked.CompareExchange(ref _wsStream, null, stream);
                     try { tlsProtocol?.Close(); } catch { }
                     try { tcp?.Dispose(); } catch { }
                 }
@@ -2608,6 +2634,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Asks the server to restate the mapping table. Fire-and-forget: the reply arrives as a
     /// normal sessionMappingSnapshot on the read loop.
     /// </summary>
+    /// <remarks>
+    /// Deliberately no retry timer. If the send fails, or the server discards the request
+    /// inside its cooldown (measured at the server, so client-side spacing does not fully
+    /// prevent it), the gap stays until the next event that reports NeedsSnapshot or the next
+    /// (re)connect bootstrap. Accepted: a server quiet enough never to trigger that repair is
+    /// also one where the stale window has nothing visible in it.
+    /// </remarks>
     private void RequestSnapshot()
     {
         if (!_resync.TryBegin(_resyncClock.Elapsed)) return;
@@ -2629,7 +2662,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Brmble] resync request failed: {ex.Message}");
+                LogToFile($"[Brmble] resync request failed: {ex.Message}");
             }
             finally
             {
@@ -2652,7 +2685,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 if (ProjectionWire.ReadSnapshot(root) is { } wsSnapshot)
                 {
-                    EmitProjectionChange(_projection.ApplyServerSnapshot(wsSnapshot));
+                    lock (_projectionEmitGate)
+                    {
+                        EmitProjectionChange(_projection.ApplyServerSnapshot(wsSnapshot));
+                    }
                     _resync.OnSnapshotApplied();
                 }
                 else
@@ -2660,7 +2696,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     // As on the /auth/token path: without a cursor every later event asks for a
                     // resync this payload should have satisfied, and the only symptom is blank
                     // identities. Make the cause visible.
-                    Console.WriteLine(
+                    LogToFile(
                         "[Brmble] sessionMappingSnapshot carried no usable envelope or mappings " +
                         "block; identities will stay unknown until one arrives");
                 }
@@ -2669,7 +2705,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             if (ProjectionWire.ReadEvent(type, root) is { } mappingEvent)
             {
-                EmitProjectionChange(_projection.ApplyServerEvent(mappingEvent));
+                lock (_projectionEmitGate)
+                {
+                    EmitProjectionChange(_projection.ApplyServerEvent(mappingEvent));
+                }
                 return;
             }
 
@@ -4162,21 +4201,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         // A reconnect replaces membership wholesale. Server-owned fields survive for sessions
         // present both before and after, so a voice reconnect costs no identity.
-        _projection.ApplyMumbleReset([.. Users.Select(ToProjectionInput)]);
-
-        _bridge?.Send("voice.connected", new
+        object[] rows;
+        lock (_projectionEmitGate)
         {
-            username = LocalUser?.Name,
-            channelId,
-            channels,
-            registered = LocalUser?.IsRegistered ?? false,
-            registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
-        });
+            _projection.ApplyMumbleReset([.. Users.Select(ToProjectionInput)]);
 
-        // Membership travels as a reset rather than riding on voice.connected, so there is
-        // exactly one path by which the user list is ever populated.
-        var rows = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray();
-        _bridge?.Send("voice.usersReset", new { users = rows });
+            _bridge?.Send("voice.connected", new
+            {
+                username = LocalUser?.Name,
+                channelId,
+                channels,
+                registered = LocalUser?.IsRegistered ?? false,
+                registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
+            });
+
+            // Membership travels as a reset rather than riding on voice.connected, so there is
+            // exactly one path by which the user list is ever populated.
+            rows = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray();
+            _bridge?.Send("voice.usersReset", new { users = rows });
+        }
 
         // Send only enqueues; the caller owns the flush. Both messages are already queued, and
         // one notify drains the whole queue in order, so this delivers the connect and the
@@ -4284,7 +4327,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         var joinedUserName = user?.Name ?? userState.Name;
         if (user is not null)
-            EmitProjectionChange(_projection.ApplyMumbleUserState(ToProjectionInput(user)));
+        {
+            lock (_projectionEmitGate)
+            {
+                EmitProjectionChange(_projection.ApplyMumbleUserState(ToProjectionInput(user)));
+            }
+        }
         _bridge?.NotifyUiThread();
 
         // Emit system message for genuinely new users (not initial sync, not self)
@@ -4472,7 +4520,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         base.UserRemove(userRemove);
 
         // The only path that deletes a row: Mumble alone owns existence.
-        EmitProjectionChange(_projection.ApplyMumbleUserRemove(userRemove.Session));
+        lock (_projectionEmitGate)
+        {
+            EmitProjectionChange(_projection.ApplyMumbleUserRemove(userRemove.Session));
+        }
 
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 

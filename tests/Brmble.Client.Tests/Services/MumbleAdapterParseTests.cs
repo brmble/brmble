@@ -84,6 +84,7 @@ internal static class MumbleAdapterTestHarness
         // swallows exceptions, so a missing one shows up as a silently dropped message rather
         // than a failure.
         SetField(adapter, "_projection", new Brmble.Client.Services.Voice.Projection.UserProjectionStore());
+        SetField(adapter, "_projectionEmitGate", new object());
         SetField(adapter, "_resync", new Brmble.Client.Services.Voice.ResyncThrottle());
         SetField(adapter, "_resyncClock", System.Diagnostics.Stopwatch.StartNew());
         SetField(adapter, "_wsSendGate", new SemaphoreSlim(1, 1));

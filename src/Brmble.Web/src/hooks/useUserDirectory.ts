@@ -53,6 +53,10 @@ export function useUserDirectory(selfMatrixUserId?: string) {
   const [users, setUsers] = useState<User[]>([]);
   // Keyed by matrixUserId, not session: an avatar belongs to a person, not to a connection, so
   // it survives reconnects and is shared by every session that person has open.
+  //
+  // Never pruned, by the same reasoning: dropping entries on reset would refetch every avatar
+  // on every reconnect. Growth is bounded by distinct people encountered per app run and the
+  // values are short URLs — accepted. Add a size cap if profiling ever cares.
   const [avatars, setAvatars] = useState<Map<string, string>>(() => new Map());
 
   const reset = useCallback((rows: User[]) => setUsers(rows), []);
