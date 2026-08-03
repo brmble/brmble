@@ -341,6 +341,26 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPaneAfterRemove).getByText('Bob')).toBeInTheDocument();
   });
 
+  it('persists membership changes through group add and remove lists', async () => {
+    renderAdminGroupsSection();
+
+    const availableUsersPane = getPaneByHeading('Available users');
+    const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
+
+    fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
+        groups: [expect.objectContaining({
+          add: [1],
+          remove: [],
+          members: [1],
+        })],
+      }));
+    });
+  });
+
   it('shows the available-users pane heading in the operational panel', () => {
     renderOperationalPanelFixture();
 

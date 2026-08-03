@@ -242,6 +242,10 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
     updateSelectedGroupMembers(group => ({
       ...group,
       members: [...new Set([...group.members, registrationUserId])].sort((left, right) => left - right),
+      add: group.remove.includes(registrationUserId)
+        ? group.add
+        : [...new Set([...group.add, registrationUserId])].sort((left, right) => left - right),
+      remove: group.remove.filter(memberId => memberId !== registrationUserId),
     }));
   };
 
@@ -249,6 +253,10 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
     updateSelectedGroupMembers(group => ({
       ...group,
       members: group.members.filter(memberId => memberId !== registrationUserId),
+      add: group.add.filter(memberId => memberId !== registrationUserId),
+      remove: group.add.includes(registrationUserId)
+        ? group.remove
+        : [...new Set([...group.remove, registrationUserId])].sort((left, right) => left - right),
     }));
   };
 

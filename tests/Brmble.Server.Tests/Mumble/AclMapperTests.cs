@@ -35,7 +35,7 @@ public class AclMapperTests
     }
 
     [TestMethod]
-    public void ToIce_IgnoresInheritedRulesAndPreservesGroupMembersForWrites()
+    public void ToIce_IgnoresInheritedRulesAndDoesNotWriteReadOnlyGroupMembers()
     {
         var request = new AclUpdateRequest(
             InheritAcls: false,
@@ -63,6 +63,6 @@ public class AclMapperTests
         Assert.AreEqual("writers", groups[0].name);
         CollectionAssert.AreEqual(new[] { 5 }, groups[0].add);
         CollectionAssert.AreEqual(new[] { 6 }, groups[0].remove);
-        CollectionAssert.AreEqual(new[] { 5, 9 }, groups[0].members);
+        CollectionAssert.AreEqual(Array.Empty<int>(), groups[0].members);
     }
 }
