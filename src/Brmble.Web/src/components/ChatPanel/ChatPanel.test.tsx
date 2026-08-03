@@ -92,6 +92,40 @@ describe('ChatPanel image paint background menu', () => {
     })).not.toBeInTheDocument();
   });
 
+  it('does not offer an unsupported GIF as a Paint background', () => {
+    const gif = {
+      type: 'gif' as const,
+      url: 'https://matrix.example/animated.gif',
+      filename: 'animated.gif',
+      mimetype: 'image/gif',
+      size: 123,
+    };
+    const { container } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          ...imageMessage,
+          id: '$gif',
+          media: [gif],
+        }]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.load(container.querySelector('.image-attachment__img')!);
+    fireEvent.contextMenu(container.querySelector('.image-attachment')!, {
+      clientX: 40,
+      clientY: 50,
+    });
+
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
+  });
+
   it('does not show the action for a plain-text message', () => {
     render(
       <ChatPanel

@@ -1,16 +1,60 @@
 import type { MediaAttachment } from '../types';
-import { ALLOWED_MIMETYPES } from './parseMessageMedia';
+import {
+  MAX_PAINT_SOURCE_BYTES,
+  isSupportedPaintSourceMimeType,
+  paintSourceExtension,
+  preparePaintSourceFile,
+} from './paintSourceFile';
 
 const DOWNLOAD_TIMEOUT_MS = 15_000;
-const EXTENSION_BY_MIME: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
+const DOWNLOAD_SIZE_ERROR =
+  'This chat image is too large to use as a Paint source.';
 
 function normalizedMime(value?: string): string {
   return value?.split(';', 1)[0].trim().toLowerCase() ?? '';
+}
+
+async function readResponseBlob(response: Response): Promise<Blob> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_PAINT_SOURCE_BYTES) {
+    throw new Error(DOWNLOAD_SIZE_ERROR);
+  }
+
+  if (!response.body) {
+    throw new Error('Unable to download the chat image.');
+  }
+
+  const reader = response.body.getReader();
+  const chunks: ArrayBuffer[] = [];
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_PAINT_SOURCE_BYTES) {
+        throw new Error(DOWNLOAD_SIZE_ERROR);
+      }
+      const chunk = new ArrayBuffer(value.byteLength);
+      new Uint8Array(chunk).set(value);
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    try {
+      await reader.cancel(error);
+    } catch {
+      // The stream may already be closed by the time the limit is detected.
+    }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  return new Blob(chunks, {
+    type: response.headers.get('content-type') ?? '',
+  });
 }
 
 export function isPaintSourceAttachment(
@@ -19,8 +63,8 @@ export function isPaintSourceAttachment(
   if (!attachment.url.trim()) return false;
   const mime = normalizedMime(attachment.mimetype);
   return mime
-    ? ALLOWED_MIMETYPES.includes(mime)
-    : attachment.type === 'image' || attachment.type === 'gif';
+    ? isSupportedPaintSourceMimeType(mime)
+    : attachment.type === 'image';
 }
 
 export async function prepareChatImagePaintSource(
@@ -38,27 +82,13 @@ export async function prepareChatImagePaintSource(
     throw new Error('Unable to download the chat image.');
   }
 
-  const blob = await response.blob();
+  const blob = await readResponseBlob(response);
   const mime = normalizedMime(attachment.mimetype)
     || normalizedMime(blob.type);
-  if (!ALLOWED_MIMETYPES.includes(mime)) {
-    throw new Error('This image type cannot be used for paint.');
-  }
-
+  const extension = paintSourceExtension(mime);
   const filename = attachment.filename?.trim()
-    || `chat-image.${EXTENSION_BY_MIME[mime]}`;
+    || (extension ? `chat-image.${extension}` : 'chat-image');
   const file = new File([blob], filename, { type: mime });
-  const objectUrl = URL.createObjectURL(file);
 
-  try {
-    const image = new Image();
-    image.src = objectUrl;
-    await image.decode();
-  } catch {
-    throw new Error('Unable to decode the chat image.');
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  return file;
+  return preparePaintSourceFile(file, 'chat');
 }

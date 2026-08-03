@@ -4,13 +4,20 @@ import {
   prepareChatImagePaintSource,
 } from './chatImagePaintSource';
 
+const TEN_MIB = 10 * 1024 * 1024;
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function installDecodeHarness(decode = vi.fn().mockResolvedValue(undefined)) {
+function installDecodeHarness(options: {
+  width?: number;
+  height?: number;
+  decode?: () => Promise<void>;
+} = {}) {
   const createObjectURL = vi.fn().mockReturnValue('blob:paint-source');
   const revokeObjectURL = vi.fn();
+  const decode = options.decode ?? vi.fn().mockResolvedValue(undefined);
 
   vi.stubGlobal('URL', {
     ...URL,
@@ -18,31 +25,51 @@ function installDecodeHarness(decode = vi.fn().mockResolvedValue(undefined)) {
     revokeObjectURL,
   });
   vi.stubGlobal('Image', class {
-    set src(_value: string) {}
+    src = '';
+    naturalWidth = options.width ?? 1280;
+    naturalHeight = options.height ?? 720;
     decode = decode;
   });
 
   return { createObjectURL, revokeObjectURL, decode };
 }
 
+function successfulFetch(blob: Blob): typeof fetch {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    headers: new Headers({ 'content-type': blob.type }),
+    body: new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new Uint8Array(await blob.arrayBuffer()));
+        controller.close();
+      },
+    }),
+  }) as unknown as typeof fetch;
+}
+
 describe('isPaintSourceAttachment', () => {
-  it('accepts a displayed image with a supported or unknown image MIME type', () => {
+  it('accepts a supported image and an image whose MIME must be discovered', () => {
     expect(isPaintSourceAttachment({
       type: 'image',
       url: 'https://matrix.example/image',
       mimetype: 'image/png',
     })).toBe(true);
     expect(isPaintSourceAttachment({
-      type: 'gif',
-      url: 'data:image/gif;base64,R0lG',
+      type: 'image',
+      url: 'https://matrix.example/unknown',
     })).toBe(true);
   });
 
-  it('rejects empty URLs and known unsupported MIME types', () => {
+  it('rejects empty URLs, GIFs, and known unsupported MIME types', () => {
     expect(isPaintSourceAttachment({
       type: 'image',
       url: '',
       mimetype: 'image/png',
+    })).toBe(false);
+    expect(isPaintSourceAttachment({
+      type: 'gif',
+      url: 'data:image/gif;base64,R0lG',
+      mimetype: 'image/gif',
     })).toBe(false);
     expect(isPaintSourceAttachment({
       type: 'image',
@@ -53,13 +80,10 @@ describe('isPaintSourceAttachment', () => {
 });
 
 describe('prepareChatImagePaintSource', () => {
-  it('downloads, decodes, and preserves the Matrix filename and MIME type', async () => {
-    const fetcher = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: vi.fn().mockResolvedValue(
-        new Blob(['png-bytes'], { type: 'image/png' }),
-      ),
-    });
+  it('downloads, validates, and preserves the Matrix filename and MIME type', async () => {
+    const fetcher = successfulFetch(
+      new Blob(['png-bytes'], { type: 'image/png' }),
+    );
     const { createObjectURL, revokeObjectURL, decode } =
       installDecodeHarness();
 
@@ -68,7 +92,7 @@ describe('prepareChatImagePaintSource', () => {
       url: 'https://matrix.example/image',
       mimetype: 'image/png',
       filename: 'shared-board.png',
-    }, fetcher as unknown as typeof fetch);
+    }, fetcher);
 
     expect(fetcher).toHaveBeenCalledWith(
       'https://matrix.example/image',
@@ -82,19 +106,13 @@ describe('prepareChatImagePaintSource', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:paint-source');
   });
 
-  it('uses the response MIME type and a deterministic fallback filename', async () => {
-    const fetcher = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: vi.fn().mockResolvedValue(
-        new Blob(['jpg-bytes'], { type: 'image/jpeg' }),
-      ),
-    });
+  it('uses the response MIME type and shared extension for a fallback filename', async () => {
     installDecodeHarness();
 
     const file = await prepareChatImagePaintSource({
       type: 'image',
       url: 'data:image/jpeg;base64,anBn',
-    }, fetcher as unknown as typeof fetch);
+    }, successfulFetch(new Blob(['jpg-bytes'], { type: 'image/jpeg' })));
 
     expect(file.name).toBe('chat-image.jpg');
     expect(file.type).toBe('image/jpeg');
@@ -111,38 +129,93 @@ describe('prepareChatImagePaintSource', () => {
       .rejects.toThrow('Unable to download the chat image.');
   });
 
-  it('rejects unsupported downloaded content', async () => {
+  it('rejects unsupported downloaded content through the shared MIME policy', async () => {
+    await expect(prepareChatImagePaintSource({
+      type: 'image',
+      url: 'https://matrix.example/image',
+    }, successfulFetch(new Blob(['bmp-bytes'], { type: 'image/bmp' }))))
+      .rejects.toThrow(
+        'This chat image type cannot be used. Use a PNG, JPEG, or WebP image.',
+      );
+  });
+
+  it('rejects a downloaded chat image above the Paint 10 MiB limit', async () => {
+    await expect(prepareChatImagePaintSource({
+      type: 'image',
+      url: 'https://matrix.example/large',
+      mimetype: 'image/png',
+    }, successfulFetch(new Blob(
+      [new Uint8Array(TEN_MIB + 1)],
+      { type: 'image/png' },
+    )))).rejects.toThrow(
+      'This chat image is too large to use as a Paint source.',
+    );
+  });
+
+  it('stops reading a streamed chat image when it exceeds the Paint 10 MiB limit', async () => {
+    const firstChunk = new Uint8Array(TEN_MIB);
+    const secondChunk = new Uint8Array(1);
+    let pullCount = 0;
+    let cancelReason: unknown;
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,
-      blob: vi.fn().mockResolvedValue(
-        new Blob(['bmp-bytes'], { type: 'image/bmp' }),
-      ),
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pullCount += 1;
+          if (pullCount === 1) {
+            controller.enqueue(firstChunk);
+          } else if (pullCount === 2) {
+            controller.enqueue(secondChunk);
+          }
+        },
+        cancel(reason) {
+          cancelReason = reason;
+        },
+      }),
+      headers: new Headers({ 'content-type': 'image/png' }),
+      blob: vi.fn().mockRejectedValue(new Error('full body was materialized')),
     });
 
     await expect(prepareChatImagePaintSource({
       type: 'image',
-      url: 'https://matrix.example/image',
-    }, fetcher as unknown as typeof fetch))
-      .rejects.toThrow('This image type cannot be used for paint.');
+      url: 'https://matrix.example/streaming-large',
+      mimetype: 'image/png',
+    }, fetcher as unknown as typeof fetch)).rejects.toThrow(
+      'This chat image is too large to use as a Paint source.',
+    );
+
+    expect(pullCount).toBeLessThanOrEqual(3);
+    expect(cancelReason).toBeDefined();
   });
 
-  it('rejects undecodable image bytes and always revokes the object URL', async () => {
-    const fetcher = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: vi.fn().mockResolvedValue(
-        new Blob(['not-an-image'], { type: 'image/png' }),
-      ),
+  it('rejects a downloaded chat image above 4096 pixels', async () => {
+    installDecodeHarness({ width: 4097 });
+
+    await expect(prepareChatImagePaintSource({
+      type: 'image',
+      url: 'https://matrix.example/wide',
+      mimetype: 'image/webp',
+    }, successfulFetch(new Blob(['webp-bytes'], { type: 'image/webp' }))))
+      .rejects.toThrow(
+        'This image is too large. Choose an image no larger than 4096 by 4096 pixels.',
+      );
+  });
+
+  it('rejects undecodable chat image bytes and revokes the object URL', async () => {
+    const { revokeObjectURL } = installDecodeHarness({
+      decode: vi.fn().mockRejectedValue(new Error('decode failed')),
     });
-    const { revokeObjectURL } = installDecodeHarness(
-      vi.fn().mockRejectedValue(new Error('decode failed')),
-    );
 
     await expect(prepareChatImagePaintSource({
       type: 'image',
       url: 'https://matrix.example/broken',
       mimetype: 'image/png',
-    }, fetcher as unknown as typeof fetch))
-      .rejects.toThrow('Unable to decode the chat image.');
+    }, successfulFetch(new Blob(
+      ['not-an-image'],
+      { type: 'image/png' },
+    )))).rejects.toThrow(
+      'This chat image cannot be used as a Paint source.',
+    );
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:paint-source');
   });
 });
