@@ -3693,10 +3693,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("acl.getChannel", async data =>
         {
-            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? cid.GetInt32()
-                : 0;
-            if (channelId <= 0 || _apiUrl is null)
+            var channelId = 0;
+            var validChannelId = data.TryGetProperty("channelId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                cid.TryGetInt32(out channelId) && channelId >= 0;
+            if (!validChannelId || _apiUrl is null)
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
                 _bridge?.NotifyUiThread();
@@ -3747,10 +3748,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("acl.setChannel", async data =>
         {
-            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? cid.GetInt32()
-                : 0;
-            if (channelId <= 0 || _apiUrl is null)
+            var channelId = 0;
+            var validChannelId = data.TryGetProperty("channelId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                cid.TryGetInt32(out channelId) && channelId >= 0;
+            if (!validChannelId || _apiUrl is null)
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
                 _bridge?.NotifyUiThread();
@@ -3814,14 +3816,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("acl.setChannelPassword", async data =>
         {
-            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? cid.GetInt32()
-                : 0;
+            var channelId = 0;
+            var validChannelId = data.TryGetProperty("channelId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                cid.TryGetInt32(out channelId) && channelId >= 0;
             var password = data.TryGetProperty("password", out var pwd) && pwd.ValueKind == System.Text.Json.JsonValueKind.String
                 ? pwd.GetString() ?? ""
                 : "";
 
-            if (channelId <= 0 || _apiUrl is null)
+            if (!validChannelId || _apiUrl is null)
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
                 _bridge?.NotifyUiThread();
@@ -3855,9 +3858,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("acl.addGroupMember", async data =>
         {
-            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? cid.GetInt32()
-                : 0;
+            var channelId = 0;
+            var validChannelId = data.TryGetProperty("channelId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                cid.TryGetInt32(out channelId) && channelId >= 0;
             var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
                 ? sid.GetInt32()
                 : 0;
@@ -3865,7 +3869,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ? grp.GetString() ?? ""
                 : "";
 
-            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            if (!validChannelId || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
                 _bridge?.NotifyUiThread();
@@ -3890,9 +3894,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("acl.removeGroupMember", async data =>
         {
-            var channelId = data.TryGetProperty("channelId", out var cid) && cid.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? cid.GetInt32()
-                : 0;
+            var channelId = 0;
+            var validChannelId = data.TryGetProperty("channelId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                cid.TryGetInt32(out channelId) && channelId >= 0;
             var session = data.TryGetProperty("session", out var sid) && sid.ValueKind == System.Text.Json.JsonValueKind.Number
                 ? sid.GetInt32()
                 : 0;
@@ -3900,7 +3905,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ? grp.GetString() ?? ""
                 : "";
 
-            if (channelId <= 0 || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            if (!validChannelId || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
                 _bridge?.NotifyUiThread();
