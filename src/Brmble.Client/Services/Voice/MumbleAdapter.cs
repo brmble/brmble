@@ -4407,17 +4407,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
-    protected override void UserStateCommentChanged(User user, string oldComment)
-    {
-        base.UserStateCommentChanged(user, oldComment);
-        _bridge?.Send("voice.userCommentChanged", new
-        {
-            session = user.Id,
-            comment = user.Comment
-        });
-        _bridge?.NotifyUiThread();
-    }
-
     public override void UserStats(UserStats userStats)
     {
         base.UserStats(userStats);

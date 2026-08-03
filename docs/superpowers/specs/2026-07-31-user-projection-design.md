@@ -291,7 +291,7 @@ The moderation path is sound. The WebSocket `companionChanged` is only the selec
 
 - `voice.usersReset { users: [...] }` — the complete list. Voice connect, disconnect (empty),
   reconnect.
-- `voice.usersChanged { users: [...], removed: [sessions] }` — full rows for changed sessions.
+- `voice.usersChanged { changed: [...], removed: [sessions] }` — full rows for changed sessions.
 
 `voice.connected` survives, but stops carrying `users`: it keeps the channel list and connection
 metadata, and the user list arrives as the first `voice.usersReset`. This removes the only
