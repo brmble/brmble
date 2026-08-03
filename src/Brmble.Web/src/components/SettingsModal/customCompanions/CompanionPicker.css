@@ -147,10 +147,13 @@
   color: var(--text-muted);
 }
 
-.companion-picker-thumbnail img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+.companion-picker-custom-sprite {
+  width: var(--companion-picker-built-in-size);
+  height: var(--companion-picker-built-in-size);
+  background-image: var(--companion-picker-custom-sprite-image);
+  background-repeat: no-repeat;
+  background-size: calc(100% * 8) calc(100% * 9);
+  background-position: 0 0;
   image-rendering: pixelated;
 }
 
