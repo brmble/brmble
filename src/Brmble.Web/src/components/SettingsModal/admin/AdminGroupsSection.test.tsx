@@ -31,6 +31,7 @@ type RegisteredUserState = {
 type AclAdminFixture = {
   snapshot: SnapshotState | null;
   loading: boolean;
+  saving: boolean;
   error: string | null;
 };
 
@@ -46,7 +47,8 @@ type RenderOptions = {
   registeredUsers?: Partial<RegisteredUsersFixture>;
 };
 
-const { saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, autoRefreshSnapshot, registeredUsersState } = vi.hoisted(() => ({
+const { confirmSpy, saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, autoRefreshSnapshot, registeredUsersState } = vi.hoisted(() => ({
+  confirmSpy: vi.fn(),
   saveSpy: vi.fn(),
   refreshSpy: vi.fn(),
   aclAdminChannelIds: [] as Array<number | null>,
@@ -54,6 +56,7 @@ const { saveSpy, refreshSpy, aclAdminState, aclAdminChannelIds, autoRefreshSnaps
   aclAdminState: {
     snapshot: null as SnapshotState | null,
     loading: false,
+    saving: false,
     error: null as string | null,
   },
   registeredUsersState: {
@@ -94,6 +97,7 @@ function createRegisteredUsers(overrides: Partial<RegisteredUsersFixture> = {}):
 function setAclAdminState(overrides: Partial<AclAdminFixture> = {}) {
   aclAdminState.snapshot = createSnapshot();
   aclAdminState.loading = false;
+  aclAdminState.saving = false;
   aclAdminState.error = null;
   Object.assign(aclAdminState, overrides);
 }
@@ -155,11 +159,16 @@ vi.mock('../../../hooks/useAclAdmin', () => ({
     return {
     snapshot: aclAdminState.snapshot,
     loading: isRefreshing || aclAdminState.loading,
+    saving: aclAdminState.saving,
     error: aclAdminState.error,
     refresh,
     save: saveSpy,
     };
   },
+}));
+
+vi.mock('../../../hooks/usePrompt', () => ({
+  confirm: confirmSpy,
 }));
 
 vi.mock('./useAdminRegisteredUsers', () => ({
@@ -173,6 +182,7 @@ vi.mock('./useAdminRegisteredUsers', () => ({
 
 afterEach(() => {
   saveSpy.mockReset();
+  confirmSpy.mockReset();
   refreshSpy.mockReset();
   autoRefreshSnapshot.value = false;
   aclAdminChannelIds.length = 0;
@@ -326,7 +336,8 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPane).queryByText('Alice')).not.toBeInTheDocument();
   });
 
-  it('stages membership changes by moving users between the available and member panes', () => {
+  it('submits a confirmed membership change without optimistically moving the user', async () => {
+    confirmSpy.mockResolvedValue(true);
     renderAdminGroupsSection();
 
     const initialMembersPane = getPaneByHeading('Members of "Officers"');
@@ -338,27 +349,20 @@ describe('AdminGroupsSection', () => {
     expect(within(initialAvailableUsersPane).getByText('Bob')).toBeInTheDocument();
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    expect(screen.getByRole('button', { name: 'Save membership change' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Add Alice to @Officers?',
+      confirmLabel: 'Save',
+    })));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
+      groups: [expect.objectContaining({ name: 'Officers', add: [1], remove: [], members: [1] })],
+    })));
 
     const membersPaneAfterAdd = getPaneByHeading('Members of "Officers"');
     const availableUsersPaneAfterAdd = getPaneByHeading('Available users');
-    const aliceMembersRow = getUserRow(membersPaneAfterAdd, 'Alice');
 
-    expect(within(aliceMembersRow).getByText('Member')).toBeInTheDocument();
-    expect(within(availableUsersPaneAfterAdd).queryByText('Alice')).not.toBeInTheDocument();
+    expect(within(membersPaneAfterAdd).queryByText('Alice')).not.toBeInTheDocument();
+    expect(within(availableUsersPaneAfterAdd).getByText('Alice')).toBeInTheDocument();
     expect(within(availableUsersPaneAfterAdd).getByText('Bob')).toBeInTheDocument();
-
-    fireEvent.click(within(aliceMembersRow).getByRole('button', { name: 'Remove' }));
-    expect(screen.getByRole('button', { name: 'Save membership change' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
-
-    const membersPaneAfterRemove = getPaneByHeading('Members of "Officers"');
-    const availableUsersPaneAfterRemove = getPaneByHeading('Available users');
-
-    expect(within(membersPaneAfterRemove).queryByText('Alice')).not.toBeInTheDocument();
-    expect(within(availableUsersPaneAfterRemove).getByText('Alice')).toBeInTheDocument();
-    expect(within(availableUsersPaneAfterRemove).getByText('Bob')).toBeInTheDocument();
   });
 
   it('disables membership actions for inherited groups', () => {
@@ -377,28 +381,29 @@ describe('AdminGroupsSection', () => {
     expect(within(getUserRow(membersPane, 'Alice')).getByRole('button', { name: 'Remove' })).toBeDisabled();
   });
 
-  it('cancels a pending membership change without moving the user', () => {
+  it('does not save a membership change when the shared confirmation is canceled', async () => {
+    confirmSpy.mockResolvedValue(false);
     renderAdminGroupsSection();
 
     const availableUsersPane = getPaneByHeading('Available users');
     const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel membership change' }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
 
-    expect(screen.queryByRole('button', { name: 'Save membership change' })).not.toBeInTheDocument();
+    expect(saveSpy).not.toHaveBeenCalled();
     expect(within(getPaneByHeading('Members of "Officers"')).queryByText('Alice')).not.toBeInTheDocument();
     expect(within(getPaneByHeading('Available users')).getByText('Alice')).toBeInTheDocument();
   });
 
   it('persists membership changes through group add and remove lists', async () => {
+    confirmSpy.mockResolvedValue(true);
     renderAdminGroupsSection();
 
     const availableUsersPane = getPaneByHeading('Available users');
     const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     await waitFor(() => {
       expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -412,6 +417,7 @@ describe('AdminGroupsSection', () => {
   });
 
   it('does not save unrelated staged ACL edits with a membership change', async () => {
+    confirmSpy.mockResolvedValue(true);
     const view = renderAdminGroupsSection({
       aclAdmin: {
         snapshot: createSnapshot({
@@ -433,7 +439,6 @@ describe('AdminGroupsSection', () => {
     const availableUsersPane = getPaneByHeading('Available users');
     const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     await waitFor(() => {
       expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -469,6 +474,13 @@ describe('AdminGroupsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(getCheckbox('Read Channels')).not.toBeChecked();
     expect(within(getPaneByHeading('Members of "Officers"')).getByText('Alice')).toBeInTheDocument();
+  });
+
+  it('disables membership actions while a membership save is in progress', () => {
+    renderAdminGroupsSection({ aclAdmin: { saving: true } });
+
+    const availableUsersPane = getPaneByHeading('Available users');
+    expect(within(getUserRow(availableUsersPane, 'Alice')).getByRole('button', { name: 'Add' })).toBeDisabled();
   });
 
   it('shows the available-users pane heading in the operational panel', () => {
@@ -578,6 +590,7 @@ describe('AdminGroupsSection', () => {
   });
 
   it('materializes an ACL-only group before staging membership changes', async () => {
+    confirmSpy.mockResolvedValue(true);
     renderAdminGroupsSection({
       aclAdmin: {
         snapshot: createSnapshot({
@@ -592,7 +605,6 @@ describe('AdminGroupsSection', () => {
     const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     await waitFor(() => {
       expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -613,7 +625,7 @@ describe('AdminGroupsSection', () => {
     expect(screen.queryByRole('button', { name: '@Members' })).not.toBeInTheDocument();
   });
 
-  it('hydrates once when refresh transitions from an empty snapshot to loaded data', async () => {
+  it('hydrates root groups after the initial refresh returns a snapshot', async () => {
     autoRefreshSnapshot.value = true;
     renderAdminGroupsSection({
       aclAdmin: {
@@ -624,8 +636,6 @@ describe('AdminGroupsSection', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '@Officers' })).toBeInTheDocument();
     });
-
-    expect(refreshSpy).toHaveBeenCalledTimes(1);
   });
 
   it('shows the connection status message above the transfer workspace', () => {

@@ -3869,7 +3869,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ? grp.GetString() ?? ""
                 : "";
 
-            if (!validChannelId || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            if (!validChannelId || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            if (session <= 0 || string.IsNullOrWhiteSpace(group))
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
                 _bridge?.NotifyUiThread();
@@ -3905,7 +3912,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ? grp.GetString() ?? ""
                 : "";
 
-            if (!validChannelId || session <= 0 || string.IsNullOrWhiteSpace(group) || _apiUrl is null)
+            if (!validChannelId || _apiUrl is null)
+            {
+                _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid channel" });
+                _bridge?.NotifyUiThread();
+                return;
+            }
+
+            if (session <= 0 || string.IsNullOrWhiteSpace(group))
             {
                 _bridge?.Send("acl.error", new { channelId, error = "Not connected or invalid group member request" });
                 _bridge?.NotifyUiThread();

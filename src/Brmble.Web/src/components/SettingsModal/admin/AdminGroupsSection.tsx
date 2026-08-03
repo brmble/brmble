@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAclAdmin } from '../../../hooks/useAclAdmin';
+import { confirm } from '../../../hooks/usePrompt';
 import { Permission, type AclGroup, type AclRule } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 
@@ -73,7 +74,7 @@ const GROUP_PERMISSION_CATEGORIES: GroupPermissionCategory[] = [
 ];
 
 export function AdminGroupsSection() {
-  const { snapshot, loading, error, refresh, save } = useAclAdmin(0);
+  const { snapshot, loading, saving, error, refresh, save } = useAclAdmin(0);
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
   const sourceGroups = snapshot?.groups ?? EMPTY_GROUPS;
   const sourceAcls = snapshot?.acls ?? EMPTY_ACLS;
@@ -81,7 +82,6 @@ export function AdminGroupsSection() {
   const [draftAcls, setDraftAcls] = useState<AclRule[]>(sourceAcls);
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const [hasLocalEdits, setHasLocalEdits] = useState(false);
-  const [pendingMembershipChange, setPendingMembershipChange] = useState<PendingMembershipChange | null>(null);
   const lastSubmittedDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -256,18 +256,18 @@ export function AdminGroupsSection() {
     };
   };
 
-  const requestMemberChange = (action: PendingMembershipChange['action'], registrationUserId: number, registeredName: string) => {
-    setPendingMembershipChange({ action, registrationUserId, registeredName });
-  };
+  const requestMemberChange = async (action: PendingMembershipChange['action'], registrationUserId: number, registeredName: string) => {
+    if (saving || !selectedGroup || selectedGroup.inherited) return;
 
-  const selectGroup = (name: string) => {
-    setSelectedGroupName(name);
-    setPendingMembershipChange(null);
-  };
+    const approved = await confirm({
+      title: `${action === 'add' ? 'Add' : 'Remove'} ${registeredName} ${action === 'add' ? 'to' : 'from'} @${selectedGroup.name}?`,
+      message: 'This change will be saved immediately.',
+      confirmLabel: 'Save',
+      cancelLabel: 'Cancel',
+    });
+    if (!approved) return;
 
-  const savePendingMembershipChange = () => {
-    if (!pendingMembershipChange || !selectedGroup || selectedGroup.inherited) return;
-
+    const change: PendingMembershipChange = { action, registrationUserId, registeredName };
     const serverGroup = sourceGroups.find(group => group.name === selectedGroup.name);
     const baseGroup = serverGroup ?? {
       name: selectedGroup.name,
@@ -278,23 +278,20 @@ export function AdminGroupsSection() {
       remove: [...selectedGroup.remove],
       members: [...selectedGroup.members],
     };
-    const updatedGroup = applyMembershipChange(baseGroup, pendingMembershipChange);
-    const nextGroups = serverGroup
+    const updatedGroup = applyMembershipChange(baseGroup, change);
+    const groups = serverGroup
       ? sourceGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
       : [...sourceGroups, updatedGroup];
-    const nextPayload = {
-      inheritAcls: snapshot?.inheritAcls ?? true,
-      groups: nextGroups,
-      acls: sourceAcls,
-    };
 
-    setHasLocalEdits(true);
-    setDraftGroups(currentGroups => currentGroups.some(group => group.name === updatedGroup.name)
-      ? currentGroups.map(group => group.name === updatedGroup.name ? updatedGroup : group)
-      : [...currentGroups, updatedGroup]);
-    setPendingMembershipChange(null);
-    lastSubmittedDraftRef.current = null;
-    save(nextPayload);
+    save({
+      inheritAcls: snapshot?.inheritAcls ?? true,
+      groups,
+      acls: sourceAcls,
+    });
+  };
+
+  const selectGroup = (name: string) => {
+    setSelectedGroupName(name);
   };
 
   const addGroup = () => {
@@ -386,35 +383,6 @@ export function AdminGroupsSection() {
           {(loading || registeredUsersLoading) && <div className="admin-loading">Loading groups and registered users...</div>}
         </div>
 
-        {pendingMembershipChange && selectedGroup && (
-          <div className="admin-groups-membership-confirmation" role="status">
-            <span>
-              {pendingMembershipChange.action === 'add' ? 'Add' : 'Remove'}{' '}
-              <strong>{pendingMembershipChange.registeredName}</strong>{' '}
-              {pendingMembershipChange.action === 'add' ? 'to' : 'from'}{' '}
-              <strong>@{selectedGroup.name}</strong>?
-            </span>
-            <div className="admin-groups-membership-confirmation-actions">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                aria-label="Save membership change"
-                onClick={savePendingMembershipChange}
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                aria-label="Cancel membership change"
-                onClick={() => setPendingMembershipChange(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
         <div className="admin-groups-transfer-grid">
           <div className="admin-groups-pane">
             <h4 className="heading-label">Available users</h4>
@@ -436,7 +404,7 @@ export function AdminGroupsSection() {
                       <button
                         type="button"
                         className="btn btn-primary btn-sm admin-groups-transfer-button"
-                        disabled={selectedGroup.inherited}
+                        disabled={selectedGroup.inherited || saving}
                         onClick={() => requestMemberChange('add', user.registrationUserId, user.registeredName)}
                       >
                         Add
@@ -475,7 +443,7 @@ export function AdminGroupsSection() {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm admin-groups-transfer-button"
-                        disabled={selectedGroup.inherited}
+                        disabled={selectedGroup.inherited || saving}
                         onClick={() => requestMemberChange('remove', user.registrationUserId, user.registeredName)}
                       >
                         Remove

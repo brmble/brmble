@@ -1058,7 +1058,9 @@ public class MumbleAdapterParseTests
             using var doc = JsonDocument.Parse(json);
             await NativeBridgeTestHarness.InvokeAsync(bridge, handler, doc.RootElement.Clone());
             var sent = NativeBridgeTestHarness.DrainMessages(bridge);
-            Assert.IsTrue(sent.Any(message => message.Type == "acl.error"), $"Expected acl.error for {handler} and channelId {channelId}");
+            var error = sent.SingleOrDefault(message => message.Type == "acl.error");
+            Assert.AreNotEqual(default, error, $"Expected acl.error for {handler} and channelId {channelId}");
+            StringAssert.Contains(error.DataJson, "Not connected or invalid channel", $"Expected invalid-channel error for {handler} and channelId {channelId}");
             Assert.AreEqual(0, server.Requests.Count, $"Unexpected request for {handler} and channelId {channelId}");
         }
     }
