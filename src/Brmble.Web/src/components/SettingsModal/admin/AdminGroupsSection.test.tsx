@@ -395,6 +395,66 @@ describe('AdminGroupsSection', () => {
     });
   });
 
+  it('does not save unrelated staged ACL edits with a membership change', async () => {
+    const view = renderAdminGroupsSection({
+      aclAdmin: {
+        snapshot: createSnapshot({
+          groups: [{ name: 'Officers', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [] }],
+          acls: [{
+            applyHere: true,
+            applySubs: true,
+            inherited: false,
+            userId: null,
+            group: 'Officers',
+            allow: Permission.Speak,
+            deny: 0,
+          }],
+        }),
+      },
+    });
+
+    fireEvent.click(getCheckbox('Read Channels'));
+    const availableUsersPane = getPaneByHeading('Available users');
+    const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
+    fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
+        groups: [expect.objectContaining({ add: [1], remove: [], members: [1] })],
+        acls: [{
+          applyHere: true,
+          applySubs: true,
+          inherited: false,
+          userId: null,
+          group: 'Officers',
+          allow: Permission.Speak,
+          deny: 0,
+        }],
+      }));
+    });
+
+    setAclAdminState({
+      snapshot: createSnapshot({
+        groups: [{ name: 'Officers', inherited: false, inherit: true, inheritable: true, add: [1], remove: [], members: [1] }],
+        acls: [{
+          applyHere: true,
+          applySubs: true,
+          inherited: false,
+          userId: null,
+          group: 'Officers',
+          allow: Permission.Speak,
+          deny: 0,
+        }],
+      }),
+    });
+    view.rerender(<AdminGroupsSection />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(getCheckbox('Read Channels')).not.toBeChecked();
+    expect(within(getPaneByHeading('Members of "Officers"')).getByText('Alice')).toBeInTheDocument();
+  });
+
   it('shows the available-users pane heading in the operational panel', () => {
     renderOperationalPanelFixture();
 

@@ -273,8 +273,8 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
   const savePendingMembershipChange = () => {
     if (!pendingMembershipChange || !selectedGroup || selectedGroup.inherited) return;
 
-    const existingGroup = draftGroups.find(group => group.name === selectedGroup.name);
-    const baseGroup = existingGroup ?? {
+    const serverGroup = sourceGroups.find(group => group.name === selectedGroup.name);
+    const baseGroup = serverGroup ?? {
       name: selectedGroup.name,
       inherited: false,
       inherit: selectedGroup.inherit,
@@ -284,19 +284,21 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
       members: [...selectedGroup.members],
     };
     const updatedGroup = applyMembershipChange(baseGroup, pendingMembershipChange);
-    const nextGroups = existingGroup
-      ? draftGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
-      : [...draftGroups, updatedGroup];
+    const nextGroups = serverGroup
+      ? sourceGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
+      : [...sourceGroups, updatedGroup];
     const nextPayload = {
       inheritAcls: snapshot?.inheritAcls ?? true,
       groups: nextGroups,
-      acls: draftAcls,
+      acls: sourceAcls,
     };
 
     setHasLocalEdits(true);
-    setDraftGroups(nextGroups);
+    setDraftGroups(currentGroups => currentGroups.some(group => group.name === updatedGroup.name)
+      ? currentGroups.map(group => group.name === updatedGroup.name ? updatedGroup : group)
+      : [...currentGroups, updatedGroup]);
     setPendingMembershipChange(null);
-    lastSubmittedDraftRef.current = JSON.stringify({ groups: nextGroups, acls: draftAcls });
+    lastSubmittedDraftRef.current = null;
     save(nextPayload);
   };
 
