@@ -4159,6 +4159,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var rows = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray();
         _bridge?.Send("voice.usersReset", new { users = rows });
 
+        // Send only enqueues; the caller owns the flush. Both messages are already queued, and
+        // one notify drains the whole queue in order, so this delivers the connect and the
+        // membership that follows it together.
+        _bridge?.NotifyUiThread();
+
         // Voice lifecycle transition: force-release any held input so PTT
         // cannot remain latched across a reconnect (#538).
         _inputRouter?.ReleaseAllHeld();

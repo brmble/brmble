@@ -1,3 +1,5 @@
+import type { CompanionSelection } from '../InterfaceSettingsTypes';
+
 export interface AdminRegisteredUser {
   registrationUserId: number;
   registeredName: string;
@@ -10,7 +12,7 @@ export interface AdminConnectedUser {
   matrixUserId?: string;
   // Both are tri-state on the projection: null means the server has not said yet, which is
   // distinct from a known absence.
-  companionId?: string | null;
+  companionId?: CompanionSelection | null;
   isBrmbleClient?: boolean | null;
 }
 
