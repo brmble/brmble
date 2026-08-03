@@ -16,7 +16,7 @@ vi.mock('../bridge', () => ({
 describe('useCompanionOverlayPublisher', () => {
   it('publishes overlay.sync payload', () => {
     const snapshot = createOverlaySnapshot('7', 'Raid');
-    renderHook(() => useCompanionOverlayPublisher({ ...DEFAULT_OVERLAY, overlayEnabled: true }, snapshot));
+    renderHook(() => useCompanionOverlayPublisher({ ...DEFAULT_OVERLAY, overlayEnabled: true }, snapshot, true));
 
     expect(bridge.send).toHaveBeenCalledWith('overlay.sync', expect.objectContaining({
       enabled: true,
@@ -43,7 +43,7 @@ describe('useCompanionOverlayPublisher', () => {
       liveUserSessions: [42],
     });
 
-    renderHook(() => useCompanionOverlayPublisher({ ...DEFAULT_OVERLAY, overlayEnabled: true }, snapshot));
+    renderHook(() => useCompanionOverlayPublisher({ ...DEFAULT_OVERLAY, overlayEnabled: true }, snapshot, true));
 
     expect(bridge.send).toHaveBeenCalledWith('overlay.sync', expect.objectContaining({
       snapshot: expect.objectContaining({
@@ -52,6 +52,22 @@ describe('useCompanionOverlayPublisher', () => {
           flags: expect.objectContaining({ localMuted: true, liveUserSessions: [42] }),
         }),
       }),
+    }));
+  });
+
+  it('hides the overlay while disconnected even when the setting is enabled', () => {
+    const snapshot = createOverlaySnapshot('7', 'Raid');
+
+    renderHook(() => useCompanionOverlayPublisher(
+      { ...DEFAULT_OVERLAY, overlayEnabled: true },
+      snapshot,
+      false,
+    ));
+
+    expect(bridge.send).toHaveBeenCalledWith('overlay.sync', expect.objectContaining({
+      enabled: false,
+      settings: null,
+      snapshot: null,
     }));
   });
 });

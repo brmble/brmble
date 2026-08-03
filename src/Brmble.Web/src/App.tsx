@@ -1542,7 +1542,7 @@ function App() {
     requestCompanionAtlas,
     users,
   ]);
-  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
+  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot, connected);
   useServerHealth();
 
   // Avatar state and management
