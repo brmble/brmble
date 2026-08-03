@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAclAdmin } from '../../../hooks/useAclAdmin';
-import type { Channel } from '../../../types';
 import { Permission, type AclGroup, type AclRule } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 
@@ -73,11 +72,7 @@ const GROUP_PERMISSION_CATEGORIES: GroupPermissionCategory[] = [
   },
 ];
 
-interface AdminGroupsSectionProps {
-  channels?: Channel[];
-}
-
-export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
+export function AdminGroupsSection() {
   const { snapshot, loading, error, refresh, save } = useAclAdmin(0);
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
   const sourceGroups = snapshot?.groups ?? EMPTY_GROUPS;
@@ -441,6 +436,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-primary btn-sm admin-groups-transfer-button"
+                        disabled={selectedGroup.inherited}
                         onClick={() => requestMemberChange('add', user.registrationUserId, user.registeredName)}
                       >
                         Add
@@ -479,6 +475,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm admin-groups-transfer-button"
+                        disabled={selectedGroup.inherited}
                         onClick={() => requestMemberChange('remove', user.registrationUserId, user.registeredName)}
                       >
                         Remove

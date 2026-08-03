@@ -361,6 +361,22 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPaneAfterRemove).getByText('Bob')).toBeInTheDocument();
   });
 
+  it('disables membership actions for inherited groups', () => {
+    renderAdminGroupsSection({
+      aclAdmin: {
+        snapshot: createSnapshot({
+          groups: [{ name: 'Inherited Officers', inherited: true, inherit: true, inheritable: true, add: [], remove: [], members: [1] }],
+        }),
+      },
+    });
+
+    const availableUsersPane = getPaneByHeading('Available users');
+    const membersPane = getPaneByHeading('Members of "Inherited Officers"');
+
+    expect(within(getUserRow(availableUsersPane, 'Bob')).getByRole('button', { name: 'Add' })).toBeDisabled();
+    expect(within(getUserRow(membersPane, 'Alice')).getByRole('button', { name: 'Remove' })).toBeDisabled();
+  });
+
   it('cancels a pending membership change without moving the user', () => {
     renderAdminGroupsSection();
 
@@ -641,14 +657,14 @@ describe('AdminGroupsSection', () => {
     expect(statusMessage.compareDocumentPosition(transferWorkspaceHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps the root groups editor editable when channels are populated', () => {
+  it('keeps the root groups editor editable', () => {
     setAclAdminState({
       snapshot: createSnapshot({
         groups: [{ name: 'Root Officers', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [] }],
       }),
     });
 
-    render(<AdminGroupsSection channels={[{ id: 5, name: 'General' }]} />);
+    render(<AdminGroupsSection />);
 
     expect(screen.getByRole('button', { name: '@Root Officers' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Group' })).toBeEnabled();
