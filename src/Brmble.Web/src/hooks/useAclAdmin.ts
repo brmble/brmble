@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import bridge from '../bridge';
 import type { AclChannelSnapshot, AclUpdateRequest } from '../types/acl';
 
@@ -75,12 +75,12 @@ export function useAclAdmin(channelId: number | null) {
     };
   }, [channelId]);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     if (channelId == null) return;
     setLoading(true);
     setError(null);
     bridge.send('acl.getChannel', { channelId });
-  };
+  }, [channelId]);
 
   const save = (request: Omit<AclUpdateRequest, 'expectedSnapshotHash'>) => {
     if (channelId == null || !snapshot?.snapshotHash) return;

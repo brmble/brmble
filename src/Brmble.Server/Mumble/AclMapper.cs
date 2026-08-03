@@ -80,6 +80,6 @@ public static class AclMapper
             inheritable: group.Inheritable,
             add: group.Add.ToArray(),
             remove: group.Remove.ToArray(),
-            members: Array.Empty<int>());
+            members: group.Members.ToArray());
     }
 }
