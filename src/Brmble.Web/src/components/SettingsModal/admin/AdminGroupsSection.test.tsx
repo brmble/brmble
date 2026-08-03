@@ -322,6 +322,8 @@ describe('AdminGroupsSection', () => {
     expect(within(initialAvailableUsersPane).getByText('Bob')).toBeInTheDocument();
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('button', { name: 'Save membership change' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     const membersPaneAfterAdd = getPaneByHeading('Members of "Officers"');
     const availableUsersPaneAfterAdd = getPaneByHeading('Available users');
@@ -332,6 +334,8 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPaneAfterAdd).getByText('Bob')).toBeInTheDocument();
 
     fireEvent.click(within(aliceMembersRow).getByRole('button', { name: 'Remove' }));
+    expect(screen.getByRole('button', { name: 'Save membership change' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     const membersPaneAfterRemove = getPaneByHeading('Members of "Officers"');
     const availableUsersPaneAfterRemove = getPaneByHeading('Available users');
@@ -341,6 +345,20 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPaneAfterRemove).getByText('Bob')).toBeInTheDocument();
   });
 
+  it('cancels a pending membership change without moving the user', () => {
+    renderAdminGroupsSection();
+
+    const availableUsersPane = getPaneByHeading('Available users');
+    const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
+
+    fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel membership change' }));
+
+    expect(screen.queryByRole('button', { name: 'Save membership change' })).not.toBeInTheDocument();
+    expect(within(getPaneByHeading('Members of "Officers"')).queryByText('Alice')).not.toBeInTheDocument();
+    expect(within(getPaneByHeading('Available users')).getByText('Alice')).toBeInTheDocument();
+  });
+
   it('persists membership changes through group add and remove lists', async () => {
     renderAdminGroupsSection();
 
@@ -348,7 +366,7 @@ describe('AdminGroupsSection', () => {
     const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
 
     fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
 
     await waitFor(() => {
       expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -465,6 +483,30 @@ describe('AdminGroupsSection', () => {
     expect(screen.getByRole('button', { name: '@Officers' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '@#secret-token' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '@__brmble_password_marker__:#secret-token' })).not.toBeInTheDocument();
+  });
+
+  it('materializes an ACL-only group before staging membership changes', async () => {
+    renderAdminGroupsSection({
+      aclAdmin: {
+        snapshot: createSnapshot({
+          groups: [],
+          acls: [{ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'admin', allow: Permission.Write, deny: 0 }],
+        }),
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '@admin' }));
+    const availableUsersPane = getPaneByHeading('Available users');
+    const aliceAvailableRow = getUserRow(availableUsersPane, 'Alice');
+
+    fireEvent.click(within(aliceAvailableRow).getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save membership change' }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({
+        groups: [expect.objectContaining({ name: 'admin', add: [1], members: [1] })],
+      }));
+    });
   });
 
   it('does not show placeholder groups when no acl snapshot is available', () => {

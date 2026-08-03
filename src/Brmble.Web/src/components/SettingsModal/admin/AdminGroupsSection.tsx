@@ -10,6 +10,12 @@ type DisplayGroup = AclGroup & {
   aclOnly: boolean;
 };
 
+type PendingMembershipChange = {
+  action: 'add' | 'remove';
+  registrationUserId: number;
+  registeredName: string;
+};
+
 interface GroupPermissionOption {
   label: string;
   mask?: number;
@@ -78,6 +84,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
   const [draftAcls, setDraftAcls] = useState<AclRule[]>(sourceAcls);
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const [hasLocalEdits, setHasLocalEdits] = useState(false);
+  const [pendingMembershipChange, setPendingMembershipChange] = useState<PendingMembershipChange | null>(null);
   const lastSubmittedDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -177,14 +184,6 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
     return registeredUsers.filter(user => !selectedGroup.members.includes(user.registrationUserId));
   }, [registeredUsers, selectedGroup]);
 
-  const updateSelectedGroupMembers = (updater: (group: AclGroup) => AclGroup) => {
-    if (!selectedEditableGroup) return;
-    setHasLocalEdits(true);
-    setDraftGroups(currentGroups => currentGroups.map(group => (
-      group.name === selectedEditableGroup.name ? updater(group) : group
-    )));
-  };
-
   const toggleSelectedGroupPermission = (mask: number, checked: boolean) => {
     if (!selectedGroup) return;
 
@@ -238,26 +237,65 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
     });
   };
 
-  const addMember = (registrationUserId: number) => {
-    updateSelectedGroupMembers(group => ({
+  const applyMembershipChange = (group: AclGroup, change: PendingMembershipChange): AclGroup => {
+    if (change.action === 'add') {
+      return {
+        ...group,
+        members: [...new Set([...group.members, change.registrationUserId])].sort((left, right) => left - right),
+        add: group.remove.includes(change.registrationUserId)
+          ? group.add
+          : [...new Set([...group.add, change.registrationUserId])].sort((left, right) => left - right),
+        remove: group.remove.filter(memberId => memberId !== change.registrationUserId),
+      };
+    }
+
+    return {
       ...group,
-      members: [...new Set([...group.members, registrationUserId])].sort((left, right) => left - right),
-      add: group.remove.includes(registrationUserId)
-        ? group.add
-        : [...new Set([...group.add, registrationUserId])].sort((left, right) => left - right),
-      remove: group.remove.filter(memberId => memberId !== registrationUserId),
-    }));
+      members: group.members.filter(memberId => memberId !== change.registrationUserId),
+      add: group.add.filter(memberId => memberId !== change.registrationUserId),
+      remove: group.add.includes(change.registrationUserId)
+        ? group.remove
+        : [...new Set([...group.remove, change.registrationUserId])].sort((left, right) => left - right),
+    };
   };
 
-  const removeMember = (registrationUserId: number) => {
-    updateSelectedGroupMembers(group => ({
-      ...group,
-      members: group.members.filter(memberId => memberId !== registrationUserId),
-      add: group.add.filter(memberId => memberId !== registrationUserId),
-      remove: group.add.includes(registrationUserId)
-        ? group.remove
-        : [...new Set([...group.remove, registrationUserId])].sort((left, right) => left - right),
-    }));
+  const requestMemberChange = (action: PendingMembershipChange['action'], registrationUserId: number, registeredName: string) => {
+    setPendingMembershipChange({ action, registrationUserId, registeredName });
+  };
+
+  const selectGroup = (name: string) => {
+    setSelectedGroupName(name);
+    setPendingMembershipChange(null);
+  };
+
+  const savePendingMembershipChange = () => {
+    if (!pendingMembershipChange || !selectedGroup || selectedGroup.inherited) return;
+
+    const existingGroup = draftGroups.find(group => group.name === selectedGroup.name);
+    const baseGroup = existingGroup ?? {
+      name: selectedGroup.name,
+      inherited: false,
+      inherit: selectedGroup.inherit,
+      inheritable: selectedGroup.inheritable,
+      add: [...selectedGroup.add],
+      remove: [...selectedGroup.remove],
+      members: [...selectedGroup.members],
+    };
+    const updatedGroup = applyMembershipChange(baseGroup, pendingMembershipChange);
+    const nextGroups = existingGroup
+      ? draftGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
+      : [...draftGroups, updatedGroup];
+    const nextPayload = {
+      inheritAcls: snapshot?.inheritAcls ?? true,
+      groups: nextGroups,
+      acls: draftAcls,
+    };
+
+    setHasLocalEdits(true);
+    setDraftGroups(nextGroups);
+    setPendingMembershipChange(null);
+    lastSubmittedDraftRef.current = JSON.stringify({ groups: nextGroups, acls: draftAcls });
+    save(nextPayload);
   };
 
   const addGroup = () => {
@@ -330,7 +368,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
               key={group.name}
               type="button"
               className={`admin-channel-row ${group.name === selectedGroupName ? 'selected' : ''}`}
-              onClick={() => setSelectedGroupName(group.name)}
+              onClick={() => selectGroup(group.name)}
             >
               {getDisplayGroupLabel(group.name)}
             </button>
@@ -348,6 +386,35 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
           {registeredUsersError && <div className="admin-error">{registeredUsersError}</div>}
           {(loading || registeredUsersLoading) && <div className="admin-loading">Loading groups and registered users...</div>}
         </div>
+
+        {pendingMembershipChange && selectedGroup && (
+          <div className="admin-groups-membership-confirmation" role="status">
+            <span>
+              {pendingMembershipChange.action === 'add' ? 'Add' : 'Remove'}{' '}
+              <strong>{pendingMembershipChange.registeredName}</strong>{' '}
+              {pendingMembershipChange.action === 'add' ? 'to' : 'from'}{' '}
+              <strong>@{selectedGroup.name}</strong>?
+            </span>
+            <div className="admin-groups-membership-confirmation-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                aria-label="Save membership change"
+                onClick={savePendingMembershipChange}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                aria-label="Cancel membership change"
+                onClick={() => setPendingMembershipChange(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="admin-groups-transfer-grid">
           <div className="admin-groups-pane">
@@ -370,7 +437,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-primary btn-sm admin-groups-transfer-button"
-                        onClick={() => addMember(user.registrationUserId)}
+                        onClick={() => requestMemberChange('add', user.registrationUserId, user.registeredName)}
                       >
                         Add
                       </button>
@@ -408,7 +475,7 @@ export function AdminGroupsSection(_props: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm admin-groups-transfer-button"
-                        onClick={() => removeMember(user.registrationUserId)}
+                        onClick={() => requestMemberChange('remove', user.registrationUserId, user.registeredName)}
                       >
                         Remove
                       </button>
