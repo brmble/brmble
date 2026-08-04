@@ -551,6 +551,24 @@
   border-color: color-mix(in srgb, var(--accent-danger) 35%, var(--border-subtle));
 }
 
+.admin-groups-membership-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 38%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-overlay));
+}
+
+.admin-groups-membership-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
 .admin-groups-transfer-grid {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) 96px minmax(260px, 1fr);

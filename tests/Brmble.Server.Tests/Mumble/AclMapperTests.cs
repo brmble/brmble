@@ -35,7 +35,7 @@ public class AclMapperTests
     }
 
     [TestMethod]
-    public void ToIce_IgnoresInheritedRulesAndMembersForWrites()
+    public void ToIce_IgnoresInheritedRulesAndDoesNotWriteReadOnlyGroupMembers()
     {
         var request = new AclUpdateRequest(
             InheritAcls: false,

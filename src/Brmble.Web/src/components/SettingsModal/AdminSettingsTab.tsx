@@ -59,7 +59,7 @@ export function AdminSettingsTab({
           </div>
         )}
         {activeTab === 'users' && <AdminUsersSection liveUsers={liveUsers} />}
-        {activeTab === 'groups' && <AdminGroupsSection channels={channels} />}
+        {activeTab === 'groups' && <AdminGroupsSection />}
         {activeTab === 'moderation' && (
           <AdminModerationSection
             customCompanions={customCompanions}
