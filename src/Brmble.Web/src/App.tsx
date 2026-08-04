@@ -1542,7 +1542,7 @@ function App() {
     requestCompanionAtlas,
     users,
   ]);
-  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
+  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot, connected);
   useServerHealth();
 
   // Avatar state and management
@@ -5092,6 +5092,7 @@ const handleConnect = (serverData: SavedServer) => {
         customCompanionGallery={customCompanionGallery}
         customCompanionMatrixClient={matrixClient.client ?? undefined}
         onCustomCompanionAtlasRequest={requestSettingsCompanionAtlas}
+        selectedCompanion={requestedLocalCompanion}
         liveUsers={users}
         channels={channels}
         onChannelsChange={setChannels}
