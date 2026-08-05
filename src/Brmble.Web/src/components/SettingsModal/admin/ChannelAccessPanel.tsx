@@ -105,37 +105,43 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
             <li key={group.name} className="channel-access-group-row">
               <span className="channel-access-group-name">@{group.name}</span>
               <div className="channel-access-group-controls">
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    aria-label={`${group.name} Speak`}
-                    checked={(group.allow & Permission.Speak) !== 0}
-                    onChange={event => updateGroupPermission(group.name, Permission.Speak, event.target.checked)}
-                  />
-                  <span className="brmble-toggle-slider" />
+                <span className="channel-access-permission-control">
+                  <label className="brmble-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`${group.name} Speak`}
+                      checked={(group.allow & Permission.Speak) !== 0}
+                      onChange={event => updateGroupPermission(group.name, Permission.Speak, event.target.checked)}
+                    />
+                    <span className="brmble-toggle-slider" />
+                  </label>
                   <span>Speak</span>
-                </label>
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    aria-label={`${group.name} Write`}
-                    checked={(group.allow & Permission.TextMessage) !== 0}
-                    onChange={event => updateGroupPermission(group.name, Permission.TextMessage, event.target.checked)}
-                  />
-                  <span className="brmble-toggle-slider" />
+                </span>
+                <span className="channel-access-permission-control">
+                  <label className="brmble-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`${group.name} Write`}
+                      checked={(group.allow & Permission.TextMessage) !== 0}
+                      onChange={event => updateGroupPermission(group.name, Permission.TextMessage, event.target.checked)}
+                    />
+                    <span className="brmble-toggle-slider" />
+                  </label>
                   <span>Write</span>
-                </label>
-                <label className="brmble-toggle">
-                  <input
-                    type="checkbox"
-                    aria-label={`${group.name} Enter`}
-                    checked={(group.allow & Permission.Enter) !== 0}
-                    onChange={event => updateGroupPermission(group.name, Permission.Enter, event.target.checked)}
-                  />
-                  <span className="brmble-toggle-slider" />
+                </span>
+                <span className="channel-access-permission-control">
+                  <label className="brmble-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`${group.name} Enter`}
+                      checked={(group.allow & Permission.Enter) !== 0}
+                      onChange={event => updateGroupPermission(group.name, Permission.Enter, event.target.checked)}
+                    />
+                    <span className="brmble-toggle-slider" />
+                  </label>
                   <span>Enter</span>
-                </label>
-                <button type="button" onClick={() => removeGroup(group.name)}>Remove {group.name}</button>
+                </span>
+                <button type="button" className="btn btn-danger btn-sm" onClick={() => removeGroup(group.name)}>Remove {group.name}</button>
               </div>
             </li>
           ))}

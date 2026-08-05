@@ -108,6 +108,7 @@ describe('ChannelAccessPanel', () => {
     expect(screen.getByRole('checkbox', { name: 'Hunters Speak' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Hunters Write' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Hunters Enter' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Hunters Speak' }).closest('label')).not.toHaveTextContent('Speak');
   });
 
   it('starts a newly added group with all visible permissions checked and saves toggles', () => {
@@ -132,7 +133,9 @@ describe('ChannelAccessPanel', () => {
 
   it('removes an assigned group row', () => {
     render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Hunters' }));
+    const removeButton = screen.getByRole('button', { name: 'Remove Hunters' });
+    expect(removeButton).toHaveClass('btn-danger', 'btn-sm');
+    fireEvent.click(removeButton);
     expect(screen.queryByText('@Hunters')).not.toBeInTheDocument();
   });
 

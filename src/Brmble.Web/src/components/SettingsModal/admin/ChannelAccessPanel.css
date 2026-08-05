@@ -45,7 +45,7 @@
   gap: 0.75rem;
 }
 
-.channel-access-group-controls label {
+.channel-access-permission-control {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
