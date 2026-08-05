@@ -35,7 +35,8 @@ export interface SimpleChannelAccessDraft {
 }
 
 const isExactJoinAllow = (rule: AclRule) => (
-  rule.applyHere && !rule.applySubs && rule.allow === CHANNEL_ENTRY_PERMISSIONS && rule.deny === 0
+  rule.applyHere && (rule.inherited ? rule.applySubs : !rule.applySubs)
+  && rule.allow === CHANNEL_ENTRY_PERMISSIONS && rule.deny === 0
 );
 
 const isManagedGate = (rule: AclRule) => (
@@ -139,7 +140,7 @@ export function replaceManagedPassword(acls: AclRule[], password: string): AclRu
 
 function isSimpleGroupRule(rule: AclRule, knownGroups: ReadonlySet<string>) {
   return rule.userId == null && rule.group != null && knownGroups.has(rule.group)
-    && rule.applyHere && !rule.applySubs && rule.deny === 0
+    && rule.applyHere && (rule.inherited ? rule.applySubs : !rule.applySubs) && rule.deny === 0
     && (rule.allow & ~SIMPLE_GROUP_PERMISSIONS) === 0;
 }
 

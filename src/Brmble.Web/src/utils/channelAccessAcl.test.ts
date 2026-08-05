@@ -40,14 +40,25 @@ describe('readSimpleChannelAccess', () => {
     const result = readSimpleChannelAccess(snapshot([
       localRule({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }),
       localRule({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS }),
-      localRule({ group: 'Teachers', allow: CHANNEL_ENTRY_PERMISSIONS, inherited: true }),
-      localRule({ userId: 77, allow: CHANNEL_ENTRY_PERMISSIONS, inherited: true }),
+      localRule({ group: 'Teachers', allow: CHANNEL_ENTRY_PERMISSIONS, applySubs: true, inherited: true }),
+      localRule({ userId: 77, allow: CHANNEL_ENTRY_PERMISSIONS, applySubs: true, inherited: true }),
     ]), new Set(['Classleaders', 'Teachers']));
 
     expect(result.localGroups).toEqual([{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }]);
     expect(result.inheritedGroupNames).toEqual(['Teachers']);
     expect(result.localUserIds).toEqual([42]);
     expect(result.inheritedUserIds).toEqual([77]);
+  });
+
+  it('keeps a local apply-to-subchannels rule advanced', () => {
+    const result = readSimpleChannelAccess(snapshot([
+      localRule({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS, applySubs: true }),
+      localRule({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS, applySubs: true }),
+    ]), new Set(['Classleaders']));
+
+    expect(result.localGroups).toEqual([]);
+    expect(result.localUserIds).toEqual([]);
+    expect(result.hasAdvancedRules).toBe(true);
   });
 
   it('reads supported permissions from an exact local group rule', () => {
