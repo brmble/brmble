@@ -123,12 +123,51 @@ describe('replaceManagedPassword', () => {
     const result = replaceManagedPassword([groupGrant, localRule({ group: '#invite', allow: Permission.Enter })], 'class-a');
 
     expect(result.map(rule => rule.group)).toEqual([
-      '#invite', 'all', '#class-a', `${PASSWORD_MARKER_PREFIX}#class-a`, 'Classleaders',
+      'all', '#class-a', `${PASSWORD_MARKER_PREFIX}#class-a`, 'Classleaders', '#invite',
     ]);
   });
 });
 
 describe('mergeSimpleChannelAccess', () => {
+  it('keeps an advanced deny after the managed grant it originally followed', () => {
+    const advancedDeny = localRule({ group: 'Classleaders', deny: Permission.Enter });
+    const result = mergeSimpleChannelAccess(snapshot([
+      localRule({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }),
+      advancedDeny,
+    ]), new Set(['Classleaders']), {
+      groups: [{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }],
+      userIds: [],
+      password: '',
+    });
+
+    expect(result.acls.map(rule => rule.group)).toEqual([
+      'all', 'Classleaders', 'Classleaders',
+    ]);
+    expect(result.acls[1]).toEqual(expect.objectContaining({
+      group: 'Classleaders',
+      allow: CHANNEL_ENTRY_PERMISSIONS,
+      deny: 0,
+    }));
+    expect(result.acls[2]).toBe(advancedDeny);
+  });
+
+  it('keeps an advanced deny after the managed grant when adding a password', () => {
+    const advancedDeny = localRule({ group: 'Classleaders', deny: Permission.Enter });
+    const result = mergeSimpleChannelAccess(snapshot([
+      localRule({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }),
+      advancedDeny,
+    ]), new Set(['Classleaders']), {
+      groups: [{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }],
+      userIds: [],
+      password: 'class-a',
+    });
+
+    expect(result.acls.map(rule => rule.group)).toEqual([
+      'all', '#class-a', `${PASSWORD_MARKER_PREFIX}#class-a`, 'Classleaders', 'Classleaders',
+    ]);
+    expect(result.acls[4]).toBe(advancedDeny);
+  });
+
   it('preserves advanced rules and adds the exact managed gate and grants', () => {
     const advanced = localRule({ group: '#invite', allow: Permission.Enter });
     const result = mergeSimpleChannelAccess(snapshot([advanced]), new Set(['Classleaders']), {

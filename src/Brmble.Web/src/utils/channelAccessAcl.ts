@@ -72,6 +72,18 @@ interface ManagedPasswordBlock {
   indexes: number[];
 }
 
+const managedEntryKey = (rule: AclRule): string | null => {
+  if (rule.userId != null && rule.group == null) return `user:${rule.userId}`;
+  if (rule.userId == null && rule.group != null) return `group:${rule.group}`;
+  return null;
+};
+
+const createPasswordBlock = (selector: string): AclRule[] => [
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: PASSWORD_DENY_PERMISSIONS },
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: selector, allow: PASSWORD_TOKEN_PERMISSIONS, deny: 0 },
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: `${PASSWORD_MARKER_PREFIX}${selector}`, allow: 0, deny: 0 },
+];
+
 function managedPasswordBlocks(acls: AclRule[]): ManagedPasswordBlock[] {
   return acls.flatMap((marker, markerIndex): ManagedPasswordBlock[] => {
     const selector = passwordMarkerSelector(marker);
@@ -102,20 +114,27 @@ const isManagedLocalEntryGrant = (rule: AclRule) => {
 
 export function replaceManagedPassword(acls: AclRule[], password: string): AclRule[] {
   const managedIndexes = new Set(managedPasswordBlocks(acls).flatMap(block => block.indexes));
-  const preserved = acls.filter((_, index) => !managedIndexes.has(index));
   const normalized = password.trim().replace(/^#/, '');
-  if (!normalized) return preserved;
+  if (!normalized) return acls.filter((_, index) => !managedIndexes.has(index));
 
   const selector = `#${normalized}`;
-  const passwordBlock: AclRule[] = [
-    { applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: PASSWORD_DENY_PERMISSIONS },
-    { applyHere: true, applySubs: false, inherited: false, userId: null, group: selector, allow: PASSWORD_TOKEN_PERMISSIONS, deny: 0 },
-    { applyHere: true, applySubs: false, inherited: false, userId: null, group: `${PASSWORD_MARKER_PREFIX}${selector}`, allow: 0, deny: 0 },
-  ];
-
-  const passthrough = preserved.filter(rule => !isManagedLocalEntryGrant(rule));
-  const entryGrants = preserved.filter(isManagedLocalEntryGrant);
-  return [...passthrough, ...passwordBlock, ...entryGrants];
+  const passwordBlock = createPasswordBlock(selector);
+  const blockStart = managedPasswordBlocks(acls)
+    .flatMap(block => block.indexes)
+    .reduce((first, index) => Math.min(first, index), Number.POSITIVE_INFINITY);
+  const firstGrant = acls.findIndex(isManagedLocalEntryGrant);
+  const insertionIndex = Number.isFinite(blockStart) ? blockStart : firstGrant >= 0 ? firstGrant : acls.length;
+  const result: AclRule[] = [];
+  let inserted = false;
+  acls.forEach((rule, index) => {
+    if (!inserted && index === insertionIndex) {
+      result.push(...passwordBlock);
+      inserted = true;
+    }
+    if (!managedIndexes.has(index)) result.push(rule);
+  });
+  if (!inserted) result.push(...passwordBlock);
+  return result;
 }
 
 function isSimpleGroupRule(rule: AclRule, knownGroups: ReadonlySet<string>) {
@@ -173,11 +192,9 @@ export function mergeSimpleChannelAccess(
   draft: SimpleChannelAccessDraft,
 ): Pick<AclUpdateRequest, 'inheritAcls' | 'groups' | 'acls'> {
   const managedPasswordIndexes = new Set(managedPasswordBlocks(snapshot.acls).flatMap(block => block.indexes));
-  const preserved = snapshot.acls.filter((rule, index) => {
-    if (rule.inherited || isManagedGate(rule) || managedPasswordIndexes.has(index)) return false;
-    if (isSimpleGroupRule(rule, knownRootGroupNames) || isSimpleUserRule(rule)) return false;
-    return true;
-  });
+  const managedPasswordStart = managedPasswordBlocks(snapshot.acls)
+    .flatMap(block => block.indexes)
+    .reduce((first, index) => Math.min(first, index), Number.POSITIVE_INFINITY);
 
   const groups = [...new Map(draft.groups
     .map(group => [group.name, { name: group.name, allow: group.allow & SIMPLE_GROUP_PERMISSIONS }] as const))
@@ -201,9 +218,62 @@ export function mergeSimpleChannelAccess(
   })));
   managed.push(...userIds.map(userId => ({ applyHere: true, applySubs: false, inherited: false, userId, group: null, allow: CHANNEL_ENTRY_PERMISSIONS, deny: 0 })));
 
+  const managedEntryRules = managed.filter(rule => !isManagedGate(rule) && managedEntryKey(rule) != null);
+  const managedByKey = new Map(managedEntryRules
+    .map(rule => [managedEntryKey(rule)!, rule] as const));
+  const usedManagedKeys = new Set<string>();
+  const acls: AclRule[] = [];
+  let insertedPassword = false;
+  let retainedGate = false;
+
+  snapshot.acls.forEach((rule, index) => {
+    if (rule.inherited) return;
+    if (managedPasswordIndexes.has(index)) {
+      if (!insertedPassword && index === managedPasswordStart && password) {
+        acls.push(...createPasswordBlock(`#${password}`));
+        insertedPassword = true;
+      }
+      return;
+    }
+    if (isManagedGate(rule)) {
+      if (!password && managed.length > 0 && !retainedGate) {
+        acls.push(rule);
+        retainedGate = true;
+      }
+      return;
+    }
+    if (isSimpleGroupRule(rule, knownRootGroupNames) || isSimpleUserRule(rule)) {
+      const key = managedEntryKey(rule);
+      const replacement = key == null ? undefined : managedByKey.get(key);
+      if (replacement && key != null && !usedManagedKeys.has(key)) {
+        if (password && !insertedPassword) {
+          acls.push(...createPasswordBlock(`#${password}`));
+          insertedPassword = true;
+        } else if (!password && managed.length > 0 && !retainedGate) {
+          acls.push({ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: CHANNEL_ENTRY_PERMISSIONS });
+          retainedGate = true;
+        }
+        acls.push(replacement);
+        usedManagedKeys.add(key);
+      }
+      return;
+    }
+    acls.push(rule);
+  });
+
+  const newManaged = managedEntryRules.filter(rule => {
+    const key = managedEntryKey(rule);
+    return key == null || !usedManagedKeys.has(key);
+  });
+  if (password && !insertedPassword) acls.push(...createPasswordBlock(`#${password}`));
+  if (!password && managed.length > 0 && !retainedGate) {
+    acls.push({ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: CHANNEL_ENTRY_PERMISSIONS });
+  }
+  acls.push(...newManaged);
+
   return {
     inheritAcls: snapshot.inheritAcls,
     groups: snapshot.groups.filter(group => !group.inherited),
-    acls: replaceManagedPassword([...preserved, ...managed], password),
+    acls,
   };
 }
