@@ -156,6 +156,32 @@ describe('Admin workspace sections', () => {
     expect(screen.queryByTestId('channel-access-panel-7')).not.toBeInTheDocument();
   });
 
+  it('expands and collapses channel access settings when the channel row is clicked', () => {
+    render(<AdminChannelsSection channels={[{ id: 7, name: 'ChannelA', description: 'Class A voice', position: 0 }]} />);
+
+    const row = screen.getByRole('row', { name: 'ChannelA Position 0' });
+    expect(screen.queryByTestId('channel-access-panel-7')).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(screen.getByTestId('channel-access-panel-7')).toHaveTextContent('Class A voice');
+    expect(screen.getByRole('button', { name: 'Collapse ChannelA access settings' })).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(row);
+    expect(screen.queryByTestId('channel-access-panel-7')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand ChannelA access settings' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('places the channel name on the left and the disclosure arrow on the right', () => {
+    render(<AdminChannelsSection channels={[{ id: 7, name: 'ChannelA', position: 4 }]} />);
+
+    const row = screen.getByRole('row', { name: 'ChannelA Position 4' });
+    const expand = screen.getByRole('button', { name: 'Expand ChannelA access settings' });
+
+    expect(row.firstElementChild).toHaveClass('admin-channel-row-name');
+    expect(row.lastElementChild).toBe(expand);
+    expect(row).toContainElement(screen.getByText('Position 4'));
+  });
+
   it('opens the existing ACL editor from the expanded panel', () => {
     render(<AdminChannelsSection channels={[{ id: 7, name: 'ChannelA', description: '' }]} />);
 
@@ -355,6 +381,7 @@ describe('Admin workspace sections', () => {
     fireEvent.contextMenu(screen.getByRole('row', { name: 'General Position 2' }));
 
     expect(screen.getByTestId('admin-channel-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('channel-access-panel-7')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit Channel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit Permissions' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Channel' })).toBeInTheDocument();

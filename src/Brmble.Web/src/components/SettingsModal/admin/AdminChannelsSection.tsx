@@ -113,6 +113,10 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
               const isExpandable = channel.id !== 0;
               const isExpanded = isExpandable && expandedChannelId === channel.id;
               const parentName = orderedChannels.find(candidate => candidate.id === channel.parent)?.name ?? 'No parent';
+              const toggleChannelExpansion = () => {
+                if (!isExpandable) return;
+                setExpandedChannelId(current => current === channel.id ? null : channel.id);
+              };
 
               return (
                 <Fragment key={channel.id}>
@@ -129,7 +133,10 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                   aria-label={`${channel.name} Position ${channel.position ?? 0}`}
                   tabIndex={0}
                   draggable={channel.id !== 0}
-                  onClick={() => setSelectedChannelId(channel.id)}
+                  onClick={() => {
+                    setSelectedChannelId(channel.id);
+                    toggleChannelExpansion();
+                  }}
                   onContextMenu={event => {
                     event.preventDefault();
                     setSelectedChannelId(channel.id);
@@ -142,6 +149,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
 
                     event.preventDefault();
                     setSelectedChannelId(channel.id);
+                    toggleChannelExpansion();
                   }}
                   onDragStart={event => {
                     setRecentlyMovedChannelId(null);
@@ -211,6 +219,8 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                     setDropTargetId(null);
                   }}
                 >
+                  <span className="admin-channel-row-name">{channel.name}</span>
+                  <span className="admin-channel-position-pill">Position {channel.position ?? 0}</span>
                   {isExpandable ? (
                     <button
                       type="button"
@@ -220,7 +230,8 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                       aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${channel.name} access settings`}
                       onClick={event => {
                         event.stopPropagation();
-                        setExpandedChannelId(current => current === channel.id ? null : channel.id);
+                        setSelectedChannelId(channel.id);
+                        toggleChannelExpansion();
                       }}
                     >
                       <span aria-hidden="true">{isExpanded ? '▾' : '▸'}</span>
@@ -228,8 +239,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                   ) : (
                     <span className="admin-channel-root-access-note">Group access managed in Groups</span>
                   )}
-                  <span className="admin-channel-row-name">{channel.name}</span>
-                  <span className="admin-channel-position-pill">Position {channel.position ?? 0}</span>
                 </div>
                 {isExpandable && isExpanded && (
                   <div id={`channel-access-${channel.id}`}>
