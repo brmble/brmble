@@ -255,6 +255,9 @@ export function AdminGroupsSection() {
       ? sourceGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
       : [...sourceGroups, updatedGroup];
 
+    setDraftGroups(currentGroups => currentGroups.map(group => (
+      group.name === updatedGroup.name ? updatedGroup : group
+    )));
     save({
       inheritAcls: snapshot?.inheritAcls ?? true,
       groups,

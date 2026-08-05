@@ -396,7 +396,7 @@ describe('AdminGroupsSection', () => {
     expect(within(availableUsersPane).queryByText('Alice')).not.toBeInTheDocument();
   });
 
-  it('submits a confirmed membership change without optimistically moving the user', async () => {
+  it('shows a confirmed membership change immediately while saving', async () => {
     confirmSpy.mockResolvedValue(true);
     renderAdminGroupsSection();
 
@@ -420,8 +420,8 @@ describe('AdminGroupsSection', () => {
     const membersPaneAfterAdd = getPaneByHeading('Members of "Officers"');
     const availableUsersPaneAfterAdd = getPaneByHeading('Available users');
 
-    expect(within(membersPaneAfterAdd).queryByText('Alice')).not.toBeInTheDocument();
-    expect(within(availableUsersPaneAfterAdd).getByText('Alice')).toBeInTheDocument();
+    expect(within(membersPaneAfterAdd).getByText('Alice')).toBeInTheDocument();
+    expect(within(availableUsersPaneAfterAdd).queryByText('Alice')).not.toBeInTheDocument();
     expect(within(availableUsersPaneAfterAdd).getByText('Bob')).toBeInTheDocument();
   });
 
