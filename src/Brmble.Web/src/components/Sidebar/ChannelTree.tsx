@@ -516,10 +516,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           const savedPassword = await getSavedChannelPassword(channelContextMenu.channelId);
           const password = await prompt({
             title: 'Saved Channel Password',
-            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password. Save and reconnect to authenticate changes.`,
+            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password.`,
             placeholder: 'Password',
             defaultValue: savedPassword,
-            confirmLabel: 'Save & reconnect',
+            confirmLabel: 'Save',
             cancelLabel: 'Cancel',
             isPassword: true,
           });
@@ -534,7 +534,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             channelName: channelContextMenu.channelName,
             password,
           });
-          bridge.send('voice.reconnect', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
         },
       });
