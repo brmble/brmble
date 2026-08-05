@@ -140,7 +140,7 @@ describe('replaceManagedPassword', () => {
 });
 
 describe('mergeSimpleChannelAccess', () => {
-  it('keeps an advanced deny after the managed grant it originally followed', () => {
+  it('keeps an advanced deny after the managed grant it originally followed without adding a gate', () => {
     const advancedDeny = localRule({ group: 'Classleaders', deny: Permission.Enter });
     const result = mergeSimpleChannelAccess(snapshot([
       localRule({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }),
@@ -152,14 +152,14 @@ describe('mergeSimpleChannelAccess', () => {
     });
 
     expect(result.acls.map(rule => rule.group)).toEqual([
-      'all', 'Classleaders', 'Classleaders',
+      'Classleaders', 'Classleaders',
     ]);
-    expect(result.acls[1]).toEqual(expect.objectContaining({
+    expect(result.acls[0]).toEqual(expect.objectContaining({
       group: 'Classleaders',
       allow: CHANNEL_ENTRY_PERMISSIONS,
       deny: 0,
     }));
-    expect(result.acls[2]).toBe(advancedDeny);
+    expect(result.acls[1]).toBe(advancedDeny);
   });
 
   it('keeps an advanced deny after the managed grant when adding a password', () => {
@@ -179,7 +179,7 @@ describe('mergeSimpleChannelAccess', () => {
     expect(result.acls[4]).toBe(advancedDeny);
   });
 
-  it('preserves advanced rules and adds the exact managed gate and grants', () => {
+  it('writes a new managed gate before an existing advanced entry allow', () => {
     const advanced = localRule({ group: '#invite', allow: Permission.Enter });
     const result = mergeSimpleChannelAccess(snapshot([advanced]), new Set(['Classleaders']), {
       groups: [{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }],
@@ -187,13 +187,43 @@ describe('mergeSimpleChannelAccess', () => {
       password: '',
     });
 
-    expect(result.acls[0]).toEqual(advanced);
-    expect(result.acls).toContainEqual(expect.objectContaining({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS }));
-    expect(result.acls).toContainEqual(expect.objectContaining({ group: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }));
-    expect(result.acls).toContainEqual(expect.objectContaining({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS }));
+    expect(result.acls.map(rule => rule.group ?? rule.userId)).toEqual([
+      'all', '#invite', 'Classleaders', 42,
+    ]);
+    expect(result.acls[0]).toEqual(expect.objectContaining({
+      group: 'all',
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    }));
+    expect(result.acls[1]).toBe(advanced);
   });
 
-  it('preserves an unmarked entry gate when advanced invite rules are present', () => {
+  it('writes a new password block before an existing advanced entry allow', () => {
+    const advancedAllow = localRule({ group: '#invite', allow: Permission.Enter });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([advancedAllow]),
+      new Set(),
+      {
+        groups: [],
+        userIds: [],
+        password: 'class-a',
+      },
+    );
+
+    expect(result.acls.map(rule => rule.group)).toEqual([
+      'all',
+      '#class-a',
+      `${PASSWORD_MARKER_PREFIX}#class-a`,
+      '#invite',
+    ]);
+    expect(result.acls[0]).toEqual(expect.objectContaining({
+      group: 'all',
+      deny: PASSWORD_DENY_PERMISSIONS,
+    }));
+    expect(result.acls[3]).toBe(advancedAllow);
+  });
+
+  it('removes the managed gate when advanced invite rules are present but no entries remain', () => {
     const gate = localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS });
     const invite = localRule({ group: '#invite-token', allow: Permission.Enter });
     const result = mergeSimpleChannelAccess(snapshot([gate, invite]), new Set(), {
@@ -202,7 +232,92 @@ describe('mergeSimpleChannelAccess', () => {
       password: '',
     });
 
-    expect(result.acls).toEqual([gate, invite]);
+    expect(result.acls).toEqual([invite]);
+  });
+
+  it('does not create a gate when an unchanged open group rule only grants speak', () => {
+    const speakOnly = localRule({ group: 'Moderators', allow: Permission.Speak });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([speakOnly]),
+      new Set(['Moderators']),
+      {
+        groups: [{ name: 'Moderators', allow: Permission.Speak }],
+        userIds: [],
+        password: '',
+      },
+    );
+
+    expect(result.acls).toEqual([speakOnly]);
+    expect(result.acls).not.toContainEqual(expect.objectContaining({
+      group: 'all',
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    }));
+  });
+
+  it('does not create a gate for an unchanged redundant direct-user grant on an open channel', () => {
+    const userGrant = localRule({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([userGrant]),
+      new Set(),
+      {
+        groups: [],
+        userIds: [42],
+        password: '',
+      },
+    );
+
+    expect(result.acls).toEqual([userGrant]);
+    expect(result.acls).not.toContainEqual(expect.objectContaining({
+      group: 'all',
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    }));
+  });
+
+  it('removes the managed gate when the last group is removed', () => {
+    const gate = localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS });
+    const groupGrant = localRule({ group: 'Moderators', allow: CHANNEL_ENTRY_PERMISSIONS });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([gate, groupGrant]),
+      new Set(['Moderators']),
+      {
+        groups: [],
+        userIds: [],
+        password: '',
+      },
+    );
+
+    expect(result.acls).toEqual([]);
+  });
+
+  it('creates a gate when an entry grant is intentionally added to an open channel', () => {
+    const speakOnly = localRule({ group: 'Moderators', allow: Permission.Speak });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([speakOnly]),
+      new Set(['Moderators']),
+      {
+        groups: [{
+          name: 'Moderators',
+          allow: Permission.Speak | CHANNEL_ENTRY_PERMISSIONS,
+        }],
+        userIds: [],
+        password: '',
+      },
+    );
+
+    expect(result.acls).toContainEqual(expect.objectContaining({
+      group: 'all',
+      allow: 0,
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    }));
+    expect(result.acls).toContainEqual(expect.objectContaining({
+      group: 'Moderators',
+      allow: Permission.Speak | CHANNEL_ENTRY_PERMISSIONS,
+      deny: 0,
+    }));
   });
 
   it('merges group masks while preserving unrelated ACL rules', () => {
@@ -243,7 +358,6 @@ describe('mergeSimpleChannelAccess', () => {
       localRule({ group: 'custom', deny: Permission.Kick }),
     ]), new Set(), { groups: [], userIds: [], password: '' });
     expect(cleared.acls).toEqual([
-      expect.objectContaining({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS }),
       expect.objectContaining({ group: 'custom', deny: Permission.Kick }),
     ]);
   });
