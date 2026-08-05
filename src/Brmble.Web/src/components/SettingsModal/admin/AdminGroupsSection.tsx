@@ -6,6 +6,11 @@ import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 
 const EMPTY_GROUPS: AclGroup[] = [];
 const EMPTY_ACLS: AclRule[] = [];
+const RESERVED_MUMBLE_GROUP_NAMES = new Set(['all', 'auth', 'in', 'out', 'sub']);
+
+const isReservedMumbleGroupName = (name: string) => (
+  RESERVED_MUMBLE_GROUP_NAMES.has(name) || ['#', '$', '!', '~'].includes(name[0] ?? '')
+);
 
 type PendingMembershipChange = {
   action: 'add' | 'remove';
@@ -272,13 +277,13 @@ export function AdminGroupsSection() {
   const addGroup = async () => {
     const requestedName = await prompt({
       title: 'Create group',
-      message: 'Create an inheritable Mumble group on the root channel.',
+      message: 'Create an inheritable Mumble group on the root channel. Names such as all, auth, in, out, sub, or names beginning with #, $, !, or ~ are reserved by Mumble.',
       placeholder: 'Classleaders',
       confirmLabel: 'Create',
       cancelLabel: 'Cancel',
     });
     const name = requestedName?.trim();
-    if (!name || sourceGroups.some(group => group.name === name)) return;
+    if (!name || isReservedMumbleGroupName(name) || sourceGroups.some(group => group.name === name)) return;
 
     setHasLocalEdits(true);
     setDraftGroups(current => [...current, {

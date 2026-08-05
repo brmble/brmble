@@ -229,6 +229,15 @@ describe('AdminGroupsSection', () => {
     })));
   });
 
+  it('does not stage reserved Mumble selector syntax as a group name', async () => {
+    renderAdminGroupsSection({ aclAdmin: { snapshot: createSnapshot({ groups: [], acls: [] }) } });
+    promptSpy.mockResolvedValue('all');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: '@all' })).not.toBeInTheDocument());
+  });
+
   it('preserves hidden local non-inheritable groups in replacement saves', async () => {
     const hiddenGroup = { name: 'RootLocalOnly', inherited: false, inherit: true, inheritable: false, add: [], remove: [], members: [77] };
     renderAdminGroupsSection({
