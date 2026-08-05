@@ -64,6 +64,13 @@ describe('ChannelAccessPanel', () => {
     expect(screen.getByLabelText('Channel password — visible to administrators')).toBeInTheDocument();
   });
 
+  it('styles add group and add user as shared secondary buttons', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+
+    expect(screen.getByRole('button', { name: 'Add group' })).toHaveClass('btn', 'btn-secondary', 'btn-sm');
+    expect(screen.getByRole('button', { name: 'Add user' })).toHaveClass('btn', 'btn-secondary', 'btn-sm');
+  });
+
   it('assigns a root group and registered user then saves one merged ACL update', () => {
     render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Group to add' }));

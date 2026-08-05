@@ -157,7 +157,7 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
               .map(group => ({ value: group.name, label: group.name }))}
           />
         </label>
-        <button type="button" disabled={!groupToAdd} onClick={() => {
+        <button type="button" className="btn btn-secondary btn-sm" disabled={!groupToAdd} onClick={() => {
           setDraft(current => ({
             ...current,
             groups: [...current.groups, { name: groupToAdd, allow: SIMPLE_GROUP_PERMISSIONS }]
@@ -190,7 +190,7 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
               .map(user => ({ value: String(user.registrationUserId), label: user.registeredName }))}
           />
         </label>
-        <button type="button" disabled={!userToAdd} onClick={() => {
+        <button type="button" className="btn btn-secondary btn-sm" disabled={!userToAdd} onClick={() => {
           const registrationUserId = Number.parseInt(userToAdd, 10);
           setDraft(current => ({ ...current, userIds: [...new Set([...current.userIds, registrationUserId])].sort((a, b) => a - b) }));
           setUserToAdd('');
