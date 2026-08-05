@@ -1338,7 +1338,8 @@ function App() {
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin'>('profile');
+  const [requestedAdminChannelId, setRequestedAdminChannelId] = useState<number | undefined>();
   const [requestChannelOpen, setRequestChannelOpen] = useState(false);
   const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
@@ -4895,6 +4896,11 @@ const handleConnect = (serverData: SavedServer) => {
           currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
+          onOpenChannelPermissions={(channelId) => {
+            setRequestedAdminChannelId(channelId);
+            setSettingsTab('admin');
+            setShowSettings(true);
+          }}
           onSelectServer={handleSelectServer}
           isServerChatActive={currentChannelId === 'server-root'}
           serverLabel={serverLabel}
@@ -5080,6 +5086,7 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         initialTab={settingsTab}
+        initialAdminChannelId={requestedAdminChannelId}
         username={username}
         connected={connected}
         currentUser={{ name: username || 'Unknown', matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}

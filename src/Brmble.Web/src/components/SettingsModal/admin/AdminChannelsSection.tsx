@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import '../AdminSettingsTab.css';
-import { AclEditorDialog } from '../../../components/AclEditor/AclEditorDialog';
 import { ContextMenu } from '../../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../../ContextMenu/ContextMenu';
 import { EditChannelDialog } from '../../EditChannelDialog/EditChannelDialog';
@@ -19,19 +18,20 @@ import {
 interface AdminChannelsSectionProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
+  initialChannelId?: number;
 }
 
-export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminChannelsSectionProps) {
+export function AdminChannelsSection({ channels = [], onChannelsChange, initialChannelId }: AdminChannelsSectionProps) {
   const [draftChannels, setDraftChannels] = useState<Channel[]>(() => getOrderedChannels(channels));
-  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(channels[0]?.id ?? null);
-  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(initialChannelId ?? channels[0]?.id ?? null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; channelId: number } | null>(null);
   const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const [draggedChannelId, setDraggedChannelId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
   const [recentlyMovedChannelId, setRecentlyMovedChannelId] = useState<number | null>(null);
-  const [expandedChannelId, setExpandedChannelId] = useState<number | null>(null);
+  const [expandedChannelId, setExpandedChannelId] = useState<number | null>(initialChannelId ?? null);
   const recentlyMovedTimeoutRef = useRef<number | null>(null);
+  const appliedInitialChannelIdRef = useRef<number | undefined>(undefined);
   const orderedChannels = getOrderedChannels(draftChannels);
   const contextChannel = orderedChannels.find(channel => channel.id === contextMenu?.channelId) ?? null;
 
@@ -46,6 +46,22 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
   useEffect(() => {
     setDraftChannels(getOrderedChannels(channels));
   }, [channels]);
+
+  useEffect(() => {
+    if (
+      initialChannelId == null
+      || appliedInitialChannelIdRef.current === initialChannelId
+      || !orderedChannels.some(channel => channel.id === initialChannelId)
+    ) {
+      return;
+    }
+
+    appliedInitialChannelIdRef.current = initialChannelId;
+    setSelectedChannelId(initialChannelId);
+    if (initialChannelId !== 0) {
+      setExpandedChannelId(initialChannelId);
+    }
+  }, [initialChannelId, orderedChannels]);
 
   useEffect(() => () => {
     if (recentlyMovedTimeoutRef.current != null) {
@@ -74,14 +90,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
       label: 'Edit Channel',
       onClick: () => {
         setEditChannel(contextChannel);
-        setContextMenu(null);
-      },
-    },
-    {
-      type: 'item',
-      label: 'Edit Permissions',
-      onClick: () => {
-        setAclEditorChannel({ id: contextChannel.id, name: contextChannel.name });
         setContextMenu(null);
       },
     },
@@ -245,7 +253,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                     <ChannelAccessPanel
                       channel={channel}
                       parentName={parentName}
-                      onOpenAdvancedPermissions={() => setAclEditorChannel({ id: channel.id, name: channel.name })}
                     />
                   </div>
                 )}
@@ -290,16 +297,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
             });
             setEditChannel(null);
           }}
-        />
-      )}
-      {aclEditorChannel && (
-        <AclEditorDialog
-          isOpen={true}
-          channelId={aclEditorChannel.id}
-          channelName={aclEditorChannel.name}
-          availableUsers={[]}
-          isNativePasswordProtected={draftChannels.find(channel => channel.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
-          onClose={() => setAclEditorChannel(null)}
         />
       )}
     </section>

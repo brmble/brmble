@@ -49,6 +49,7 @@ interface SettingsModalProps {
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
   initialTab?: 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
+  initialAdminChannelId?: number;
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (
@@ -576,6 +577,7 @@ export function SettingsModal(props: SettingsModalProps) {
             <AdminSettingsTab
               channels={props.channels ?? []}
               onChannelsChange={props.onChannelsChange}
+              initialChannelId={props.initialAdminChannelId}
               liveUsers={props.liveUsers ?? []}
               customCompanions={props.customCompanions}
               customCompanionGallery={props.customCompanionGallery}

@@ -52,20 +52,20 @@ describe('ChannelAccessPanel', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('refreshes channel and root ACL state when opened', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     expect(channelRefresh).toHaveBeenCalled();
     expect(rootRefresh).toHaveBeenCalled();
   });
 
   it('shows channel information and the administrator-visible password label', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     expect(screen.getByText('Class A voice')).toBeInTheDocument();
     expect(screen.getByText('Classes')).toBeInTheDocument();
     expect(screen.getByLabelText('Channel password — visible to administrators')).toBeInTheDocument();
   });
 
   it('assigns a root group and registered user then saves one merged ACL update', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Group to add' }));
     fireEvent.click(screen.getByRole('option', { name: 'Classleaders' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
@@ -83,7 +83,7 @@ describe('ChannelAccessPanel', () => {
   });
 
   it('sets and clears a channel password through the same hash-protected save', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     const input = screen.getByLabelText('Channel password — visible to administrators');
     fireEvent.change(input, { target: { value: 'class-a-voice' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save access settings' }));
@@ -95,15 +95,13 @@ describe('ChannelAccessPanel', () => {
     expect(channelSave).toHaveBeenCalledTimes(2);
   });
 
-  it('opens the existing advanced ACL editor', () => {
-    const openAdvanced = vi.fn();
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={openAdvanced} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open advanced permissions' }));
-    expect(openAdvanced).toHaveBeenCalled();
+  it('does not show the obsolete advanced permissions action', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+    expect(screen.queryByRole('button', { name: 'Open advanced permissions' })).not.toBeInTheDocument();
   });
 
   it('renders group permission checkboxes from the ACL mask', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
 
     expect(screen.getByRole('checkbox', { name: 'Hunters Speak' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Hunters Write' })).not.toBeChecked();
@@ -112,7 +110,7 @@ describe('ChannelAccessPanel', () => {
   });
 
   it('starts a newly added group with all visible permissions checked and saves toggles', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Group to add' }));
     fireEvent.click(screen.getByRole('option', { name: 'Classleaders' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
@@ -132,7 +130,7 @@ describe('ChannelAccessPanel', () => {
   });
 
   it('removes an assigned group row', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     const removeButton = screen.getByRole('button', { name: 'Remove Hunters' });
     expect(removeButton).toHaveClass('btn-danger', 'btn-sm');
     fireEvent.click(removeButton);
@@ -140,7 +138,7 @@ describe('ChannelAccessPanel', () => {
   });
 
   it('keeps the group row when Enter is disabled', () => {
-    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Hunters Enter' }));
 
     expect(screen.getByText('@Hunters')).toBeInTheDocument();

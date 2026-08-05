@@ -15,10 +15,9 @@ import './ChannelAccessPanel.css';
 interface ChannelAccessPanelProps {
   channel: Channel;
   parentName: string;
-  onOpenAdvancedPermissions: () => void;
 }
 
-export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissions }: ChannelAccessPanelProps) {
+export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelProps) {
   const channelAcl = useAclAdmin(channel.id);
   const rootAcl = useAclAdmin(0);
   const users = useAdminRegisteredUsers();
@@ -214,7 +213,6 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
         <button type="button" className="btn btn-primary" disabled={!channelAcl.snapshot || channelAcl.saving || channelAcl.snapshot.stale} onClick={save}>
           {channelAcl.saving ? 'Saving...' : 'Save access settings'}
         </button>
-        <button type="button" className="btn btn-secondary" onClick={onOpenAdvancedPermissions}>Open advanced permissions</button>
       </div>
     </div>
   );

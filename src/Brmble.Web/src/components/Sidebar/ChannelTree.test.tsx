@@ -395,7 +395,7 @@ describe('ChannelTree ACL integration', () => {
     expect(screen.getByText('Edit Permissions')).toBeInTheDocument();
   });
 
-  it('opens Edit Permissions without showing a debug alert', () => {
+  it('closes Edit Permissions without showing a debug alert when no settings callback is provided', () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     usePermissionsMock.mockReturnValue({
       hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
@@ -416,13 +416,33 @@ describe('ChannelTree ACL integration', () => {
     fireEvent.click(screen.getByText('Edit Permissions'));
 
     expect(alertSpy).not.toHaveBeenCalled();
-    expect(aclEditorDialogPropsRef.current).toMatchObject({
-      channelId: 5,
-      channelName: 'Secret',
-      isNativePasswordProtected: true,
-    });
+    expect(screen.queryByTestId('acl-editor-dialog')).not.toBeInTheDocument();
 
     alertSpy.mockRestore();
+  });
+
+  it('routes Edit Permissions to the admin channel settings callback', () => {
+    const onOpenChannelPermissions = vi.fn();
+    usePermissionsMock.mockReturnValue({
+      hasPermission: vi.fn((channelId: number, permission: number) => channelId === 5 && permission === 0x01),
+      Permission: { Write: 0x01, MakeChannel: 0x40, Move: 0x20, Kick: 0x10000, Ban: 0x20000, MuteDeafen: 0x10 },
+      requestPermissions: vi.fn(),
+    });
+
+    render(
+      <ChannelTree
+        channels={[{ id: 5, name: 'Secret', parent: 0 }]}
+        users={[]}
+        currentChannelId={5}
+        onJoinChannel={vi.fn()}
+        onOpenChannelPermissions={onOpenChannelPermissions}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Secret'));
+    fireEvent.click(screen.getByText('Edit Permissions'));
+
+    expect(onOpenChannelPermissions).toHaveBeenCalledWith(5);
   });
 
   it('loads the managed password for edit and does not rewrite it when unchanged', () => {
