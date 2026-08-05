@@ -223,6 +223,30 @@ describe('mergeSimpleChannelAccess', () => {
     expect(result.acls[3]).toBe(advancedAllow);
   });
 
+  it('writes a new managed gate before a replacement simple entry allow', () => {
+    const speakOnly = localRule({ group: 'Classleaders', allow: Permission.Speak });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([speakOnly]),
+      new Set(['Classleaders']),
+      {
+        groups: [{ name: 'Classleaders', allow: Permission.Speak | CHANNEL_ENTRY_PERMISSIONS }],
+        userIds: [],
+        password: '',
+      },
+    );
+
+    expect(result.acls.map(rule => rule.group)).toEqual(['all', 'Classleaders']);
+    expect(result.acls[0]).toEqual(expect.objectContaining({
+      group: 'all',
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    }));
+    expect(result.acls[1]).toEqual(expect.objectContaining({
+      group: 'Classleaders',
+      allow: Permission.Speak | CHANNEL_ENTRY_PERMISSIONS,
+    }));
+  });
+
   it('removes the managed gate when advanced invite rules are present but no entries remain', () => {
     const gate = localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS });
     const invite = localRule({ group: '#invite-token', allow: Permission.Enter });
