@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAclAdmin } from '../../../hooks/useAclAdmin';
-import { confirm } from '../../../hooks/usePrompt';
+import { confirm, prompt } from '../../../hooks/usePrompt';
 import { Permission, type AclGroup, type AclRule } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 
-const PASSWORD_MARKER_PREFIX = '__brmble_password_marker__:';
 const EMPTY_GROUPS: AclGroup[] = [];
 const EMPTY_ACLS: AclRule[] = [];
-
-type DisplayGroup = AclGroup & {
-  aclOnly: boolean;
-};
 
 type PendingMembershipChange = {
   action: 'add' | 'remove';
@@ -33,9 +28,7 @@ const GROUP_PERMISSION_CATEGORIES: GroupPermissionCategory[] = [
   {
     title: 'General Permissions',
     options: [
-      { label: 'Read Channels', mask: Permission.Traverse },
       { label: 'Write Messages', mask: Permission.TextMessage },
-      { label: 'Join Channels', mask: Permission.Enter },
       { label: 'Speak', mask: Permission.Speak },
       { label: 'Priority Speaker', supported: false },
       { label: 'Force Push-To-Talk', supported: false },
@@ -78,7 +71,15 @@ export function AdminGroupsSection() {
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
   const sourceGroups = snapshot?.groups ?? EMPTY_GROUPS;
   const sourceAcls = snapshot?.acls ?? EMPTY_ACLS;
-  const [draftGroups, setDraftGroups] = useState<AclGroup[]>(sourceGroups);
+  const canonicalGroups = useMemo(
+    () => sourceGroups.filter(group => !group.inherited && group.inheritable),
+    [sourceGroups],
+  );
+  const passthroughLocalGroups = useMemo(
+    () => sourceGroups.filter(group => !group.inherited && !group.inheritable),
+    [sourceGroups],
+  );
+  const [draftGroups, setDraftGroups] = useState<AclGroup[]>(canonicalGroups);
   const [draftAcls, setDraftAcls] = useState<AclRule[]>(sourceAcls);
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const [hasLocalEdits, setHasLocalEdits] = useState(false);
@@ -89,65 +90,36 @@ export function AdminGroupsSection() {
   }, [refresh]);
 
   useEffect(() => {
-    const sourceSignature = JSON.stringify({ groups: sourceGroups, acls: sourceAcls });
+    const writableSourceGroups = [...passthroughLocalGroups, ...canonicalGroups];
+    const sourceSignature = JSON.stringify({ groups: writableSourceGroups, acls: sourceAcls });
     const shouldHydrate = !hasLocalEdits || lastSubmittedDraftRef.current === sourceSignature;
     if (!shouldHydrate) return;
 
-    setDraftGroups(sourceGroups);
+    setDraftGroups(canonicalGroups);
     setDraftAcls(sourceAcls);
     setSelectedGroupName(currentSelectedGroupName => (
-      sourceGroups.some(group => group.name === currentSelectedGroupName)
+      canonicalGroups.some(group => group.name === currentSelectedGroupName)
         ? currentSelectedGroupName
-        : (sourceGroups[0]?.name ?? '')
+        : (canonicalGroups[0]?.name ?? '')
     ));
     setHasLocalEdits(false);
     if (lastSubmittedDraftRef.current === sourceSignature) {
       lastSubmittedDraftRef.current = null;
     }
-  }, [hasLocalEdits, sourceAcls, sourceGroups]);
-
-  const displayGroups = useMemo<DisplayGroup[]>(() => {
-    const groupsByName = new Map<string, DisplayGroup>(
-      draftGroups.map(group => [group.name, { ...group, aclOnly: false }]),
-    );
-
-    draftAcls.forEach(rule => {
-      if (!rule.group || rule.userId != null) return;
-      if (rule.group.startsWith('#') || rule.group.startsWith(PASSWORD_MARKER_PREFIX)) return;
-      if (groupsByName.has(rule.group)) return;
-
-      groupsByName.set(rule.group, {
-        name: rule.group,
-        inherited: rule.inherited,
-        inherit: true,
-        inheritable: true,
-        add: [],
-        remove: [],
-        members: [],
-        aclOnly: true,
-      });
-    });
-
-    return [...groupsByName.values()];
-  }, [draftAcls, draftGroups]);
+  }, [canonicalGroups, hasLocalEdits, passthroughLocalGroups, sourceAcls]);
 
   useEffect(() => {
     setSelectedGroupName(currentSelectedGroupName => (
-      displayGroups.some(group => group.name === currentSelectedGroupName)
+      draftGroups.some(group => group.name === currentSelectedGroupName)
         ? currentSelectedGroupName
-        : (displayGroups[0]?.name ?? '')
+        : (draftGroups[0]?.name ?? '')
     ));
-  }, [displayGroups]);
+  }, [draftGroups]);
 
   const selectedGroup = useMemo(
-    () => displayGroups.find(group => group.name === selectedGroupName) ?? null,
-    [displayGroups, selectedGroupName],
-  );
-  const selectedEditableGroup = useMemo(
     () => draftGroups.find(group => group.name === selectedGroupName) ?? null,
     [draftGroups, selectedGroupName],
   );
-
   const selectedGroupPermissions = useMemo(() => {
     if (!selectedGroup) {
       return { local: 0, inherited: 0 };
@@ -294,47 +266,44 @@ export function AdminGroupsSection() {
     setSelectedGroupName(name);
   };
 
-  const addGroup = () => {
-    const baseName = 'New Group';
-    let name = baseName;
-    let index = 1;
-    const names = new Set(draftGroups.map(group => group.name));
-    while (names.has(name)) {
-      index += 1;
-      name = `${baseName} ${index}`;
-    }
+  const addGroup = async () => {
+    const requestedName = await prompt({
+      title: 'Create group',
+      message: 'Create an inheritable Mumble group on the root channel.',
+      placeholder: 'Classleaders',
+      confirmLabel: 'Create',
+      cancelLabel: 'Cancel',
+    });
+    const name = requestedName?.trim();
+    if (!name || sourceGroups.some(group => group.name === name)) return;
 
-    const next = [
-      ...draftGroups,
-      { name, inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [] },
-    ];
     setHasLocalEdits(true);
-    setDraftGroups(next);
+    setDraftGroups(current => [...current, {
+      name,
+      inherited: false,
+      inherit: true,
+      inheritable: true,
+      add: [],
+      remove: [],
+      members: [],
+    }]);
     setSelectedGroupName(name);
   };
 
-  const deleteGroup = () => {
-    if (!selectedEditableGroup) return;
-    setHasLocalEdits(true);
-    const next = draftGroups.filter(group => group.name !== selectedEditableGroup.name);
-    setDraftGroups(next);
-    setDraftAcls(currentRules => currentRules.filter(rule => rule.group !== selectedEditableGroup.name));
-    setSelectedGroupName(next[0]?.name ?? '');
-  };
-
   const cancelChanges = () => {
-    setDraftGroups(sourceGroups);
+    setDraftGroups(canonicalGroups);
     setDraftAcls(sourceAcls);
-    setSelectedGroupName(sourceGroups[0]?.name ?? '');
+    setSelectedGroupName(canonicalGroups[0]?.name ?? '');
     setHasLocalEdits(false);
     lastSubmittedDraftRef.current = null;
   };
 
   const saveChanges = () => {
-    lastSubmittedDraftRef.current = JSON.stringify({ groups: draftGroups, acls: draftAcls });
+    const groups = [...passthroughLocalGroups, ...draftGroups];
+    lastSubmittedDraftRef.current = JSON.stringify({ groups, acls: draftAcls });
     const payload = {
       inheritAcls: snapshot?.inheritAcls ?? true,
-      groups: draftGroups,
+      groups,
       acls: draftAcls,
     };
     save(payload);
@@ -359,7 +328,7 @@ export function AdminGroupsSection() {
       <div className="admin-groups-rail">
         <div className="admin-groups-section-heading">Groups List</div>
         <div className="admin-groups-list">
-          {displayGroups.map(group => (
+          {draftGroups.map(group => (
             <button
               key={group.name}
               type="button"
@@ -371,8 +340,7 @@ export function AdminGroupsSection() {
           ))}
         </div>
         <div className="admin-action-row admin-groups-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={addGroup}>Add Group</button>
-          <button type="button" className="btn btn-danger btn-sm" onClick={deleteGroup} disabled={!selectedEditableGroup}>Delete Group</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void addGroup()}>Add Group</button>
         </div>
       </div>
 
@@ -459,6 +427,7 @@ export function AdminGroupsSection() {
 
       <div className="admin-card admin-groups-permissions">
         <h4 className="heading-label">Group Permissions</h4>
+        <p className="admin-help-text">Channel access is assigned from the Channels tab.</p>
         <div className="admin-groups-permission-sections">
           {GROUP_PERMISSION_CATEGORIES.map(category => (
             <section key={category.title} className="admin-groups-permission-section">
