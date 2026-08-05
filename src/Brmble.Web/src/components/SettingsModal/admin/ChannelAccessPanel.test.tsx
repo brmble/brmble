@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAccessPanel } from './ChannelAccessPanel';
+import { Permission } from '../../../types/acl';
 
 const channelSave = vi.fn();
 const channelRefresh = vi.fn();
@@ -13,11 +14,23 @@ beforeAll(() => {
 vi.mock('../../../hooks/useAclAdmin', () => ({
   useAclAdmin: (channelId: number) => channelId === 0
     ? {
-        snapshot: { channelId: 0, inheritAcls: true, groups: [{ name: 'Classleaders', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [42] }], acls: [], fetchedAt: '2026-08-04T18:00:00Z', stale: false, warning: null, snapshotHash: 'root-hash' },
+        snapshot: { channelId: 0, inheritAcls: true, groups: [
+          { name: 'Classleaders', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [42] },
+          { name: 'Hunters', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [] },
+        ], acls: [], fetchedAt: '2026-08-04T18:00:00Z', stale: false, warning: null, snapshotHash: 'root-hash' },
         loading: false, saving: false, error: null, refresh: rootRefresh, save: vi.fn(),
       }
     : {
-        snapshot: { channelId: 7, inheritAcls: true, groups: [], acls: [], fetchedAt: '2026-08-04T18:00:00Z', stale: false, warning: null, snapshotHash: 'channel-hash' },
+        snapshot: {
+          channelId: 7,
+          inheritAcls: true,
+          groups: [],
+          acls: [{ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'Hunters', allow: Permission.Traverse | Permission.Enter, deny: 0 }],
+          fetchedAt: '2026-08-04T18:00:00Z',
+          stale: false,
+          warning: null,
+          snapshotHash: 'channel-hash',
+        },
         loading: false, saving: false, error: null, refresh: channelRefresh, save: channelSave,
       },
 }));
@@ -87,5 +100,53 @@ describe('ChannelAccessPanel', () => {
     render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={openAdvanced} />);
     fireEvent.click(screen.getByRole('button', { name: 'Open advanced permissions' }));
     expect(openAdvanced).toHaveBeenCalled();
+  });
+
+  it('renders group permission checkboxes from the ACL mask', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+
+    expect(screen.getByRole('checkbox', { name: 'Hunters Speak' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Hunters Write' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Hunters Enter' })).toBeChecked();
+  });
+
+  it('starts a newly added group with all visible permissions checked and saves toggles', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Group to add' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Classleaders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
+
+    expect(screen.getByRole('checkbox', { name: 'Classleaders Speak' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Classleaders Write' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Classleaders Enter' })).toBeChecked();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Classleaders Speak' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save access settings' }));
+
+    expect(channelSave).toHaveBeenCalledWith(expect.objectContaining({
+      acls: expect.arrayContaining([
+        expect.objectContaining({ group: 'Classleaders', allow: Permission.Traverse | Permission.Enter | Permission.TextMessage }),
+      ]),
+    }));
+  });
+
+  it('removes an assigned group row', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Hunters' }));
+    expect(screen.queryByText('@Hunters')).not.toBeInTheDocument();
+  });
+
+  it('keeps the group row when Enter is disabled', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Hunters Enter' }));
+
+    expect(screen.getByText('@Hunters')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save access settings' }));
+
+    expect(channelSave).toHaveBeenCalledWith(expect.objectContaining({
+      acls: expect.arrayContaining([
+        expect.objectContaining({ group: 'Hunters', allow: 0 }),
+      ]),
+    }));
   });
 });

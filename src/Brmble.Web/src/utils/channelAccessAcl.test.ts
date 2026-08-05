@@ -44,10 +44,24 @@ describe('readSimpleChannelAccess', () => {
       localRule({ userId: 77, allow: CHANNEL_ENTRY_PERMISSIONS, inherited: true }),
     ]), new Set(['Classleaders', 'Teachers']));
 
-    expect(result.localGroupNames).toEqual(['Classleaders']);
+    expect(result.localGroups).toEqual([{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }]);
     expect(result.inheritedGroupNames).toEqual(['Teachers']);
     expect(result.localUserIds).toEqual([42]);
     expect(result.inheritedUserIds).toEqual([77]);
+  });
+
+  it('reads supported permissions from an exact local group rule', () => {
+    const result = readSimpleChannelAccess(snapshot([
+      localRule({
+        group: 'Hunters',
+        allow: Permission.Traverse | Permission.Enter | Permission.Speak | Permission.TextMessage,
+      }),
+    ]), new Set(['Hunters']));
+
+    expect(result.localGroups).toEqual([{
+      name: 'Hunters',
+      allow: Permission.Traverse | Permission.Enter | Permission.Speak | Permission.TextMessage,
+    }]);
   });
 
   it('reads the native current three-rule password block and advanced rules', () => {
@@ -118,7 +132,7 @@ describe('mergeSimpleChannelAccess', () => {
   it('preserves advanced rules and adds the exact managed gate and grants', () => {
     const advanced = localRule({ group: '#invite', allow: Permission.Enter });
     const result = mergeSimpleChannelAccess(snapshot([advanced]), new Set(['Classleaders']), {
-      groupNames: ['Classleaders'],
+      groups: [{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }],
       userIds: [42],
       password: '',
     });
@@ -129,9 +143,34 @@ describe('mergeSimpleChannelAccess', () => {
     expect(result.acls).toContainEqual(expect.objectContaining({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS }));
   });
 
+  it('merges group masks while preserving unrelated ACL rules', () => {
+    const result = mergeSimpleChannelAccess(snapshot([
+      localRule({ group: 'Hunters', allow: CHANNEL_ENTRY_PERMISSIONS }),
+      localRule({ group: 'moderators', allow: Permission.Kick }),
+    ]), new Set(['Hunters']), {
+      groups: [{ name: 'Hunters', allow: CHANNEL_ENTRY_PERMISSIONS | Permission.Speak }],
+      userIds: [],
+      password: '',
+    });
+
+    expect(result.acls).toContainEqual(expect.objectContaining({
+      group: 'Hunters',
+      allow: CHANNEL_ENTRY_PERMISSIONS | Permission.Speak,
+    }));
+    expect(result.acls).toContainEqual(expect.objectContaining({ group: 'moderators', allow: Permission.Kick }));
+  });
+
+  it('keeps a group entry when all of its visible permissions are disabled', () => {
+    const result = mergeSimpleChannelAccess(snapshot([
+      localRule({ group: 'Hunters', allow: CHANNEL_ENTRY_PERMISSIONS }),
+    ]), new Set(['Hunters']), { groups: [{ name: 'Hunters', allow: 0 }], userIds: [], password: '' });
+
+    expect(result.acls).toContainEqual(expect.objectContaining({ group: 'Hunters', allow: 0 }));
+  });
+
   it('uses password OR assignment ordering and removes managed access when empty', () => {
     const withPassword = mergeSimpleChannelAccess(snapshot([]), new Set(['Classleaders']), {
-      groupNames: ['Classleaders'], userIds: [42], password: 'class-a',
+      groups: [{ name: 'Classleaders', allow: CHANNEL_ENTRY_PERMISSIONS }], userIds: [42], password: 'class-a',
     });
     expect(withPassword.acls.map(rule => rule.group ?? rule.userId)).toEqual([
       'all', '#class-a', `${PASSWORD_MARKER_PREFIX}#class-a`, 'Classleaders', 42,
@@ -140,7 +179,7 @@ describe('mergeSimpleChannelAccess', () => {
     const cleared = mergeSimpleChannelAccess(snapshot([
       localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS }),
       localRule({ group: 'custom', deny: Permission.Kick }),
-    ]), new Set(), { groupNames: [], userIds: [], password: '' });
+    ]), new Set(), { groups: [], userIds: [], password: '' });
     expect(cleared.acls).toEqual([expect.objectContaining({ group: 'custom', deny: Permission.Kick })]);
   });
 });

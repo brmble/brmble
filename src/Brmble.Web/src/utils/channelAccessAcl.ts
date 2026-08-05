@@ -2,6 +2,7 @@ import type { AclChannelSnapshot, AclRule, AclUpdateRequest } from '../types/acl
 import { Permission } from '../types/acl';
 
 export const CHANNEL_ENTRY_PERMISSIONS = Permission.Traverse | Permission.Enter;
+export const SIMPLE_GROUP_PERMISSIONS = CHANNEL_ENTRY_PERMISSIONS | Permission.Speak | Permission.TextMessage;
 export const PASSWORD_TOKEN_PERMISSIONS = CHANNEL_ENTRY_PERMISSIONS
   | Permission.Speak
   | Permission.Whisper
@@ -13,7 +14,7 @@ export const PASSWORD_MARKER_PREFIX = '__brmble_password_marker__:';
 export const LEGACY_PASSWORD_OPEN_BLOCK_MARKER = '__brmble_password_open_block__';
 
 export interface SimpleChannelAccess {
-  localGroupNames: string[];
+  localGroups: SimpleChannelGroupAccess[];
   inheritedGroupNames: string[];
   localUserIds: number[];
   inheritedUserIds: number[];
@@ -22,8 +23,13 @@ export interface SimpleChannelAccess {
   hasAdvancedRules: boolean;
 }
 
+export interface SimpleChannelGroupAccess {
+  name: string;
+  allow: number;
+}
+
 export interface SimpleChannelAccessDraft {
-  groupNames: string[];
+  groups: SimpleChannelGroupAccess[];
   userIds: number[];
   password: string;
 }
@@ -113,7 +119,9 @@ export function replaceManagedPassword(acls: AclRule[], password: string): AclRu
 }
 
 function isSimpleGroupRule(rule: AclRule, knownGroups: ReadonlySet<string>) {
-  return rule.userId == null && rule.group != null && knownGroups.has(rule.group) && isExactJoinAllow(rule);
+  return rule.userId == null && rule.group != null && knownGroups.has(rule.group)
+    && rule.applyHere && !rule.applySubs && rule.deny === 0
+    && (rule.allow & ~SIMPLE_GROUP_PERMISSIONS) === 0;
 }
 
 function isSimpleUserRule(rule: AclRule) {
@@ -126,7 +134,7 @@ export function readSimpleChannelAccess(
 ): SimpleChannelAccess {
   const passwordBlocks = managedPasswordBlocks(snapshot.acls);
   const managedPasswordIndexes = new Set(passwordBlocks.flatMap(block => block.indexes));
-  const localGroupNames: string[] = [];
+  const localGroups: SimpleChannelGroupAccess[] = [];
   const inheritedGroupNames: string[] = [];
   const localUserIds: number[] = [];
   const inheritedUserIds: number[] = [];
@@ -136,7 +144,8 @@ export function readSimpleChannelAccess(
   snapshot.acls.forEach((rule, index) => {
     if (isManagedGate(rule) || managedPasswordIndexes.has(index)) return;
     if (isSimpleGroupRule(rule, knownRootGroupNames)) {
-      (rule.inherited ? inheritedGroupNames : localGroupNames).push(rule.group!);
+      if (rule.inherited) inheritedGroupNames.push(rule.group!);
+      else localGroups.push({ name: rule.group!, allow: rule.allow });
       return;
     }
     if (isSimpleUserRule(rule)) {
@@ -147,7 +156,8 @@ export function readSimpleChannelAccess(
   });
 
   return {
-    localGroupNames: [...new Set(localGroupNames)].sort(),
+    localGroups: [...new Map(localGroups.map(group => [group.name, group])).values()]
+      .sort((a, b) => a.name.localeCompare(b.name)),
     inheritedGroupNames: [...new Set(inheritedGroupNames)].sort(),
     localUserIds: [...new Set(localUserIds)].sort((a, b) => a - b),
     inheritedUserIds: [...new Set(inheritedUserIds)].sort((a, b) => a - b),
@@ -169,14 +179,26 @@ export function mergeSimpleChannelAccess(
     return true;
   });
 
-  const groupNames = [...new Set(draft.groupNames)].filter(name => knownRootGroupNames.has(name)).sort();
+  const groups = [...new Map(draft.groups
+    .map(group => [group.name, { name: group.name, allow: group.allow & SIMPLE_GROUP_PERMISSIONS }] as const))
+    .values()]
+    .filter(group => knownRootGroupNames.has(group.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const userIds = [...new Set(draft.userIds)].filter(id => Number.isInteger(id) && id >= 0).sort((a, b) => a - b);
   const password = draft.password.trim().replace(/^#/, '');
   const managed: AclRule[] = [];
-  if (!password && (groupNames.length > 0 || userIds.length > 0)) {
+  if (!password && (groups.length > 0 || userIds.length > 0)) {
     managed.push({ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: CHANNEL_ENTRY_PERMISSIONS });
   }
-  managed.push(...groupNames.map(group => ({ applyHere: true, applySubs: false, inherited: false, userId: null, group, allow: CHANNEL_ENTRY_PERMISSIONS, deny: 0 })));
+  managed.push(...groups.map(({ name, allow }) => ({
+    applyHere: true,
+    applySubs: false,
+    inherited: false,
+    userId: null,
+    group: name,
+    allow,
+    deny: 0,
+  })));
   managed.push(...userIds.map(userId => ({ applyHere: true, applySubs: false, inherited: false, userId, group: null, allow: CHANNEL_ENTRY_PERMISSIONS, deny: 0 })));
 
   return {

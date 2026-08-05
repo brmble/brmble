@@ -4,8 +4,10 @@ import { useAclAdmin } from '../../../hooks/useAclAdmin';
 import {
   mergeSimpleChannelAccess,
   readSimpleChannelAccess,
+  SIMPLE_GROUP_PERMISSIONS,
   type SimpleChannelAccessDraft,
 } from '../../../utils/channelAccessAcl';
+import { Permission } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
 import { Select } from '../../Select';
 import './ChannelAccessPanel.css';
@@ -20,7 +22,7 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
   const channelAcl = useAclAdmin(channel.id);
   const rootAcl = useAclAdmin(0);
   const users = useAdminRegisteredUsers();
-  const [draft, setDraft] = useState<SimpleChannelAccessDraft>({ groupNames: [], userIds: [], password: '' });
+  const [draft, setDraft] = useState<SimpleChannelAccessDraft>({ groups: [], userIds: [], password: '' });
   const [groupToAdd, setGroupToAdd] = useState('');
   const [userToAdd, setUserToAdd] = useState('');
 
@@ -42,7 +44,7 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
 
   useEffect(() => {
     if (!access) return;
-    setDraft({ groupNames: access.localGroupNames, userIds: access.localUserIds, password: access.password });
+    setDraft({ groups: access.localGroups, userIds: access.localUserIds, password: access.password });
   // Hydrate only when canonical ACL-derived values change, not when a hook
   // recreates an equivalent snapshot object.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,8 +62,20 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
 
   const removeGroup = (name: string) => setDraft(current => ({
     ...current,
-    groupNames: current.groupNames.filter(group => group !== name),
+    groups: current.groups.filter(group => group.name !== name),
   }));
+
+  const updateGroupPermission = (name: string, mask: number, checked: boolean) => {
+    setDraft(current => ({
+      ...current,
+      groups: current.groups.map(group => {
+        if (group.name !== name) return group;
+        const nextMask = checked ? group.allow | mask : group.allow & ~mask;
+        if (mask !== Permission.Enter) return { ...group, allow: nextMask };
+        return { ...group, allow: checked ? nextMask | Permission.Traverse : nextMask & ~Permission.Traverse };
+      }),
+    }));
+  };
 
   const removeUser = (userId: number) => setDraft(current => ({
     ...current,
@@ -87,10 +101,42 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
         <h5 id={`channel-${channel.id}-groups`}>Allowed groups</h5>
         <ul>
           {access?.inheritedGroupNames.map(name => <li key={`inherited-${name}`}>@{name} <span>(inherited)</span></li>)}
-          {draft.groupNames.map(name => (
-            <li key={name}>
-              @{name}
-              <button type="button" onClick={() => removeGroup(name)}>Remove {name}</button>
+          {draft.groups.map(group => (
+            <li key={group.name} className="channel-access-group-row">
+              <span className="channel-access-group-name">@{group.name}</span>
+              <div className="channel-access-group-controls">
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.name} Speak`}
+                    checked={(group.allow & Permission.Speak) !== 0}
+                    onChange={event => updateGroupPermission(group.name, Permission.Speak, event.target.checked)}
+                  />
+                  <span className="brmble-toggle-slider" />
+                  <span>Speak</span>
+                </label>
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.name} Write`}
+                    checked={(group.allow & Permission.TextMessage) !== 0}
+                    onChange={event => updateGroupPermission(group.name, Permission.TextMessage, event.target.checked)}
+                  />
+                  <span className="brmble-toggle-slider" />
+                  <span>Write</span>
+                </label>
+                <label className="brmble-toggle">
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.name} Enter`}
+                    checked={(group.allow & Permission.Enter) !== 0}
+                    onChange={event => updateGroupPermission(group.name, Permission.Enter, event.target.checked)}
+                  />
+                  <span className="brmble-toggle-slider" />
+                  <span>Enter</span>
+                </label>
+                <button type="button" onClick={() => removeGroup(group.name)}>Remove {group.name}</button>
+              </div>
             </li>
           ))}
         </ul>
@@ -102,12 +148,16 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
             onChange={setGroupToAdd}
             placeholder="Select a group"
             options={rootGroups
-              .filter(group => !draft.groupNames.includes(group.name))
+              .filter(group => !draft.groups.some(draftGroup => draftGroup.name === group.name))
               .map(group => ({ value: group.name, label: group.name }))}
           />
         </label>
         <button type="button" disabled={!groupToAdd} onClick={() => {
-          setDraft(current => ({ ...current, groupNames: [...new Set([...current.groupNames, groupToAdd])].sort() }));
+          setDraft(current => ({
+            ...current,
+            groups: [...current.groups, { name: groupToAdd, allow: SIMPLE_GROUP_PERMISSIONS }]
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          }));
           setGroupToAdd('');
         }}>Add group</button>
       </section>

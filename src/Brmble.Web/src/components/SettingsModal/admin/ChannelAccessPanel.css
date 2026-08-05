@@ -25,6 +25,32 @@
   margin-top: 1rem;
 }
 
+.channel-access-group-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.channel-access-group-name {
+  min-width: 10rem;
+  margin-right: auto;
+}
+
+.channel-access-group-controls {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.channel-access-group-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .channel-access-panel button:focus-visible,
 .channel-access-panel select:focus-visible,
 .channel-access-panel input:focus-visible {
