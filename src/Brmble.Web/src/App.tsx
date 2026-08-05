@@ -40,7 +40,7 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt, confirm, prompt, promptPassword } from './hooks/usePrompt';
+import { usePrompt, confirm, promptPassword } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';

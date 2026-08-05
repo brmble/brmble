@@ -2576,10 +2576,6 @@ describe('active share discovery', () => {
   it('prompts for a known password-protected channel before reconnecting', async () => {
     const { promptPassword } = await import('./hooks/usePrompt');
     vi.mocked(promptPassword).mockResolvedValueOnce({ password: 'secret-token', remember: true });
-    const getJoinChannelCalls = () => vi.mocked(bridge.send).mock.calls.filter(
-      ([type]) => type === 'voice.joinChannel',
-    );
-
     const view = render(React.createElement(App));
 
     act(() => {
