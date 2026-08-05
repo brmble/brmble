@@ -316,6 +316,27 @@ describe('mergeSimpleChannelAccess', () => {
     expect(result.acls).toEqual([]);
   });
 
+  it('removes a local all entry deny even when it applies to subchannels', () => {
+    const gate = localRule({
+      group: 'all',
+      applySubs: true,
+      deny: CHANNEL_ENTRY_PERMISSIONS,
+    });
+    const groupGrant = localRule({ group: 'Moderators', allow: CHANNEL_ENTRY_PERMISSIONS });
+
+    const result = mergeSimpleChannelAccess(
+      snapshot([gate, groupGrant]),
+      new Set(['Moderators']),
+      {
+        groups: [],
+        userIds: [],
+        password: '',
+      },
+    );
+
+    expect(result.acls).toEqual([]);
+  });
+
   it('creates a gate when an entry grant is intentionally added to an open channel', () => {
     const speakOnly = localRule({ group: 'Moderators', allow: Permission.Speak });
 

@@ -39,9 +39,10 @@ const isExactJoinAllow = (rule: AclRule) => (
   && rule.allow === CHANNEL_ENTRY_PERMISSIONS && rule.deny === 0
 );
 
-const isManagedGate = (rule: AclRule) => (
+const isLocalEntryDeny = (rule: AclRule) => (
   !rule.inherited && rule.userId == null && rule.group === 'all'
-  && rule.applyHere && !rule.applySubs && rule.allow === 0 && rule.deny === CHANNEL_ENTRY_PERMISSIONS
+  && rule.applyHere && rule.allow === 0
+  && (rule.deny & CHANNEL_ENTRY_PERMISSIONS) === CHANNEL_ENTRY_PERMISSIONS
 );
 
 const passwordMarkerSelector = (rule: AclRule): string | null => {
@@ -185,7 +186,7 @@ function findManagedBaselineInsertionIndex(
     return managedPasswordStart;
   }
 
-  const existingGateIndex = acls.findIndex(isManagedGate);
+  const existingGateIndex = acls.findIndex(isLocalEntryDeny);
   if (existingGateIndex >= 0) {
     return existingGateIndex;
   }
@@ -225,7 +226,7 @@ export function readSimpleChannelAccess(
   let hasAdvancedRules = false;
 
   snapshot.acls.forEach((rule, index) => {
-    if (isManagedGate(rule) || managedPasswordIndexes.has(index)) return;
+    if (isLocalEntryDeny(rule) || managedPasswordIndexes.has(index)) return;
     if (isSimpleGroupRule(rule, knownRootGroupNames)) {
       if (rule.inherited) inheritedGroupNames.push(rule.group!);
       else localGroups.push({ name: rule.group!, allow: rule.allow });
@@ -245,7 +246,7 @@ export function readSimpleChannelAccess(
     localUserIds: [...new Set(localUserIds)].sort((a, b) => a - b),
     inheritedUserIds: [...new Set(inheritedUserIds)].sort((a, b) => a - b),
     password,
-    hasManagedGate: snapshot.acls.some(isManagedGate) || passwordBlocks.length > 0,
+    hasManagedGate: snapshot.acls.some(isLocalEntryDeny) || passwordBlocks.length > 0,
     hasAdvancedRules,
   };
 }
@@ -293,7 +294,7 @@ export function mergeSimpleChannelAccess(
   const currentEntryKeys = entryGrantKeys(currentAccess.localGroups, currentAccess.localUserIds);
   const nextEntryKeys = entryGrantKeys(groups, userIds);
   const addedEntryGrant = [...nextEntryKeys].some(key => !currentEntryKeys.has(key));
-  const hadManagedGate = snapshot.acls.some(isManagedGate);
+  const hadManagedGate = snapshot.acls.some(isLocalEntryDeny);
   const hadManagedPassword = passwordBlocks.length > 0;
   const hasManagedEntryGrant = nextEntryKeys.size > 0;
   const shouldWriteGate = !password && (
@@ -335,7 +336,14 @@ export function mergeSimpleChannelAccess(
     }
 
     if (rule.inherited) return;
-    if (managedPasswordIndexes.has(index) || isManagedGate(rule)) return;
+    if (managedPasswordIndexes.has(index)) return;
+    if (isLocalEntryDeny(rule)) {
+      if (!password && !shouldWriteGate) {
+        const remainingDeny = rule.deny & ~CHANNEL_ENTRY_PERMISSIONS;
+        if (remainingDeny !== 0) acls.push({ ...rule, deny: remainingDeny });
+      }
+      return;
+    }
     if (isSimpleGroupRule(rule, knownRootGroupNames) || isSimpleUserRule(rule)) {
       const key = managedEntryKey(rule);
       const replacement = key == null ? undefined : managedByKey.get(key);
