@@ -3,7 +3,7 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { ChannelTree } from './ChannelTree';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 
-const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDialogPropsRef, promptMock } = vi.hoisted(() => ({
+const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, promptMock } = vi.hoisted(() => ({
   bridgeMock: {
     on: vi.fn(),
     off: vi.fn(),
@@ -23,7 +23,6 @@ const { bridgeMock, usePermissionsMock, editChannelDialogPropsRef, aclEditorDial
     requestPermissions: vi.fn(),
   })),
   editChannelDialogPropsRef: { current: null as null | Record<string, unknown> },
-  aclEditorDialogPropsRef: { current: null as null | Record<string, unknown> },
   promptMock: vi.fn(),
 }));
 
@@ -66,13 +65,6 @@ vi.mock('../EditChannelDialog/EditChannelDialog', () => ({
 
 vi.mock('../RenameConfirmDialog/RenameConfirmDialog', () => ({
   RenameConfirmDialog: () => null,
-}));
-
-vi.mock('../AclEditor/AclEditorDialog', () => ({
-  AclEditorDialog: (props: Record<string, unknown>) => {
-    aclEditorDialogPropsRef.current = props;
-    return null;
-  },
 }));
 
 vi.mock('../Avatar/Avatar', () => ({
@@ -358,7 +350,6 @@ describe('ChannelTree ACL integration', () => {
     vi.clearAllMocks();
     bridgeHandlers.clear();
     editChannelDialogPropsRef.current = null;
-    aclEditorDialogPropsRef.current = null;
     promptMock.mockReset();
     bridgeMock.on.mockImplementation((type: string, handler: (data: unknown) => void) => {
       bridgeHandlers.set(type, handler);
@@ -416,7 +407,6 @@ describe('ChannelTree ACL integration', () => {
     fireEvent.click(screen.getByText('Edit Permissions'));
 
     expect(alertSpy).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('acl-editor-dialog')).not.toBeInTheDocument();
 
     alertSpy.mockRestore();
   });

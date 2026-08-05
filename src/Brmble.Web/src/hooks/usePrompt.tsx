@@ -207,7 +207,7 @@ function PromptWithInputComponent() {
             onBlur={() => {
               setInputFocused(false);
               // Hide the password again when focus leaves the field, unless
-              // it moved to the toggle button (matches AclEditorDialog).
+              // it moved to the toggle button.
               if (!toggleFocused) setShowPassword(false);
             }}
             onKeyDown={(e) => {
@@ -218,9 +218,8 @@ function PromptWithInputComponent() {
             }}
             autoFocus
           />
-          {/* Reveal toggle follows the shared focus-gated pattern (see
-              AclEditorDialog): it only appears while the field or toggle is
-              focused, and hides the password again on blur. */}
+          {/* Reveal toggle only appears while the field or toggle is focused,
+              and hides the password again on blur. */}
           {globalInputOptions.isPassword && (inputFocused || toggleFocused) && (
             <button
               type="button"
