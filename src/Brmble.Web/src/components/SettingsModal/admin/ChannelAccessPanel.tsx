@@ -1,0 +1,157 @@
+import { useEffect, useMemo, useState } from 'react';
+import type { Channel } from '../../../types';
+import { useAclAdmin } from '../../../hooks/useAclAdmin';
+import {
+  mergeSimpleChannelAccess,
+  readSimpleChannelAccess,
+  type SimpleChannelAccessDraft,
+} from '../../../utils/channelAccessAcl';
+import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
+import './ChannelAccessPanel.css';
+
+interface ChannelAccessPanelProps {
+  channel: Channel;
+  parentName: string;
+  onOpenAdvancedPermissions: () => void;
+}
+
+export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissions }: ChannelAccessPanelProps) {
+  const channelAcl = useAclAdmin(channel.id);
+  const rootAcl = useAclAdmin(0);
+  const users = useAdminRegisteredUsers();
+  const [draft, setDraft] = useState<SimpleChannelAccessDraft>({ groupNames: [], userIds: [], password: '' });
+  const [groupToAdd, setGroupToAdd] = useState('');
+  const [userToAdd, setUserToAdd] = useState('');
+
+  useEffect(() => {
+    channelAcl.refresh();
+    rootAcl.refresh();
+  }, [channel.id, channelAcl.refresh, rootAcl.refresh]);
+
+  const rootGroups = useMemo(
+    () => (rootAcl.snapshot?.groups ?? []).filter(group => !group.inherited && group.inheritable),
+    [rootAcl.snapshot],
+  );
+  const rootGroupNames = useMemo(() => new Set(rootGroups.map(group => group.name)), [rootGroups]);
+  const access = useMemo(
+    () => channelAcl.snapshot ? readSimpleChannelAccess(channelAcl.snapshot, rootGroupNames) : null,
+    [channelAcl.snapshot, rootGroupNames],
+  );
+  const accessSignature = access ? JSON.stringify(access) : '';
+
+  useEffect(() => {
+    if (!access) return;
+    setDraft({ groupNames: access.localGroupNames, userIds: access.localUserIds, password: access.password });
+  // Hydrate only when canonical ACL-derived values change, not when a hook
+  // recreates an equivalent snapshot object.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessSignature]);
+
+  const namesById = useMemo(
+    () => new Map(users.registeredUsers.map(user => [user.registrationUserId, user.registeredName])),
+    [users.registeredUsers],
+  );
+
+  const save = () => {
+    if (!channelAcl.snapshot) return;
+    channelAcl.save(mergeSimpleChannelAccess(channelAcl.snapshot, rootGroupNames, draft));
+  };
+
+  const removeGroup = (name: string) => setDraft(current => ({
+    ...current,
+    groupNames: current.groupNames.filter(group => group !== name),
+  }));
+
+  const removeUser = (userId: number) => setDraft(current => ({
+    ...current,
+    userIds: current.userIds.filter(id => id !== userId),
+  }));
+
+  return (
+    <div className="channel-access-panel">
+      <dl className="channel-access-summary">
+        <div><dt>Description</dt><dd>{channel.description || 'No description'}</dd></div>
+        <div><dt>Parent channel</dt><dd>{parentName}</dd></div>
+        <div><dt>ACL inheritance</dt><dd>{channelAcl.snapshot?.inheritAcls ? 'Enabled' : 'Disabled'}</dd></div>
+      </dl>
+
+      {(channelAcl.error || rootAcl.error || users.error) && (
+        <div className="admin-error">{channelAcl.error ?? rootAcl.error ?? users.error}</div>
+      )}
+      {access?.hasAdvancedRules && (
+        <p className="admin-help-text">This channel also has advanced ACL rules. They will be preserved.</p>
+      )}
+
+      <section aria-labelledby={`channel-${channel.id}-groups`}>
+        <h5 id={`channel-${channel.id}-groups`}>Allowed groups</h5>
+        <ul>
+          {access?.inheritedGroupNames.map(name => <li key={`inherited-${name}`}>@{name} <span>(inherited)</span></li>)}
+          {draft.groupNames.map(name => (
+            <li key={name}>
+              @{name}
+              <button type="button" onClick={() => removeGroup(name)}>Remove {name}</button>
+            </li>
+          ))}
+        </ul>
+        <label>
+          <span>Group to add</span>
+          <select aria-label="Group to add" value={groupToAdd} onChange={event => setGroupToAdd(event.target.value)}>
+            <option value="">Select a group</option>
+            {rootGroups.filter(group => !draft.groupNames.includes(group.name)).map(group => (
+              <option key={group.name} value={group.name}>{group.name}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" disabled={!groupToAdd} onClick={() => {
+          setDraft(current => ({ ...current, groupNames: [...new Set([...current.groupNames, groupToAdd])].sort() }));
+          setGroupToAdd('');
+        }}>Add group</button>
+      </section>
+
+      <section aria-labelledby={`channel-${channel.id}-users`}>
+        <h5 id={`channel-${channel.id}-users`}>Allowed registered users</h5>
+        <ul>
+          {access?.inheritedUserIds.map(id => <li key={`inherited-${id}`}>{namesById.get(id) ?? `Registered user ${id}`} <span>(inherited)</span></li>)}
+          {draft.userIds.map(id => (
+            <li key={id}>
+              {namesById.get(id) ?? `Registered user ${id}`}
+              <button type="button" onClick={() => removeUser(id)}>Remove {namesById.get(id) ?? `user ${id}`}</button>
+            </li>
+          ))}
+        </ul>
+        <label>
+          <span>Registered user to add</span>
+          <select aria-label="Registered user to add" value={userToAdd} onChange={event => setUserToAdd(event.target.value)}>
+            <option value="">Select a user</option>
+            {users.registeredUsers.filter(user => !draft.userIds.includes(user.registrationUserId)).map(user => (
+              <option key={user.registrationUserId} value={user.registrationUserId}>{user.registeredName}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" disabled={!userToAdd} onClick={() => {
+          const registrationUserId = Number.parseInt(userToAdd, 10);
+          setDraft(current => ({ ...current, userIds: [...new Set([...current.userIds, registrationUserId])].sort((a, b) => a - b) }));
+          setUserToAdd('');
+        }}>Add user</button>
+      </section>
+
+      <label className="channel-access-password">
+        <span>Channel password — visible to administrators</span>
+        <input
+          aria-label="Channel password — visible to administrators"
+          type="text"
+          value={draft.password}
+          autoComplete="off"
+          onChange={event => setDraft(current => ({ ...current, password: event.target.value }))}
+        />
+      </label>
+
+      <div className="admin-action-row">
+        <button type="button" className="btn btn-primary" disabled={!channelAcl.snapshot || channelAcl.saving || channelAcl.snapshot.stale} onClick={save}>
+          {channelAcl.saving ? 'Saving...' : 'Save access settings'}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={onOpenAdvancedPermissions}>Open advanced permissions</button>
+      </div>
+    </div>
+  );
+}
