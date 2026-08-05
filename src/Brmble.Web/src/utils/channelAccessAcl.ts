@@ -203,6 +203,7 @@ export function mergeSimpleChannelAccess(
     .sort((a, b) => a.name.localeCompare(b.name));
   const userIds = [...new Set(draft.userIds)].filter(id => Number.isInteger(id) && id >= 0).sort((a, b) => a - b);
   const password = draft.password.trim().replace(/^#/, '');
+  const hasAdvancedRules = readSimpleChannelAccess(snapshot, knownRootGroupNames).hasAdvancedRules;
   const managed: AclRule[] = [];
   if (!password && (groups.length > 0 || userIds.length > 0)) {
     managed.push({ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: CHANNEL_ENTRY_PERMISSIONS });
@@ -236,7 +237,7 @@ export function mergeSimpleChannelAccess(
       return;
     }
     if (isManagedGate(rule)) {
-      if (!password && managed.length > 0 && !retainedGate) {
+      if (!password && (managed.length > 0 || hasAdvancedRules) && !retainedGate) {
         acls.push(rule);
         retainedGate = true;
       }

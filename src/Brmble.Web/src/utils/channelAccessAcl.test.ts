@@ -182,6 +182,18 @@ describe('mergeSimpleChannelAccess', () => {
     expect(result.acls).toContainEqual(expect.objectContaining({ userId: 42, allow: CHANNEL_ENTRY_PERMISSIONS }));
   });
 
+  it('preserves an unmarked entry gate when advanced invite rules are present', () => {
+    const gate = localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS });
+    const invite = localRule({ group: '#invite-token', allow: Permission.Enter });
+    const result = mergeSimpleChannelAccess(snapshot([gate, invite]), new Set(), {
+      groups: [],
+      userIds: [],
+      password: '',
+    });
+
+    expect(result.acls).toEqual([gate, invite]);
+  });
+
   it('merges group masks while preserving unrelated ACL rules', () => {
     const result = mergeSimpleChannelAccess(snapshot([
       localRule({ group: 'Hunters', allow: CHANNEL_ENTRY_PERMISSIONS }),
@@ -219,6 +231,9 @@ describe('mergeSimpleChannelAccess', () => {
       localRule({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS }),
       localRule({ group: 'custom', deny: Permission.Kick }),
     ]), new Set(), { groups: [], userIds: [], password: '' });
-    expect(cleared.acls).toEqual([expect.objectContaining({ group: 'custom', deny: Permission.Kick })]);
+    expect(cleared.acls).toEqual([
+      expect.objectContaining({ group: 'all', deny: CHANNEL_ENTRY_PERMISSIONS }),
+      expect.objectContaining({ group: 'custom', deny: Permission.Kick }),
+    ]);
   });
 });
