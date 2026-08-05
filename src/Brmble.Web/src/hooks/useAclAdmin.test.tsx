@@ -89,4 +89,18 @@ describe('useAclAdmin', () => {
     expect(result.current.snapshot?.snapshotHash).toBe('canonical-hash');
     expect(result.current.error).toContain('ACL changed since it was opened.');
   });
+
+  it('refetches the authorized ACL when a metadata-only change event arrives', () => {
+    let changedHandler: ((data: unknown) => void) | undefined;
+    vi.mocked(bridge.on).mockImplementation((type, handler) => {
+      if (type === 'acl.changed') changedHandler = handler;
+    });
+    vi.mocked(bridge.send).mockClear();
+    const { result } = renderHook(() => useAclAdmin(7));
+
+    act(() => changedHandler?.({ channelId: 7, snapshotHash: 'new-hash', hasManagedPassword: true }));
+
+    expect(bridge.send).toHaveBeenCalledWith('acl.getChannel', { channelId: 7 });
+    expect(result.current.snapshot).toBeNull();
+  });
 });

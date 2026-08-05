@@ -18,10 +18,10 @@ public sealed class MumbleAclService : IMumbleAclService
             var result = await _iceClient.GetAclAsync(channelId);
             return AclMapper.FromIce(channelId, result, DateTimeOffset.UtcNow, stale: false, warning: null);
         }
-        catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
+        catch (Exception ex) when (ex is not MumbleAclUnavailableException)
         {
-            _logger.LogWarning(ex, "Failed to fetch ACL for channel {ChannelId}", channelId);
-            throw new MumbleAclException($"Failed to fetch ACL for channel {channelId}.", ex);
+            _logger.LogWarning("Failed to fetch ACL for channel {ChannelId} errorType={ErrorType}", channelId, ex.GetType().Name);
+            throw new MumbleAclException($"Failed to fetch ACL for channel {channelId}.");
         }
     }
 
@@ -33,10 +33,10 @@ public sealed class MumbleAclService : IMumbleAclService
         {
             await _iceClient.SetAclAsync(channelId, acls, groups, inherit);
         }
-        catch (Exception ex) when (ex is not MumbleAclUnavailableException and not MumbleAclException)
+        catch (Exception ex) when (ex is not MumbleAclUnavailableException)
         {
-            _logger.LogWarning(ex, "Failed to set ACL for channel {ChannelId}", channelId);
-            throw new MumbleAclException($"Failed to set ACL for channel {channelId}.", ex);
+            _logger.LogWarning("Failed to set ACL for channel {ChannelId} errorType={ErrorType}", channelId, ex.GetType().Name);
+            throw new MumbleAclException($"Failed to set ACL for channel {channelId}.");
         }
     }
 

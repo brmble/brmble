@@ -27,4 +27,35 @@ public class AclEventDispatcherTests
             It.Is<IReadOnlySet<long>>(s => s.SetEquals(new HashSet<long> { 10, 12 })),
             It.IsAny<object>()), Times.Once);
     }
+
+    [TestMethod]
+    public async Task DispatchAclChangedAsync_BroadcastsMetadataWithoutSnapshotOrPassword()
+    {
+        var auth = new Mock<IAclAuthorizationService>();
+        var bus = new Mock<IBrmbleEventBus>();
+        auth.Setup(a => a.CanManageChannelAclAsync(12, 7)).ReturnsAsync(true);
+        bus.Setup(b => b.GetConnectedUserIdsAsync()).ReturnsAsync(new HashSet<long> { 12L });
+        object? payload = null;
+        bus.Setup(b => b.BroadcastToUsersAsync(It.IsAny<IReadOnlySet<long>>(), It.IsAny<object>(), It.IsAny<EventDeliveryOptions>()))
+            .Callback<IReadOnlySet<long>, object, EventDeliveryOptions>((_, value, _) => payload = value)
+            .Returns(Task.CompletedTask);
+        var dispatcher = new AclEventDispatcher(auth.Object, bus.Object);
+        const string password = "class-a-voice";
+        var snapshot = new AclChannelSnapshotDto(
+            7, true, [],
+            [
+                new(true, false, false, null, "all", 0, 3854),
+                new(true, false, false, null, $"#{password}", 2830, 0),
+                new(true, false, false, null, $"__brmble_password_marker__:{('#' + password)}", 0, 0),
+            ],
+            DateTimeOffset.UtcNow, false, null, "hash-7");
+
+        await dispatcher.DispatchAclChangedAsync(7, snapshot);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        StringAssert.Contains(json, "snapshotHash");
+        StringAssert.Contains(json, "\"hasManagedPassword\":true");
+        Assert.IsFalse(json.Contains("\"snapshot\":", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(json.Contains(password, StringComparison.Ordinal));
+    }
 }

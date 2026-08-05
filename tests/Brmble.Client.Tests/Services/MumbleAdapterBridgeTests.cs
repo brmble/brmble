@@ -200,7 +200,7 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
-    public void HandleWebSocketMessage_AclChangedManagedPasswordMarker_UpdatesChannelPayloadWithoutToken()
+    public void HandleWebSocketMessage_AclChangedMetadata_UpdatesPasswordStateWithoutToken()
     {
         var adapter = CreateAdapterWithBridge(out var bridge);
         var channels = GetChannelDictionary(adapter);
@@ -211,7 +211,7 @@ public class MumbleAdapterBridgeTests
         };
 
         InvokePrivate(adapter, "HandleWebSocketMessage", """
-        {"type":"acl.changed","channelId":4,"snapshot":{"acls":[{"group":"__brmble_password_marker__:#secret-token"}]}}
+        {"type":"acl.changed","channelId":4,"snapshotHash":"hash-4","hasManagedPassword":true}
         """);
 
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
@@ -221,6 +221,14 @@ public class MumbleAdapterBridgeTests
 
         Assert.IsTrue(channel.GetProperty("hasPasswordRestriction").GetBoolean());
         Assert.IsFalse(channelJoined.DataJson.Contains("secret-token", StringComparison.Ordinal));
+
+        InvokePrivate(adapter, "HandleWebSocketMessage", """
+        {"type":"acl.changed","channelId":4,"snapshotHash":"hash-5","hasManagedPassword":false}
+        """);
+        var cleared = NativeBridgeTestHarness.DrainMessages(bridge);
+        var clearedChannel = cleared.Single(m => m.Type == "voice.channelJoined");
+        using var clearedDoc = JsonDocument.Parse(clearedChannel.DataJson);
+        Assert.IsFalse(clearedDoc.RootElement.GetProperty("hasPasswordRestriction").GetBoolean());
     }
 
     [TestMethod]

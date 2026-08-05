@@ -45,6 +45,13 @@ public sealed class AclEventDispatcher : IAclEventDispatcher
 
         await _eventBus.BroadcastToUsersAsync(
             allowed,
-            new { type = "acl.changed", channelId, snapshot });
+            new
+            {
+                type = "acl.changed",
+                channelId,
+                snapshotHash = snapshot.SnapshotHash,
+                hasManagedPassword = snapshot.Acls.Any(acl =>
+                    acl.Group?.StartsWith("__brmble_password_marker__:#", StringComparison.Ordinal) == true)
+            });
     }
 }
