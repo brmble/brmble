@@ -238,6 +238,19 @@ describe('AdminGroupsSection', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: '@all' })).not.toBeInTheDocument());
   });
 
+  it('explains when a group name already exists', async () => {
+    renderAdminGroupsSection();
+    promptSpy.mockResolvedValue('Officers');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }));
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith({
+      title: 'Duplicate group name',
+      message: 'A group named "Officers" already exists.',
+      confirmLabel: 'OK',
+    }));
+  });
+
   it('preserves hidden local non-inheritable groups in replacement saves', async () => {
     const hiddenGroup = { name: 'RootLocalOnly', inherited: false, inherit: true, inheritable: false, add: [], remove: [], members: [77] };
     renderAdminGroupsSection({
@@ -275,6 +288,18 @@ describe('AdminGroupsSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Group' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '@Classleaders' })).toBeInTheDocument());
+  });
+
+  it('does not stage the same group name more than once', async () => {
+    renderAdminGroupsSection({ aclAdmin: { snapshot: createSnapshot({ groups: [], acls: [] }) } });
+    promptSpy.mockResolvedValue('Classleaders');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '@Classleaders' })).toHaveLength(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Group' }));
+    await waitFor(() => expect(promptSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '@Classleaders' })).toHaveLength(1));
   });
 
   it('saves the edited groups through the ACL-backed persistence path', async () => {

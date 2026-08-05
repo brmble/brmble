@@ -283,7 +283,16 @@ export function AdminGroupsSection() {
       cancelLabel: 'Cancel',
     });
     const name = requestedName?.trim();
-    if (!name || isReservedMumbleGroupName(name) || sourceGroups.some(group => group.name === name)) return;
+    if (!name || isReservedMumbleGroupName(name)) return;
+
+    if (sourceGroups.some(group => group.name === name) || draftGroups.some(group => group.name === name)) {
+      await confirm({
+        title: 'Duplicate group name',
+        message: `A group named "${name}" already exists.`,
+        confirmLabel: 'OK',
+      });
+      return;
+    }
 
     setHasLocalEdits(true);
     setDraftGroups(current => [...current, {
