@@ -1,10 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAccessPanel } from './ChannelAccessPanel';
 
 const channelSave = vi.fn();
 const channelRefresh = vi.fn();
 const rootRefresh = vi.fn();
+
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 vi.mock('../../../hooks/useAclAdmin', () => ({
   useAclAdmin: (channelId: number) => channelId === 0
@@ -49,9 +53,11 @@ describe('ChannelAccessPanel', () => {
 
   it('assigns a root group and registered user then saves one merged ACL update', () => {
     render(<ChannelAccessPanel channel={channel} parentName="Classes" onOpenAdvancedPermissions={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText('Group to add'), { target: { value: 'Classleaders' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Group to add' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Classleaders' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
-    fireEvent.change(screen.getByLabelText('Registered user to add'), { target: { value: '77' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Registered user to add' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Bob' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save access settings' }));
 

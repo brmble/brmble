@@ -7,6 +7,7 @@ import {
   type SimpleChannelAccessDraft,
 } from '../../../utils/channelAccessAcl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
+import { Select } from '../../Select';
 import './ChannelAccessPanel.css';
 
 interface ChannelAccessPanelProps {
@@ -95,12 +96,15 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
         </ul>
         <label>
           <span>Group to add</span>
-          <select aria-label="Group to add" value={groupToAdd} onChange={event => setGroupToAdd(event.target.value)}>
-            <option value="">Select a group</option>
-            {rootGroups.filter(group => !draft.groupNames.includes(group.name)).map(group => (
-              <option key={group.name} value={group.name}>{group.name}</option>
-            ))}
-          </select>
+          <Select
+            ariaLabel="Group to add"
+            value={groupToAdd}
+            onChange={setGroupToAdd}
+            placeholder="Select a group"
+            options={rootGroups
+              .filter(group => !draft.groupNames.includes(group.name))
+              .map(group => ({ value: group.name, label: group.name }))}
+          />
         </label>
         <button type="button" disabled={!groupToAdd} onClick={() => {
           setDraft(current => ({ ...current, groupNames: [...new Set([...current.groupNames, groupToAdd])].sort() }));
@@ -121,12 +125,15 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
         </ul>
         <label>
           <span>Registered user to add</span>
-          <select aria-label="Registered user to add" value={userToAdd} onChange={event => setUserToAdd(event.target.value)}>
-            <option value="">Select a user</option>
-            {users.registeredUsers.filter(user => !draft.userIds.includes(user.registrationUserId)).map(user => (
-              <option key={user.registrationUserId} value={user.registrationUserId}>{user.registeredName}</option>
-            ))}
-          </select>
+          <Select
+            ariaLabel="Registered user to add"
+            value={userToAdd}
+            onChange={setUserToAdd}
+            placeholder="Select a user"
+            options={users.registeredUsers
+              .filter(user => !draft.userIds.includes(user.registrationUserId))
+              .map(user => ({ value: String(user.registrationUserId), label: user.registeredName }))}
+          />
         </label>
         <button type="button" disabled={!userToAdd} onClick={() => {
           const registrationUserId = Number.parseInt(userToAdd, 10);
@@ -139,6 +146,7 @@ export function ChannelAccessPanel({ channel, parentName, onOpenAdvancedPermissi
         <span>Channel password — visible to administrators</span>
         <input
           aria-label="Channel password — visible to administrators"
+          className="brmble-input"
           type="text"
           value={draft.password}
           autoComplete="off"
