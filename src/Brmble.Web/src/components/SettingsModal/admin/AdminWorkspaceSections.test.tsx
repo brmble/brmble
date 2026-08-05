@@ -11,6 +11,9 @@ const { confirmMock, promptMock, aclEditorDialogMock } = vi.hoisted(() => ({
   promptMock: vi.fn(),
   aclEditorDialogMock: vi.fn(),
 }));
+const { channelAccessPanelMock } = vi.hoisted(() => ({
+  channelAccessPanelMock: vi.fn(),
+}));
 const { bridgeMock, usePermissionsMock } = vi.hoisted(() => ({
   bridgeMock: {
     send: vi.fn(),
@@ -69,6 +72,18 @@ vi.mock('../../AclEditor/AclEditorDialog', () => ({
   },
 }));
 
+vi.mock('./ChannelAccessPanel', () => ({
+  ChannelAccessPanel: (props: { channel: Channel; onOpenAdvancedPermissions: () => void }) => {
+    channelAccessPanelMock(props);
+    return (
+      <div data-testid={`channel-access-panel-${props.channel.id}`}>
+        <span>{props.channel.description}</span>
+        <button type="button" onClick={props.onOpenAdvancedPermissions}>Open advanced permissions</button>
+      </div>
+    );
+  },
+}));
+
 vi.mock('../SettingsHelp', () => ({
   SettingsHelp: ({ content, label }: { content: string; label: string }) => (
     <button type="button" aria-label={label} data-help-content={content}>?</button>
@@ -124,6 +139,43 @@ describe('Admin workspace sections', () => {
     expect(screen.getByRole('row', { name: 'Raid Planning Position 1' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Channel' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Delete Channel' })).not.toBeInTheDocument();
+  });
+
+  it('expands and collapses channel access settings with an accessible button', () => {
+    render(<AdminChannelsSection channels={[{ id: 7, name: 'ChannelA', description: 'Class A voice', position: 0 }]} />);
+
+    const expand = screen.getByRole('button', { name: 'Expand ChannelA access settings' });
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(expand);
+    const collapse = screen.getByRole('button', { name: 'Collapse ChannelA access settings' });
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('channel-access-panel-7')).toHaveTextContent('Class A voice');
+
+    fireEvent.click(collapse);
+    expect(screen.queryByTestId('channel-access-panel-7')).not.toBeInTheDocument();
+  });
+
+  it('opens the existing ACL editor from the expanded panel', () => {
+    render(<AdminChannelsSection channels={[{ id: 7, name: 'ChannelA', description: '' }]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand ChannelA access settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open advanced permissions' }));
+
+    expect(screen.getByTestId('acl-editor-dialog')).toBeInTheDocument();
+    expect(aclEditorDialogMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      isOpen: true,
+      channelId: 7,
+      channelName: 'ChannelA',
+    }));
+  });
+
+  it('does not expose the simple access expander for root channel zero', () => {
+    render(<AdminChannelsSection channels={[{ id: 0, name: 'Root', position: 0 }, { id: 7, name: 'ChannelA', parent: 0, position: 1 }]} />);
+
+    expect(screen.queryByRole('button', { name: 'Expand Root access settings' })).not.toBeInTheDocument();
+    expect(screen.getByText('Group access managed in Groups')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand ChannelA access settings' })).toBeInTheDocument();
   });
 
   it('renders inline approve and deny actions for each channel request row', async () => {
