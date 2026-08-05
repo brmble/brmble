@@ -2,10 +2,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AclEditorDialog } from './AclEditorDialog';
 import type { AclChannelSnapshot } from '../../types/acl';
+import {
+  PASSWORD_DENY_PERMISSIONS,
+  PASSWORD_MARKER_PREFIX,
+  PASSWORD_TOKEN_PERMISSIONS,
+} from '../../utils/channelAccessAcl';
 
 const refresh = vi.fn();
 const save = vi.fn();
-const savePassword = vi.fn();
 const { bridgeHandlers, bridgeSend } = vi.hoisted(() => {
   const bridgeHandlers = new Map<string, ((data: unknown) => void)[]>();
   const bridgeSend = vi.fn((type: string) => {
@@ -46,6 +50,12 @@ let hookSnapshot: AclChannelSnapshot = {
 };
 let hookSaving = false;
 
+const managedPasswordAcls = (password: string): AclChannelSnapshot['acls'] => [
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: 'all', allow: 0, deny: PASSWORD_DENY_PERMISSIONS },
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: `#${password}`, allow: PASSWORD_TOKEN_PERMISSIONS, deny: 0 },
+  { applyHere: true, applySubs: false, inherited: false, userId: null, group: `${PASSWORD_MARKER_PREFIX}#${password}`, allow: 0, deny: 0 },
+];
+
 vi.mock('../../hooks/useAclAdmin', () => ({
   useAclAdmin: () => ({
     snapshot: hookSnapshot,
@@ -54,7 +64,8 @@ vi.mock('../../hooks/useAclAdmin', () => ({
     error: null,
     refresh,
     save,
-    savePassword,
+    addGroupMember: vi.fn(),
+    removeGroupMember: vi.fn(),
   }),
 }));
 
@@ -73,7 +84,6 @@ describe('AclEditorDialog', () => {
     };
     refresh.mockClear();
     save.mockClear();
-    savePassword.mockClear();
     bridgeSend.mockClear();
     hookSaving = false;
   });
@@ -193,36 +203,30 @@ describe('AclEditorDialog', () => {
     hookSnapshot = {
       ...hookSnapshot,
       groups: [],
-      acls: [
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
-      ],
+      acls: managedPasswordAcls('secret'),
     };
     save.mockClear();
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
-    expect(screen.getByLabelText('Channel password selector')).toHaveValue('secret');
+    expect(screen.getByLabelText('Channel password — visible to administrators')).toHaveValue('secret');
 
-    fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: 'new-secret' } });
+    fireEvent.change(screen.getByLabelText('Channel password — visible to administrators'), { target: { value: 'new-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
-    expect(savePassword).toHaveBeenCalledWith('new-secret');
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ acls: managedPasswordAcls('new-secret') }));
   });
 
   it('shows cancel and highlighted save only when an existing password changes', () => {
     hookSnapshot = {
       ...hookSnapshot,
       groups: [],
-      acls: [
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
-      ],
+      acls: managedPasswordAcls('secret'),
     };
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
-    const passwordInput = screen.getByLabelText('Channel password selector');
+    const passwordInput = screen.getByLabelText('Channel password — visible to administrators');
 
     expect(screen.queryByRole('button', { name: 'Cancel password change' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
@@ -234,22 +238,19 @@ describe('AclEditorDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
-    expect(savePassword).toHaveBeenCalledWith('new-secret');
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ acls: managedPasswordAcls('new-secret') }));
   });
 
   it('reverts unsaved password changes when cancel is pressed', () => {
     hookSnapshot = {
       ...hookSnapshot,
       groups: [],
-      acls: [
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
-      ],
+      acls: managedPasswordAcls('secret'),
     };
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
-    const passwordInput = screen.getByLabelText('Channel password selector');
+    const passwordInput = screen.getByLabelText('Channel password — visible to administrators');
 
     expect(passwordInput).toHaveValue('secret');
 
@@ -266,11 +267,11 @@ describe('AclEditorDialog', () => {
 
     fireEvent.click(screen.getByLabelText('Password protected'));
 
-    expect(screen.getByLabelText('Channel password selector')).toHaveValue('');
+    expect(screen.getByLabelText('Channel password — visible to administrators')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Cancel password change' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save password' })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText('Channel password selector'), { target: { value: '#new-secret' } });
+    fireEvent.change(screen.getByLabelText('Channel password — visible to administrators'), { target: { value: '#new-secret' } });
 
     expect(screen.getByRole('button', { name: 'Save password' })).not.toBeDisabled();
   });
@@ -279,15 +280,12 @@ describe('AclEditorDialog', () => {
     hookSnapshot = {
       ...hookSnapshot,
       groups: [],
-      acls: [
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
-      ],
+      acls: managedPasswordAcls('secret'),
     };
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
-    const passwordInput = screen.getByLabelText('Channel password selector');
+    const passwordInput = screen.getByLabelText('Channel password — visible to administrators');
 
     expect(screen.queryByRole('button', { name: 'Show password' })).not.toBeInTheDocument();
 
@@ -320,17 +318,14 @@ describe('AclEditorDialog', () => {
     hookSnapshot = {
       ...hookSnapshot,
       groups: [],
-      acls: [
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '__brmble_password_marker__:#secret', allow: 0, deny: 0 },
-        { applyHere: true, applySubs: false, inherited: false, userId: null, group: '#secret', allow: 6, deny: 0 },
-      ],
+      acls: managedPasswordAcls('secret'),
     };
 
     render(<AclEditorDialog isOpen channelId={4} channelName="Secret" onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByLabelText('Password protected'));
 
-    expect(savePassword).toHaveBeenCalledWith('');
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ acls: [] }));
   });
 
   it('disables ACL actions while a write is in flight', () => {

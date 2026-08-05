@@ -6,6 +6,11 @@ import { useAclAdmin } from '../../hooks/useAclAdmin';
 import bridge from '../../bridge';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
+import {
+  CHANNEL_ENTRY_PERMISSIONS,
+  PASSWORD_MARKER_PREFIX,
+  replaceManagedPassword,
+} from '../../utils/channelAccessAcl';
 import './AclEditorDialog.css';
 
 type AclDraft = Omit<AclUpdateRequest, 'expectedSnapshotHash'>;
@@ -78,10 +83,8 @@ interface RegisteredUserOption {
   name: string;
 }
 
-const PASSWORD_MARKER_PREFIX = '__brmble_password_marker__:';
 const ALL_USERS_SELECTOR = 'all';
 const MODERATOR_PERMISSIONS = Permission.Kick | Permission.Ban | Permission.Move | Permission.MuteDeafen;
-const CHANNEL_ENTRY_PERMISSIONS = Permission.Enter | Permission.Traverse;
 
 function normalizePasswordSelector(selector: string): string {
   return selector.startsWith('#') ? selector.slice(1) : selector;
@@ -128,7 +131,7 @@ function buildDirectUserEntries(acls: AclRule[]): DirectUserEntry[] {
 }
 
 export function AclEditorDialog({ channelId, channelName, isOpen, onClose, availableUsers = [], isNativePasswordProtected = false }: AclEditorDialogProps) {
-  const { snapshot, loading, saving, error, refresh, save, savePassword } = useAclAdmin(isOpen ? channelId : null);
+  const { snapshot, loading, saving, error, refresh, save } = useAclAdmin(isOpen ? channelId : null);
   const [draft, setDraft] = useState<AclDraft | null>(null);
   const [pendingApprovedSession, setPendingApprovedSession] = useState('');
   const [pendingBlockedSession, setPendingBlockedSession] = useState('');
@@ -348,7 +351,14 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
     setPasswordPending(true);
   };
 
-  const removePasswordRule = () => savePassword('');
+  const persistPassword = (password: string) => {
+    applyDraft(current => ({
+      ...current,
+      acls: replaceManagedPassword(current.acls, password),
+    }), { persist: true });
+  };
+
+  const removePasswordRule = () => persistPassword('');
 
   const sharedAccessEntries = useMemo(
     () => draft ? buildSharedAccessEntries(draft.acls) : [],
@@ -648,11 +658,11 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                   {passwordEnabled && (
                     <div className="acl-simple-list">
                       <label className="acl-field">
-                        <span className="acl-field-label">Password</span>
+                        <span className="acl-field-label">Channel password — visible to administrators</span>
                         <span className={`acl-password-wrapper${passwordFocused || passwordToggleFocused ? ' focused' : ''}`}>
                           <input
                             className="brmble-input acl-password-input"
-                            aria-label="Channel password selector"
+                            aria-label="Channel password — visible to administrators"
                             type={showPassword ? 'text' : 'password'}
                             value={passwordInput}
                             disabled={interactionsDisabled}
@@ -700,7 +710,7 @@ export function AclEditorDialog({ channelId, channelName, isOpen, onClose, avail
                             className="btn btn-primary acl-password-action"
                             type="button"
                             disabled={interactionsDisabled || !passwordCanSave}
-                            onClick={() => savePassword(passwordInput)}
+                            onClick={() => persistPassword(passwordInput)}
                             aria-label="Save password"
                           >
                             Save
