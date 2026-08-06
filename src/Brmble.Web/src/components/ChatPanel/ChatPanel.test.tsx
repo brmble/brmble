@@ -2,6 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
+import { confirm } from '../../hooks/usePrompt';
+import { MessageDeletionError } from '../../api/messages';
+
+vi.mock('../../hooks/usePrompt', async () => {
+  const actual = await vi.importActual<typeof import('../../hooks/usePrompt')>('../../hooks/usePrompt');
+  return { ...actual, confirm: vi.fn() };
+});
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -195,6 +202,95 @@ describe('ChatPanel image paint background menu', () => {
     expect(screen.queryByRole('button', {
       name: 'Use as paint background',
     })).not.toBeInTheDocument();
+  });
+});
+
+const recentOwnMessage = {
+  id: '$message', channelId: '42', sender: 'Alice', senderMatrixUserId: '@alice:test',
+  content: 'delete me', timestamp: new Date(Date.now() - 3_600_000), msgType: 'm.text' as const,
+};
+
+describe('ChatPanel message deletion', () => {
+  beforeEach(() => vi.mocked(confirm).mockReset());
+
+  it('shows Delete message for an eligible author', () => {
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });
+    expect(screen.getByRole('button', { name: 'Delete message' })).toBeInTheDocument();
+  });
+
+  it('hides Delete message for another user without admin permission', () => {
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[{ ...recentOwnMessage, sender: 'Bob', senderMatrixUserId: '@bob:test' }]} currentUserMatrixId="@alice:test" canModerateRecentMessages={false} onSendMessage={() => {}} onDeleteMessage={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });
+    expect(screen.queryByRole('button', { name: 'Delete message' })).not.toBeInTheDocument();
+  });
+
+  it('shows Delete message to an administrator for another author', () => {
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[{ ...recentOwnMessage, sender: 'Bob', senderMatrixUserId: '@bob:test' }]} currentUserMatrixId="@alice:test" canModerateRecentMessages onSendMessage={() => {}} onDeleteMessage={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });
+    expect(screen.getByRole('button', { name: 'Delete message' })).toBeInTheDocument();
+  });
+
+  it('confirms before invoking the delete callback', async () => {
+    const user = userEvent.setup();
+    const onDeleteMessage = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(confirm).mockResolvedValue(true);
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={onDeleteMessage} />);
+    fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });
+    await user.click(screen.getByRole('button', { name: 'Delete message' }));
+    expect(confirm).toHaveBeenCalledWith({
+      title: 'Delete message?',
+      message: 'This message will be replaced with “Message deleted” for everyone.',
+      confirmLabel: 'Delete message', cancelLabel: 'Cancel', destructive: true,
+    });
+    await waitFor(() => expect(onDeleteMessage).toHaveBeenCalledWith('!general:test', '$message'));
+  });
+
+  it('does not invoke deletion when confirmation is canceled', async () => {
+    const user = userEvent.setup();
+    const onDeleteMessage = vi.fn();
+    vi.mocked(confirm).mockResolvedValue(false);
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={onDeleteMessage} />);
+    fireEvent.contextMenu(screen.getByText('delete me'));
+    await user.click(screen.getByRole('button', { name: 'Delete message' }));
+    expect(onDeleteMessage).not.toHaveBeenCalled();
+  });
+
+  it('shows a clear server failure and locks duplicate clicks', async () => {
+    const user = userEvent.setup();
+    let rejectDelete!: (error: Error) => void;
+    const onDeleteMessage = vi.fn(() => new Promise<void>((_, reject) => { rejectDelete = reject; }));
+    vi.mocked(confirm).mockResolvedValue(true);
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={onDeleteMessage} />);
+    fireEvent.contextMenu(screen.getByText('delete me'));
+    await user.click(screen.getByRole('button', { name: 'Delete message' }));
+    expect(onDeleteMessage).toHaveBeenCalledTimes(1);
+    fireEvent.contextMenu(screen.getByText('delete me'));
+    const lockedAction = screen.getByRole('button', { name: 'Deleting message…' });
+    expect(lockedAction).toBeDisabled();
+    await user.click(lockedAction);
+    expect(onDeleteMessage).toHaveBeenCalledTimes(1);
+    rejectDelete(new MessageDeletionError('Messages can only be deleted within 24 hours.', 'expired', 410));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Messages can only be deleted within 24 hours.');
+  });
+
+  it('uses the room captured before confirmation when navigation changes', async () => {
+    const user = userEvent.setup();
+    let resolveConfirm!: (accepted: boolean) => void;
+    vi.mocked(confirm).mockReturnValue(new Promise(resolve => { resolveConfirm = resolve; }));
+    const onDeleteMessage = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(<ChatPanel channelId="42" channelName="room A" matrixRoomId="!room-a:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={onDeleteMessage} />);
+    fireEvent.contextMenu(screen.getByText('delete me'));
+    void user.click(screen.getByRole('button', { name: 'Delete message' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    rerender(<ChatPanel channelId="43" channelName="room B" matrixRoomId="!room-b:test" messages={[recentOwnMessage]} currentUserMatrixId="@alice:test" onSendMessage={() => {}} onDeleteMessage={onDeleteMessage} />);
+    resolveConfirm(true);
+    await waitFor(() => expect(onDeleteMessage).toHaveBeenCalledWith('!room-a:test', '$message'));
+  });
+
+  it('shows Message deleted in a reply strip when its target is redacted', () => {
+    render(<ChatPanel channelId="42" channelName="general" messages={[{ ...recentOwnMessage, redacted: true, content: '' }, { ...recentOwnMessage, id: '$reply', content: 'reply body', replyToEventId: '$message' }]} onSendMessage={() => {}} />);
+    expect(screen.getAllByText('Message deleted')).toHaveLength(2);
   });
 });
 
