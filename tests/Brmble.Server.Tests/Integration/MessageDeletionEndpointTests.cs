@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Brmble.Server.Matrix;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -70,6 +71,44 @@ public sealed class MessageDeletionEndpointTests
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<string>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task BridgedAuthor_CanDeleteRecentMessage()
+    {
+        using var factory = await FactoryAsync(
+            sender: "@brmble:test",
+            authorMatrixUserId: "@alice:test",
+            timestamp: Now - TimeSpan.FromMinutes(10),
+            canModerate: false);
+        using var client = factory.CreateClient();
+
+        var response = await DeleteAsync(client);
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        factory.MatrixAppMock.Verify(
+            matrix => matrix.RedactRoomEvent(
+                RoomId, EventId, "Deleted through Brmble"),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task NonAdministrator_CannotDeleteBridgedMessageOwnedByAnotherUser()
+    {
+        using var factory = await FactoryAsync(
+            sender: "@brmble:test",
+            authorMatrixUserId: "@bob:test",
+            timestamp: Now - TimeSpan.FromMinutes(10),
+            canModerate: false);
+        using var client = factory.CreateClient();
+
+        var response = await DeleteAsync(client);
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        factory.MatrixAppMock.Verify(
+            matrix => matrix.RedactRoomEvent(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
             Times.Never);
     }
 
@@ -170,12 +209,13 @@ public sealed class MessageDeletionEndpointTests
         DateTimeOffset timestamp,
         bool canModerate,
         bool isRedacted = false,
-        bool registerRoom = true)
+        bool registerRoom = true,
+        string? authorMatrixUserId = null)
     {
         var factory = new BrmbleServerFactory();
         factory.MatrixAppMock
             .Setup(matrix => matrix.GetRoomEvent(RoomId, EventId))
-            .ReturnsAsync(Event(sender, timestamp, isRedacted));
+            .ReturnsAsync(Event(sender, timestamp, isRedacted, authorMatrixUserId));
         if (registerRoom)
         {
             await factory.Services
@@ -192,17 +232,28 @@ public sealed class MessageDeletionEndpointTests
     private static JsonElement Event(
         string sender,
         DateTimeOffset timestamp,
-        bool isRedacted = false) =>
-        JsonSerializer.SerializeToElement(new
+        bool isRedacted = false,
+        string? authorMatrixUserId = null)
+    {
+        var content = new JsonObject
+        {
+            ["msgtype"] = "m.text",
+            ["body"] = authorMatrixUserId is null ? "hello" : "[Alice]: hello"
+        };
+        if (authorMatrixUserId is not null)
+            content["com.brmble.author_matrix_user_id"] = authorMatrixUserId;
+
+        return JsonSerializer.SerializeToElement(new
         {
             type = "m.room.message",
             sender,
             origin_server_ts = timestamp.ToUnixTimeMilliseconds(),
-            content = new { msgtype = "m.text", body = "hello" },
+            content,
             unsigned = isRedacted
                 ? new { redacted_because = new { type = "m.room.redaction" } }
                 : null
         });
+    }
 
     private static Task<HttpResponseMessage> DeleteAsync(HttpClient client) =>
         client.PostAsJsonAsync("/messages/delete", new

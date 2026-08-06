@@ -69,15 +69,16 @@ public sealed class MessageDeletionService
                 return new(MessageDeletionOutcome.InvalidEvent);
             }
 
+            var effectiveAuthor = message.AuthorMatrixUserId ?? message.Sender;
             var isAuthor = string.Equals(
-                message.Sender,
+                effectiveAuthor,
                 requester.MatrixUserId,
                 StringComparison.Ordinal);
             var canModerate = !isAuthor
                 && await _authorization.CanModerateServerAsync(requester.Id);
 
             var decision = MessageDeletionPolicy.Evaluate(
-                message,
+                message with { Sender = effectiveAuthor },
                 requester.MatrixUserId,
                 canModerate,
                 _timeProvider.GetUtcNow());

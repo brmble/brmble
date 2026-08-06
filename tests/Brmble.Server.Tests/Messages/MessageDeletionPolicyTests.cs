@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Brmble.Server.Messages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -57,6 +58,18 @@ public sealed class MessageDeletionPolicyTests
     }
 
     [TestMethod]
+    public void BridgedMessage_EffectiveAuthor_IsAllowed()
+    {
+        var message = new MatrixMessageMetadata(
+            "m.room.message", "@brmble:test", Now - TimeSpan.FromMinutes(10), false,
+            "@alice:test");
+
+        Assert.AreEqual(
+            MessageDeletionDecision.Allowed,
+            MessageDeletionPolicy.Evaluate(message, "@alice:test", false, Now));
+    }
+
+    [TestMethod]
     public void RedactedMessage_IsAlreadyDeleted()
     {
         var message = Message(
@@ -104,6 +117,28 @@ public sealed class MessageDeletionPolicyTests
         Assert.AreEqual("@alice:test", parsed.Sender);
         Assert.AreEqual(Now, parsed.OriginServerTimestamp);
         Assert.IsTrue(parsed.IsRedacted);
+    }
+
+    [TestMethod]
+    public void Parse_ReadsNonEmptyBridgedAuthorMetadata()
+    {
+        var content = new JsonObject
+        {
+            ["msgtype"] = "m.text",
+            ["body"] = "[Alice]: hello",
+            ["com.brmble.author_matrix_user_id"] = "@alice:test"
+        };
+        var json = JsonSerializer.SerializeToElement(new
+        {
+            type = "m.room.message",
+            sender = "@brmble:test",
+            origin_server_ts = Now.ToUnixTimeMilliseconds(),
+            content
+        });
+
+        var parsed = MatrixMessageMetadata.Parse(json);
+
+        Assert.AreEqual("@alice:test", parsed.AuthorMatrixUserId);
     }
 
     private static MatrixMessageMetadata Message(

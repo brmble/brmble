@@ -15,7 +15,8 @@ public sealed record MatrixMessageMetadata(
     string EventType,
     string Sender,
     DateTimeOffset OriginServerTimestamp,
-    bool IsRedacted)
+    bool IsRedacted,
+    string? AuthorMatrixUserId = null)
 {
     public static MatrixMessageMetadata Parse(JsonElement eventJson)
     {
@@ -37,11 +38,22 @@ public sealed record MatrixMessageMetadata(
                 "redacted_because", out var redactedBecause)
             && redactedBecause.ValueKind == JsonValueKind.Object;
 
+        string? authorMatrixUserId = null;
+        if (eventJson.TryGetProperty("content", out var contentElement)
+            && contentElement.ValueKind == JsonValueKind.Object
+            && contentElement.TryGetProperty("com.brmble.author_matrix_user_id", out var authorElement)
+            && authorElement.ValueKind == JsonValueKind.String
+            && authorElement.GetString() is { Length: > 0 } author)
+        {
+            authorMatrixUserId = author;
+        }
+
         return new(
             eventType,
             sender,
             DateTimeOffset.FromUnixTimeMilliseconds(timestampMs),
-            isRedacted);
+            isRedacted,
+            authorMatrixUserId);
     }
 }
 
@@ -80,7 +92,7 @@ public static class MessageDeletionPolicy
         }
 
         if (string.Equals(
-                message.Sender,
+                message.AuthorMatrixUserId ?? message.Sender,
                 requesterMatrixUserId,
                 StringComparison.Ordinal)
             || canModerate)
