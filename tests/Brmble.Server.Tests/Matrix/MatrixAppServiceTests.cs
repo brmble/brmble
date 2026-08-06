@@ -377,6 +377,48 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task RedactRoomEvent_UsesCallerSuppliedActor()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"event_id":"$redaction:test"}""");
+
+        await _svc.RedactRoomEvent(
+            "!dm:server", "$message:server", "Deleted through Brmble", "@alice:server");
+
+        StringAssert.Contains(
+            _capturedRequests.Single().RequestUri!.Query,
+            "user_id=%40alice%3Aserver");
+    }
+
+    [TestMethod]
+    public async Task DmRedactionRequiresJoinedParticipant()
+    {
+        var homeserver = new MatrixPermissionTestServer();
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient(It.IsAny<string>()))
+            .Returns(new HttpClient(homeserver));
+        var service = new MatrixAppService(
+            factory.Object,
+            Options.Create(new MatrixSettings
+            {
+                HomeserverUrl = "http://matrix.test",
+                AppServiceToken = "test-token",
+                ServerDomain = "server"
+            }),
+            NullLogger<MatrixAppService>.Instance);
+
+        var roomId = await service.CreateDMRoom("alice", "bob");
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(() =>
+            service.RedactRoomEvent(
+                roomId, "$message:server", "Deleted through Brmble", "@brmble:server"));
+
+        await service.RedactRoomEvent(
+            roomId, "$message:server", "Deleted through Brmble", "@alice:server");
+
+        Assert.AreEqual("@alice:server", homeserver.LastRedactionActor);
+    }
+
+    [TestMethod]
     public async Task EnsureUserInRoom_ReturnsFalseWhenJoinFails()
     {
         SetupHttpResponse(

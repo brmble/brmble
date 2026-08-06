@@ -31,7 +31,7 @@ public sealed class MessageDeletionEndpointTests
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         factory.MatrixAppMock.Verify(
             matrix => matrix.RedactRoomEvent(
-                RoomId, EventId, "Deleted through Brmble"),
+                RoomId, EventId, "Deleted through Brmble", "@alice:test"),
             Times.Once);
     }
 
@@ -89,7 +89,7 @@ public sealed class MessageDeletionEndpointTests
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         factory.MatrixAppMock.Verify(
             matrix => matrix.RedactRoomEvent(
-                RoomId, EventId, "Deleted through Brmble"),
+                RoomId, EventId, "Deleted through Brmble", "@alice:test"),
             Times.Once);
     }
 
@@ -189,7 +189,7 @@ public sealed class MessageDeletionEndpointTests
             responses.Select(response => response.StatusCode).ToArray());
         factory.MatrixAppMock.Verify(
             matrix => matrix.RedactRoomEvent(
-                RoomId, EventId, "Deleted through Brmble"),
+                RoomId, EventId, "Deleted through Brmble", "@alice:test"),
             Times.Once);
     }
 

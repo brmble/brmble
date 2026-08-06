@@ -1240,7 +1240,21 @@ export function useMatrixClient(
       }
     }
 
-    await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+    const txnId = client.makeTxnId();
+    const response = await client.sendMessage(
+      roomId,
+      { msgtype: MsgType.Text, body: text },
+      txnId,
+    );
+    if (response.event_id) {
+      setActiveDmMessages(prev => {
+        const index = prev.findIndex(message => message.transactionId === txnId);
+        if (index < 0 || prev[index].id === response.event_id) return prev;
+        const updated = [...prev];
+        updated[index] = { ...updated[index], id: response.event_id };
+        return updated;
+      });
+    }
   }, [credentials]);
 
   const fetchDMHistory = useCallback(async (targetMatrixUserId: string) => {

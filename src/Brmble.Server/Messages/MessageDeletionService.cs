@@ -100,7 +100,8 @@ public sealed class MessageDeletionService
             await _matrix.RedactRoomEvent(
                 roomId,
                 eventId,
-                "Deleted through Brmble");
+                "Deleted through Brmble",
+                requester.MatrixUserId);
             return new(MessageDeletionOutcome.Deleted);
         }
         finally

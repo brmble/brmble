@@ -26,7 +26,7 @@ public interface IMatrixAppService
     Task SetAccountData(string localpart, string eventType, string jsonContent);
     Task<string?> GetAccountData(string localpart, string eventType);
     Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent);
-    Task RedactRoomEvent(string roomId, string eventId, string reason);
+    Task RedactRoomEvent(string roomId, string eventId, string reason, string? actAsMatrixUserId = null);
     Task InvitePaintUser(string roomId, string matrixUserId);
     Task<JsonElement> GetRoomEvent(string roomId, string eventId);
     Task<string?> GetRoomMembership(string roomId, string matrixUserId);
@@ -404,12 +404,16 @@ public class MatrixAppService : IMatrixAppService
             ?? throw new InvalidOperationException("Matrix did not return an event_id");
     }
 
-    public Task RedactRoomEvent(string roomId, string eventId, string reason)
+    public Task RedactRoomEvent(
+        string roomId,
+        string eventId,
+        string reason,
+        string? actAsMatrixUserId = null)
     {
         var txnId = Guid.NewGuid().ToString("N");
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/redact/{Uri.EscapeDataString(eventId)}/{txnId}";
         var body = JsonSerializer.Serialize(new { reason });
-        return SendRequest(HttpMethod.Put, url, body);
+        return SendRequest(HttpMethod.Put, url, body, actAs: actAsMatrixUserId);
     }
 
     public Task InvitePaintUser(string roomId, string matrixUserId)

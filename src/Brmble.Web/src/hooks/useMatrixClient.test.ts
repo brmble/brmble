@@ -215,6 +215,45 @@ describe('useMatrixClient', () => {
 
     expect(deleteMessageRequest).toHaveBeenCalledWith('!dm:test', '$dm-message');
   });
+
+  it('reconciles a DM local echo to its canonical event ID without reloading', async () => {
+    const room = withNoTypingMembers({
+      roomId: '!dm:test',
+      getMember: () => undefined,
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    });
+    const dmCredentials: MatrixCredentials = {
+      ...creds,
+      dmRoomMap: { '@bob:test': '!dm:test' },
+    };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(dmCredentials), { wrapper });
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((event: unknown, timelineRoom: unknown) => void)
+      | undefined;
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    act(() => onSync?.('PREPARED'));
+    act(() => result.current.setActiveDmContact('@bob:test'));
+    mockClient.sendMessage.mockImplementationOnce(async (_roomId: string, _content: unknown, txnId: string) => {
+      onTimeline?.(fakeRoomMessage(undefined, '@1:example.com', 'hello', 1_000, undefined, txnId), room);
+      return { event_id: '$dm-sent' };
+    });
+
+    await act(async () => { await result.current.sendDMMessage('@bob:test', 'hello'); });
+
+    expect(mockClient.sendMessage).toHaveBeenCalledWith(
+      '!dm:test',
+      { msgtype: 'm.text', body: 'hello' },
+      'txn-1',
+    );
+    expect(result.current.activeDmMessages).toEqual([
+      expect.objectContaining({ id: '$dm-sent', transactionId: 'txn-1', content: 'hello' }),
+    ]);
+  });
+
   it('calls onDirectMessage only for incoming DM messages', () => {
     mockClient.getRoom.mockReturnValue(null);
     const onDirectMessage = vi.fn();
