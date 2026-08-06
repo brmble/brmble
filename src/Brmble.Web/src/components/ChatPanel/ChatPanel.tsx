@@ -1182,7 +1182,7 @@ const [replyState, setReplyState] = useState<{
         {messageDeletionError && (
           <div className="chat-action-error" role="alert">
             <span>{messageDeletionError}</span>
-            <button type="button" className="btn btn-ghost btn-icon chat-action-error__dismiss" aria-label="Dismiss message deletion error" onClick={() => setMessageDeletionError(null)}>×</button>
+            <button type="button" className="btn btn-ghost btn-icon chat-action-error__dismiss" aria-label="Dismiss message deletion error" onClick={() => setMessageDeletionError(null)}><Icon name="x" size={14} /></button>
           </div>
         )}
         {showScrollButton && (

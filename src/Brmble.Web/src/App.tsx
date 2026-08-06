@@ -25,6 +25,7 @@ import { PaintSessionView } from './components/Paint/PaintSessionView';
 import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
+import { DEFAULT_MESSAGE_DELETION_WINDOW_MS } from './utils/messageDeletion';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
@@ -4982,6 +4983,9 @@ const handleConnect = (serverData: SavedServer) => {
                         onMessageContextMenu={handleChatMessageContextMenu}
                         onCopyToClipboard={handleCopyToClipboard}
                         currentUserMatrixId={matrixCredentials?.userId}
+                        onDeleteMessage={channelMatrixRoomId ? matrixClient.deleteMessage : undefined}
+                        canModerateRecentMessages={matrixCredentials?.messageDeletion?.canModerate ?? false}
+                        messageDeletionWindowMs={matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS}
                         onToggleReaction={handleToggleChannelReaction}
                         typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
                         typingTargetId={activeChannelId ?? undefined}
@@ -5017,6 +5021,9 @@ const handleConnect = (serverData: SavedServer) => {
                     onMessageContextMenu={handleChatMessageContextMenu}
                     onCopyToClipboard={handleCopyToClipboard}
                     currentUserMatrixId={foregroundDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined}
+                    onDeleteMessage={foregroundDmContact && !selectedDmIsMumble && dmMatrixRoomId ? matrixClient.deleteMessage : undefined}
+                    canModerateRecentMessages={foregroundDmContact && !selectedDmIsMumble ? (matrixCredentials?.messageDeletion?.canModerate ?? false) : false}
+                    messageDeletionWindowMs={matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS}
                     onToggleReaction={foregroundDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined}
                     typingIndicatorText={foregroundDmContact && !selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
                     typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
