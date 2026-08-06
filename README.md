@@ -215,4 +215,3 @@ Relevant docs:
 - [`docs/tech-stack.md`](docs/tech-stack.md) — component overview and licensing
 - [`docs/auth-specification.md`](docs/auth-specification.md) — certificate-based identity model
 - [`docs/mumble-integration-guide.md`](docs/mumble-integration-guide.md) — how the client talks to Mumble
-- [Channel access and password security](docs/security/channel-access.md)
