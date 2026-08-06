@@ -36,19 +36,21 @@ const mockClient = {
   createRoom: vi.fn().mockResolvedValue({ room_id: '!new:example.com' }),
   scrollback: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
+  makeTxnId: vi.fn().mockReturnValue('txn-1'),
   sendEvent: vi.fn().mockResolvedValue({ event_id: '$sent-event' }),
   sendTyping: vi.fn().mockResolvedValue(undefined),
   redactEvent: vi.fn().mockResolvedValue(undefined),
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
-function fakeRoomMessage(id: string, sender: string, body: string, ts: number, content?: Record<string, unknown>) {
+function fakeRoomMessage(id: string | undefined, sender: string, body: string, ts: number, content?: Record<string, unknown>, txnId?: string) {
   return {
     getType: () => 'm.room.message',
     getId: () => id,
     getSender: () => sender,
     getContent: () => ({ body, ...content }),
     getTs: () => ts,
+    getTxnId: () => txnId,
     isRedacted: () => false,
   };
 }
@@ -118,6 +120,58 @@ describe('useMatrixClient', () => {
     const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never);
 
     expect(message?.senderMatrixUserId).toBe('@brmble:test');
+  });
+
+  it('replaces a local echo with its canonical event instead of duplicating it', () => {
+    const room = {
+      roomId: '!room:example.com',
+      getMember: () => undefined,
+      getMembers: () => [],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((event: unknown, timelineRoom: unknown) => void)
+      | undefined;
+
+    act(() => result.current.setActiveChannel('42'));
+    act(() => onTimeline?.(
+      fakeRoomMessage(undefined, '@1:example.com', 'hello', 1_000, undefined, 'txn-1'),
+      room,
+    ));
+    expect(result.current.activeMessages[0]?.id).not.toMatch(/^\$/);
+
+    act(() => onTimeline?.(
+      fakeRoomMessage('$sent', '@1:example.com', 'hello', 1_000, undefined, 'txn-1'),
+      room,
+    ));
+
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$sent', content: 'hello' })]);
+  });
+
+  it('updates a local echo with the canonical ID returned by sendMessage', async () => {
+    const room = {
+      roomId: '!room:example.com',
+      getMember: () => undefined,
+      getMembers: () => [],
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTimeline = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'Room.timeline')?.[1] as
+      | ((event: unknown, timelineRoom: unknown) => void)
+      | undefined;
+
+    act(() => result.current.setActiveChannel('42'));
+    act(() => onTimeline?.(
+      fakeRoomMessage(undefined, '@1:example.com', 'hello', 1_000, undefined, 'txn-1'),
+      room,
+    ));
+
+    await act(async () => { await result.current.sendMessage('42', 'hello'); });
+
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$sent-event', content: 'hello' })]);
   });
 
   it('deletes from the active channel room and redacts local content after success', async () => {
@@ -470,7 +524,7 @@ describe('useMatrixClient', () => {
     expect(mockClient.sendMessage).toHaveBeenCalledWith('!room:example.com', {
       msgtype: 'm.text',
       body: 'hello',
-    });
+    }, expect.any(String));
     expect(mockClient.sendTyping).toHaveBeenLastCalledWith('!room:example.com', false, 0);
   });
 

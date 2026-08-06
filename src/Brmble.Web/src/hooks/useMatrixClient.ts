@@ -29,6 +29,15 @@ type TypingEntry = {
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const transactionIndex = msg.transactionId
+    ? existing.findIndex(item => item.transactionId === msg.transactionId)
+    : -1;
+  if (transactionIndex >= 0) {
+    if (existing[transactionIndex].id === msg.id) return existing;
+    const updated = [...existing];
+    updated[transactionIndex] = msg;
+    return updated;
+  }
   if (existing.some(m => m.id === msg.id)) return existing;
   const last = existing[existing.length - 1];
   if (!last || msg.timestamp.getTime() >= last.timestamp.getTime()) {
@@ -110,6 +119,7 @@ export function transformEventToChatMessage(
 
   return {
     id: event.getId() ?? crypto.randomUUID(),
+    ...(event.getTxnId?.() && { transactionId: event.getTxnId() }),
     channelId,
     sender: messageSender,
     senderMatrixUserId: effectiveSenderId,
@@ -1104,7 +1114,17 @@ export function useMatrixClient(
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
-    await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+    const txnId = clientRef.current.makeTxnId();
+    const response = await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text }, txnId);
+    if (response.event_id) {
+      setActiveMessages(prev => {
+        const index = prev.findIndex(message => message.transactionId === txnId);
+        if (index < 0 || prev[index].id === response.event_id) return prev;
+        const updated = [...prev];
+        updated[index] = { ...updated[index], id: response.event_id };
+        return updated;
+      });
+    }
     await stopTypingForRoom(roomId);
     clearLocalTypingState();
   }, [clearLocalTypingState, credentials, stopTypingForRoom]);
