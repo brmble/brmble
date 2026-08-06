@@ -390,6 +390,18 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task GetRoomEvent_UsesCallerSuppliedActor()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"type":"m.room.message"}""");
+
+        await _svc.GetRoomEvent("!dm:server", "$message:server", "@alice:server");
+
+        StringAssert.Contains(
+            _capturedRequests.Single().RequestUri!.Query,
+            "user_id=%40alice%3Aserver");
+    }
+
+    [TestMethod]
     public async Task DmRedactionRequiresJoinedParticipant()
     {
         var homeserver = new MatrixPermissionTestServer();

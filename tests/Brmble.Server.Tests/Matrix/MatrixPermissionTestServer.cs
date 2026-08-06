@@ -54,6 +54,12 @@ internal sealed class MatrixPermissionTestServer : HttpMessageHandler
     {
         if (content.GetProperty("preset").GetString() != "trusted_private_chat")
             throw new InvalidOperationException("DM test did not create a trusted private chat");
+
+        var powerLevels = content.GetProperty("initial_state")
+            .EnumerateArray()
+            .Single(state => state.GetProperty("type").GetString() == "m.room.power_levels")
+            .GetProperty("content");
+        Assert.AreEqual(0, powerLevels.GetProperty("redact").GetInt32());
     }
 
     private static string? QueryValue(Uri? uri, string name)

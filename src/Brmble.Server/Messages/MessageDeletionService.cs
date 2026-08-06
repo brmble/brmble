@@ -21,6 +21,13 @@ public sealed record MessageDeletionResult(MessageDeletionOutcome Outcome);
 
 public sealed class MessageDeletionService
 {
+    private enum ConversationKind
+    {
+        Unknown,
+        Channel,
+        DirectMessage,
+    }
+
     private readonly IMatrixAppService _matrix;
     private readonly ChannelRepository _channels;
     private readonly DmRoomRepository _directMessages;
@@ -51,10 +58,15 @@ public sealed class MessageDeletionService
         string eventId,
         CancellationToken cancellationToken)
     {
-        if (!await IsRequesterConversationAsync(requester.Id, roomId))
+        var conversationKind = await GetConversationKindAsync(requester.Id, roomId);
+        if (conversationKind == ConversationKind.Unknown)
         {
             return new(MessageDeletionOutcome.Forbidden);
         }
+
+        var redactionActor = conversationKind == ConversationKind.DirectMessage
+            ? requester.MatrixUserId
+            : null;
 
         var lockKey = $"{roomId}\n{eventId}";
         var gate = _eventLocks.GetOrAdd(lockKey, _ => new SemaphoreSlim(1, 1));
@@ -62,7 +74,7 @@ public sealed class MessageDeletionService
 
         try
         {
-            var eventJson = await _matrix.GetRoomEvent(roomId, eventId);
+            var eventJson = await _matrix.GetRoomEvent(roomId, eventId, redactionActor);
             MatrixMessageMetadata message;
             try
             {
@@ -105,7 +117,7 @@ public sealed class MessageDeletionService
                 roomId,
                 eventId,
                 "Deleted through Brmble",
-                requester.MatrixUserId);
+                redactionActor);
             return new(MessageDeletionOutcome.Deleted);
         }
         finally
@@ -119,7 +131,7 @@ public sealed class MessageDeletionService
         }
     }
 
-    private async Task<bool> IsRequesterConversationAsync(
+    private async Task<ConversationKind> GetConversationKindAsync(
         long requesterId,
         string roomId)
     {
@@ -130,14 +142,16 @@ public sealed class MessageDeletionService
                     roomId,
                     StringComparison.Ordinal)))
         {
-            return true;
+            return ConversationKind.Channel;
         }
 
         var dmRooms = await _directMessages.GetAllForUserAsync(requesterId);
         return dmRooms.Any(mapping =>
-            string.Equals(
-                mapping.MatrixRoomId,
-                roomId,
-                StringComparison.Ordinal));
+                string.Equals(
+                    mapping.MatrixRoomId,
+                    roomId,
+                    StringComparison.Ordinal))
+            ? ConversationKind.DirectMessage
+            : ConversationKind.Unknown;
     }
 }

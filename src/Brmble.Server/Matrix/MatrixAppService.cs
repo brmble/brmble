@@ -28,7 +28,7 @@ public interface IMatrixAppService
     Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent);
     Task RedactRoomEvent(string roomId, string eventId, string reason, string? actAsMatrixUserId = null);
     Task InvitePaintUser(string roomId, string matrixUserId);
-    Task<JsonElement> GetRoomEvent(string roomId, string eventId);
+    Task<JsonElement> GetRoomEvent(string roomId, string eventId, string? actAsMatrixUserId = null);
     Task<string?> GetRoomMembership(string roomId, string matrixUserId);
     Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken);
     Task<byte[]> DownloadMedia(string mxcUrl, long maxBytes, CancellationToken cancellationToken)
@@ -355,6 +355,20 @@ public class MatrixAppService : IMatrixAppService
             is_direct = true,
             preset = "trusted_private_chat",
             invite = new[] { userIdB },
+            initial_state = new object[]
+            {
+                new
+                {
+                    type = "m.room.power_levels",
+                    content = new
+                    {
+                        users_default = 0,
+                        events_default = 0,
+                        state_default = 50,
+                        redact = 0,
+                    }
+                }
+            }
         });
         var response = await SendRequest(HttpMethod.Post, url, body, actAs: userIdA);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
@@ -421,10 +435,13 @@ public class MatrixAppService : IMatrixAppService
         return InviteUserToRoom(roomId, matrixUserId);
     }
 
-    public async Task<JsonElement> GetRoomEvent(string roomId, string eventId)
+    public async Task<JsonElement> GetRoomEvent(
+        string roomId,
+        string eventId,
+        string? actAsMatrixUserId = null)
     {
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/event/{Uri.EscapeDataString(eventId)}";
-        var response = await SendRequest(HttpMethod.Get, url, "{}");
+        var response = await SendRequest(HttpMethod.Get, url, "{}", actAs: actAsMatrixUserId);
         return JsonSerializer.Deserialize<JsonElement>(response);
     }
 
