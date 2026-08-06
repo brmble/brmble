@@ -311,6 +311,10 @@ function loadMessagesFromTimeline(
 
 export interface MatrixCredentials {
   customCompanions?: CustomCompanionCapability;
+  messageDeletion?: {
+    canModerate: boolean;
+    maxAgeMs: number;
+  };
   homeserverUrl: string;
   accessToken: string;
   userId: string;

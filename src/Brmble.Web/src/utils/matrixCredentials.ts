@@ -23,6 +23,16 @@ function customCompanionsEqual(
     && a.maxActiveTotal === b.maxActiveTotal;
 }
 
+function messageDeletionEqual(
+  a: MatrixCredentials['messageDeletion'],
+  b: MatrixCredentials['messageDeletion'],
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.canModerate === b.canModerate
+    && a.maxAgeMs === b.maxAgeMs;
+}
+
 export function areMatrixCredentialsEqual(a: MatrixCredentials | null, b: MatrixCredentials | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -31,5 +41,6 @@ export function areMatrixCredentialsEqual(a: MatrixCredentials | null, b: Matrix
     && a.userId === b.userId
     && recordEqual(a.roomMap, b.roomMap)
     && recordEqual(a.dmRoomMap, b.dmRoomMap)
-    && customCompanionsEqual(a.customCompanions, b.customCompanions);
+    && customCompanionsEqual(a.customCompanions, b.customCompanions)
+    && messageDeletionEqual(a.messageDeletion, b.messageDeletion);
 }
