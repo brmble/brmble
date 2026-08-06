@@ -4,6 +4,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.DM;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Messages;
 
@@ -25,6 +26,7 @@ public sealed class MessageDeletionService
     private readonly DmRoomRepository _directMessages;
     private readonly IAclAuthorizationService _authorization;
     private readonly TimeProvider _timeProvider;
+    private readonly string _trustedBotUserId;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _eventLocks = new();
 
     public MessageDeletionService(
@@ -32,13 +34,15 @@ public sealed class MessageDeletionService
         ChannelRepository channels,
         DmRoomRepository directMessages,
         IAclAuthorizationService authorization,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IOptions<MatrixSettings> matrixSettings)
     {
         _matrix = matrix;
         _channels = channels;
         _directMessages = directMessages;
         _authorization = authorization;
         _timeProvider = timeProvider;
+        _trustedBotUserId = $"@brmble:{matrixSettings.Value.ServerDomain}";
     }
 
     public async Task<MessageDeletionResult> DeleteAsync(
@@ -62,7 +66,7 @@ public sealed class MessageDeletionService
             MatrixMessageMetadata message;
             try
             {
-                message = MatrixMessageMetadata.Parse(eventJson);
+                message = MatrixMessageMetadata.Parse(eventJson, _trustedBotUserId);
             }
             catch (JsonException)
             {

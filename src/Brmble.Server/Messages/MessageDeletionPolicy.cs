@@ -18,7 +18,7 @@ public sealed record MatrixMessageMetadata(
     bool IsRedacted,
     string? AuthorMatrixUserId = null)
 {
-    public static MatrixMessageMetadata Parse(JsonElement eventJson)
+    public static MatrixMessageMetadata Parse(JsonElement eventJson, string? trustedBotUserId = null)
     {
         if (!eventJson.TryGetProperty("type", out var typeElement)
             || typeElement.GetString() is not { Length: > 0 } eventType
@@ -39,7 +39,8 @@ public sealed record MatrixMessageMetadata(
             && redactedBecause.ValueKind == JsonValueKind.Object;
 
         string? authorMatrixUserId = null;
-        if (eventJson.TryGetProperty("content", out var contentElement)
+        if (string.Equals(sender, trustedBotUserId, StringComparison.Ordinal)
+            && eventJson.TryGetProperty("content", out var contentElement)
             && contentElement.ValueKind == JsonValueKind.Object
             && contentElement.TryGetProperty("com.brmble.author_matrix_user_id", out var authorElement)
             && authorElement.ValueKind == JsonValueKind.String

@@ -217,6 +217,7 @@ public static class AuthEndpoints
                 ["homeserverUrl"] = publicHomeserverUrl,
                 ["accessToken"] = result.MatrixAccessToken,
                 ["userId"] = result.MatrixUserId,
+                ["botUserId"] = $"@brmble:{matrixSettings.Value.ServerDomain}",
                 ["roomMap"] = roomMap,
                 ["dmRoomMap"] = dmRoomMap,
                 ["messageDeletion"] = new

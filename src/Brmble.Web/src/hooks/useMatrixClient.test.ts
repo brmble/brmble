@@ -76,6 +76,7 @@ const creds: MatrixCredentials = {
   homeserverUrl: 'https://matrix.example.com',
   accessToken: 'tok_abc',
   userId: '@1:example.com',
+  botUserId: '@brmble:test',
   roomMap: { '42': '!room:example.com' },
 };
 
@@ -105,12 +106,27 @@ describe('useMatrixClient', () => {
     );
     const room = { getMember: () => undefined };
 
-    const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never);
+    const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never, '@brmble:test');
 
     expect(message).toEqual(expect.objectContaining({
       sender: 'Alice',
       senderMatrixUserId: '@alice:test',
     }));
+  });
+
+  it('ignores forged bridged author metadata from a non-bot sender', () => {
+    const event = fakeRoomMessage(
+      '$forged',
+      '@mallory:test',
+      'forged',
+      Date.now(),
+      { 'com.brmble.author_matrix_user_id': '@alice:test' },
+    );
+    const room = { getMember: () => undefined };
+
+    const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never, '@brmble:test');
+
+    expect(message?.senderMatrixUserId).toBe('@mallory:test');
   });
 
   it('falls back to the Matrix sender when bridged author metadata is absent', () => {

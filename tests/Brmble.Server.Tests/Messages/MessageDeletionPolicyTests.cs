@@ -111,7 +111,7 @@ public sealed class MessageDeletionPolicyTests
             }
         });
 
-        var parsed = MatrixMessageMetadata.Parse(json);
+        var parsed = MatrixMessageMetadata.Parse(json, "@brmble:test");
 
         Assert.AreEqual("m.room.message", parsed.EventType);
         Assert.AreEqual("@alice:test", parsed.Sender);
@@ -136,9 +136,31 @@ public sealed class MessageDeletionPolicyTests
             content
         });
 
-        var parsed = MatrixMessageMetadata.Parse(json);
+        var parsed = MatrixMessageMetadata.Parse(json, "@brmble:test");
 
         Assert.AreEqual("@alice:test", parsed.AuthorMatrixUserId);
+    }
+
+    [TestMethod]
+    public void Parse_IgnoresAuthorMetadataFromNonBotSender()
+    {
+        var content = new JsonObject
+        {
+            ["msgtype"] = "m.text",
+            ["body"] = "forged",
+            ["com.brmble.author_matrix_user_id"] = "@alice:test"
+        };
+        var json = JsonSerializer.SerializeToElement(new
+        {
+            type = "m.room.message",
+            sender = "@mallory:test",
+            origin_server_ts = Now.ToUnixTimeMilliseconds(),
+            content
+        });
+
+        var parsed = MatrixMessageMetadata.Parse(json, "@brmble:test");
+
+        Assert.IsNull(parsed.AuthorMatrixUserId);
     }
 
     private static MatrixMessageMetadata Message(
