@@ -14,6 +14,14 @@ vi.mock('../bridge', () => ({
   },
 }));
 
+const deleteMessageRequest = vi.hoisted(() => vi.fn());
+
+vi.mock('../api/messages', () => ({
+  messageApi: {
+    delete: deleteMessageRequest,
+  },
+}));
+
 // --- mock matrix-js-sdk ---
 const mockClient = {
   startClient: vi.fn(),
@@ -85,6 +93,47 @@ beforeEach(() => {
 });
 
 describe('useMatrixClient', () => {
+  it('deletes from the active channel room and redacts local content after success', async () => {
+    deleteMessageRequest.mockResolvedValue(undefined);
+    const room = {
+      roomId: '!room:example.com',
+      getMember: () => undefined,
+      getMembers: () => [],
+      getLiveTimeline: () => ({
+        getEvents: () => [fakeRoomMessage('$message', '@1:example.com', 'delete me', Date.now())],
+      }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+
+    await act(async () => { await result.current.setActiveChannel('42'); });
+    await act(async () => { await result.current.deleteMessage('!room:example.com', '$message'); });
+
+    expect(deleteMessageRequest).toHaveBeenCalledWith('!room:example.com', '$message');
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({
+      id: '$message', redacted: true, content: '', media: undefined,
+    })]);
+  });
+
+  it('deletes from the active DM room', async () => {
+    deleteMessageRequest.mockResolvedValue(undefined);
+    const dmCredentials: MatrixCredentials = { ...creds, dmRoomMap: { '@bob:test': '!dm:test' } };
+    const room = {
+      roomId: '!dm:test',
+      getMember: () => undefined,
+      getMembers: () => [],
+      getLiveTimeline: () => ({
+        getEvents: () => [fakeRoomMessage('$dm-message', '@1:example.com', 'delete me', Date.now())],
+      }),
+    };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(dmCredentials), { wrapper });
+
+    await act(async () => { result.current.setActiveDmContact('@bob:test'); });
+    await act(async () => { await result.current.deleteMessage('!dm:test', '$dm-message'); });
+
+    expect(deleteMessageRequest).toHaveBeenCalledWith('!dm:test', '$dm-message');
+  });
   it('calls onDirectMessage only for incoming DM messages', () => {
     mockClient.getRoom.mockReturnValue(null);
     const onDirectMessage = vi.fn();
@@ -666,6 +715,7 @@ describe('useMatrixClient', () => {
     act(() => onTimeline!(fakeEvent, mockRoom));
 
     expect(result.current.lastMessages.get('42')).toEqual({
+      eventId: '$evt-1',
       content: 'hi there',
       ts: 1_700_000_000_000,
       sender: 'Alice',
@@ -959,6 +1009,7 @@ describe('useMatrixClient', () => {
     act(() => onTimeline!(fakeEvent, dmMockRoom));
 
     expect(result.current.dmLastMessages.get('@bob:example.com')).toEqual({
+      eventId: '$dm-ev-1',
       content: 'dm preview text',
       ts: 1_700_000_000_000,
       sender: 'Bob',
@@ -992,6 +1043,7 @@ describe('useMatrixClient', () => {
     act(() => onSync!('PREPARED'));
 
     expect(result.current.dmLastMessages.get('@bob:example.com')).toEqual({
+      eventId: '$e2',
       content: 'last one',
       ts: 2000,
       sender: 'Bob',
@@ -1041,6 +1093,7 @@ describe('useMatrixClient', () => {
       reactions: { '👍': ['@bob:example.com'] },
     }));
     expect(result.current.lastMessages.get('42')).toEqual({
+      eventId: '$message',
       content: 'react to me',
       ts: 1000,
       sender: 'Alice',
