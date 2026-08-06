@@ -24,6 +24,10 @@ describe('canDeleteMessage', () => {
     expect(canDeleteMessage(message('@bob:test', 1_000), '!general:test', '@alice:test', true, WINDOW, NOW)).toBe(true);
   });
 
+  it('allows a bridged author using the effective sender ID', () => {
+    expect(canDeleteMessage(message('@alice:test', 1_000), '!general:test', '@alice:test', false, WINDOW, NOW)).toBe(true);
+  });
+
   it('rejects another user and a redacted message', () => {
     expect(canDeleteMessage(message('@bob:test', 1_000), '!general:test', '@alice:test', false, WINDOW, NOW)).toBe(false);
     expect(canDeleteMessage(message('@alice:test', 1_000, true), '!general:test', '@alice:test', true, WINDOW, NOW)).toBe(false);

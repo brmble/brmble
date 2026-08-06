@@ -225,6 +225,12 @@ describe('ChatPanel message deletion', () => {
     expect(screen.queryByRole('button', { name: 'Delete message' })).not.toBeInTheDocument();
   });
 
+  it('hides Delete message when a bridged bot sender is not the effective author', () => {
+    render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[{ ...recentOwnMessage, senderMatrixUserId: '@brmble:test' }]} currentUserMatrixId="@alice:test" canModerateRecentMessages={false} onSendMessage={() => {}} onDeleteMessage={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });
+    expect(screen.queryByRole('button', { name: 'Delete message' })).not.toBeInTheDocument();
+  });
+
   it('shows Delete message to an administrator for another author', () => {
     render(<ChatPanel channelId="42" channelName="general" matrixRoomId="!general:test" messages={[{ ...recentOwnMessage, sender: 'Bob', senderMatrixUserId: '@bob:test' }]} currentUserMatrixId="@alice:test" canModerateRecentMessages onSendMessage={() => {}} onDeleteMessage={vi.fn()} />);
     fireEvent.contextMenu(screen.getByText('delete me'), { clientX: 50, clientY: 60 });

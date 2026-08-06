@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, renderHook, screen, act } from '@testing-library/react';
 import React from 'react';
-import { useMatrixClient } from './useMatrixClient';
+import { transformEventToChatMessage, useMatrixClient } from './useMatrixClient';
 import type { MatrixCredentials } from './useMatrixClient';
 import { ServiceStatusProvider, useServiceStatus } from './useServiceStatus';
 
@@ -42,12 +42,12 @@ const mockClient = {
   mxcUrlToHttp: vi.fn((url: string) => url.replace('mxc://', 'https://matrix.example.com/_matrix/media/v3/download/')),
 };
 
-function fakeRoomMessage(id: string, sender: string, body: string, ts: number) {
+function fakeRoomMessage(id: string, sender: string, body: string, ts: number, content?: Record<string, unknown>) {
   return {
     getType: () => 'm.room.message',
     getId: () => id,
     getSender: () => sender,
-    getContent: () => ({ body }),
+    getContent: () => ({ body, ...content }),
     getTs: () => ts,
     isRedacted: () => false,
   };
@@ -93,6 +93,33 @@ beforeEach(() => {
 });
 
 describe('useMatrixClient', () => {
+  it('uses trusted bridged author metadata as the effective sender ID', () => {
+    const event = fakeRoomMessage(
+      '$bridged',
+      '@brmble:test',
+      '[Alice]: hello',
+      Date.now(),
+      { 'com.brmble.author_matrix_user_id': '@alice:test' },
+    );
+    const room = { getMember: () => undefined };
+
+    const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never);
+
+    expect(message).toEqual(expect.objectContaining({
+      sender: 'Alice',
+      senderMatrixUserId: '@alice:test',
+    }));
+  });
+
+  it('falls back to the Matrix sender when bridged author metadata is absent', () => {
+    const event = fakeRoomMessage('$legacy', '@brmble:test', '[Alice]: hello', Date.now());
+    const room = { getMember: () => undefined };
+
+    const message = transformEventToChatMessage(event as never, room as never, '42', mockClient as never);
+
+    expect(message?.senderMatrixUserId).toBe('@brmble:test');
+  });
+
   it('deletes from the active channel room and redacts local content after success', async () => {
     deleteMessageRequest.mockResolvedValue(undefined);
     const room = {

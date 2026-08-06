@@ -53,7 +53,7 @@ function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[]
  *
  * Returns null for non-message events.
  */
-function transformEventToChatMessage(
+export function transformEventToChatMessage(
   event: MatrixEvent,
   room: Room | undefined,
   channelId: string,
@@ -72,6 +72,7 @@ function transformEventToChatMessage(
     info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
     'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
     'com.brmble.mumble_delivery'?: MumbleDeliveryState;
+    'com.brmble.author_matrix_user_id'?: unknown;
   };
 
   let media: MediaAttachment[] | undefined;
@@ -92,6 +93,10 @@ function transformEventToChatMessage(
   const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
   const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
   const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+  const effectiveSenderId = typeof content['com.brmble.author_matrix_user_id'] === 'string'
+    && content['com.brmble.author_matrix_user_id'].length > 0
+    ? content['com.brmble.author_matrix_user_id']
+    : senderId;
   let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
 
   // Strip reply fallback from body (lines starting with > )
@@ -107,7 +112,7 @@ function transformEventToChatMessage(
     id: event.getId() ?? crypto.randomUUID(),
     channelId,
     sender: messageSender,
-    senderMatrixUserId: senderId,
+    senderMatrixUserId: effectiveSenderId,
     content: displayContent,
     timestamp: new Date(event.getTs()),
     msgType: content.msgtype,
