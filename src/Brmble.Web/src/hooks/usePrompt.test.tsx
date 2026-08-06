@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { confirm, prompt, usePrompt } from './usePrompt';
+import { confirm, prompt, promptPassword, usePrompt } from './usePrompt';
+import type { PasswordPromptResult } from './usePrompt';
 
 function PromptHarness() {
   const { Prompt, PromptWithInput } = usePrompt();
@@ -38,6 +39,50 @@ describe('usePrompt confirmations', () => {
 });
 
 describe('usePrompt input prompts', () => {
+  it('returns the password and remember choice', async () => {
+    const user = userEvent.setup();
+    render(<PromptHarness />);
+
+    let result!: Promise<PasswordPromptResult | null>;
+    await act(async () => {
+      result = promptPassword({
+        title: 'Channel Password',
+        message: 'Enter the password.',
+        placeholder: 'Password',
+        confirmLabel: 'Join channel',
+        rememberLabel: 'Remember this password',
+        rememberDefaultChecked: true,
+        isPassword: true,
+      });
+    });
+
+    const input = screen.getByPlaceholderText('Password');
+    const remember = screen.getByRole('checkbox', { name: 'Remember this password' });
+    expect(remember).toBeChecked();
+    await user.clear(input);
+    await user.type(input, 'secret-token');
+    await user.click(remember);
+    await user.click(screen.getByRole('button', { name: 'Join channel' }));
+
+    await expect(result).resolves.toEqual({ password: 'secret-token', remember: false });
+  });
+
+  it('returns null when the password prompt is canceled', async () => {
+    render(<PromptHarness />);
+
+    let result!: Promise<PasswordPromptResult | null>;
+    await act(async () => {
+      result = promptPassword({
+        title: 'Channel Password',
+        message: 'Enter the password.',
+        rememberLabel: 'Remember this password',
+      });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await expect(result).resolves.toBeNull();
+  });
+
   it('renders password prompts with the shared icon reveal pattern', async () => {
     render(<PromptHarness />);
 

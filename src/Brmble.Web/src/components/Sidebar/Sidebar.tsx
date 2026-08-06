@@ -30,6 +30,7 @@ interface SidebarProps {
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel: (channelId: number) => void;
+  onOpenChannelPermissions?: (channelId: number) => void;
   onSelectServer?: () => void;
   isServerChatActive?: boolean;
   connectionStatus?: ConnectionStatus;
@@ -72,6 +73,7 @@ export function Sidebar({
   currentChannelId,
   onJoinChannel,
   onSelectChannel,
+  onOpenChannelPermissions,
   onSelectServer,
   isServerChatActive,
   connectionStatus = 'idle',
@@ -452,6 +454,7 @@ export function Sidebar({
           currentChannelId={currentChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
+          onOpenChannelPermissions={onOpenChannelPermissions}
           onStartDM={onStartDM}
           onChallengeDeathroll={onChallengeDeathroll}
           onChallengeRps={onChallengeRps}

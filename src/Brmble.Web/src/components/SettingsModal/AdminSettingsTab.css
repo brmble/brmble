@@ -141,6 +141,34 @@
   white-space: nowrap;
 }
 
+.admin-channel-expand-button {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-overlay));
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.admin-channel-expand-button:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 65%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-hover));
+}
+
+.admin-channel-expand-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .admin-channel-row:hover,
 .admin-channel-row:focus-visible {
   border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle));
@@ -161,10 +189,10 @@
 
 .admin-channel-row--management {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--space-md);
   align-items: center;
-  cursor: default;
+  cursor: pointer;
 }
 
 .admin-channel-row--drop-target {

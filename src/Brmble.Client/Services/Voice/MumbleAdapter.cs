@@ -1646,9 +1646,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private static bool IsBrmblePasswordMarker(string? group)
         => !string.IsNullOrWhiteSpace(group) && group.StartsWith(BrmblePasswordMarkerPrefix, StringComparison.Ordinal);
 
-    private void UpdateChannelPasswordRestriction(uint channelId, string aclJson)
+    private void UpdateChannelPasswordRestriction(uint channelId, bool hasManagedPassword)
     {
-        _channelPasswordRestrictions[channelId] = ContainsManagedPasswordMarker(aclJson);
+        _channelPasswordRestrictions[channelId] = hasManagedPassword;
         if (ChannelDictionary.TryGetValue(channelId, out var channel))
         {
             _bridge?.Send("voice.channelJoined", CreateChannelPayload(channel));
@@ -2743,9 +2743,31 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     var aclChannelId = root.TryGetProperty("channelId", out var aclChannelProp) ? aclChannelProp.GetUInt32() : 0u;
                     if (aclChannelId > 0)
                     {
-                        UpdateChannelPasswordRestriction(aclChannelId, json);
+                        if (root.TryGetProperty("hasManagedPassword", out var passwordState)
+                            && (passwordState.ValueKind == System.Text.Json.JsonValueKind.True || passwordState.ValueKind == System.Text.Json.JsonValueKind.False))
+                        {
+                            UpdateChannelPasswordRestriction(aclChannelId, passwordState.GetBoolean());
+                        }
+                        else if (root.TryGetProperty("snapshot", out _))
+                        {
+                            UpdateChannelPasswordRestriction(aclChannelId, ContainsManagedPasswordMarker(json));
+                        }
                     }
                     _bridge?.Send("acl.changed", System.Text.Json.JsonSerializer.Deserialize<object>(json));
+                    _bridge?.NotifyUiThread();
+                    break;
+
+                case "acl.passwordStateChanged":
+                    var passwordStateChannelId = root.TryGetProperty("channelId", out var passwordStateChannelProp)
+                        ? passwordStateChannelProp.GetUInt32() : 0u;
+                    if (passwordStateChannelId > 0
+                        && root.TryGetProperty("hasManagedPassword", out var managedPassword)
+                        && (managedPassword.ValueKind == System.Text.Json.JsonValueKind.True
+                            || managedPassword.ValueKind == System.Text.Json.JsonValueKind.False))
+                    {
+                        UpdateChannelPasswordRestriction(passwordStateChannelId, managedPassword.GetBoolean());
+                    }
+                    _bridge?.Send("acl.passwordStateChanged", System.Text.Json.JsonSerializer.Deserialize<object>(json));
                     _bridge?.NotifyUiThread();
                     break;
 

@@ -200,7 +200,7 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
-    public void HandleWebSocketMessage_AclChangedManagedPasswordMarker_UpdatesChannelPayloadWithoutToken()
+    public void HandleWebSocketMessage_AclChangedMetadata_UpdatesPasswordStateWithoutToken()
     {
         var adapter = CreateAdapterWithBridge(out var bridge);
         var channels = GetChannelDictionary(adapter);
@@ -211,7 +211,7 @@ public class MumbleAdapterBridgeTests
         };
 
         InvokePrivate(adapter, "HandleWebSocketMessage", """
-        {"type":"acl.changed","channelId":4,"snapshot":{"acls":[{"group":"__brmble_password_marker__:#secret-token"}]}}
+        {"type":"acl.changed","channelId":4,"snapshotHash":"hash-4","hasManagedPassword":true}
         """);
 
         var sent = NativeBridgeTestHarness.DrainMessages(bridge);
@@ -221,6 +221,42 @@ public class MumbleAdapterBridgeTests
 
         Assert.IsTrue(channel.GetProperty("hasPasswordRestriction").GetBoolean());
         Assert.IsFalse(channelJoined.DataJson.Contains("secret-token", StringComparison.Ordinal));
+
+        InvokePrivate(adapter, "HandleWebSocketMessage", """
+        {"type":"acl.changed","channelId":4,"snapshotHash":"hash-5","hasManagedPassword":false}
+        """);
+        var cleared = NativeBridgeTestHarness.DrainMessages(bridge);
+        var clearedChannel = cleared.Single(m => m.Type == "voice.channelJoined");
+        using var clearedDoc = JsonDocument.Parse(clearedChannel.DataJson);
+        Assert.IsFalse(clearedDoc.RootElement.GetProperty("hasPasswordRestriction").GetBoolean());
+    }
+
+    [TestMethod]
+    public void HandleWebSocketMessage_AclPasswordStateChanged_UpdatesOrdinaryUserState()
+    {
+        var adapter = CreateAdapterWithBridge(out var bridge);
+        var channels = GetChannelDictionary(adapter);
+        channels[4] = new Channel(adapter, 4, "Locked", 0)
+        {
+            IsEnterRestricted = true,
+            CanEnter = false,
+        };
+
+        InvokePrivate(adapter, "HandleWebSocketMessage", """
+        {"type":"acl.passwordStateChanged","channelId":4,"hasManagedPassword":true}
+        """);
+
+        var restricted = NativeBridgeTestHarness.DrainMessages(bridge);
+        using var restrictedDoc = JsonDocument.Parse(restricted.Single(m => m.Type == "voice.channelJoined").DataJson);
+        Assert.IsTrue(restrictedDoc.RootElement.GetProperty("hasPasswordRestriction").GetBoolean());
+
+        InvokePrivate(adapter, "HandleWebSocketMessage", """
+        {"type":"acl.passwordStateChanged","channelId":4,"hasManagedPassword":false}
+        """);
+
+        var open = NativeBridgeTestHarness.DrainMessages(bridge);
+        using var openDoc = JsonDocument.Parse(open.Single(m => m.Type == "voice.channelJoined").DataJson);
+        Assert.IsFalse(openDoc.RootElement.GetProperty("hasPasswordRestriction").GetBoolean());
     }
 
     [TestMethod]

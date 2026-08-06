@@ -14,7 +14,6 @@ import { AFK_THRESHOLD_SEC } from '../../hooks/useIdleActions';
 import type { ShareInfo } from '../../hooks/useScreenShare';
 import { EditChannelDialog } from '../EditChannelDialog/EditChannelDialog';
 import { Icon } from '../Icon/Icon';
-import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import { getOrderedChildChannels, sortChannels } from '../../utils/channelOrder';
 import './ChannelTree.css';
@@ -55,6 +54,7 @@ interface ChannelTreeProps {
   currentChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel?: (channelId: number) => void;
+  onOpenChannelPermissions?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
   onChallengeDeathroll?: (session: number) => void;
   onChallengeRps?: (session: number, bestOf: number) => void;
@@ -96,7 +96,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onOpenChannelPermissions, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -104,7 +104,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
   const [draggedUser, setDraggedUser] = useState<number | null>(null);
   const [dropTargetChannel, setDropTargetChannel] = useState<number | null>(null);
   const [editChannelDialog, setEditChannelDialog] = useState<{ id: number; name: string; description?: string; initialPassword: string; position: number } | null>(null);
-  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
   const { hasPermission, Permission, requestPermissions } = usePermissions();
   const sharingChannelIds = useMemo(() => {
     const ids = new Set<number>();
@@ -517,10 +516,10 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
           const savedPassword = await getSavedChannelPassword(channelContextMenu.channelId);
           const password = await prompt({
             title: 'Saved Channel Password',
-            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password. Save and reconnect to authenticate changes.`,
+            message: `Enter the password for ${channelContextMenu.channelName}. Leave blank to forget the saved password.`,
             placeholder: 'Password',
             defaultValue: savedPassword,
-            confirmLabel: 'Save & reconnect',
+            confirmLabel: 'Save',
             cancelLabel: 'Cancel',
             isPassword: true,
           });
@@ -535,7 +534,6 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
             channelName: channelContextMenu.channelName,
             password,
           });
-          bridge.send('voice.reconnect', { channelId: channelContextMenu.channelId });
           setChannelContextMenu(null);
         },
       });
@@ -572,8 +570,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
         type: 'item' as const,
         label: 'Edit Permissions',
         onClick: () => {
-          const channel = channels.find(c => c.id === channelContextMenu.channelId);
-          setAclEditorChannel({ id: channelContextMenu.channelId, name: channel?.name ?? 'Channel' });
+          onOpenChannelPermissions?.(channelContextMenu.channelId);
           setChannelContextMenu(null);
         },
       });
@@ -600,7 +597,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     }
 
     return [...items, { type: 'divider' as const }, ...adminItems];
-  }, [channelContextMenu, hasPermission, onJoinChannel, channels, Permission]);
+  }, [channelContextMenu, hasPermission, onJoinChannel, onOpenChannelPermissions, channels, Permission]);
 
   return (
     <div className="channel-tree">
@@ -845,16 +842,6 @@ onClick: () => {
         />
       )}
 
-      {aclEditorChannel && (
-        <AclEditorDialog
-          isOpen={true}
-          channelId={aclEditorChannel.id}
-          channelName={aclEditorChannel.name}
-          availableUsers={users}
-          isNativePasswordProtected={channels.find(c => c.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
-          onClose={() => setAclEditorChannel(null)}
-        />
-      )}
     </div>
   );
 }
