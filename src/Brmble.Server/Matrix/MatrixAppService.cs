@@ -9,7 +9,7 @@ namespace Brmble.Server.Matrix;
 
 public interface IMatrixAppService
 {
-    Task SendMessage(string roomId, string displayName, string text);
+    Task SendMessage(string roomId, string displayName, string text, string? authorMatrixUserId = null);
     Task<string> CreateRoom(string name);
     Task<string> CreatePaintRoom(string name, IReadOnlyList<string> invitedMatrixUserIds);
     Task<string> CreateCustomCompanionGalleryRoom();
@@ -22,7 +22,7 @@ public interface IMatrixAppService
     Task SetDisplayName(string localpart, string displayName);
     Task SetAvatarUrl(string localpart, string avatarUrl);
     Task<string> UploadMedia(byte[] data, string contentType, string fileName);
-    Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size);
+    Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size, string? authorMatrixUserId = null);
     Task SetAccountData(string localpart, string eventType, string jsonContent);
     Task<string?> GetAccountData(string localpart, string eventType);
     Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent);
@@ -61,15 +61,19 @@ public class MatrixAppService : IMatrixAppService
         }
     }
 
-    public async Task SendMessage(string roomId, string displayName, string text)
+    public async Task SendMessage(string roomId, string displayName, string text, string? authorMatrixUserId = null)
     {
         var txnId = Guid.NewGuid().ToString("N");
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}";
-        var body = JsonSerializer.Serialize(new
+        var content = new Dictionary<string, object?>
         {
-            msgtype = "m.text",
-            body = $"[{displayName}]: {text}",
-        });
+            ["msgtype"] = "m.text",
+            ["body"] = $"[{displayName}]: {text}",
+        };
+        if (!string.IsNullOrWhiteSpace(authorMatrixUserId))
+            content["com.brmble.author_matrix_user_id"] = authorMatrixUserId;
+
+        var body = JsonSerializer.Serialize(content);
         await SendRequest(HttpMethod.Put, url, body);
     }
 
@@ -322,17 +326,21 @@ public class MatrixAppService : IMatrixAppService
             ?? throw new InvalidOperationException("Matrix did not return a content_uri");
     }
 
-    public async Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size)
+    public async Task SendImageMessage(string roomId, string displayName, string mxcUrl, string fileName, string mimetype, int size, string? authorMatrixUserId = null)
     {
         var txnId = Guid.NewGuid().ToString("N");
         var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}";
-        var body = JsonSerializer.Serialize(new
+        var content = new Dictionary<string, object?>
         {
-            msgtype = "m.image",
-            body = $"[{displayName}]: {fileName}",
-            url = mxcUrl,
-            info = new { mimetype, size },
-        });
+            ["msgtype"] = "m.image",
+            ["body"] = $"[{displayName}]: {fileName}",
+            ["url"] = mxcUrl,
+            ["info"] = new { mimetype, size },
+        };
+        if (!string.IsNullOrWhiteSpace(authorMatrixUserId))
+            content["com.brmble.author_matrix_user_id"] = authorMatrixUserId;
+
+        var body = JsonSerializer.Serialize(content);
         await SendRequest(HttpMethod.Put, url, body);
     }
 

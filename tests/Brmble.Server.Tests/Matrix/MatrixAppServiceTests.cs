@@ -116,6 +116,18 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task SendMessage_WithAuthor_IncludesTrustedAuthorMetadata()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.SendMessage("!room:server", "Alice", "hello", "@alice:test");
+
+        using var json = JsonDocument.Parse(await _capturedRequests.Single().Content!.ReadAsStringAsync());
+        Assert.AreEqual("[Alice]: hello", json.RootElement.GetProperty("body").GetString());
+        Assert.AreEqual("@alice:test", json.RootElement.GetProperty("com.brmble.author_matrix_user_id").GetString());
+    }
+
+    [TestMethod]
     public async Task CreateRoom_ReturnsRoomId()
     {
         SetupHttpResponse(HttpStatusCode.OK,
