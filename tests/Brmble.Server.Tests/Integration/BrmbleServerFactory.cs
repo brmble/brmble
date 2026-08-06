@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Companions;
@@ -189,6 +190,15 @@ internal sealed class ControllableMatrixAppService
 
     public ControllableMatrixAppService()
     {
+        Mock.Setup(service => service.GetRoomEvent(
+                It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(JsonSerializer.SerializeToElement(new
+            {
+                type = "m.room.message",
+                sender = "@alice:test",
+                origin_server_ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                content = new { msgtype = "m.text", body = "test" }
+            }));
         Mock.Setup(service => service.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync("stub_matrix_token");
         Mock.Setup(service => service.LoginUser(It.IsAny<string>()))
