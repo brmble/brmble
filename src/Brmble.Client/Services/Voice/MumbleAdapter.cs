@@ -2757,6 +2757,20 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     _bridge?.NotifyUiThread();
                     break;
 
+                case "acl.passwordStateChanged":
+                    var passwordStateChannelId = root.TryGetProperty("channelId", out var passwordStateChannelProp)
+                        ? passwordStateChannelProp.GetUInt32() : 0u;
+                    if (passwordStateChannelId > 0
+                        && root.TryGetProperty("hasManagedPassword", out var managedPassword)
+                        && (managedPassword.ValueKind == System.Text.Json.JsonValueKind.True
+                            || managedPassword.ValueKind == System.Text.Json.JsonValueKind.False))
+                    {
+                        UpdateChannelPasswordRestriction(passwordStateChannelId, managedPassword.GetBoolean());
+                    }
+                    _bridge?.Send("acl.passwordStateChanged", System.Text.Json.JsonSerializer.Deserialize<object>(json));
+                    _bridge?.NotifyUiThread();
+                    break;
+
                 default:
                     // Forward server-owned game and paint events verbatim. Prefix
                     // matching keeps the native bridge aligned with their canonical

@@ -58,4 +58,35 @@ public class AclEventDispatcherTests
         Assert.IsFalse(json.Contains("\"snapshot\":", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(json.Contains(password, StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public async Task DispatchAclChangedAsync_BroadcastsPasswordStateToEveryConnectedUser()
+    {
+        var auth = new Mock<IAclAuthorizationService>();
+        var bus = new Mock<IBrmbleEventBus>();
+        var connected = new HashSet<long> { 10, 11, 12 };
+        bus.Setup(b => b.GetConnectedUserIdsAsync()).ReturnsAsync(connected);
+        auth.Setup(a => a.CanManageChannelAclAsync(10, 5)).ReturnsAsync(true);
+        auth.Setup(a => a.CanManageChannelAclAsync(11, 5)).ReturnsAsync(false);
+        auth.Setup(a => a.CanManageChannelAclAsync(12, 5)).ReturnsAsync(true);
+        var messages = new List<(IReadOnlySet<long> UserIds, object Message)>();
+        bus.Setup(b => b.BroadcastToUsersAsync(It.IsAny<IReadOnlySet<long>>(), It.IsAny<object>(), It.IsAny<EventDeliveryOptions>()))
+            .Callback<IReadOnlySet<long>, object, EventDeliveryOptions>((userIds, message, _) => messages.Add((userIds, message)))
+            .Returns(Task.CompletedTask);
+        var dispatcher = new AclEventDispatcher(auth.Object, bus.Object);
+        var snapshot = new AclChannelSnapshotDto(
+            5, true, [],
+            [new(true, false, false, null, "__brmble_password_marker__:#secret", 0, 0)],
+            DateTimeOffset.UtcNow, false, null);
+
+        await dispatcher.DispatchAclChangedAsync(5, snapshot);
+
+        Assert.AreEqual(2, messages.Count);
+        var publicJson = System.Text.Json.JsonSerializer.Serialize(messages.Single(m => m.Message.ToString()!.Contains("passwordStateChanged", StringComparison.Ordinal)).Message);
+        StringAssert.Contains(publicJson, "passwordStateChanged");
+        StringAssert.Contains(publicJson, "\"channelId\":5");
+        StringAssert.Contains(publicJson, "\"hasManagedPassword\":true");
+        Assert.IsTrue(messages.Single(m => m.Message.ToString()!.Contains("passwordStateChanged", StringComparison.Ordinal)).UserIds.SetEquals(connected));
+        Assert.IsFalse(publicJson.Contains("secret", StringComparison.Ordinal));
+    }
 }
