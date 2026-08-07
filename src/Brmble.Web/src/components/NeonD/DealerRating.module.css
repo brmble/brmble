@@ -34,12 +34,6 @@
   color: var(--accent-primary);
 }
 
-.star[data-star-state='half'] {
-  background: linear-gradient(90deg, var(--accent-primary) 50%, var(--text-muted) 50%);
-  background-clip: text;
-  color: transparent;
-}
-
 .star[data-star-state='empty'] {
   color: color-mix(in srgb, var(--text-muted) 45%, transparent);
 }

@@ -4,7 +4,7 @@
 
 **Goal:** Replace normal dealer Volume and Margin numbers in the Neon-D Distribution panel with five-star visual ratings while keeping the exact multipliers available on hover and keyboard focus.
 
-**Architecture:** Add a focused `DealerRating` presentation component in the Neon-D component directory. It will clamp and map the existing dealer multiplier to a half-star increment, render five accessible star elements, and expose the original multiplier through `title` and an accessible label. `DistributionPanel` will use it for normal candidate and active dealer cards only; gameplay and data modules remain unchanged.
+**Architecture:** Add a focused `DealerRating` presentation component in the Neon-D component directory. It will round and clamp the existing dealer multiplier to a whole-star count, render five accessible star elements, and expose the original multiplier through `title` and an accessible label. `DistributionPanel` will use it for normal candidate and active dealer cards only; gameplay and data modules remain unchanged.
 
 **Tech Stack:** React 19, TypeScript, CSS Modules, Vitest, Testing Library, existing Neon-D design tokens.
 
@@ -14,8 +14,8 @@
 - Apply ratings to normal dealer candidates and active dealers only.
 - Keep Main sales and Earnings as numeric rates.
 - Keep Captain Volume and Margin as numeric base metrics.
-- Map `0.5x` to 1 star, `1.0x` to 3 stars, and `1.5x` to 5 stars.
-- Use half-stars for intermediate values, rounded to the nearest half-star.
+- Round the existing multiplier to the nearest whole star, so `1.3` displays as 1 star and `1.6` displays as 2 stars.
+- Use filled and empty stars only; do not render half-stars.
 - Do not add a dependency or icon library.
 - The rating is display-only and must not be interactive.
 
@@ -24,10 +24,10 @@
 ## File Map
 
 - Create `src/Brmble.Web/src/components/NeonD/DealerRating.tsx`: reusable display component and pure multiplier-to-rating conversion.
-- Create `src/Brmble.Web/src/components/NeonD/DealerRating.module.css`: filled, half-filled, and empty star presentation plus focus/hover affordance.
+- Create `src/Brmble.Web/src/components/NeonD/DealerRating.module.css`: filled and empty star presentation plus focus/hover affordance.
 - Modify `src/Brmble.Web/src/components/NeonD/DistributionPanel.tsx`: replace normal dealer Volume and Margin numeric rows with `DealerRating`.
 - Modify `src/Brmble.Web/src/components/NeonD/__tests__/NeonDGame.test.tsx`: update obsolete star absence coverage and add candidate/active dealer rendering and exact-value accessibility assertions.
-- Create `src/Brmble.Web/src/components/NeonD/__tests__/DealerRating.test.tsx`: unit tests for mapping boundaries, half-stars, clamping, and accessible text.
+- Create `src/Brmble.Web/src/components/NeonD/__tests__/DealerRating.test.tsx`: unit tests for whole-star rounding, clamping, and accessible text.
 
 ## Task 1: Add the tested rating conversion and component
 
@@ -38,7 +38,7 @@
 
 **Interfaces:**
 - Consumes: `label: 'Volume' | 'Margin'` and `multiplier: number`.
-- Produces: `DealerRating` React component and an exported `getDealerStarRating(multiplier: number): number` helper returning a clamped half-star value from `1` through `5`.
+- Produces: `DealerRating` React component and an exported `getDealerStarRating(multiplier: number): number` helper returning a clamped whole-star value from `0` through `5`.
 
 - [ ] **Step 1: Write failing conversion and rendering tests**
 
@@ -49,18 +49,15 @@ import { DealerRating, getDealerStarRating } from '../DealerRating';
 
 describe('getDealerStarRating', () => {
   it.each([
-    [0.5, 1],
-    [0.75, 2],
-    [1, 3],
-    [1.25, 4],
-    [1.5, 5],
-  ])('maps %s multiplier to %s stars', (multiplier, expected) => {
+    [1.3, 1],
+    [1.6, 2],
+  ])('rounds %s multiplier to %s whole stars', (multiplier, expected) => {
     expect(getDealerStarRating(multiplier)).toBe(expected);
   });
 
   it('clamps malformed out-of-range values to the visible scale', () => {
-    expect(getDealerStarRating(0)).toBe(1);
-    expect(getDealerStarRating(2)).toBe(5);
+    expect(getDealerStarRating(0)).toBe(0);
+    expect(getDealerStarRating(5)).toBe(5);
   });
 });
 
@@ -70,8 +67,8 @@ describe('DealerRating', () => {
 
     const rating = screen.getByRole('img', { name: 'Volume: 1.23x' });
     expect(rating).toHaveAttribute('title', 'Volume: 1.23x');
-    expect(rating.querySelectorAll('[data-star-state="full"]')).toHaveLength(3);
-    expect(rating.querySelector('[data-star-state="half"]')).not.toBeNull();
+    expect(rating.querySelectorAll('[data-star-state="full"]')).toHaveLength(1);
+    expect(rating.querySelectorAll('[data-star-state="half"]')).toHaveLength(0);
   });
 });
 ```
@@ -88,9 +85,9 @@ Expected: FAIL because `DealerRating.tsx` does not exist yet.
 
 - [ ] **Step 3: Write the minimal component and styles**
 
-Implement `getDealerStarRating` with `0.5x` as one star, `1.0x` as three stars, and `1.5x` as five stars. Clamp the conversion input to `0.5`–`1.5`, round the result to the nearest half-star, and keep the original value for exact tooltip text. Render five `★` elements with `data-star-state="full|half|empty"` and `aria-hidden="true"` inside a non-interactive, keyboard-focusable `role="img"` wrapper whose `aria-label` and `title` are `Volume: 1.23x` or `Margin: 0.87x`. Use `tabIndex={0}` on that wrapper so keyboard users can reach the exact-value label and visible focus styling without making the rating actionable.
+Implement `getDealerStarRating` by rounding the multiplier to the nearest whole number and clamping it to `0`–`5`. Render five star positions with `data-star-state="full|empty"` and `aria-hidden="true"` inside a non-interactive, keyboard-focusable `role="img"` wrapper whose `aria-label` and `title` are `Volume: 1.23x` or `Margin: 0.87x`. Use `tabIndex={0}` on that wrapper so keyboard users can reach the exact-value label and visible focus styling without making the rating actionable.
 
-Use existing Neon-D CSS module tokens. Keep stars on one line, distinguish full/half/empty states, and add visible hover and `:focus-visible` treatments. Do not add a dependency, button behavior, or click handling.
+Use existing Neon-D CSS module tokens. Keep stars on one line, distinguish full/empty states, and add visible hover and `:focus-visible` treatments. Do not add a dependency, button behavior, or click handling.
 
 - [ ] **Step 4: Run the focused test to verify it passes**
 

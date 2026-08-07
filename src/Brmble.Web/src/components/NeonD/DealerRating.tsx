@@ -23,10 +23,9 @@ export const DealerRating = ({
       >
         {Array.from({ length: 5 }, (_, index) => {
           const starValue = index + 1;
-          const state = rating >= starValue ? 'full' : rating === starValue - 0.5 ? 'half' : 'empty';
+          const state = rating >= starValue ? 'full' : 'empty';
           return (
             <span key={starValue} className={styles.star} data-star-state={state} aria-hidden="true">
-              ★
             </span>
           );
         })}
