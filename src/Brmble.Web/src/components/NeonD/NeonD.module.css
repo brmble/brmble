@@ -78,6 +78,112 @@
   min-height: 0;
 }
 
+.gameplayGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.cardStack {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.panelHeader,
+.metricRow,
+.prestigeSummary,
+.offlineSummaryGrid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metricRow {
+  margin-bottom: var(--space-xs);
+}
+
+.equipmentList {
+  display: grid;
+  gap: 8px;
+  margin-top: var(--space-md);
+}
+
+.equipmentOwned {
+  opacity: 0.65;
+}
+
+.muscleWorkerRow,
+.captainCard,
+.marketBanner {
+  display: grid;
+  gap: 8px;
+}
+
+.muscleWorkerRow {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+}
+
+.bottleneckPositive {
+  font-weight: 700;
+  color: var(--accent-success);
+}
+
+.bottleneckNegative {
+  font-weight: 700;
+  color: var(--accent-secondary);
+}
+
+.kingpinBadge {
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--text-xs);
+}
+
+.toggleButtonText {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-hover-light);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.toggleButtonText[aria-pressed='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
+}
+
 .productionCard {
   background: var(--bg-surface);
   border: 1px solid var(--glass-border);
@@ -96,7 +202,12 @@
 }
 
 .distributionCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
   border-left: 4px solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
 }
 
 .columnHeader {
@@ -564,4 +675,16 @@
   outline: 2px solid var(--accent-success);
   outline-offset: 4px;
   border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  .gameplayGrid {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .panel {
+    max-height: none;
+    overflow: visible;
+  }
 }

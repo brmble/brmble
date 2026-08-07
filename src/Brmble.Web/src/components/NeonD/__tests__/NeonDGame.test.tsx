@@ -2,98 +2,105 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
+import { createBaseGameState } from '../constants';
 import { serializeNeonDSave } from '../saveFormat';
-import type { Dealer, DealerUpgrade, GameState } from '../types';
+import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
+import type { GameState } from '../types';
 
 const mockNeonD = vi.hoisted(() => {
-  const buyEquipmentMock = vi.fn();
-  const startDealerUpgradeMock = vi.fn();
+  const buyProducerMock = vi.fn();
+  const researchProductMock = vi.fn();
+  const buyProductUpgradeMock = vi.fn();
+  const buyMuscleWorkerMock = vi.fn();
+  const buyTerritoryMock = vi.fn();
+  const buyDiscountMock = vi.fn();
+  const hireDealerMock = vi.fn();
+  const fireDealerMock = vi.fn();
+  const setSellerProductMock = vi.fn();
+  const buySellerEquipmentMock = vi.fn();
+  const toggleDealerProtectionMock = vi.fn();
+  const payDealerBailMock = vi.fn();
+  const unlockBulkSellingMock = vi.fn();
+  const bulkSellProductMock = vi.fn();
+  const setAutoBulkEnabledMock = vi.fn();
+  const dismissOfflineEarningsSummaryMock = vi.fn();
+  const buyCaptainMock = vi.fn();
+  const promoteCaptainMock = vi.fn();
   const resetGameMock = vi.fn();
   const importGameMock = vi.fn();
-  const dealerUpgradeOptions: DealerUpgrade[] = [
-    { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
-    { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
-    { type: 'SIDE_HUSTLE', label: 'JACKPOT: Side Hustle', description: 'Add 10% side volume bleed', value: 0.1, sideVolumeValue: 0.1 },
-  ];
-
-  const createDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
-    id: 'dealer-ui',
-    name: 'Test Dealer',
-    selling: 'weed',
-    volume: 1,
-    margin: 10,
-    volumeBonus: 0,
-    marginBonus: 0,
-    sideVolume: 0,
-    equipmentCount: 0,
-    baseVolumeGps: 1,
-    baseMarginMult: 10,
-    volumeStars: 3,
-    marginStars: 3,
-    isProtected: true,
-    isArrested: false,
-    nextArrestCheckAt: Date.now() + 60_000,
-    hasPendingUpgrade: true,
-    pendingUpgradeOptions: dealerUpgradeOptions,
-    ...overrides,
-  });
-
-  const createState = (overrides: Partial<GameState> = {}): GameState => ({
-    money: 10_000,
-    totalEarned: 0,
-    researchSpeed: 1,
-    production: {
-      weed: { id: 'weed', name: 'Weed', stock: 100, rate: 1, yieldPerLevel: 0.2, costMultiplier: 1.12, level: 1, upgradeCost: 16 },
-    },
-    unlockedProduction: ['weed'],
-    activeDealers: [createDealer()],
-    availableDealers: [],
-    unlockedSlots: 1,
-    lastRefreshTime: 0,
-    lastEarningsPerDealer: { 'dealer-ui': 8.5 },
-    lastTickAt: Date.now(),
-    offlineEarningsSummary: null,
-    ...overrides,
-  });
-
-  let state = createState();
+  let state: GameState;
 
   return {
-    buyEquipmentMock,
-    startDealerUpgradeMock,
+    buyProducerMock,
+    researchProductMock,
+    buyProductUpgradeMock,
+    buyMuscleWorkerMock,
+    buyTerritoryMock,
+    buyDiscountMock,
+    hireDealerMock,
+    fireDealerMock,
+    setSellerProductMock,
+    buySellerEquipmentMock,
+    toggleDealerProtectionMock,
+    payDealerBailMock,
+    unlockBulkSellingMock,
+    bulkSellProductMock,
+    setAutoBulkEnabledMock,
+    dismissOfflineEarningsSummaryMock,
+    buyCaptainMock,
+    promoteCaptainMock,
     resetGameMock,
     importGameMock,
-    dealerUpgradeOptions,
-    createDealer,
-    createState,
     getState: () => state,
-    setState: (nextState: ReturnType<typeof createState>) => {
+    setState: (nextState: GameState) => {
       state = nextState;
     },
-    reset: () => {
-      state = createState();
-      buyEquipmentMock.mockReset();
-      startDealerUpgradeMock.mockReset();
-      resetGameMock.mockReset();
-      importGameMock.mockReset();
+    resetMocks: () => {
+      [
+        buyProducerMock,
+        researchProductMock,
+        buyProductUpgradeMock,
+        buyMuscleWorkerMock,
+        buyTerritoryMock,
+        buyDiscountMock,
+        hireDealerMock,
+        fireDealerMock,
+        setSellerProductMock,
+        buySellerEquipmentMock,
+        toggleDealerProtectionMock,
+        payDealerBailMock,
+        unlockBulkSellingMock,
+        bulkSellProductMock,
+        setAutoBulkEnabledMock,
+        dismissOfflineEarningsSummaryMock,
+        buyCaptainMock,
+        promoteCaptainMock,
+        resetGameMock,
+        importGameMock,
+      ].forEach((mock) => mock.mockReset());
     },
     useGameEngine: () => ({
       state,
-      upgrade: vi.fn(),
-      unlockProduction: vi.fn(),
-      hireDealer: vi.fn(),
-      fireDealer: vi.fn(),
-      refreshPool: vi.fn(),
+      buyProducer: buyProducerMock,
+      researchProduct: researchProductMock,
+      buyProductUpgrade: buyProductUpgradeMock,
+      buyMuscleWorker: buyMuscleWorkerMock,
+      buyTerritory: buyTerritoryMock,
+      buyDiscount: buyDiscountMock,
+      hireDealer: hireDealerMock,
+      fireDealer: fireDealerMock,
+      setSellerProduct: setSellerProductMock,
+      buySellerEquipment: buySellerEquipmentMock,
+      toggleDealerProtection: toggleDealerProtectionMock,
+      payDealerBail: payDealerBailMock,
+      unlockBulkSelling: unlockBulkSellingMock,
+      bulkSellProduct: bulkSellProductMock,
+      setAutoBulkEnabled: setAutoBulkEnabledMock,
+      dismissOfflineEarningsSummary: dismissOfflineEarningsSummaryMock,
+      buyCaptain: buyCaptainMock,
+      promoteCaptain: promoteCaptainMock,
       resetGame: resetGameMock,
       importGame: importGameMock,
-      unlockSlot: vi.fn(),
-      setDealerSelling: vi.fn(),
-      startDealerUpgrade: startDealerUpgradeMock,
-      buyEquipment: buyEquipmentMock,
-      toggleDealerProtection: vi.fn(),
-      payDealerBail: vi.fn(),
-      forceArrestDealer: vi.fn(),
-      dismissOfflineEarningsSummary: vi.fn(),
     }),
   };
 });
@@ -109,8 +116,42 @@ vi.mock('../../../hooks/usePrompt', async importOriginal => ({
   confirm: confirmMock,
 }));
 
+const createState = (overrides: Partial<GameState> = {}): GameState => {
+  const base = createBaseGameState(Date.now());
+  return {
+    ...base,
+    cash: 10_000,
+    respect: 2_000,
+    runEarnings: 8_000_000,
+    production: {
+      ...base.production,
+      weed: {
+        stock: 100,
+        producersOwned: 5,
+        purchasedUpgradeIds: ['fertilizer'],
+      },
+    },
+    activeDealers: [makeReferenceDealer({ id: 'dealer-ui', isProtected: true })],
+    availableDealers: [
+      makeReferenceDealer({ id: 'candidate-1', name: 'Candidate One', volumeMultiplier: 1.23, marginMultiplier: 0.87 }),
+      makeReferenceDealer({ id: 'candidate-2', name: 'Candidate Two', volumeMultiplier: 0.75, marginMultiplier: 1.25 }),
+      makeReferenceDealer({ id: 'candidate-3', name: 'Candidate Three', volumeMultiplier: 1.5, marginMultiplier: 1 }),
+    ],
+    lastEarningsPerSeller: { 'dealer-ui': 8.5 },
+    captains: [
+      makeReferenceCaptain({ id: 'captain-ui', name: 'Captain UI', personalEarnings: 500_000 }),
+    ],
+    ...overrides,
+  };
+};
+
+const mockState = (overrides: Partial<GameState>) => {
+  mockNeonD.setState(createState(overrides));
+};
+
 beforeEach(() => {
-  mockNeonD.reset();
+  mockNeonD.setState(createState());
+  mockNeonD.resetMocks();
   confirmMock.mockReset();
 });
 
@@ -142,7 +183,7 @@ it('does not reset the Neon-D empire when confirmation is canceled', async () =>
   expect(mockNeonD.resetGameMock).not.toHaveBeenCalled();
 });
 
-it('exports the current Neon-D state as a JSON download', async () => {
+it('exports the current Neon-D v2 state as a JSON download', async () => {
   const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:neon-d');
   const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -153,9 +194,7 @@ it('exports the current Neon-D state as a JSON download', async () => {
   const resetButton = screen.getByRole('button', { name: 'Reset' });
   expect(exportButton.parentElement).toBe(importButton.parentElement);
   expect(exportButton.parentElement).toBe(resetButton.parentElement);
-  expect(exportButton).toHaveClass('btn', 'btn-primary');
-  expect(importButton).toHaveClass('btn', 'btn-secondary');
-  expect(resetButton).toHaveClass('btn', 'btn-danger');
+
   await userEvent.setup().click(exportButton);
 
   expect(createObjectURL).toHaveBeenCalledOnce();
@@ -166,7 +205,7 @@ it('exports the current Neon-D state as a JSON download', async () => {
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:neon-d');
 });
 
-it('does not import a valid save when replacement confirmation is canceled', async () => {
+it('does not import a valid v2 save when replacement confirmation is canceled', async () => {
   const user = userEvent.setup();
   confirmMock.mockResolvedValue(false);
   render(<NeonDGame />);
@@ -215,176 +254,117 @@ it('processes a second file selection after the first import fails', async () =>
   expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
 });
 
-it('shows protection state and risk label on an active dealer card', () => {
+it('renders Production, Distribution, and Muscle / Respect as primary areas', () => {
   render(<NeonDGame />);
 
-  expect(screen.getByText(/protected/i)).toBeInTheDocument();
-  expect(screen.queryByText(/low risk/i)).not.toBeInTheDocument();
-  expect(screen.getByText(/-15% income/i)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /pay off cops/i })).toBeInTheDocument();
-  expect(screen.getByLabelText(/production and dealer sales are balanced/i)).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /production/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /muscle/i })).toBeInTheDocument();
+  expect(screen.getAllByText(/respect/i).length).toBeGreaterThan(0);
 });
 
-it('renders dealer volume and margin as star ratings instead of fractions', () => {
+it('does not render Research Speed or dealer star ratings', () => {
   render(<NeonDGame />);
 
-  expect(screen.queryByText('3/5')).not.toBeInTheDocument();
-  expect(screen.getAllByText('★★★☆☆').length).toBeGreaterThan(0);
+  expect(screen.queryByText(/research speed/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/★/)).not.toBeInTheDocument();
 });
 
-it('reopens stored dealer upgrade options without rerolling and uses the engine flow', async () => {
-  const user = userEvent.setup();
-  const { rerender } = render(<NeonDGame />);
-
-  await user.click(screen.getByRole('button', { name: /upgrade/i }));
-
-  expect(mockNeonD.startDealerUpgradeMock).toHaveBeenCalledWith('dealer-ui');
-  expect(screen.getByText(/select equipment/i)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /armed gang/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /ferrari/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /jackpot: side hustle/i })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
-
-  mockNeonD.setState(
-    mockNeonD.createState({
-      activeDealers: [mockNeonD.createDealer({ hasPendingUpgrade: false, pendingUpgradeOptions: [] })],
-    }),
-  );
-  rerender(<NeonDGame />);
-  expect(screen.queryByText(/select equipment/i)).not.toBeInTheDocument();
-
-  mockNeonD.setState(
-    mockNeonD.createState({
-      activeDealers: [mockNeonD.createDealer()],
-    }),
-  );
-  rerender(<NeonDGame />);
-
-  await user.click(screen.getByRole('button', { name: /upgrade/i }));
-
-  expect(screen.getByRole('button', { name: /armed gang/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /ferrari/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /jackpot: side hustle/i })).toBeInTheDocument();
-});
-
-it('allows reopening stored dealer upgrade options even when current money is below the normal upgrade cost', async () => {
-  const user = userEvent.setup();
-
-  mockNeonD.setState(
-    mockNeonD.createState({
-      money: 100,
-      activeDealers: [
-        mockNeonD.createDealer({
-          hasPendingUpgrade: true,
-          pendingUpgradeOptions: mockNeonD.dealerUpgradeOptions,
-        }),
-      ],
-    }),
-  );
-
+it('shows producer, stock, production rate, sales rate, and bottleneck delta for Weed', () => {
   render(<NeonDGame />);
 
-  await user.click(screen.getByRole('button', { name: /upgrade/i }));
-
-  expect(mockNeonD.startDealerUpgradeMock).toHaveBeenCalledWith('dealer-ui');
-  expect(screen.getByText(/select equipment/i)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /armed gang/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /ferrari/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /jackpot: side hustle/i })).toBeInTheDocument();
+  expect(screen.getAllByText(/cannabis plant/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/stock/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/production/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/sales/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/delta/i).length).toBeGreaterThan(0);
 });
 
-it('closes the modal when pending state is consumed', async () => {
-  const user = userEvent.setup();
-  const { rerender } = render(<NeonDGame />);
-
-  await user.click(screen.getByRole('button', { name: /upgrade/i }));
-  expect(screen.getByText(/select equipment/i)).toBeInTheDocument();
-
-  mockNeonD.setState(
-    mockNeonD.createState({
-      activeDealers: [mockNeonD.createDealer({ hasPendingUpgrade: false, pendingUpgradeOptions: [] })],
-    }),
-  );
-  rerender(<NeonDGame />);
-
-  expect(screen.queryByText(/select equipment/i)).not.toBeInTheDocument();
-});
-
-it('closes the modal when the dealer disappears', async () => {
-  const user = userEvent.setup();
-  const { rerender } = render(<NeonDGame />);
-
-  await user.click(screen.getByRole('button', { name: /upgrade/i }));
-  expect(screen.getByText(/select equipment/i)).toBeInTheDocument();
-
-  mockNeonD.setState(
-    mockNeonD.createState({
-      activeDealers: [null],
-    }),
-  );
-  rerender(<NeonDGame />);
-
-  expect(screen.queryByText(/select equipment/i)).not.toBeInTheDocument();
-});
-
-it('shows bail and fire actions for arrested dealers', () => {
-  mockNeonD.setState(
-    mockNeonD.createState({
-      lastEarningsPerDealer: { 'dealer-arrested': 20 },
-      activeDealers: [
-        mockNeonD.createDealer({
-          id: 'dealer-arrested',
-          name: 'Arrested Dealer',
-          isProtected: false,
-          isArrested: true,
-          hasPendingUpgrade: false,
-          pendingUpgradeOptions: [],
-        }),
-      ],
-    }),
-  );
-
+it('shows numeric dealer Volume, Margin, protection loss, and fixed equipment choices', () => {
   render(<NeonDGame />);
 
-  expect(screen.getAllByText(/arrested/i).length).toBeGreaterThan(0);
-  expect(screen.getByRole('button', { name: /pay bail \(\$900\)/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /fire dealer/i })).toBeInTheDocument();
+  expect(screen.getAllByText(/volume/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/margin/i).length).toBeGreaterThan(0);
+  expect(screen.getByText(/-10% income/i)).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
 });
 
-it('shows an offline earnings popup after a long enough break and dismisses it on accept', async () => {
-  const user = userEvent.setup();
-  const dismissOfflineEarningsSummary = vi.fn();
-
-  mockNeonD.useGameEngine = () => ({
-    state: mockNeonD.createState({
-      offlineEarningsSummary: {
-        awayMs: 65 * 60 * 1000,
-        earned: 12345,
-      },
-    }),
-    upgrade: vi.fn(),
-    unlockProduction: vi.fn(),
-    hireDealer: vi.fn(),
-    fireDealer: vi.fn(),
-    refreshPool: vi.fn(),
-    resetGame: vi.fn(),
-    importGame: vi.fn(),
-    unlockSlot: vi.fn(),
-    setDealerSelling: vi.fn(),
-    startDealerUpgrade: mockNeonD.startDealerUpgradeMock,
-    buyEquipment: mockNeonD.buyEquipmentMock,
-    toggleDealerProtection: vi.fn(),
-    payDealerBail: vi.fn(),
-    forceArrestDealer: vi.fn(),
-    dismissOfflineEarningsSummary,
+it('shows all three auto-refreshed candidates without a manual refresh button', () => {
+  mockState({
+    activeDealers: [null],
   });
 
   render(<NeonDGame />);
 
-  expect(screen.getByText(/welcome back/i)).toBeInTheDocument();
-  expect(screen.getByText(/you've been away for 1h 5m/i)).toBeInTheDocument();
-  expect(screen.getByText(/you've earned \$12[.,]345/i)).toBeInTheDocument();
+  expect(screen.getByText(/candidate one/i)).toBeInTheDocument();
+  expect(screen.getByText(/candidate two/i)).toBeInTheDocument();
+  expect(screen.getByText(/candidate three/i)).toBeInTheDocument();
+  expect(screen.getByText(/next candidates in/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
+});
 
+it('shows the Captain prestige controls and invokes buyCaptain', async () => {
+  const user = userEvent.setup();
+  mockState({ cash: 10_000_000 });
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: /hire captain/i }));
+
+  expect(screen.getByText(/captain ui/i)).toBeInTheDocument();
+  expect(screen.getByText(/level 1/i)).toBeInTheDocument();
+  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+});
+
+it('shows the offline summary with cash, Respect, and simulated duration', () => {
+  mockState({
+    offlineEarningsSummary: {
+      actualAwayMs: 48 * 60 * 60 * 1000,
+      simulatedMs: 24 * 60 * 60 * 1000,
+      cashEarned: 12_345,
+      respectEarned: 678,
+    },
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByText(/24h simulated/i)).toBeInTheDocument();
+  expect(screen.getByText(/12[.,]345/)).toBeInTheDocument();
+  expect(screen.getByText(/678.*respect/i)).toBeInTheDocument();
+});
+
+it('dismisses the offline summary on accept', async () => {
+  const user = userEvent.setup();
+  mockState({
+    offlineEarningsSummary: {
+      actualAwayMs: 65 * 60 * 1000,
+      simulatedMs: 65 * 60 * 1000,
+      cashEarned: 12_345,
+      respectEarned: 67,
+    },
+  });
+
+  render(<NeonDGame />);
   await user.click(screen.getByRole('button', { name: /accept/i }));
-  expect(dismissOfflineEarningsSummary).toHaveBeenCalled();
+
+  expect(mockNeonD.dismissOfflineEarningsSummaryMock).toHaveBeenCalledOnce();
+});
+
+it('shows bail and fire actions for arrested dealers', () => {
+  mockState({
+    activeDealers: [
+      makeReferenceDealer({
+        id: 'dealer-arrested',
+        name: 'Arrested Dealer',
+        isProtected: false,
+        isArrested: true,
+        earningsPerSecondAtArrest: 20,
+      }),
+    ],
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getAllByText(/arrested/i).length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: /pay bail \(\$1[.,]900\)/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /fire dealer/i })).toBeInTheDocument();
 });
