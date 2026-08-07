@@ -291,7 +291,8 @@ public sealed class MessageDeletionEndpointTests
         string roomId = RoomId,
         bool registerDm = false)
     {
-        var factory = new BrmbleServerFactory();
+        var factory = new BrmbleServerFactory(
+            timeProvider: new FixedTimeProvider(Now));
         factory.MatrixAppMock
             .Setup(matrix => matrix.GetRoomEvent(roomId, EventId, It.IsAny<string?>()))
             .ReturnsAsync(Event(sender, timestamp, isRedacted, authorMatrixUserId));
@@ -351,4 +352,9 @@ public sealed class MessageDeletionEndpointTests
         });
 
     private sealed record ErrorBody(string Code, string Error);
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 }

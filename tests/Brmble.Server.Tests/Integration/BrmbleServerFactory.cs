@@ -24,6 +24,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly SqliteConnection _keepAlive;
     private readonly string _cs;
     private readonly string? _certHash;
+    private readonly TimeProvider _timeProvider;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
     public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
@@ -37,9 +38,12 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         Services.GetRequiredService<CustomCompanionRepository>();
     public long AliceUserId { get; private set; }
 
-    public BrmbleServerFactory(string? certHash = "testcerthash123")
+    public BrmbleServerFactory(
+        string? certHash = "testcerthash123",
+        TimeProvider? timeProvider = null)
     {
         _certHash = certHash;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         var dbName = "brmble_server_" + Guid.NewGuid().ToString("N");
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
@@ -130,6 +134,11 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                     """, new { CertHash = _certHash });
             }
             services.AddSingleton(db);
+
+            var timeProvider = services.FirstOrDefault(d =>
+                d.ServiceType == typeof(TimeProvider));
+            if (timeProvider != null) services.Remove(timeProvider);
+            services.AddSingleton(_timeProvider);
 
             var mumbleIceHostedService = services.FirstOrDefault(d =>
                 d.ServiceType == typeof(IHostedService) &&
