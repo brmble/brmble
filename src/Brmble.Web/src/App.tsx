@@ -1360,6 +1360,10 @@ function App() {
   const brmbleServicesConnectedOnceRef = useRef(false);
   const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
 
+  useEffect(() => {
+    if (!connected) setShowGame(false);
+  }, [connected]);
+
   // Close avatar editor modal when disconnected — profile is not editable while disconnected
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
