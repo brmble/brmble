@@ -6,6 +6,7 @@ import type {
   GameState,
   MarketEvent,
   OfflineEarningsSummary,
+  ProductId,
   ProductState,
 } from './types';
 
@@ -26,6 +27,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 0;
 }
@@ -44,7 +49,11 @@ function matchesCatalogPrefix(
     && values.every((value, index) => value === catalogIds[index]);
 }
 
-function isProductId(value: unknown): boolean {
+function hasUniqueValues<T>(values: readonly T[]): boolean {
+  return new Set(values).size === values.length;
+}
+
+function isProductId(value: unknown): value is ProductId {
   return typeof value === 'string' && PRODUCT_IDS.has(value as (typeof PRODUCT_CATALOG)[number]['id']);
 }
 
@@ -52,64 +61,102 @@ function isEquipmentId(value: unknown): value is EquipmentId {
   return typeof value === 'string' && EQUIPMENT_IDS.has(value as EquipmentId);
 }
 
-function isEquipmentIdArray(value: unknown): boolean {
+function isEquipmentIdArray(value: unknown): value is EquipmentId[] {
   return Array.isArray(value)
     && value.every(isEquipmentId);
 }
 
 function isProductState(value: unknown): value is ProductState {
   if (!isObject(value)) return false;
-  return isFiniteNumber(value.stock)
+  return isNonNegativeFiniteNumber(value.stock)
     && isNonNegativeInteger(value.producersOwned);
 }
 
-function isDealer(value: unknown): value is Dealer {
+function isUnlockedProductPrefix(value: unknown): value is ProductId[] {
+  return Array.isArray(value)
+    && value.length > 0
+    && value[0] === 'weed'
+    && matchesCatalogPrefix(value, PRODUCT_IDS_IN_ORDER);
+}
+
+function isKnownCanonicalEquipmentPrefix(value: unknown): value is EquipmentId[] {
+  if (!isEquipmentIdArray(value)) return false;
+  return hasUniqueValues(value);
+}
+
+function isDealer(
+  value: unknown,
+  unlockedProducts: readonly string[],
+): value is Dealer {
   if (!isObject(value)) return false;
+  const selling = value.selling;
+  if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
     && typeof value.name === 'string'
-    && isProductId(value.selling)
     && isFiniteNumber(value.volumeMultiplier)
+    && value.volumeMultiplier >= 0.5
+    && value.volumeMultiplier <= 1.5
     && isFiniteNumber(value.marginMultiplier)
-    && isEquipmentIdArray(value.equipmentIds)
+    && value.marginMultiplier >= 0.5
+    && value.marginMultiplier <= 1.5
+    && isKnownCanonicalEquipmentPrefix(value.equipmentIds)
     && typeof value.isProtected === 'boolean'
     && typeof value.isArrested === 'boolean'
-    && isFiniteNumber(value.earningsPerSecondAtArrest);
+    && isNonNegativeFiniteNumber(value.earningsPerSecondAtArrest);
 }
 
-function isCaptain(value: unknown): value is Captain {
+function isCaptain(
+  value: unknown,
+  unlockedProducts: readonly string[],
+): value is Captain {
   if (!isObject(value)) return false;
+  const selling = value.selling;
+  if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
     && typeof value.name === 'string'
-    && isProductId(value.selling)
-    && isEquipmentIdArray(value.equipmentIds)
-    && isFiniteNumber(value.personalEarnings);
+    && isKnownCanonicalEquipmentPrefix(value.equipmentIds)
+    && isNonNegativeFiniteNumber(value.personalEarnings);
 }
 
-function isMarketEvent(value: unknown): value is MarketEvent {
+function isMarketEvent(
+  value: unknown,
+  unlockedProducts: readonly string[],
+): value is MarketEvent {
   if (!isObject(value)) return false;
-  return isProductId(value.productId)
-    && isFiniteNumber(value.multiplier)
-    && isFiniteNumber(value.endsAt);
+  const productId = value.productId;
+  if (!isProductId(productId) || !unlockedProducts.includes(productId)) return false;
+  return isNonNegativeFiniteNumber(value.multiplier)
+    && isNonNegativeFiniteNumber(value.endsAt);
 }
 
 function isOfflineEarningsSummary(value: unknown): value is OfflineEarningsSummary {
   if (!isObject(value)) return false;
-  return isFiniteNumber(value.actualAwayMs)
-    && isFiniteNumber(value.simulatedMs)
-    && isFiniteNumber(value.cashEarned)
-    && isFiniteNumber(value.respectEarned);
+  return isNonNegativeFiniteNumber(value.actualAwayMs)
+    && isNonNegativeFiniteNumber(value.simulatedMs)
+    && value.simulatedMs <= value.actualAwayMs
+    && isNonNegativeFiniteNumber(value.cashEarned)
+    && isNonNegativeFiniteNumber(value.respectEarned);
 }
 
-function isProductionRecord(value: unknown): boolean {
+function isProductionRecord(
+  value: unknown,
+  unlockedProducts: readonly string[],
+): boolean {
   if (!isObject(value)) return false;
 
   return PRODUCT_CATALOG.every((product) => {
     const productState = value[product.id];
-    return isProductState(productState)
-      && matchesCatalogPrefix(
-        productState.purchasedUpgradeIds,
-        product.upgrades.map((upgrade) => upgrade.id),
-      );
+    if (!isProductState(productState)) return false;
+
+    const upgradeIds = product.upgrades.map((upgrade) => upgrade.id);
+    const isUnlocked = unlockedProducts.includes(product.id);
+    return matchesCatalogPrefix(productState.purchasedUpgradeIds, upgradeIds)
+      && (isUnlocked
+        || (
+          productState.stock === 0
+          && productState.producersOwned === 0
+          && productState.purchasedUpgradeIds.length === 0
+        ));
   })
     && Object.keys(value).every((key) => PRODUCT_IDS.has(key as (typeof PRODUCT_CATALOG)[number]['id']));
 }
@@ -122,36 +169,55 @@ function isMuscleOwnedRecord(value: unknown): boolean {
 }
 
 function isNumericRecord(value: unknown): boolean {
-  return isObject(value) && Object.values(value).every(isFiniteNumber);
+  return isObject(value) && Object.values(value).every(isNonNegativeFiniteNumber);
+}
+
+function hasUniqueSellerIds(dealers: readonly Dealer[]): boolean {
+  return hasUniqueValues(dealers.map((dealer) => dealer.id));
 }
 
 function isGameState(value: unknown): value is GameState {
   if (!isObject(value)) return false;
+  const unlockedProducts = value.unlockedProducts;
+  if (!isUnlockedProductPrefix(unlockedProducts)) return false;
+
+  const activeDealers = value.activeDealers;
+  if (!Array.isArray(activeDealers)) return false;
+
+  const availableDealers = value.availableDealers;
+  if (!Array.isArray(availableDealers) || availableDealers.length !== 3) return false;
+
+  const captains = value.captains;
+  if (!Array.isArray(captains)) return false;
+
+  const territoryLevel = value.territoryLevel;
+  if (!isNonNegativeInteger(territoryLevel)) return false;
+  if (activeDealers.length !== territoryLevel + 1) return false;
+  if (!activeDealers.every((dealer) => dealer === null || isDealer(dealer, unlockedProducts))) return false;
+  if (!availableDealers.every((dealer) => isDealer(dealer, unlockedProducts))) return false;
+  if (!captains.every((captain) => isCaptain(captain, unlockedProducts))) return false;
+
+  const activeDealerRecords = activeDealers.filter((dealer): dealer is Dealer => dealer !== null);
 
   return value.schemaVersion === 2
-    && isFiniteNumber(value.cash)
-    && isFiniteNumber(value.runEarnings)
-    && isFiniteNumber(value.respect)
-    && isProductionRecord(value.production)
-    && matchesCatalogPrefix(value.unlockedProducts, PRODUCT_IDS_IN_ORDER)
+    && isNonNegativeFiniteNumber(value.cash)
+    && isNonNegativeFiniteNumber(value.runEarnings)
+    && isNonNegativeFiniteNumber(value.respect)
+    && isProductionRecord(value.production, unlockedProducts)
     && isMuscleOwnedRecord(value.muscleOwned)
-    && isNonNegativeInteger(value.territoryLevel)
     && isNonNegativeInteger(value.discountLevel)
-    && Array.isArray(value.activeDealers)
-    && value.activeDealers.every((dealer) => dealer === null || isDealer(dealer))
-    && Array.isArray(value.availableDealers)
-    && value.availableDealers.every(isDealer)
-    && isFiniteNumber(value.lastDealerRefreshAt)
-    && Array.isArray(value.captains)
-    && value.captains.every(isCaptain)
+    && hasUniqueSellerIds(activeDealerRecords)
+    && hasUniqueSellerIds(availableDealers)
+    && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
     && typeof value.bulkUnlocked === 'boolean'
     && typeof value.autoBulkEnabled === 'boolean'
-    && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent))
-    && isFiniteNumber(value.nextMarketCheckAt)
-    && isFiniteNumber(value.nextRiskCheckAt)
+    && (!value.autoBulkEnabled || value.bulkUnlocked)
+    && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent, unlockedProducts))
+    && isNonNegativeFiniteNumber(value.nextMarketCheckAt)
+    && isNonNegativeFiniteNumber(value.nextRiskCheckAt)
     && isNumericRecord(value.lastEarningsPerSeller)
-    && isFiniteNumber(value.lastTickAt)
+    && isNonNegativeFiniteNumber(value.lastTickAt)
     && (value.offlineEarningsSummary === null
       || isOfflineEarningsSummary(value.offlineEarningsSummary));
 }
