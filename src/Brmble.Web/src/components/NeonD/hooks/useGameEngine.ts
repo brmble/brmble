@@ -1,14 +1,17 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
+  MARKET_CHECK_INTERVAL_MS,
   NEON_D_SAVE_KEY,
+  OFFLINE_CAP_MS,
   OFFLINE_MIN_AWAY_MS,
   PRODUCT_CATALOG,
   RESEARCH_REVEAL_RATIO,
+  RISK_CHECK_INTERVAL_MS,
 } from '../constants';
 import {
   getProductDefinition,
@@ -63,15 +66,24 @@ export const useGameEngine = () => {
     NEON_D_SAVE_KEY,
     createInitialGameState,
   );
+  const isInitialTick = useRef(true);
 
   const tick = () => {
     setState((prev) => {
       const now = Date.now();
       const elapsedMs = Math.max(0, now - prev.lastTickAt);
-      const elapsedSeconds = elapsedMs / 1000;
-      if (elapsedMs >= OFFLINE_MIN_AWAY_MS) {
+      const elapsedSeconds = Math.min(elapsedMs, OFFLINE_CAP_MS) / 1000;
+      const isOfflineCatchUp = isInitialTick.current && elapsedMs >= OFFLINE_MIN_AWAY_MS;
+      isInitialTick.current = false;
+      if (isOfflineCatchUp) {
         return advanceDeterministicState(
-          { ...prev, activeMarketEvent: null },
+          {
+            ...prev,
+            activeMarketEvent: null,
+            lastDealerRefreshAt: now,
+            nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
+            nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,
+          },
           elapsedSeconds,
           now,
         );

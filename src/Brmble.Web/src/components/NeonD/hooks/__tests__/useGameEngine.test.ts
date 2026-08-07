@@ -105,6 +105,9 @@ describe('useGameEngine', () => {
     expect(result.current.state.cash).toBeCloseTo(100 + 100 * 4.2);
     expect(result.current.state.runEarnings).toBeCloseTo(100 * 4.2);
     expect(result.current.state.activeMarketEvent).toBeNull();
+    expect(result.current.state.lastDealerRefreshAt).toBe(now);
+    expect(result.current.state.nextMarketCheckAt).toBe(now + 30_000);
+    expect(result.current.state.nextRiskCheckAt).toBe(now + 30_000);
   });
 
   it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
