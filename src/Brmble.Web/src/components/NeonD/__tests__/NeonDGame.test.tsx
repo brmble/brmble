@@ -6,6 +6,7 @@ import { NeonDGame } from '../NeonDGame';
 const mockNeonD = vi.hoisted(() => {
   const buyEquipmentMock = vi.fn();
   const startDealerUpgradeMock = vi.fn();
+  const resetGameMock = vi.fn();
   const dealerUpgradeOptions = [
     { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
     { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
@@ -57,6 +58,7 @@ const mockNeonD = vi.hoisted(() => {
   return {
     buyEquipmentMock,
     startDealerUpgradeMock,
+    resetGameMock,
     dealerUpgradeOptions,
     createDealer,
     createState,
@@ -68,6 +70,7 @@ const mockNeonD = vi.hoisted(() => {
       state = createState();
       buyEquipmentMock.mockReset();
       startDealerUpgradeMock.mockReset();
+      resetGameMock.mockReset();
     },
     useGameEngine: () => ({
       state,
@@ -76,7 +79,7 @@ const mockNeonD = vi.hoisted(() => {
       hireDealer: vi.fn(),
       fireDealer: vi.fn(),
       refreshPool: vi.fn(),
-      resetGame: vi.fn(),
+      resetGame: resetGameMock,
       unlockSlot: vi.fn(),
       setDealerSelling: vi.fn(),
       startDealerUpgrade: startDealerUpgradeMock,
@@ -93,8 +96,44 @@ vi.mock('../hooks/useGameEngine', () => ({
   useGameEngine: () => mockNeonD.useGameEngine(),
 }));
 
+const confirmMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../hooks/usePrompt', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../hooks/usePrompt')>()),
+  confirm: confirmMock,
+}));
+
 beforeEach(() => {
   mockNeonD.reset();
+  confirmMock.mockReset();
+});
+
+it('asks for confirmation before resetting the Neon-D empire', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(true);
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: 'Reset' }));
+
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'Reset Neon-D empire?',
+    message: 'Are you sure you want to reset your Neon-D empire? All progress will be lost.',
+    confirmLabel: 'Reset',
+    cancelLabel: 'Cancel',
+    destructive: true,
+  });
+  expect(mockNeonD.resetGameMock).toHaveBeenCalledTimes(1);
+});
+
+it('does not reset the Neon-D empire when confirmation is canceled', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(false);
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: 'Reset' }));
+
+  expect(confirmMock).toHaveBeenCalledTimes(1);
+  expect(mockNeonD.resetGameMock).not.toHaveBeenCalled();
 });
 
 it('shows protection state and risk label on an active dealer card', () => {

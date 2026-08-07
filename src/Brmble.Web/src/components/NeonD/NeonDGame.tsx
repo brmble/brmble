@@ -137,6 +137,18 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     setDealerSelling(dealerId, selling);
   };
 
+  const handleReset = async () => {
+    const confirmed = await confirm({
+      title: 'Reset Neon-D empire?',
+      message: 'Are you sure you want to reset your Neon-D empire? All progress will be lost.',
+      confirmLabel: 'Reset',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+
+    if (confirmed) resetGame();
+  };
+
 
 
 
@@ -178,7 +190,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             {state.activeDealers.filter(d => d !== null).length > 0 ? `($${Object.values(state.lastEarningsPerDealer).reduce((a, b) => a + b, 0).toFixed(2)}/s)` : ''}
           </div>
           <button 
-            onClick={resetGame}
+            onClick={handleReset}
             className={`${styles.upgradeButton} ${styles.resetButton}`}
           >
             Reset
