@@ -76,4 +76,32 @@ describe('useGameEngine', () => {
     act(() => result.current.buyProductUpgrade('weed', 'fertilizer'));
     expect(result.current.state.production.weed.purchasedUpgradeIds).toEqual(['fertilizer']);
   });
+
+  it('buys the first Hood Rat for $80 and generates 1 Respect per second', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => result.current.buyMuscleWorker('hoodRat'));
+    expect(result.current.state.cash).toBeCloseTo(20);
+    expect(result.current.state.muscleOwned.hoodRat).toBe(1);
+
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(result.current.state.respect).toBeCloseTo(5);
+  });
+
+  it('buys Territory with Respect and adds exactly one normal dealer slot', () => {
+    const { result } = renderSeededGame({ respect: 500 });
+
+    act(() => result.current.buyTerritory());
+    expect(result.current.state.respect).toBeCloseTo(0);
+    expect(result.current.state.territoryLevel).toBe(1);
+    expect(result.current.state.activeDealers).toHaveLength(2);
+  });
+
+  it('buys Discount with Respect and lowers the next eligible producer price by 10 percent', () => {
+    const { result } = renderSeededGame({ respect: 1_000 });
+
+    act(() => result.current.buyDiscount());
+    expect(result.current.state.discountLevel).toBe(1);
+    expect(getProducerCost('weed', 0, 1)).toBeCloseTo(13.5);
+  });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { GameState, ProductId } from '../types';
+import type { GameState, MuscleWorkerId, ProductId } from '../types';
 import {
   createBaseGameState,
   NEON_D_SAVE_KEY,
@@ -12,7 +12,10 @@ import {
   getProductDefinition,
   getProductProductionRate,
   getProductUpgradeCost,
+  getDiscountCost,
+  getMuscleWorkerCost,
   getProducerCost,
+  getTerritoryCost,
 } from '../economy';
 import { advanceDeterministicState } from '../simulation';
 
@@ -96,6 +99,50 @@ export const useGameEngine = () => {
     });
   };
 
+  const buyMuscleWorker = (workerId: MuscleWorkerId) => {
+    setState((prev) => {
+      const owned = prev.muscleOwned[workerId];
+      const cost = getMuscleWorkerCost(workerId, owned, prev.discountLevel);
+      if (prev.cash < cost) return prev;
+
+      return {
+        ...prev,
+        cash: prev.cash - cost,
+        muscleOwned: {
+          ...prev.muscleOwned,
+          [workerId]: owned + 1,
+        },
+      };
+    });
+  };
+
+  const buyTerritory = () => {
+    setState((prev) => {
+      const cost = getTerritoryCost(prev.territoryLevel);
+      if (prev.respect < cost) return prev;
+
+      return {
+        ...prev,
+        respect: prev.respect - cost,
+        territoryLevel: prev.territoryLevel + 1,
+        activeDealers: [...prev.activeDealers, null],
+      };
+    });
+  };
+
+  const buyDiscount = () => {
+    setState((prev) => {
+      const cost = getDiscountCost(prev.discountLevel);
+      if (prev.respect < cost) return prev;
+
+      return {
+        ...prev,
+        respect: prev.respect - cost,
+        discountLevel: prev.discountLevel + 1,
+      };
+    });
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState(createInitialGameState());
@@ -112,6 +159,9 @@ export const useGameEngine = () => {
     buyProducer,
     researchProduct,
     buyProductUpgrade,
+    buyMuscleWorker,
+    buyTerritory,
+    buyDiscount,
     resetGame,
     importGame,
     getProductProductionRate: (productId: ProductId) => getProductProductionRate(state, productId),

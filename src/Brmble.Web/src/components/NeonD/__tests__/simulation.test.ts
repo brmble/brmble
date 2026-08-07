@@ -17,4 +17,13 @@ describe('deterministic production', () => {
     const next = advanceDeterministicState(state, 10, 10_000);
     expect(next.production.weed.stock).toBeCloseTo(0.20 * 1.30 * 1.50 * 10);
   });
+
+  it('advances Respect with the Muscle rate across a multi-hour span without per-second iteration', () => {
+    const state = createBaseGameState(0);
+    state.muscleOwned.hoodRat = 2;
+    state.muscleOwned.youngThug = 1;
+
+    const next = advanceDeterministicState(state, 3_600, 3_600_000);
+    expect(next.respect).toBeCloseTo((2 * 1 + 1 * 5) * 3_600);
+  });
 });

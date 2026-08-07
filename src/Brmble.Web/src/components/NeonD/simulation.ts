@@ -1,4 +1,4 @@
-import { getProductProductionRate } from './economy';
+import { getProductProductionRate, getRespectPerSecond } from './economy';
 import type { GameState } from './types';
 
 export const advanceDeterministicState = (
@@ -20,6 +20,7 @@ export const advanceDeterministicState = (
   return {
     ...state,
     production,
+    respect: state.respect + getRespectPerSecond(state) * seconds,
     lastTickAt: now,
   };
 };
