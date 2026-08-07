@@ -1,8 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
-import { getProducerCost } from '../../economy';
-import type { GameState } from '../../types';
+import { getCaptainCost, getProducerCost } from '../../economy';
+import type { Captain, GameState } from '../../types';
 import { makeReferenceDealer } from '../../__tests__/testFixtures';
 import { useGameEngine } from '../useGameEngine';
 
@@ -85,6 +85,122 @@ describe('useGameEngine', () => {
 
     act(() => result.current.setAutoBulkEnabled(true));
     expect(result.current.state.autoBulkEnabled).toBe(false);
+  });
+
+  it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
+    const { result } = renderSeededGame({
+      cash: 5_000_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(1);
+    expect(result.current.state.captains[0]).toMatchObject({
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 0,
+    });
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.runEarnings).toBe(0);
+    expect(result.current.state.respect).toBe(0);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.territoryLevel).toBe(0);
+    expect(result.current.state.discountLevel).toBe(0);
+    expect(result.current.state.activeDealers).toEqual([null]);
+  });
+
+  it('preserves existing Captains and Kingpins across a later Captain reset', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 1_000_000,
+    };
+
+    const { result } = renderSeededGame({
+      cash: 7_000_000,
+      runEarnings: 7_500_000,
+      captains: [existingCaptain],
+      kingpins: 1,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(2);
+    expect(result.current.state.captains[0]).toEqual(existingCaptain);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('charges the next Captain at base * 1.18^(captains + kingpins) before discount', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 0,
+    };
+    const expectedCost = 5_000_000 * Math.pow(1.18, 2) * 0.9;
+
+    const { result } = renderSeededGame({
+      cash: expectedCost,
+      runEarnings: 7_500_000,
+      captains: [existingCaptain],
+      kingpins: 1,
+      discountLevel: 1,
+    });
+
+    expect(getCaptainCost(result.current.state)).toBeCloseTo(expectedCost);
+    act(() => result.current.buyCaptain());
+    expect(result.current.state.captains).toHaveLength(2);
+    expect(result.current.state.cash).toBe(100);
+  });
+
+  it('promotes a level-10 Captain into one Kingpin', () => {
+    const { result } = renderSeededGame({
+      captains: [{
+        id: 'captain-10',
+        name: 'Captain Ten',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 161_340_000,
+      }],
+    });
+
+    act(() => result.current.promoteCaptain('captain-10'));
+
+    expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('charges Captains four times equipment base price and prevents duplicate purchases', () => {
+    const { result } = renderSeededGame({
+      cash: 2_000,
+      captains: [{
+        id: 'captain-equipment',
+        name: 'Captain Equipment',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 0,
+      }],
+    });
+
+    act(() => result.current.buySellerEquipment(
+      'captain-equipment',
+      'baseballBat',
+      'captain',
+    ));
+    expect(result.current.state.cash).toBeCloseTo(1_400);
+    expect(result.current.state.captains[0].equipmentIds).toEqual(['baseballBat']);
+
+    act(() => result.current.buySellerEquipment(
+      'captain-equipment',
+      'baseballBat',
+      'captain',
+    ));
+    expect(result.current.state.cash).toBeCloseTo(1_400);
+    expect(result.current.state.captains[0].equipmentIds).toEqual(['baseballBat']);
   });
 
   it('buys product upgrades sequentially and applies their listed cost', () => {

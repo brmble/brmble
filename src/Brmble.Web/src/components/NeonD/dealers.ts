@@ -5,7 +5,7 @@ import {
   NORMAL_DEALER_MIN_MULTIPLIER,
 } from './constants';
 import { getRecruitmentRefreshMs } from './economy';
-import type { Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
 
 const DEALER_FIRST_NAMES = [
   'Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake',
@@ -87,6 +87,14 @@ export const generateNormalDealer = (
   isProtected: false,
   isArrested: false,
   earningsPerSecondAtArrest: 0,
+});
+
+export const createCaptain = (index: number): Captain => ({
+  id: crypto.randomUUID(),
+  name: `Captain ${index}`,
+  selling: 'weed',
+  equipmentIds: [],
+  personalEarnings: 0,
 });
 
 export const generateCandidatePool = (

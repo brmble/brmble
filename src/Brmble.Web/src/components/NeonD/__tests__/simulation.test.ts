@@ -5,9 +5,10 @@ import {
   applyAutoBulk,
   applyDueRiskCheck,
   applyMarketClock,
+  getProductSalesRates,
   sellBulkOverflow,
 } from '../simulation';
-import { makeReferenceDealer } from './testFixtures';
+import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 
 describe('deterministic production', () => {
   it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {
@@ -126,6 +127,40 @@ describe('deterministic production', () => {
     const unprotectedIncome = unprotectedNext.cash - unprotected.cash;
     const protectedIncome = protectedNext.cash - protectedState.cash;
     expect(protectedIncome).toBeCloseTo(unprotectedIncome * 0.90);
+  });
+
+  it('Captain sells at 1.5 Volume x 3 and 1.5 Margin and accrues personal earnings', () => {
+    const state = createBaseGameState(0);
+    state.production.weed.producersOwned = 100;
+    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+
+    const expectedUnits = 1.5 * 3;
+    const expectedEarnings = expectedUnits * 4.2 * 1.5;
+    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(expectedEarnings);
+    expect(next.captains[0].personalEarnings).toBeCloseTo(expectedEarnings);
+  });
+
+  it('allocates normal dealer demand before Captain demand when stock is scarce', () => {
+    const state = createBaseGameState(0);
+    state.production.weed.stock = 3;
+    state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
+    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+
+    expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(12.6);
+    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(0);
+    expect(next.production.weed.stock).toBeCloseTo(0);
+  });
+
+  it('reports combined normal dealer and Captain unit demand by product', () => {
+    const state = createBaseGameState(0);
+    state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
+    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+
+    expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 4.5);
   });
 });
 

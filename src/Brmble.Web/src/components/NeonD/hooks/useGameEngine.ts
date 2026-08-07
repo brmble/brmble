@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
+import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
@@ -16,19 +16,24 @@ import {
   getDiscountCost,
   getEquipmentCost,
   getBailCost,
+  getCaptainCost,
+  getCaptainLevel,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
   isBulkSellingVisible,
+  isCaptainVisible,
 } from '../economy';
 import {
   applyRecruitmentClock,
+  createCaptain,
   generateCandidatePool,
   generateNormalDealer,
 } from '../dealers';
 import {
   advanceDeterministicState,
   applyMarketClock,
+  getProductSalesRates,
   sellBulkOverflow,
 } from '../simulation';
 import { applyDueRiskCheck } from '../simulation';
@@ -40,6 +45,17 @@ const createInitialGameState = (): GameState => {
     availableDealers: generateCandidatePool(['weed']),
   };
 };
+
+const resetRunPreservingPrestige = (
+  captains: Captain[],
+  kingpins: number,
+  now: number,
+): GameState => ({
+  ...createBaseGameState(now),
+  captains,
+  kingpins,
+  availableDealers: generateCandidatePool(['weed']),
+});
 
 export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>(
@@ -325,6 +341,35 @@ export const useGameEngine = () => {
     setState((prev) => prev.bulkUnlocked ? { ...prev, autoBulkEnabled: enabled } : prev);
   };
 
+  const buyCaptain = () => {
+    setState((prev) => {
+      if (!isCaptainVisible(prev)) return prev;
+
+      const cost = getCaptainCost(prev);
+      if (prev.cash < cost) return prev;
+
+      const captain = createCaptain(prev.captains.length + prev.kingpins + 1);
+      return resetRunPreservingPrestige(
+        [...prev.captains, captain],
+        prev.kingpins,
+        Date.now(),
+      );
+    });
+  };
+
+  const promoteCaptain = (captainId: string) => {
+    setState((prev) => {
+      const captain = prev.captains.find((item) => item.id === captainId);
+      if (!captain || getCaptainLevel(captain.personalEarnings) < 10) return prev;
+
+      return {
+        ...prev,
+        captains: prev.captains.filter((item) => item.id !== captainId),
+        kingpins: prev.kingpins + 1,
+      };
+    });
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState(createInitialGameState());
@@ -353,8 +398,11 @@ export const useGameEngine = () => {
     unlockBulkSelling,
     bulkSellProduct,
     setAutoBulkEnabled,
+    buyCaptain,
+    promoteCaptain,
     resetGame,
     importGame,
     getProductProductionRate: (productId: ProductId) => getProductProductionRate(state, productId),
+    getProductSalesRates: () => getProductSalesRates(state),
   };
 };

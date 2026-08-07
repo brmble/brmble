@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSecondaryDemands,
+  createCaptain,
   generateCandidatePool,
   getNormalDealerMainSaleRate,
   getSellerEquipmentBonuses,
 } from '../dealers';
 
 describe('reference dealer behavior', () => {
+  it('creates a Captain with a Weed assignment and empty personal state', () => {
+    expect(createCaptain(2)).toMatchObject({
+      name: 'Captain 2',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 0,
+    });
+  });
+
   it('generates exactly three candidates with independent 0.5-1.5 multipliers', () => {
     const rolls = [0, 0, 0, 0.5, 0.5, 0.5, 1, 1, 1, 0.25, 0.75, 0.5];
     const rng = () => rolls.shift() ?? 0.5;

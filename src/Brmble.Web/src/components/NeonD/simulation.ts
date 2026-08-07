@@ -1,25 +1,33 @@
-import { getEffectiveStreetValue, getProductProductionRate, getRespectPerSecond } from './economy';
+import {
+  getEffectiveStreetValue,
+  getProductProductionRate,
+  getRespectPerSecond,
+} from './economy';
 import {
   buildSecondaryDemands,
+  getSellerEquipmentBonuses,
   getDealerMarginMultiplier,
   getNormalDealerMainSaleRate,
-  getSellerEquipmentBonuses,
 } from './dealers';
 import {
   AUTO_BULK_RETAIN_STOCK,
   AUTO_BULK_TRIGGER_STOCK,
   BULK_VALUE_MULTIPLIER,
+  CAPTAIN_BASE_MARGIN_MULTIPLIER,
+  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   MARKET_CHECK_INTERVAL_MS,
   MARKET_EVENT_CHANCE,
   MARKET_DURATION_MAX_MS,
   MARKET_DURATION_MIN_MS,
   MARKET_MULTIPLIER_MAX,
   MARKET_MULTIPLIER_MIN,
+  MAIN_SALE_UNITS_PER_VOLUME,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
   RISK_LIFETIME_EARNINGS_THRESHOLD,
 } from './constants';
+import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
 
 type SaleDemand = {
@@ -140,6 +148,58 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
     return demands;
   });
 
+const buildCaptainDemands = (state: GameState): SaleDemand[] =>
+  state.captains.flatMap((captain) => {
+    const bonuses = getSellerEquipmentBonuses(captain.equipmentIds);
+    const mainRate =
+      CAPTAIN_BASE_VOLUME_MULTIPLIER *
+      (1 + bonuses.volumeBonus) *
+      MAIN_SALE_UNITS_PER_VOLUME;
+    const marginMultiplier =
+      CAPTAIN_BASE_MARGIN_MULTIPLIER *
+      (1 + bonuses.marginBonus);
+
+    const demands: SaleDemand[] = [{
+      sellerId: captain.id,
+      productId: captain.selling,
+      unitsPerSecond: mainRate,
+      earningsPerUnit:
+        getEffectiveStreetValue(state, captain.selling) * marginMultiplier,
+    }];
+
+    buildSecondaryDemands(
+      mainRate,
+      bonuses.secondarySalesBonus,
+      captain.selling,
+      state.unlockedProducts,
+    ).forEach((unitsPerSecond, productId) => {
+      demands.push({
+        sellerId: captain.id,
+        productId,
+        unitsPerSecond,
+        earningsPerUnit:
+          getEffectiveStreetValue(state, productId) * marginMultiplier,
+      });
+    });
+
+    return demands;
+  });
+
+export const getProductSalesRates = (state: GameState): Record<ProductId, number> => {
+  const rates = Object.fromEntries(
+    PRODUCT_CATALOG.map((product) => [product.id, 0]),
+  ) as Record<ProductId, number>;
+
+  [
+    ...buildNormalDealerDemands(state),
+    ...buildCaptainDemands(state),
+  ].forEach((demand) => {
+    rates[demand.productId] += demand.unitsPerSecond;
+  });
+
+  return rates;
+};
+
 const allocateProductDemand = (
   availableUnits: number,
   seconds: number,
@@ -204,13 +264,22 @@ export const advanceDeterministicState = (
 
   const production = { ...state.production };
   const lastEarningsPerSeller = Object.fromEntries(
-    state.activeDealers
-      .filter((dealer): dealer is NonNullable<typeof dealer> => dealer !== null)
-      .map((dealer) => [dealer.id, 0]),
+    [
+      ...state.activeDealers
+        .filter((dealer): dealer is NonNullable<typeof dealer> => dealer !== null)
+        .map((dealer) => dealer.id),
+      ...state.captains.map((captain) => captain.id),
+    ].map((sellerId) => [sellerId, 0]),
+  ) as Record<string, number>;
+  const earnedAcrossSpanBySeller = Object.fromEntries(
+    Object.keys(lastEarningsPerSeller).map((sellerId) => [sellerId, 0]),
   ) as Record<string, number>;
   let cash = state.cash;
   let runEarnings = state.runEarnings;
-  const demands = buildNormalDealerDemands(state);
+  const demands = [
+    ...buildNormalDealerDemands(state),
+    ...buildCaptainDemands(state),
+  ];
 
   state.unlockedProducts.forEach((productId) => {
     const availableUnits =
@@ -225,6 +294,8 @@ export const advanceDeterministicState = (
       const earned = sold * demand.earningsPerUnit;
       lastEarningsPerSeller[demand.sellerId] =
         (lastEarningsPerSeller[demand.sellerId] ?? 0) + earned / seconds;
+      earnedAcrossSpanBySeller[demand.sellerId] =
+        (earnedAcrossSpanBySeller[demand.sellerId] ?? 0) + earned;
       cash += earned;
       runEarnings += earned;
     });
@@ -241,6 +312,11 @@ export const advanceDeterministicState = (
     runEarnings,
     production,
     respect: state.respect + getRespectPerSecond(state) * seconds,
+    captains: state.captains.map((captain) => ({
+      ...captain,
+      personalEarnings:
+        captain.personalEarnings + (earnedAcrossSpanBySeller[captain.id] ?? 0),
+    })),
     lastEarningsPerSeller,
     lastTickAt: now,
   });
