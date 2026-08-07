@@ -11,7 +11,7 @@ const renderSeededGame = (overrides: Partial<GameState>) => {
   const state: GameState = {
     ...createBaseGameState(now),
     ...overrides,
-    lastTickAt: now,
+    lastTickAt: overrides.lastTickAt ?? now,
   };
   localStorage.setItem(NEON_D_SAVE_KEY, JSON.stringify(state));
   return renderHook(() => useGameEngine());
@@ -85,6 +85,26 @@ describe('useGameEngine', () => {
 
     act(() => result.current.setAutoBulkEnabled(true));
     expect(result.current.state.autoBulkEnabled).toBe(false);
+  });
+
+  it('uses normal street prices and skips market clocks after 30 seconds away', () => {
+    const now = Date.now();
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      lastTickAt: now - 60_000,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, stock: 100 },
+      },
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 100_000 },
+      nextMarketCheckAt: now - 30_000,
+    });
+
+    expect(result.current.state.cash).toBeCloseTo(100 + 100 * 4.2);
+    expect(result.current.state.runEarnings).toBeCloseTo(100 * 4.2);
+    expect(result.current.state.activeMarketEvent).toBeNull();
   });
 
   it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {

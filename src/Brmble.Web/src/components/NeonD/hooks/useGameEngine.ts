@@ -6,6 +6,7 @@ import {
   BULK_UNLOCK_COST,
   createBaseGameState,
   NEON_D_SAVE_KEY,
+  OFFLINE_MIN_AWAY_MS,
   PRODUCT_CATALOG,
   RESEARCH_REVEAL_RATIO,
 } from '../constants';
@@ -66,7 +67,16 @@ export const useGameEngine = () => {
   const tick = () => {
     setState((prev) => {
       const now = Date.now();
-      const elapsedSeconds = Math.max(0, (now - prev.lastTickAt) / 1000);
+      const elapsedMs = Math.max(0, now - prev.lastTickAt);
+      const elapsedSeconds = elapsedMs / 1000;
+      if (elapsedMs >= OFFLINE_MIN_AWAY_MS) {
+        return advanceDeterministicState(
+          { ...prev, activeMarketEvent: null },
+          elapsedSeconds,
+          now,
+        );
+      }
+
       const advanced = applyRecruitmentClock(
         advanceDeterministicState(prev, elapsedSeconds, now),
         now,
