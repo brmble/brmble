@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createBaseGameState } from '../constants';
+import { getCaptainLevel } from '../economy';
 import {
   advanceDeterministicState,
+  applyOfflineProgress,
   applyAutoBulk,
   applyDueRiskCheck,
   applyMarketClock,
@@ -11,6 +13,83 @@ import {
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 
 describe('deterministic production', () => {
+  it('does not simulate or show a summary for less than 30 seconds away', () => {
+    const state = createBaseGameState(0);
+    state.production.weed.producersOwned = 1;
+    state.lastTickAt = 0;
+
+    const next = applyOfflineProgress(state, 29_999);
+
+    expect(next.production.weed.stock).toBe(0);
+    expect(next.offlineEarningsSummary).toBeNull();
+    expect(next.lastTickAt).toBe(29_999);
+  });
+
+  it('simulates production, sales, cash, and Respect after 30 seconds away', () => {
+    const state = createBaseGameState(0);
+    state.production.weed.producersOwned = 100;
+    state.muscleOwned.hoodRat = 1;
+    state.activeDealers = [makeReferenceDealer({
+      id: 'offline-dealer',
+      volumeMultiplier: 1,
+      marginMultiplier: 1,
+    })];
+
+    const next = applyOfflineProgress(state, 60_000);
+
+    expect(next.cash).toBeGreaterThan(state.cash);
+    expect(next.respect).toBeCloseTo(60);
+    expect(next.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 60_000,
+      simulatedMs: 60_000,
+    });
+    expect(next.offlineEarningsSummary!.cashEarned).toBeGreaterThan(0);
+    expect(next.offlineEarningsSummary!.respectEarned).toBeCloseTo(60);
+  });
+
+  it('caps a seven-day absence at exactly 24 hours', () => {
+    const state = createBaseGameState(0);
+    state.muscleOwned.hoodRat = 1;
+
+    const next = applyOfflineProgress(state, 7 * 24 * 60 * 60 * 1000);
+
+    expect(next.respect).toBeCloseTo(24 * 60 * 60);
+    expect(next.offlineEarningsSummary?.simulatedMs).toBe(24 * 60 * 60 * 1000);
+    expect(next.offlineEarningsSummary?.actualAwayMs).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('does not create offline market spikes or arrest dealers', () => {
+    const state = createBaseGameState(0);
+    state.runEarnings = 1_000_000;
+    state.nextMarketCheckAt = 1;
+    state.nextRiskCheckAt = 1;
+    state.activeDealers = [makeReferenceDealer({ id: 'safe-offline' })];
+
+    const next = applyOfflineProgress(state, 60_000);
+    expect(next.activeMarketEvent).toBeNull();
+    expect(next.activeDealers[0]?.isArrested).toBe(false);
+  });
+
+  it('updates Captain level during offline stepping after personal earnings cross $500,000', () => {
+    const state = createBaseGameState(0);
+    state.muscleOwned.hoodRat = 1;
+    state.production.weed.producersOwned = 10_000;
+    state.captains = [{
+      id: 'captain-threshold',
+      name: 'Captain Threshold',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 499_990,
+    }];
+
+    const next = applyOfflineProgress(state, 31_000);
+    const captain = next.captains[0];
+
+    expect(captain.personalEarnings).toBeGreaterThanOrEqual(500_000);
+    expect(getCaptainLevel(captain.personalEarnings)).toBe(1);
+    expect(next.offlineEarningsSummary?.respectEarned).toBeGreaterThan(62);
+  });
+
   it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {
     const state = createBaseGameState(0);
     state.bulkUnlocked = true;

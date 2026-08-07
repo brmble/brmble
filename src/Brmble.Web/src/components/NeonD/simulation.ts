@@ -22,6 +22,8 @@ import {
   MARKET_MULTIPLIER_MAX,
   MARKET_MULTIPLIER_MIN,
   MAIN_SALE_UNITS_PER_VOLUME,
+  OFFLINE_CAP_MS,
+  OFFLINE_MIN_AWAY_MS,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
@@ -320,4 +322,60 @@ export const advanceDeterministicState = (
     lastEarningsPerSeller,
     lastTickAt: now,
   });
+};
+
+export const applyOfflineProgress = (
+  state: GameState,
+  now: number,
+): GameState => {
+  const actualAwayMs = Math.max(0, now - state.lastTickAt);
+
+  if (actualAwayMs < OFFLINE_MIN_AWAY_MS) {
+    return {
+      ...state,
+      lastTickAt: now,
+      offlineEarningsSummary: null,
+    };
+  }
+
+  const simulatedMs = Math.min(actualAwayMs, OFFLINE_CAP_MS);
+  const cashBefore = state.cash;
+  const respectBefore = state.respect;
+  let advanced: GameState = {
+    ...state,
+    activeMarketEvent: null,
+    offlineEarningsSummary: null,
+  };
+  const wholeSeconds = Math.floor(simulatedMs / 1000);
+
+  for (let second = 0; second < wholeSeconds; second += 1) {
+    advanced = advanceDeterministicState(
+      advanced,
+      1,
+      advanced.lastTickAt + 1_000,
+    );
+  }
+
+  const fractionalSeconds = (simulatedMs % 1_000) / 1_000;
+  if (fractionalSeconds > 0) {
+    advanced = advanceDeterministicState(
+      advanced,
+      fractionalSeconds,
+      advanced.lastTickAt + fractionalSeconds * 1_000,
+    );
+  }
+
+  return {
+    ...advanced,
+    lastTickAt: now,
+    activeMarketEvent: null,
+    nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
+    nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,
+    offlineEarningsSummary: {
+      actualAwayMs,
+      simulatedMs,
+      cashEarned: advanced.cash - cashBefore,
+      respectEarned: advanced.respect - respectBefore,
+    },
+  };
 };

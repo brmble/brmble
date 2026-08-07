@@ -1,17 +1,14 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
-  MARKET_CHECK_INTERVAL_MS,
   NEON_D_SAVE_KEY,
   OFFLINE_CAP_MS,
-  OFFLINE_MIN_AWAY_MS,
   PRODUCT_CATALOG,
   RESEARCH_REVEAL_RATIO,
-  RISK_CHECK_INTERVAL_MS,
 } from '../constants';
 import {
   getProductDefinition,
@@ -35,6 +32,7 @@ import {
   generateNormalDealer,
 } from '../dealers';
 import {
+  applyOfflineProgress,
   advanceDeterministicState,
   applyMarketClock,
   getProductSalesRates,
@@ -66,29 +64,12 @@ export const useGameEngine = () => {
     NEON_D_SAVE_KEY,
     createInitialGameState,
   );
-  const isInitialTick = useRef(true);
 
   const tick = () => {
     setState((prev) => {
       const now = Date.now();
       const elapsedMs = Math.max(0, now - prev.lastTickAt);
       const elapsedSeconds = Math.min(elapsedMs, OFFLINE_CAP_MS) / 1000;
-      const isOfflineCatchUp = isInitialTick.current && elapsedMs >= OFFLINE_MIN_AWAY_MS;
-      isInitialTick.current = false;
-      if (isOfflineCatchUp) {
-        return advanceDeterministicState(
-          {
-            ...prev,
-            activeMarketEvent: null,
-            lastDealerRefreshAt: now,
-            nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
-            nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,
-          },
-          elapsedSeconds,
-          now,
-        );
-      }
-
       const advanced = applyRecruitmentClock(
         advanceDeterministicState(prev, elapsedSeconds, now),
         now,
@@ -98,8 +79,8 @@ export const useGameEngine = () => {
   };
 
   useEffect(() => {
-    tick();
-  }, []);
+    setState((prev) => applyOfflineProgress(prev, Date.now()));
+  }, [setState]);
 
   const buyProducer = (productId: ProductId) => {
     setState((prev) => {
@@ -363,6 +344,13 @@ export const useGameEngine = () => {
     setState((prev) => prev.bulkUnlocked ? { ...prev, autoBulkEnabled: enabled } : prev);
   };
 
+  const dismissOfflineEarningsSummary = () => {
+    setState((prev) => ({
+      ...prev,
+      offlineEarningsSummary: null,
+    }));
+  };
+
   const buyCaptain = () => {
     setState((prev) => {
       if (!isCaptainVisible(prev)) return prev;
@@ -420,6 +408,7 @@ export const useGameEngine = () => {
     unlockBulkSelling,
     bulkSellProduct,
     setAutoBulkEnabled,
+    dismissOfflineEarningsSummary,
     buyCaptain,
     promoteCaptain,
     resetGame,

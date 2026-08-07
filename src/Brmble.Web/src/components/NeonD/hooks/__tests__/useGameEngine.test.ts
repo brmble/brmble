@@ -87,12 +87,12 @@ describe('useGameEngine', () => {
     expect(result.current.state.autoBulkEnabled).toBe(false);
   });
 
-  it('uses normal street prices and skips market clocks after 30 seconds away', () => {
+  it('does not simulate or show a summary for less than 30 seconds away on mount', () => {
     const now = Date.now();
     const base = createBaseGameState(now);
     const { result } = renderSeededGame({
       cash: 100,
-      lastTickAt: now - 60_000,
+      lastTickAt: now - 29_999,
       production: {
         ...base.production,
         weed: { ...base.production.weed, stock: 100 },
@@ -102,12 +102,64 @@ describe('useGameEngine', () => {
       nextMarketCheckAt: now - 30_000,
     });
 
-    expect(result.current.state.cash).toBeCloseTo(100 + 100 * 4.2);
-    expect(result.current.state.runEarnings).toBeCloseTo(100 * 4.2);
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.production.weed.stock).toBe(100);
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.lastTickAt).toBe(now);
+  });
+
+  it('applies offline progress once on mount with capped summary and no random clocks', () => {
+    const now = Date.now();
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      lastTickAt: now - 7 * 24 * 60 * 60 * 1000,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, producersOwned: 100 },
+      },
+      muscleOwned: {
+        ...base.muscleOwned,
+        hoodRat: 1,
+      },
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 100_000 },
+      nextMarketCheckAt: now - 30_000,
+      nextRiskCheckAt: now - 30_000,
+      runEarnings: 1_000_000,
+    });
+
+    expect(result.current.state.cash).toBeGreaterThan(100);
+    expect(result.current.state.respect).toBeCloseTo(24 * 60 * 60);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 7 * 24 * 60 * 60 * 1000,
+      simulatedMs: 24 * 60 * 60 * 1000,
+    });
     expect(result.current.state.activeMarketEvent).toBeNull();
-    expect(result.current.state.lastDealerRefreshAt).toBe(now);
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
     expect(result.current.state.nextMarketCheckAt).toBe(now + 30_000);
     expect(result.current.state.nextRiskCheckAt).toBe(now + 30_000);
+  });
+
+  it('dismisses only the offline earnings summary', () => {
+    const now = Date.now();
+    const { result } = renderSeededGame({
+      cash: 4321,
+      respect: 123,
+      offlineEarningsSummary: {
+        actualAwayMs: 60_000,
+        simulatedMs: 60_000,
+        cashEarned: 400,
+        respectEarned: 60,
+      },
+      lastTickAt: now,
+    });
+
+    act(() => result.current.dismissOfflineEarningsSummary());
+
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.cash).toBe(4321);
+    expect(result.current.state.respect).toBe(123);
   });
 
   it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
