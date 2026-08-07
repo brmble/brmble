@@ -26,6 +26,10 @@
   font-size: var(--text-sm);
 }
 
+.star::before {
+  content: '\\2605';
+}
+
 .star[data-star-state='full'] {
   color: var(--accent-primary);
 }
