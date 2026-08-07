@@ -13,6 +13,7 @@ import {
   getRecruitmentRefreshRemainingMs,
 } from './economy';
 import { getNormalDealerMainSaleRate } from './dealers';
+import { DealerRating } from './DealerRating';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
 import styles from './NeonD.module.css';
 
@@ -110,8 +111,8 @@ const CandidateCard = ({
 }) => (
   <article className={styles.dealerCard}>
     <h5 className={styles.dealerName}>{candidate.name}</h5>
-    <div className={styles.metricRow}><span>Volume</span><strong>{candidate.volumeMultiplier.toFixed(2)}x</strong></div>
-    <div className={styles.metricRow}><span>Margin</span><strong>{candidate.marginMultiplier.toFixed(2)}x</strong></div>
+    <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} />
+    <DealerRating label="Margin" multiplier={candidate.marginMultiplier} />
     <div className={styles.metricRow}><span>Main sales</span><strong>{getNormalDealerMainSaleRate(candidate).toFixed(2)} units/s</strong></div>
     <button className={styles.buyButton} onClick={() => onHire(candidate.id, slotIndex)}>
       Hire to Slot {slotIndex + 1}
@@ -157,8 +158,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     state={props.state}
                     onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
                   />
-                  <div className={styles.metricRow}><span>Volume</span><strong>{dealer.volumeMultiplier.toFixed(2)}x</strong></div>
-                  <div className={styles.metricRow}><span>Margin</span><strong>{dealer.marginMultiplier.toFixed(2)}x</strong></div>
+                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} />
+                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} />
                   <div className={styles.metricRow}><span>Main sales</span><strong>{dealer.isArrested ? '0.00' : getNormalDealerMainSaleRate(dealer).toFixed(2)} units/s</strong></div>
                   <div className={styles.metricRow}><span>Earnings</span><strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong></div>
                   <div className={styles.metricRow}>

@@ -263,11 +263,10 @@ it('renders Production, Distribution, and Muscle / Respect as primary areas', ()
   expect(screen.getAllByText(/respect/i).length).toBeGreaterThan(0);
 });
 
-it('does not render Research Speed or dealer star ratings', () => {
+it('does not render Research Speed', () => {
   render(<NeonDGame />);
 
   expect(screen.queryByText(/research speed/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/★/)).not.toBeInTheDocument();
 });
 
 it('shows producer, stock, production rate, sales rate, and bottleneck delta for Weed', () => {
@@ -280,12 +279,12 @@ it('shows producer, stock, production rate, sales rate, and bottleneck delta for
   expect(screen.getAllByText(/delta/i).length).toBeGreaterThan(0);
 });
 
-it('shows numeric dealer Volume, Margin, protection loss, and fixed equipment choices', async () => {
+it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment choices', async () => {
   const user = userEvent.setup();
   render(<NeonDGame />);
 
-  expect(screen.getAllByText(/volume/i).length).toBeGreaterThan(0);
-  expect(screen.getAllByText(/margin/i).length).toBeGreaterThan(0);
+  expect(screen.getByRole('img', { name: 'Volume: 1.00x' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Margin: 1.00x' })).toBeInTheDocument();
   expect(screen.getByText(/-10% income/i)).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: /expand equipment for test dealer/i }));
   expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
@@ -301,6 +300,8 @@ it('shows all three auto-refreshed candidates without a manual refresh button', 
   expect(screen.getByText(/candidate one/i)).toBeInTheDocument();
   expect(screen.getByText(/candidate two/i)).toBeInTheDocument();
   expect(screen.getByText(/candidate three/i)).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Volume: 1.23x' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Margin: 0.87x' })).toBeInTheDocument();
   expect(screen.getByText(/next candidates in/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
 });
