@@ -17,8 +17,7 @@
   flex-shrink: 0;
 }
 
-.headerTop,
-.sectionHeader {
+.headerTop {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -39,25 +38,224 @@
   padding: var(--space-xs) var(--space-lg);
 }
 
+.headerActions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+  margin-left: auto;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.importError {
+  color: var(--accent-danger);
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  text-align: right;
+}
+
 .money {
   font-size: var(--text-lg);
   font-weight: bold;
   color: var(--accent-success);
 }
 
-.gridLayout {
+.gameplayGrid {
   display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: var(--space-xl);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
   flex: 1;
   min-height: 0;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
   overflow: hidden;
 }
 
-.gridLayout > section {
+.leftWorkspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md);
+  align-content: start;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.leftWorkspace > .panel,
+.gameplayGrid > .panel {
+  width: 100%;
+  max-width: 560px;
+  height: 100%;
+  justify-self: center;
+}
+
+.panelTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 2px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.panelTab {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panelTab[aria-selected='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
+  box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
+}
+
+.panelTab:hover,
+.panelTab:focus-visible {
+  color: var(--text-primary);
+}
+
+.panelTab:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.panel {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
-  min-height: 0;
+}
+
+.cardStack {
+  display: grid;
+  gap: 10px;
+}
+
+.panelHeader,
+.metricRow,
+.prestigeSummary,
+.offlineSummaryGrid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metricRow {
+  margin-bottom: 2px;
+}
+
+.equipmentList {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.equipmentOwned {
+  opacity: 0.65;
+}
+
+.captainCard,
+.marketBanner {
+  display: grid;
+  gap: 6px;
+}
+
+.muscleWorkerRow {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.muscleHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.muscleHeader .productTitle {
+  color: inherit;
+}
+
+.muscleHeader span {
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.muscleBody {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.bottleneckPositive {
+  font-weight: 700;
+  color: var(--accent-success);
+}
+
+.bottleneckNegative {
+  font-weight: 700;
+  color: var(--accent-secondary);
+}
+
+.kingpinBadge {
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--text-xs);
+}
+
+.toggleButtonText {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-hover-light);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.toggleButtonText[aria-pressed='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
 }
 
 .productionCard {
@@ -65,10 +263,10 @@
   border: 1px solid var(--glass-border);
   border-left: 4px solid var(--accent-success);
   border-radius: var(--radius-md);
-  padding: var(--space-lg);
   box-shadow: var(--shadow-elevated);
+  overflow: hidden;
   transition: all var(--transition-normal);
-  margin-bottom: var(--space-md);
+  margin-bottom: 0;
 }
 
 .productionCard:hover {
@@ -78,7 +276,82 @@
 }
 
 .distributionCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
   border-left: 4px solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.productionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  background: var(--accent-success);
+  color: var(--bg-deep);
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.productionHeader .productTitle,
+.productionHeader .price {
+  color: inherit;
+}
+
+.productionHeader .price {
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.productionBody {
+  padding: 12px;
+}
+
+.productionMetrics {
+  display: grid;
+  gap: 6px;
+}
+
+.productionFlow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.productionSide {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.productionSideSales {
+  justify-content: flex-end;
+}
+
+.productionUpIndicator,
+.productionDownIndicator {
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+
+.productionUpIndicator {
+  border-bottom: 12px solid var(--accent-success);
+}
+
+.productionDownIndicator {
+  border-top: 12px solid var(--accent-danger);
+}
+
+.productionDelta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .columnHeader {
@@ -94,17 +367,6 @@
   color: var(--accent-secondary);
 }
 
-.productionColumnHeader {
-  composes: columnHeader;
-}
-
-.statRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xs);
-}
-
 .label {
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -115,53 +377,6 @@
 .price {
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-
-.productionRate {
-  color: var(--accent-success);
-  font-size: var(--text-xs);
-}
-
-.salesRate {
-  color: var(--accent-secondary);
-  font-size: var(--text-xs);
-}
-
-.flowIndicator {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2xs);
-  font-size: var(--text-2xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.flowUp {
-  color: var(--accent-success);
-}
-
-.flowDown {
-  color: var(--accent-secondary);
-}
-
-.flowArrow {
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-}
-
-.ratingButton {
-  cursor: help;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-}
-
-.ratingValue {
-  color: var(--accent-secondary);
 }
 
 .closeButton {
@@ -185,20 +400,6 @@
   margin-bottom: var(--space-sm);
 }
 
-.bonusText {
-  color: var(--accent-primary);
-  font-size: var(--text-sm);
-}
-
-.equipmentSlots {
-  color: var(--accent-primary);
-  font-size: var(--text-lg);
-}
-
-.equipmentSlotEmpty {
-  opacity: 0.3;
-}
-
 .equipmentModalOverlay {
   position: fixed;
   inset: 0;
@@ -209,11 +410,6 @@
   z-index: 1000;
 }
 
-.equipmentModal {
-  padding: var(--space-xl);
-  max-width: 500px;
-}
-
 .offlineSummaryModal {
   padding: var(--space-xl);
   max-width: 420px;
@@ -221,170 +417,57 @@
   gap: var(--space-md);
 }
 
-.offlineSummaryText {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.equipmentOptions {
-  display: grid;
-  gap: var(--space-xs);
-  margin-top: var(--space-lg);
-}
-
-.sideHustleOption {
-  border: 2px solid var(--accent-secondary);
-  box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
-}
-
-.equipmentOptionLabel {
-  font-weight: bold;
-}
-
-.equipmentOptionDescription {
-  font-size: var(--text-2xs);
-  opacity: 0.8;
-}
-
-.flowArrowUp {
-  border-bottom: 8px solid var(--accent-success);
-}
-
-.flowArrowDown {
-  border-top: 8px solid var(--accent-secondary);
-}
-
-.upgradeButton {
-  flex: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-weight: 600;
-  transition: all var(--transition-fast);
-}
-
-.resetButton {
-  margin-left: auto;
-  flex: 0;
-  background-color: var(--accent-secondary);
-  color: var(--text-primary);
-}
-
-.stockValue,
-.sideVolumeValue {
-  color: var(--accent-success);
-}
-
-.spacedRow {
-  margin-bottom: var(--space-sm);
-}
-
-.buttonSpacing {
-  margin-top: var(--space-sm);
-}
-
-.refreshButton {
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: var(--accent-primary);
-}
-
-.refreshButton:disabled {
-  cursor: not-allowed;
-  color: var(--text-muted);
-}
-
-.slotCard {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
-}
-
-.slotCardLocked {
-  opacity: 0.6;
-}
-
-.slotCardCompact {
-  margin-bottom: var(--space-md);
-  padding: var(--space-sm);
-}
-
-.fullWidthButton {
-  width: 100%;
-  margin-top: var(--space-sm);
-}
-
 .dealerCard {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
+  margin-bottom: 10px;
+  padding: 10px;
 }
 
-.primaryHireButton {
-  background: var(--accent-primary);
-  margin-top: var(--space-sm);
+.equipmentToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
 }
 
-.distributionPanel {
-  padding: 0;
-  overflow: hidden;
-  margin-bottom: var(--space-md);
+.equipmentToggle:hover,
+.equipmentToggle:focus-visible {
+  color: var(--text-primary);
+}
+
+.equipmentToggle:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
 }
 
 .dealerBody {
-  padding: var(--space-md);
+  padding: 10px;
 }
 
 .actionStack {
   display: grid;
-  gap: var(--space-xs);
-  margin-top: var(--space-md);
-}
-
-.dangerText {
-  color: var(--accent-secondary);
-}
-
-.successText {
-  color: var(--accent-success);
-}
-
-.incomeRow {
-  margin-top: var(--space-xs);
-  border-top: 1px solid var(--glass-border);
-  padding-top: var(--space-xs);
-}
-
-.boldValue {
-  font-weight: 700;
-}
-
-.equipmentRow {
-  margin-top: var(--space-md);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--glass-border);
-}
-
-.upgradeButton:active {
-  transform: scale(0.95);
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .buyButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: none;
   background: var(--accent-success);
   color: var(--bg-deep);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
@@ -408,14 +491,14 @@
 
 .unlockButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: 2px solid var(--accent-primary);
   background: transparent;
   color: var(--accent-primary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -434,14 +517,14 @@
 
 .dangerButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: 2px solid var(--accent-secondary);
   background: transparent;
   color: var(--accent-secondary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -451,16 +534,6 @@
   background: var(--accent-secondary);
   color: var(--bg-deep);
   box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
-}
-
-.level {
-  background: var(--bg-hover-light);
-  padding: var(--space-2xs) var(--space-xs);
-  border-radius: var(--radius-xs);
-}
-
-.upgradeCost {
-  color: var(--accent-success);
 }
 
 .select {
@@ -473,77 +546,30 @@
 
 .dealerHeader {
   background: var(--accent-secondary);
-  padding: var(--space-xs);
+  padding: 6px 8px;
   text-align: center;
   font-weight: bold;
+  font-size: var(--text-xs);
 }
 
-.toggleRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
-}
+@media (max-width: 900px) {
+  .gameplayGrid {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
 
-.toggleLabel {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
+  .leftWorkspace {
+    max-height: none;
+    overflow: visible;
+  }
 
-.toggleHint {
-  font-size: var(--text-2xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
+  .panel {
+    max-height: none;
+    overflow: visible;
+  }
 
-.toggleButton {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-
-.toggleTrack {
-  width: 34px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--bg-hover-light);
-  border: 1px solid var(--glass-border);
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.toggleTrack[data-active='true'] {
-  background: var(--accent-success-subtle);
-  border-color: var(--accent-success-border);
-}
-
-.toggleThumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: transform var(--transition-fast), background var(--transition-fast);
-}
-
-.toggleThumb[data-active='true'] {
-  transform: translateX(16px);
-  background: var(--accent-success);
-}
-
-.toggleButton:hover .toggleTrack {
-  border-color: var(--accent-success);
-}
-
-.toggleButton:focus-visible {
-  outline: 2px solid var(--accent-success);
-  outline-offset: 4px;
-  border-radius: 999px;
+  .leftWorkspace > .panel,
+  .gameplayGrid > .panel {
+    max-width: none;
+  }
 }
