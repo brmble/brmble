@@ -316,9 +316,17 @@
 
 .productionFlow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
+}
+
+.productionFlow > :nth-child(3) {
+  text-align: right;
+}
+
+.productionFlow > :nth-child(4) {
+  text-align: left;
 }
 
 .productionFlow > :nth-child(6) {

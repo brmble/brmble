@@ -345,6 +345,17 @@ it('shows producer, stock, production rate, sales rate, and bottleneck delta for
   expect(within(weedCard).getByRole('button', { name: /buy 5 cannabis plant/i })).toBeInTheDocument();
 });
 
+it('keeps production on the left and sales on the right in the card flow', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(
+    /\.productionFlow\s*\{[\s\S]*grid-template-columns:\s*auto\s+auto\s+minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)\s+auto\s+auto/,
+  );
+  expect(css).toMatch(/\.productionFlow\s*>\s*:nth-child\(3\)[\s\S]*text-align:\s*right/);
+  expect(css).toMatch(/\.productionFlow\s*>\s*:nth-child\(4\)[\s\S]*text-align:\s*left/);
+});
+
 it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment choices', async () => {
   const user = userEvent.setup();
   render(<NeonDGame />);
