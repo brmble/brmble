@@ -69,20 +69,24 @@ export function ProductionPanel(props: ProductionPanelProps) {
                       <strong>{product.stock.toFixed(2)}g</strong>
                     </div>
                     <div className={styles.productionFlow}>
-                      <span>Production</span>
-                      <span
-                        className={styles.productionUpIndicator}
-                        role="img"
-                        aria-label="Production increasing"
-                      />
-                      <strong>{productionRate.toFixed(2)}g/s</strong>
-                      <strong>{salesRate.toFixed(2)}g/s</strong>
-                      <span
-                        className={styles.productionDownIndicator}
-                        role="img"
-                        aria-label="Sales decreasing"
-                      />
-                      <span>Sales</span>
+                      <div className={styles.productionSide}>
+                        <span>Production</span>
+                        <span
+                          className={styles.productionUpIndicator}
+                          role="img"
+                          aria-label="Production increasing"
+                        />
+                        <strong>{productionRate.toFixed(2)}g/s</strong>
+                      </div>
+                      <div className={`${styles.productionSide} ${styles.productionSideSales}`}>
+                        <strong>{salesRate.toFixed(2)}g/s</strong>
+                        <span
+                          className={styles.productionDownIndicator}
+                          role="img"
+                          aria-label="Sales decreasing"
+                        />
+                        <span>Sales</span>
+                      </div>
                     </div>
                     <div
                       className={`${styles.productionDelta} ${

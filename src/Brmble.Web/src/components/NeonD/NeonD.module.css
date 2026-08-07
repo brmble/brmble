@@ -316,21 +316,20 @@
 
 .productionFlow {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 6px;
 }
 
-.productionFlow > :nth-child(3) {
-  text-align: right;
+.productionSide {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
 }
 
-.productionFlow > :nth-child(4) {
-  text-align: left;
-}
-
-.productionFlow > :nth-child(6) {
-  text-align: right;
+.productionSideSales {
+  justify-content: flex-end;
 }
 
 .productionUpIndicator,
