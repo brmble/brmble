@@ -7,6 +7,7 @@ import {
   getDiscountCost,
   getDiscountMultiplier,
   getEquipmentCost,
+  getEffectiveStreetValue,
   getProducerCost,
   getProductProductionRate,
   getRecruitmentRefreshMs,
@@ -106,5 +107,13 @@ describe('Neon-D economy formulas', () => {
   it('prices bail from the arrested dealer earnings snapshot only', () => {
     expect(getBailCost(0)).toBe(0);
     expect(getBailCost(12.5)).toBeCloseTo(1_187.5);
+  });
+
+  it('applies an active market multiplier only to its product street value', () => {
+    const state = createBaseGameState(0);
+    state.activeMarketEvent = { productId: 'weed', multiplier: 4, endsAt: 60_000 };
+
+    expect(getEffectiveStreetValue(state, 'weed')).toBeCloseTo(4.2 * 4);
+    expect(getEffectiveStreetValue(state, 'mushrooms')).toBeCloseTo(6);
   });
 });

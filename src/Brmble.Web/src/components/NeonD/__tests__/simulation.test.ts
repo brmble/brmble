@@ -4,6 +4,7 @@ import {
   advanceDeterministicState,
   applyAutoBulk,
   applyDueRiskCheck,
+  applyMarketClock,
   sellBulkOverflow,
 } from '../simulation';
 import { makeReferenceDealer } from './testFixtures';
@@ -125,5 +126,46 @@ describe('deterministic production', () => {
     const unprotectedIncome = unprotectedNext.cash - unprotected.cash;
     const protectedIncome = protectedNext.cash - protectedState.cash;
     expect(protectedIncome).toBeCloseTo(unprotectedIncome * 0.90);
+  });
+});
+
+describe('online market events', () => {
+  it('does not start a market event when the 30-second check roll misses', () => {
+    const state = createBaseGameState(0);
+    state.nextMarketCheckAt = 30_000;
+
+    const next = applyMarketClock(state, 30_000, () => 0.50);
+    expect(next.activeMarketEvent).toBeNull();
+    expect(next.nextMarketCheckAt).toBe(60_000);
+  });
+
+  it('starts one event with a 2x-5x multiplier for 60-160 seconds on a successful roll', () => {
+    const state = createBaseGameState(0);
+    state.nextMarketCheckAt = 30_000;
+    state.unlockedProducts = ['weed', 'mushrooms'];
+
+    const rolls = [0.05, 0.75, 0.50, 0.25];
+    const next = applyMarketClock(state, 30_000, () => rolls.shift() ?? 0.5);
+
+    expect(next.activeMarketEvent).not.toBeNull();
+    expect(next.activeMarketEvent!.multiplier).toBeGreaterThanOrEqual(2);
+    expect(next.activeMarketEvent!.multiplier).toBeLessThanOrEqual(5);
+    expect(next.activeMarketEvent!.endsAt - 30_000).toBeGreaterThanOrEqual(60_000);
+    expect(next.activeMarketEvent!.endsAt - 30_000).toBeLessThanOrEqual(160_000);
+  });
+
+  it('does not roll another event while one is active and clears it after expiry', () => {
+    const state = createBaseGameState(0);
+    state.activeMarketEvent = { productId: 'weed', multiplier: 4, endsAt: 90_000 };
+    state.nextMarketCheckAt = 30_000;
+
+    const active = applyMarketClock(state, 60_000, () => {
+      throw new Error('rng must not be called during an active event');
+    });
+    expect(active.activeMarketEvent?.multiplier).toBe(4);
+
+    const expired = applyMarketClock(active, 90_000, () => 0.5);
+    expect(expired.activeMarketEvent).toBeNull();
+    expect(expired.nextMarketCheckAt).toBe(120_000);
   });
 });

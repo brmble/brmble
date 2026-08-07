@@ -26,7 +26,11 @@ import {
   generateCandidatePool,
   generateNormalDealer,
 } from '../dealers';
-import { advanceDeterministicState, sellBulkOverflow } from '../simulation';
+import {
+  advanceDeterministicState,
+  applyMarketClock,
+  sellBulkOverflow,
+} from '../simulation';
 import { applyDueRiskCheck } from '../simulation';
 
 const createInitialGameState = (): GameState => {
@@ -51,7 +55,7 @@ export const useGameEngine = () => {
         advanceDeterministicState(prev, elapsedSeconds, now),
         now,
       );
-      return applyDueRiskCheck(advanced, now);
+      return applyDueRiskCheck(applyMarketClock(advanced, now), now);
     });
   };
 

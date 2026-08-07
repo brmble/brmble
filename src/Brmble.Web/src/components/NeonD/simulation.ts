@@ -9,6 +9,12 @@ import {
   AUTO_BULK_RETAIN_STOCK,
   AUTO_BULK_TRIGGER_STOCK,
   BULK_VALUE_MULTIPLIER,
+  MARKET_CHECK_INTERVAL_MS,
+  MARKET_EVENT_CHANCE,
+  MARKET_DURATION_MAX_MS,
+  MARKET_DURATION_MIN_MS,
+  MARKET_MULTIPLIER_MAX,
+  MARKET_MULTIPLIER_MIN,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
@@ -61,6 +67,43 @@ export const applyAutoBulk = (state: GameState): GameState => {
       : nextState,
     state,
   );
+};
+
+const rollBetween = (min: number, max: number, rng: () => number) =>
+  min + rng() * (max - min);
+
+export const applyMarketClock = (
+  state: GameState,
+  now: number,
+  rng: () => number = Math.random,
+): GameState => {
+  if (state.activeMarketEvent) {
+    if (now < state.activeMarketEvent.endsAt) return state;
+    return {
+      ...state,
+      activeMarketEvent: null,
+      nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
+    };
+  }
+
+  if (now < state.nextMarketCheckAt) return state;
+  if (rng() >= MARKET_EVENT_CHANCE) {
+    return { ...state, nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS };
+  }
+
+  const productIndex = Math.floor(rng() * state.unlockedProducts.length);
+  const productId = state.unlockedProducts[productIndex] ?? 'weed';
+  const multiplier = rollBetween(MARKET_MULTIPLIER_MIN, MARKET_MULTIPLIER_MAX, rng);
+  const durationMs = rollBetween(MARKET_DURATION_MIN_MS, MARKET_DURATION_MAX_MS, rng);
+
+  return {
+    ...state,
+    activeMarketEvent: {
+      productId,
+      multiplier,
+      endsAt: now + durationMs,
+    },
+  };
 };
 
 const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
