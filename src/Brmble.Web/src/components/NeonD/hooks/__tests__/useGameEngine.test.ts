@@ -142,4 +142,33 @@ describe('useGameEngine', () => {
     act(() => result.current.buySellerEquipment('d1', 'baseballBat', 'dealer'));
     expect(result.current.state.cash).toBe(cashAfterFirstPurchase);
   });
+
+  it('toggles dealer protection without changing the dealer risk schedule', () => {
+    const { result } = renderSeededGame({
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      nextRiskCheckAt: 30_000,
+    });
+
+    act(() => result.current.toggleDealerProtection('d1'));
+
+    expect(result.current.state.activeDealers[0]?.isProtected).toBe(true);
+    expect(result.current.state.nextRiskCheckAt).toBe(30_000);
+  });
+
+  it('bail charges 95 seconds of that dealer earnings snapshot', () => {
+    const { result } = renderSeededGame({
+      cash: 10_000,
+      activeDealers: [
+        makeReferenceDealer({
+          id: 'arrested',
+          isArrested: true,
+          earningsPerSecondAtArrest: 20,
+        }),
+      ],
+    });
+
+    act(() => result.current.payDealerBail('arrested'));
+    expect(result.current.state.cash).toBeCloseTo(10_000 - 1_900);
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+  });
 });

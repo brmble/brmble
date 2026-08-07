@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createBaseGameState } from '../constants';
-import { advanceDeterministicState } from '../simulation';
+import { advanceDeterministicState, applyDueRiskCheck } from '../simulation';
 import { makeReferenceDealer } from './testFixtures';
 
 describe('deterministic production', () => {
@@ -39,5 +39,63 @@ describe('deterministic production', () => {
     expect(next.cash).toBeCloseTo(226);
     expect(next.runEarnings).toBeCloseTo(126);
     expect(next.lastEarningsPerSeller.d1).toBeCloseTo(12.6);
+  });
+
+  it('does not roll arrest risk before $30k run earnings', () => {
+    const state = createBaseGameState(0);
+    state.runEarnings = 29_999;
+    state.activeDealers = [makeReferenceDealer({ id: 'd1' })];
+    state.nextRiskCheckAt = 30_000;
+
+    const next = applyDueRiskCheck(state, 30_000, () => 0);
+    expect(next.activeDealers[0]?.isArrested).toBe(false);
+  });
+
+  it('on a successful global roll arrests one selected unprotected normal dealer', () => {
+    const state = createBaseGameState(0);
+    state.runEarnings = 30_000;
+    state.activeDealers = [
+      makeReferenceDealer({ id: 'd1' }),
+      makeReferenceDealer({ id: 'd2' }),
+    ];
+    state.lastEarningsPerSeller = { d1: 10, d2: 20 };
+    state.nextRiskCheckAt = 30_000;
+
+    const rolls = [0.01, 0.75];
+    const next = applyDueRiskCheck(state, 30_000, () => rolls.shift() ?? 0.5);
+
+    expect(next.activeDealers.filter((d) => d?.isArrested)).toHaveLength(1);
+    expect(next.activeDealers[1]?.earningsPerSecondAtArrest).toBe(20);
+  });
+
+  it('successful selection of a protected dealer does not arrest them', () => {
+    const state = createBaseGameState(0);
+    state.runEarnings = 30_000;
+    state.activeDealers = [makeReferenceDealer({ id: 'safe', isProtected: true })];
+    state.nextRiskCheckAt = 30_000;
+
+    const next = applyDueRiskCheck(state, 30_000, () => 0);
+    expect(next.activeDealers[0]?.isArrested).toBe(false);
+  });
+
+  it('protected income is exactly 90 percent of the same unprotected sale', () => {
+    const unprotected = createBaseGameState(0);
+    unprotected.production.weed.stock = 100;
+    unprotected.activeDealers = [
+      makeReferenceDealer({ id: 'unprotected', isProtected: false }),
+    ];
+
+    const protectedState = createBaseGameState(0);
+    protectedState.production.weed.stock = 100;
+    protectedState.activeDealers = [
+      makeReferenceDealer({ id: 'protected', isProtected: true }),
+    ];
+
+    const unprotectedNext = advanceDeterministicState(unprotected, 1, 1_000);
+    const protectedNext = advanceDeterministicState(protectedState, 1, 1_000);
+
+    const unprotectedIncome = unprotectedNext.cash - unprotected.cash;
+    const protectedIncome = protectedNext.cash - protectedState.cash;
+    expect(protectedIncome).toBeCloseTo(unprotectedIncome * 0.90);
   });
 });

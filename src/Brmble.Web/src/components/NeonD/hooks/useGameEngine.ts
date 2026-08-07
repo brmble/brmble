@@ -14,6 +14,7 @@ import {
   getProductUpgradeCost,
   getDiscountCost,
   getEquipmentCost,
+  getBailCost,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
@@ -24,6 +25,7 @@ import {
   generateNormalDealer,
 } from '../dealers';
 import { advanceDeterministicState } from '../simulation';
+import { applyDueRiskCheck } from '../simulation';
 
 const createInitialGameState = (): GameState => {
   const now = Date.now();
@@ -43,10 +45,11 @@ export const useGameEngine = () => {
     setState((prev) => {
       const now = Date.now();
       const elapsedSeconds = Math.max(0, (now - prev.lastTickAt) / 1000);
-      return applyRecruitmentClock(
+      const advanced = applyRecruitmentClock(
         advanceDeterministicState(prev, elapsedSeconds, now),
         now,
       );
+      return applyDueRiskCheck(advanced, now);
     });
   };
 
@@ -256,6 +259,44 @@ export const useGameEngine = () => {
     });
   };
 
+  const toggleDealerProtection = (dealerId: string) => {
+    setState((prev) => ({
+      ...prev,
+      activeDealers: prev.activeDealers.map((dealer) =>
+        dealer?.id === dealerId
+          ? { ...dealer, isProtected: !dealer.isProtected }
+          : dealer,
+      ),
+    }));
+  };
+
+  const payDealerBail = (dealerId: string) => {
+    setState((prev) => {
+      const dealer = prev.activeDealers.find((candidate): candidate is Dealer =>
+        candidate?.id === dealerId,
+      );
+      if (!dealer || !dealer.isArrested) return prev;
+
+      const cost = getBailCost(dealer.earningsPerSecondAtArrest);
+      if (prev.cash < cost) return prev;
+
+      return {
+        ...prev,
+        cash: prev.cash - cost,
+        activeDealers: prev.activeDealers.map((candidate) =>
+          candidate?.id === dealerId
+            ? {
+              ...candidate,
+              isArrested: false,
+              isProtected: false,
+              earningsPerSecondAtArrest: 0,
+            }
+            : candidate,
+        ),
+      };
+    });
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState(createInitialGameState());
@@ -279,6 +320,8 @@ export const useGameEngine = () => {
     fireDealer,
     setSellerProduct,
     buySellerEquipment,
+    toggleDealerProtection,
+    payDealerBail,
     resetGame,
     importGame,
     getProductProductionRate: (productId: ProductId) => getProductProductionRate(state, productId),

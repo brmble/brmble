@@ -5,7 +5,12 @@ import {
   getNormalDealerMainSaleRate,
   getSellerEquipmentBonuses,
 } from './dealers';
-import { PROTECTION_INCOME_MULTIPLIER } from './constants';
+import {
+  PROTECTION_INCOME_MULTIPLIER,
+  RISK_ATTEMPT_CHANCE,
+  RISK_CHECK_INTERVAL_MS,
+  RISK_LIFETIME_EARNINGS_THRESHOLD,
+} from './constants';
 import type { GameState, ProductId } from './types';
 
 type SaleDemand = {
@@ -62,6 +67,46 @@ const allocateProductDemand = (
     return { demand, sold };
   });
   return { remaining, soldByDemand };
+};
+
+export const applyDueRiskCheck = (
+  state: GameState,
+  now: number,
+  rng: () => number = Math.random,
+): GameState => {
+  if (now < state.nextRiskCheckAt) return state;
+
+  const nextRiskCheckAt = now + RISK_CHECK_INTERVAL_MS;
+  if (state.runEarnings < RISK_LIFETIME_EARNINGS_THRESHOLD) {
+    return { ...state, nextRiskCheckAt };
+  }
+
+  if (rng() >= RISK_ATTEMPT_CHANCE) {
+    return { ...state, nextRiskCheckAt };
+  }
+
+  const eligibleSlots = state.activeDealers
+    .map((dealer, index) => ({ dealer, index }))
+    .filter(({ dealer }) => dealer && !dealer.isArrested);
+
+  if (eligibleSlots.length === 0) {
+    return { ...state, nextRiskCheckAt };
+  }
+
+  const selected = eligibleSlots[Math.floor(rng() * eligibleSlots.length)];
+  if (!selected.dealer || selected.dealer.isProtected) {
+    return { ...state, nextRiskCheckAt };
+  }
+
+  const activeDealers = [...state.activeDealers];
+  activeDealers[selected.index] = {
+    ...selected.dealer,
+    isArrested: true,
+    earningsPerSecondAtArrest:
+      state.lastEarningsPerSeller[selected.dealer.id] ?? 0,
+  };
+
+  return { ...state, activeDealers, nextRiskCheckAt };
 };
 
 export const advanceDeterministicState = (
