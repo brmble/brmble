@@ -59,6 +59,24 @@ const resetRunPreservingPrestige = (
   availableDealers: generateCandidatePool(['weed']),
 });
 
+const advanceThroughTick = (state: GameState, elapsedMs: number, now: number): GameState => {
+  let remainingMs = Math.min(Math.max(0, elapsedMs), OFFLINE_CAP_MS);
+  let cursor = now - remainingMs;
+  let advanced = state;
+
+  do {
+    const stepMs = Math.min(1_000, remainingMs);
+    cursor += stepMs;
+    advanced = advanceDeterministicState(advanced, stepMs / 1_000, cursor);
+    advanced = applyRecruitmentClock(advanced, cursor);
+    advanced = applyMarketClock(advanced, cursor);
+    advanced = applyDueRiskCheck(advanced, cursor);
+    remainingMs -= stepMs;
+  } while (remainingMs > 0);
+
+  return advanced;
+};
+
 export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>(
     NEON_D_SAVE_KEY,
@@ -70,12 +88,7 @@ export const useGameEngine = () => {
     setState((prev) => {
       const now = Date.now();
       const elapsedMs = Math.max(0, now - prev.lastTickAt);
-      const elapsedSeconds = Math.min(elapsedMs, OFFLINE_CAP_MS) / 1000;
-      const advanced = applyRecruitmentClock(
-        advanceDeterministicState(prev, elapsedSeconds, now),
-        now,
-      );
-      return applyDueRiskCheck(applyMarketClock(advanced, now), now);
+      return advanceThroughTick(prev, elapsedMs, now);
     });
   };
 

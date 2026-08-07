@@ -181,6 +181,29 @@ describe('useGameEngine', () => {
     expect(result.current.state.nextRiskCheckAt).toBe(now + 30_000);
   });
 
+  it('applies a market multiplier only until it expires during a delayed tick', () => {
+    const now = Date.now();
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(1);
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, stock: 1_000 },
+      },
+      activeDealers: [makeReferenceDealer({ id: 'delayed-tick-dealer' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 30_000 },
+      nextMarketCheckAt: now + 120_000,
+      nextRiskCheckAt: now + 120_000,
+    });
+
+    act(() => vi.advanceTimersByTime(60_000));
+    randomSpy.mockRestore();
+
+    expect(result.current.state.cash).toBeCloseTo(1_990);
+    expect(result.current.state.activeMarketEvent).toBeNull();
+  });
+
   it('dismisses only the offline earnings summary', () => {
     const now = Date.now();
     const { result } = renderSeededGame({
