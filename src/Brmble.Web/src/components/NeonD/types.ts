@@ -1,64 +1,117 @@
-export interface ProductionItem {
+export type ProductId =
+  | 'weed' | 'mushrooms' | 'meth' | 'speed' | 'acid' | 'crack' | 'pcp' | 'heroin'
+  | 'mdma' | 'cocaine' | 'nuke' | 'cyberCrank' | 'ephemerol' | 'sloMo' | 'drencrom' | 'melange';
+
+export type EquipmentId =
+  | 'baseballBat' | 'bicycle' | 'iphone6Plus' | 'glock17' | 'superbike'
+  | 'personalAssistant' | 'armedGang' | 'ferrari458' | 'personalHelicopter'
+  | 'luxurySpeedboat' | 'personalArmy';
+
+export type MuscleWorkerId =
+  | 'hoodRat' | 'youngThug' | 'hiredGoon' | 'crookedCop' | 'boughtJudge'
+  | 'corruptSenator' | 'puppetWorldLeader' | 'hunterKillerSubmarine'
+  | 'nimitzCarrier' | 'orbitalIonCannon';
+
+export interface ProductUpgradeDefinition {
   id: string;
   name: string;
+  baseCost: number;
+  productionBonus: number;
+}
+
+export interface ProductDefinition {
+  id: ProductId;
+  name: string;
+  researchCost: number;
+  streetValue: number;
+  producer: {
+    name: string;
+    baseCost: number;
+    growth: number;
+    baseRate: number;
+  };
+  upgrades: readonly ProductUpgradeDefinition[];
+}
+
+export interface ProductState {
   stock: number;
-  rate: number;
-  yieldPerLevel: number;
-  costMultiplier: number;
-  level: number;
-  upgradeCost: number;
+  producersOwned: number;
+  purchasedUpgradeIds: string[];
 }
 
-export type UpgradeType = 'VOLUME' | 'MARGIN' | 'SIDE_HUSTLE' | 'ALL_AROUNDER' | 'BULK';
-
-export interface DealerUpgrade {
-  type: UpgradeType;
-  label: string;
-  description: string;
-  value: number;
-  marginPenalty?: number;
-  sideVolumeValue?: number;
+export interface EquipmentDefinition {
+  id: EquipmentId;
+  name: string;
+  baseCost: number;
+  effect: {
+    marginBonus?: number;
+    volumeBonus?: number;
+    secondarySalesBonus?: number;
+  };
 }
 
-export type DealerRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+export interface MuscleWorkerDefinition {
+  id: MuscleWorkerId;
+  name: string;
+  baseCost: number;
+  respectPerSecond: number;
+  growth: number;
+}
 
 export interface Dealer {
   id: string;
   name: string;
-  selling: string;
-  volume: number;
-  margin: number;
-  volumeBonus: number;
-  marginBonus: number;
-  sideVolume: number;
-  equipmentCount: number;
-  baseVolumeGps: number;
-  baseMarginMult: number;
-  volumeStars: number;
-  marginStars: number;
+  selling: ProductId;
+  volumeMultiplier: number;
+  marginMultiplier: number;
+  equipmentIds: EquipmentId[];
   isProtected: boolean;
   isArrested: boolean;
-  nextArrestCheckAt: number;
-  hasPendingUpgrade: boolean;
-  pendingUpgradeOptions: DealerUpgrade[];
+  earningsPerSecondAtArrest: number;
+}
+
+export interface Captain {
+  id: string;
+  name: string;
+  selling: ProductId;
+  equipmentIds: EquipmentId[];
+  personalEarnings: number;
+}
+
+export interface MarketEvent {
+  productId: ProductId;
+  multiplier: number;
+  endsAt: number;
 }
 
 export interface OfflineEarningsSummary {
-  awayMs: number;
-  earned: number;
+  actualAwayMs: number;
+  simulatedMs: number;
+  cashEarned: number;
+  respectEarned: number;
 }
 
 export interface GameState {
-  money: number;
-  totalEarned: number;
-  researchSpeed: number;
-  production: Record<string, ProductionItem>;
-  unlockedProduction: string[];
+  schemaVersion: 2;
+  cash: number;
+  runEarnings: number;
+  respect: number;
+  production: Record<ProductId, ProductState>;
+  unlockedProducts: ProductId[];
+  muscleOwned: Record<MuscleWorkerId, number>;
+  territoryLevel: number;
+  discountLevel: number;
   activeDealers: (Dealer | null)[];
   availableDealers: Dealer[];
-  unlockedSlots: number;
-  lastRefreshTime: number;
-  lastEarningsPerDealer: Record<string, number>;
+  lastDealerRefreshAt: number;
+  captains: Captain[];
+  kingpins: number;
+  bulkUnlocked: boolean;
+  autoBulkEnabled: boolean;
+  activeMarketEvent: MarketEvent | null;
+  nextMarketCheckAt: number;
+  nextRiskCheckAt: number;
+  lastEarningsPerSeller: Record<string, number>;
   lastTickAt: number;
   offlineEarningsSummary: OfflineEarningsSummary | null;
 }
