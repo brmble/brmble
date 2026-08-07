@@ -26,9 +26,23 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-const PRODUCT_IDS = new Set(PRODUCT_CATALOG.map((product) => product.id));
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0;
+}
+
+const PRODUCT_IDS_IN_ORDER = PRODUCT_CATALOG.map((product) => product.id);
+const PRODUCT_IDS = new Set(PRODUCT_IDS_IN_ORDER);
 const EQUIPMENT_IDS = new Set(EQUIPMENT_CATALOG.map((equipment) => equipment.id));
-const MUSCLE_WORKER_IDS = new Set(MUSCLE_CATALOG.map((worker) => worker.id));
+const MUSCLE_WORKER_IDS_IN_ORDER = MUSCLE_CATALOG.map((worker) => worker.id);
+const MUSCLE_WORKER_IDS = new Set(MUSCLE_WORKER_IDS_IN_ORDER);
+
+function matchesCatalogPrefix(
+  values: unknown,
+  catalogIds: readonly string[],
+): boolean {
+  return Array.isArray(values)
+    && values.every((value, index) => value === catalogIds[index]);
+}
 
 function isProductId(value: unknown): boolean {
   return typeof value === 'string' && PRODUCT_IDS.has(value as (typeof PRODUCT_CATALOG)[number]['id']);
@@ -46,9 +60,7 @@ function isEquipmentIdArray(value: unknown): boolean {
 function isProductState(value: unknown): value is ProductState {
   if (!isObject(value)) return false;
   return isFiniteNumber(value.stock)
-    && isFiniteNumber(value.producersOwned)
-    && Array.isArray(value.purchasedUpgradeIds)
-    && value.purchasedUpgradeIds.every((item) => typeof item === 'string');
+    && isNonNegativeInteger(value.producersOwned);
 }
 
 function isDealer(value: unknown): value is Dealer {
@@ -91,14 +103,21 @@ function isOfflineEarningsSummary(value: unknown): value is OfflineEarningsSumma
 function isProductionRecord(value: unknown): boolean {
   if (!isObject(value)) return false;
 
-  return PRODUCT_CATALOG.every((product) => isProductState(value[product.id]))
+  return PRODUCT_CATALOG.every((product) => {
+    const productState = value[product.id];
+    return isProductState(productState)
+      && matchesCatalogPrefix(
+        productState.purchasedUpgradeIds,
+        product.upgrades.map((upgrade) => upgrade.id),
+      );
+  })
     && Object.keys(value).every((key) => PRODUCT_IDS.has(key as (typeof PRODUCT_CATALOG)[number]['id']));
 }
 
 function isMuscleOwnedRecord(value: unknown): boolean {
   if (!isObject(value)) return false;
 
-  return MUSCLE_CATALOG.every((worker) => isFiniteNumber(value[worker.id]))
+  return MUSCLE_CATALOG.every((worker) => isNonNegativeInteger(value[worker.id]))
     && Object.keys(value).every((key) => MUSCLE_WORKER_IDS.has(key as (typeof MUSCLE_CATALOG)[number]['id']));
 }
 
@@ -114,11 +133,10 @@ function isGameState(value: unknown): value is GameState {
     && isFiniteNumber(value.runEarnings)
     && isFiniteNumber(value.respect)
     && isProductionRecord(value.production)
-    && Array.isArray(value.unlockedProducts)
-    && value.unlockedProducts.every(isProductId)
+    && matchesCatalogPrefix(value.unlockedProducts, PRODUCT_IDS_IN_ORDER)
     && isMuscleOwnedRecord(value.muscleOwned)
-    && isFiniteNumber(value.territoryLevel)
-    && isFiniteNumber(value.discountLevel)
+    && isNonNegativeInteger(value.territoryLevel)
+    && isNonNegativeInteger(value.discountLevel)
     && Array.isArray(value.activeDealers)
     && value.activeDealers.every((dealer) => dealer === null || isDealer(dealer))
     && Array.isArray(value.availableDealers)
@@ -126,7 +144,7 @@ function isGameState(value: unknown): value is GameState {
     && isFiniteNumber(value.lastDealerRefreshAt)
     && Array.isArray(value.captains)
     && value.captains.every(isCaptain)
-    && isFiniteNumber(value.kingpins)
+    && isNonNegativeInteger(value.kingpins)
     && typeof value.bulkUnlocked === 'boolean'
     && typeof value.autoBulkEnabled === 'boolean'
     && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent))

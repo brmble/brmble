@@ -588,10 +588,6 @@
   border-radius: var(--radius-xs);
 }
 
-.upgradeCost {
-  color: var(--accent-success);
-}
-
 .select {
   background: var(--bg-deep);
   color: var(--text-primary);

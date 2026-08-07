@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
@@ -64,6 +64,7 @@ export const useGameEngine = () => {
     NEON_D_SAVE_KEY,
     createInitialGameState,
   );
+  const hasInitializedOfflineProgress = useRef(false);
 
   const tick = () => {
     setState((prev) => {
@@ -79,6 +80,8 @@ export const useGameEngine = () => {
   };
 
   useEffect(() => {
+    if (hasInitializedOfflineProgress.current) return;
+    hasInitializedOfflineProgress.current = true;
     setState((prev) => applyOfflineProgress(prev, Date.now()));
   }, [setState]);
 
@@ -386,7 +389,7 @@ export const useGameEngine = () => {
   }, [clearStorage, setState]);
 
   const importGame = useCallback((importedState: GameState) => {
-    setState(importedState);
+    setState(applyOfflineProgress(importedState, Date.now()));
   }, [setState]);
 
   useInterval(tick, 1000);

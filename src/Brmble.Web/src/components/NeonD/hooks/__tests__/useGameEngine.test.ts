@@ -1,3 +1,4 @@
+import { createElement, StrictMode, type PropsWithChildren } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
@@ -199,6 +200,47 @@ describe('useGameEngine', () => {
     expect(result.current.state.offlineEarningsSummary).toBeNull();
     expect(result.current.state.cash).toBe(4321);
     expect(result.current.state.respect).toBe(123);
+  });
+
+  it('applies offline progress when importing an aged save', () => {
+    vi.setSystemTime(60_000);
+    const { result } = renderHook(() => useGameEngine());
+
+    const imported = createBaseGameState(0);
+    imported.production.weed.producersOwned = 100;
+    imported.muscleOwned.hoodRat = 1;
+    imported.activeDealers = [makeReferenceDealer({ id: 'imported-dealer' })];
+
+    act(() => result.current.importGame(imported));
+
+    expect(result.current.state.cash).toBeGreaterThan(imported.cash);
+    expect(result.current.state.respect).toBeCloseTo(60);
+    expect(result.current.state.lastTickAt).toBe(60_000);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 60_000,
+      simulatedMs: 60_000,
+    });
+  });
+
+  it('keeps the offline summary on the first StrictMode mount pass', () => {
+    vi.setSystemTime(60_000);
+    const seeded = createBaseGameState(0);
+    seeded.production.weed.producersOwned = 100;
+    seeded.muscleOwned.hoodRat = 1;
+    seeded.activeDealers = [makeReferenceDealer({ id: 'strict-mode-dealer' })];
+    localStorage.setItem(NEON_D_SAVE_KEY, JSON.stringify(seeded));
+
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(StrictMode, null, children);
+
+    const { result } = renderHook(() => useGameEngine(), { wrapper });
+
+    expect(result.current.state.cash).toBeGreaterThan(seeded.cash);
+    expect(result.current.state.respect).toBeCloseTo(60);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 60_000,
+      simulatedMs: 60_000,
+    });
   });
 
   it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
