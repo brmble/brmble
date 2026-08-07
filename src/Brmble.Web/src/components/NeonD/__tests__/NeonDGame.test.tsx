@@ -272,6 +272,10 @@ it('does not render Research Speed', () => {
 it('shows producer, stock, production rate, sales rate, and bottleneck delta for Weed', () => {
   render(<NeonDGame />);
 
+  const weedCard = screen.getByRole('article', { name: 'Weed' });
+  const productionHeader = weedCard.querySelector('[class*="productionHeader"]');
+  expect(productionHeader).toHaveTextContent('Weed');
+  expect(productionHeader).toHaveTextContent('$');
   expect(screen.getAllByText(/cannabis plant/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/stock/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/production/i).length).toBeGreaterThan(0);

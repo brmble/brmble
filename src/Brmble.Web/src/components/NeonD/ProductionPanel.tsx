@@ -55,12 +55,13 @@ export function ProductionPanel(props: ProductionPanelProps) {
 
           return (
             <article key={productId} className={styles.productionCard} aria-label={definition.name}>
-              <div className={styles.panelHeader}>
+              <div className={styles.productionHeader}>
                 <h4 className={styles.productTitle}>{definition.name}</h4>
                 <span className={styles.price}>Street {formatMoney(effectiveStreetValue)}/g</span>
               </div>
 
-              {unlocked ? (
+              <div className={styles.productionBody}>
+                {unlocked ? (
                 <>
                   <div className={styles.metricRow}>
                     <span>Producer</span>
@@ -151,7 +152,8 @@ export function ProductionPanel(props: ProductionPanelProps) {
                 >
                   Research - {formatMoney(definition.researchCost)}
                 </button>
-              )}
+                )}
+              </div>
             </article>
           );
         })}
