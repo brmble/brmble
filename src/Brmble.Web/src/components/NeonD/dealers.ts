@@ -5,7 +5,7 @@ import {
   NORMAL_DEALER_MIN_MULTIPLIER,
 } from './constants';
 import { getRecruitmentRefreshMs } from './economy';
-import type { Dealer, EquipmentId, GameState, ProductId } from './types';
+import type { Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
 
 const DEALER_FIRST_NAMES = [
   'Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake',
@@ -36,11 +36,12 @@ export const getSellerEquipmentBonuses = (equipmentIds: EquipmentId[]) =>
     (totals, equipmentId) => {
       const item = EQUIPMENT_CATALOG.find((entry) => entry.id === equipmentId);
       if (!item) return totals;
+      const effect = item.effect as EquipmentDefinition['effect'];
       return {
-        volumeBonus: totals.volumeBonus + (item.effect.volumeBonus ?? 0),
-        marginBonus: totals.marginBonus + (item.effect.marginBonus ?? 0),
+        volumeBonus: totals.volumeBonus + (effect.volumeBonus ?? 0),
+        marginBonus: totals.marginBonus + (effect.marginBonus ?? 0),
         secondarySalesBonus:
-          totals.secondarySalesBonus + (item.effect.secondarySalesBonus ?? 0),
+          totals.secondarySalesBonus + (effect.secondarySalesBonus ?? 0),
       };
     },
     { volumeBonus: 0, marginBonus: 0, secondarySalesBonus: 0 },
