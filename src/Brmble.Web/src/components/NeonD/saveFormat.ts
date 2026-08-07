@@ -1,4 +1,11 @@
-import { EQUIPMENT_CATALOG, MUSCLE_CATALOG, NEON_D_SAVE_KEY, PRODUCT_CATALOG } from './constants';
+import {
+  EQUIPMENT_CATALOG,
+  MARKET_MULTIPLIER_MAX,
+  MARKET_MULTIPLIER_MIN,
+  MUSCLE_CATALOG,
+  NEON_D_SAVE_KEY,
+  PRODUCT_CATALOG,
+} from './constants';
 import type {
   Captain,
   Dealer,
@@ -126,6 +133,8 @@ function isMarketEvent(
   const productId = value.productId;
   if (!isProductId(productId) || !unlockedProducts.includes(productId)) return false;
   return isNonNegativeFiniteNumber(value.multiplier)
+    && value.multiplier >= MARKET_MULTIPLIER_MIN
+    && value.multiplier <= MARKET_MULTIPLIER_MAX
     && isNonNegativeFiniteNumber(value.endsAt);
 }
 

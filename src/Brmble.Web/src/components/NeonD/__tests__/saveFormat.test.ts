@@ -236,6 +236,13 @@ describe('Neon-D save format', () => {
         makeReferenceDealer({ id: 'candidate-c' }),
       ];
     })],
+    ['market event multiplier above the generated maximum', createCorruptEnvelope((state) => {
+      state.activeMarketEvent = {
+        productId: 'weed',
+        multiplier: 1e308,
+        endsAt: 60_000,
+      };
+    })],
     ['dealer equipment ids must be unique', createCorruptEnvelope((state) => {
       state.activeDealers = [
         makeReferenceDealer({
