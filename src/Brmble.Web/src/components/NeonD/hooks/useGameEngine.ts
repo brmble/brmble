@@ -3,6 +3,7 @@ import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
 import type { Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
 import {
+  BULK_UNLOCK_COST,
   createBaseGameState,
   NEON_D_SAVE_KEY,
   PRODUCT_CATALOG,
@@ -18,13 +19,14 @@ import {
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
+  isBulkSellingVisible,
 } from '../economy';
 import {
   applyRecruitmentClock,
   generateCandidatePool,
   generateNormalDealer,
 } from '../dealers';
-import { advanceDeterministicState } from '../simulation';
+import { advanceDeterministicState, sellBulkOverflow } from '../simulation';
 import { applyDueRiskCheck } from '../simulation';
 
 const createInitialGameState = (): GameState => {
@@ -297,6 +299,28 @@ export const useGameEngine = () => {
     });
   };
 
+  const unlockBulkSelling = () => {
+    setState((prev) => {
+      if (prev.bulkUnlocked) return prev;
+      if (!isBulkSellingVisible(prev)) return prev;
+      if (prev.cash < BULK_UNLOCK_COST) return prev;
+
+      return {
+        ...prev,
+        cash: prev.cash - BULK_UNLOCK_COST,
+        bulkUnlocked: true,
+      };
+    });
+  };
+
+  const bulkSellProduct = (productId: ProductId) => {
+    setState((prev) => sellBulkOverflow(prev, productId));
+  };
+
+  const setAutoBulkEnabled = (enabled: boolean) => {
+    setState((prev) => prev.bulkUnlocked ? { ...prev, autoBulkEnabled: enabled } : prev);
+  };
+
   const resetGame = useCallback(() => {
     clearStorage();
     setState(createInitialGameState());
@@ -322,6 +346,9 @@ export const useGameEngine = () => {
     buySellerEquipment,
     toggleDealerProtection,
     payDealerBail,
+    unlockBulkSelling,
+    bulkSellProduct,
+    setAutoBulkEnabled,
     resetGame,
     importGame,
     getProductProductionRate: (productId: ProductId) => getProductProductionRate(state, productId),

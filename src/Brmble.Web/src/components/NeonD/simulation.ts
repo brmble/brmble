@@ -6,6 +6,9 @@ import {
   getSellerEquipmentBonuses,
 } from './dealers';
 import {
+  AUTO_BULK_RETAIN_STOCK,
+  AUTO_BULK_TRIGGER_STOCK,
+  BULK_VALUE_MULTIPLIER,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
@@ -18,6 +21,46 @@ type SaleDemand = {
   productId: ProductId;
   unitsPerSecond: number;
   earningsPerUnit: number;
+};
+
+export const sellBulkOverflow = (
+  state: GameState,
+  productId: ProductId,
+): GameState => {
+  if (!state.bulkUnlocked || !state.unlockedProducts.includes(productId)) return state;
+
+  const stock = state.production[productId].stock;
+  const unitsToSell = Math.max(0, stock - AUTO_BULK_RETAIN_STOCK);
+  if (unitsToSell <= 0) return state;
+
+  const earned =
+    unitsToSell *
+    getEffectiveStreetValue(state, productId) *
+    BULK_VALUE_MULTIPLIER;
+
+  return {
+    ...state,
+    cash: state.cash + earned,
+    runEarnings: state.runEarnings + earned,
+    production: {
+      ...state.production,
+      [productId]: {
+        ...state.production[productId],
+        stock: AUTO_BULK_RETAIN_STOCK,
+      },
+    },
+  };
+};
+
+export const applyAutoBulk = (state: GameState): GameState => {
+  if (!state.bulkUnlocked || !state.autoBulkEnabled) return state;
+
+  return state.unlockedProducts.reduce(
+    (nextState, productId) => nextState.production[productId].stock > AUTO_BULK_TRIGGER_STOCK
+      ? sellBulkOverflow(nextState, productId)
+      : nextState,
+    state,
+  );
 };
 
 const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
@@ -149,7 +192,7 @@ export const advanceDeterministicState = (
     };
   });
 
-  return {
+  return applyAutoBulk({
     ...state,
     cash,
     runEarnings,
@@ -157,5 +200,5 @@ export const advanceDeterministicState = (
     respect: state.respect + getRespectPerSecond(state) * seconds,
     lastEarningsPerSeller,
     lastTickAt: now,
-  };
+  });
 };

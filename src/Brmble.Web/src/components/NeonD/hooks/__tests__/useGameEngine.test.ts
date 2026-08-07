@@ -68,6 +68,25 @@ describe('useGameEngine', () => {
     expect(result.current.state.unlockedProducts).toEqual(['weed', 'mushrooms']);
   });
 
+  it('keeps Bulk Selling hidden before $212,388 and buys it for exactly $141,592', () => {
+    const { result } = renderSeededGame({
+      cash: 200_000,
+      runEarnings: 212_388,
+    });
+
+    act(() => result.current.unlockBulkSelling());
+
+    expect(result.current.state.bulkUnlocked).toBe(true);
+    expect(result.current.state.cash).toBeCloseTo(58_408);
+  });
+
+  it('only changes auto bulk after Bulk Selling is unlocked', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => result.current.setAutoBulkEnabled(true));
+    expect(result.current.state.autoBulkEnabled).toBe(false);
+  });
+
   it('buys product upgrades sequentially and applies their listed cost', () => {
     const { result } = renderSeededGame({ cash: 1_000 });
     act(() => result.current.buyProductUpgrade('weed', 'fertilizer'));

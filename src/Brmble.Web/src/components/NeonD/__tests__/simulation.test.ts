@@ -1,9 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { createBaseGameState } from '../constants';
-import { advanceDeterministicState, applyDueRiskCheck } from '../simulation';
+import {
+  advanceDeterministicState,
+  applyAutoBulk,
+  applyDueRiskCheck,
+  sellBulkOverflow,
+} from '../simulation';
 import { makeReferenceDealer } from './testFixtures';
 
 describe('deterministic production', () => {
+  it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlocked = true;
+    state.production.weed.stock = 1_500;
+
+    const next = sellBulkOverflow(state, 'weed');
+
+    expect(next.production.weed.stock).toBeCloseTo(500);
+    expect(next.cash - state.cash).toBeCloseTo(1_000 * 4.2 * 0.90);
+    expect(next.runEarnings - state.runEarnings).toBeCloseTo(1_000 * 4.2 * 0.90);
+  });
+
+  it('auto bulk triggers only above 1500g and sells down to 500g', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlocked = true;
+    state.autoBulkEnabled = true;
+    state.production.weed.stock = 1_500;
+    expect(applyAutoBulk(state).production.weed.stock).toBe(1_500);
+
+    state.production.weed.stock = 1_500.01;
+    expect(applyAutoBulk(state).production.weed.stock).toBeCloseTo(500);
+  });
+
   it('produces 0.20 units per second for one Cannabis Plant', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 1;
