@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
 import { getProducerCost } from '../../economy';
 import type { GameState } from '../../types';
+import { makeReferenceDealer } from '../../__tests__/testFixtures';
 import { useGameEngine } from '../useGameEngine';
 
 const renderSeededGame = (overrides: Partial<GameState>) => {
@@ -103,5 +104,42 @@ describe('useGameEngine', () => {
     act(() => result.current.buyDiscount());
     expect(result.current.state.discountLevel).toBe(1);
     expect(getProducerCost('weed', 0, 1)).toBeCloseTo(13.5);
+  });
+
+  it('hires a candidate for free into an open Territory slot', () => {
+    const { result } = renderHook(() => useGameEngine());
+    const candidate = result.current.state.availableDealers[0];
+    const cashBefore = result.current.state.cash;
+
+    act(() => result.current.hireDealer(candidate.id, 0));
+
+    expect(result.current.state.cash).toBe(cashBefore);
+    expect(result.current.state.activeDealers[0]?.id).toBe(candidate.id);
+  });
+
+  it('automatically refreshes a pool of three after 60 seconds with no Kingpins', () => {
+    const { result } = renderHook(() => useGameEngine());
+    const beforeIds = result.current.state.availableDealers.map((d) => d.id);
+
+    act(() => vi.advanceTimersByTime(59_000));
+    expect(result.current.state.availableDealers.map((d) => d.id)).toEqual(beforeIds);
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(result.current.state.availableDealers).toHaveLength(3);
+    expect(result.current.state.availableDealers.map((d) => d.id)).not.toEqual(beforeIds);
+  });
+
+  it('buys a fixed equipment item once and charges its listed discounted price', () => {
+    const { result } = renderSeededGame({
+      cash: 1_000,
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+    });
+
+    act(() => result.current.buySellerEquipment('d1', 'baseballBat', 'dealer'));
+    expect(result.current.state.activeDealers[0]?.equipmentIds).toContain('baseballBat');
+
+    const cashAfterFirstPurchase = result.current.state.cash;
+    act(() => result.current.buySellerEquipment('d1', 'baseballBat', 'dealer'));
+    expect(result.current.state.cash).toBe(cashAfterFirstPurchase);
   });
 });
