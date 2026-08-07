@@ -39,6 +39,24 @@
   padding: var(--space-xs) var(--space-lg);
 }
 
+.headerActions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+  margin-left: auto;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.importError {
+  color: var(--accent-danger);
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  text-align: right;
+}
+
 .money {
   font-size: var(--text-lg);
   font-weight: bold;

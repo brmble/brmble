@@ -153,6 +153,14 @@ const normalizeDealerRiskState = (dealer: Dealer): Dealer => ({
   pendingUpgradeOptions: dealer.pendingUpgradeOptions ?? [],
 });
 
+const normalizeImportedGameState = (state: GameState): GameState => ({
+  ...state,
+  activeDealers: state.activeDealers.map(dealer => (dealer ? normalizeDealerRiskState(dealer) : null)),
+  availableDealers: state.availableDealers.map(normalizeDealerRiskState),
+  lastTickAt: state.lastTickAt > 0 ? state.lastTickAt : Date.now(),
+  offlineEarningsSummary: state.offlineEarningsSummary ?? null,
+});
+
 type ProductDemand = {
   dealerId: string;
   amountPerSecond: number;
@@ -667,6 +675,10 @@ export const useGameEngine = () => {
     setState(createInitialGameState());
   }, [setState, clearStorage]);
 
+  const importGame = useCallback((importedState: GameState) => {
+    setState(normalizeImportedGameState(importedState));
+  }, [setState]);
+
   useInterval(tick, 1000);
   
   return {
@@ -677,6 +689,7 @@ export const useGameEngine = () => {
     fireDealer,
     refreshPool,
     resetGame,
+    importGame,
     unlockSlot,
     setDealerSelling,
     startDealerUpgrade,

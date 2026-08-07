@@ -106,6 +106,25 @@ describe('useGameEngine', () => {
     expect(result.current.state.lastTickAt).toBe(Date.now());
   });
 
+  it('imports a complete Neon-D state without generating new game data', () => {
+    const { result } = renderHook(() => useGameEngine());
+    const importedDealer = makeDealer({ id: 'imported-dealer', selling: 'mushrooms' });
+    const importedState = {
+      ...result.current.state,
+      money: 9876,
+      unlockedProduction: ['weed', 'mushrooms'],
+      activeDealers: [importedDealer, null, null],
+    };
+
+    act(() => {
+      result.current.importGame(importedState);
+    });
+
+    expect(result.current.state.money).toBe(9876);
+    expect(result.current.state.unlockedProduction).toEqual(['weed', 'mushrooms']);
+    expect(result.current.state.activeDealers[0]).toEqual(importedDealer);
+  });
+
   it('should update production without dealer', async () => {
     const { result } = renderHook(() => useGameEngine());
     

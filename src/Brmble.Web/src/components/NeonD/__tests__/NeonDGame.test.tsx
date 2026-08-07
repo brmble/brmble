@@ -2,18 +2,21 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
+import { serializeNeonDSave } from '../saveFormat';
+import type { Dealer, DealerUpgrade, GameState } from '../types';
 
 const mockNeonD = vi.hoisted(() => {
   const buyEquipmentMock = vi.fn();
   const startDealerUpgradeMock = vi.fn();
   const resetGameMock = vi.fn();
-  const dealerUpgradeOptions = [
+  const importGameMock = vi.fn();
+  const dealerUpgradeOptions: DealerUpgrade[] = [
     { type: 'VOLUME', label: 'Armed Gang', description: 'Volume +15%', value: 0.15 },
     { type: 'MARGIN', label: 'Ferrari', description: 'Margin +15%', value: 0.15 },
     { type: 'SIDE_HUSTLE', label: 'JACKPOT: Side Hustle', description: 'Add 10% side volume bleed', value: 0.1, sideVolumeValue: 0.1 },
-  ] as const;
+  ];
 
-  const createDealer = (overrides: Record<string, unknown> = {}) => ({
+  const createDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
     id: 'dealer-ui',
     name: 'Test Dealer',
     selling: 'weed',
@@ -35,7 +38,7 @@ const mockNeonD = vi.hoisted(() => {
     ...overrides,
   });
 
-  const createState = (overrides: Record<string, unknown> = {}) => ({
+  const createState = (overrides: Partial<GameState> = {}): GameState => ({
     money: 10_000,
     totalEarned: 0,
     researchSpeed: 1,
@@ -59,6 +62,7 @@ const mockNeonD = vi.hoisted(() => {
     buyEquipmentMock,
     startDealerUpgradeMock,
     resetGameMock,
+    importGameMock,
     dealerUpgradeOptions,
     createDealer,
     createState,
@@ -71,6 +75,7 @@ const mockNeonD = vi.hoisted(() => {
       buyEquipmentMock.mockReset();
       startDealerUpgradeMock.mockReset();
       resetGameMock.mockReset();
+      importGameMock.mockReset();
     },
     useGameEngine: () => ({
       state,
@@ -80,6 +85,7 @@ const mockNeonD = vi.hoisted(() => {
       fireDealer: vi.fn(),
       refreshPool: vi.fn(),
       resetGame: resetGameMock,
+      importGame: importGameMock,
       unlockSlot: vi.fn(),
       setDealerSelling: vi.fn(),
       startDealerUpgrade: startDealerUpgradeMock,
@@ -134,6 +140,79 @@ it('does not reset the Neon-D empire when confirmation is canceled', async () =>
 
   expect(confirmMock).toHaveBeenCalledTimes(1);
   expect(mockNeonD.resetGameMock).not.toHaveBeenCalled();
+});
+
+it('exports the current Neon-D state as a JSON download', async () => {
+  const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:neon-d');
+  const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+  render(<NeonDGame />);
+  const exportButton = screen.getByRole('button', { name: 'Export' });
+  const importButton = screen.getByRole('button', { name: 'Import' });
+  const resetButton = screen.getByRole('button', { name: 'Reset' });
+  expect(exportButton.parentElement).toBe(importButton.parentElement);
+  expect(exportButton.parentElement).toBe(resetButton.parentElement);
+  expect(exportButton).toHaveClass('btn', 'btn-primary');
+  expect(importButton).toHaveClass('btn', 'btn-secondary');
+  expect(resetButton).toHaveClass('btn', 'btn-danger');
+  await userEvent.setup().click(exportButton);
+
+  expect(createObjectURL).toHaveBeenCalledOnce();
+  const blob = createObjectURL.mock.calls[0][0] as Blob;
+  expect(await blob.text()).toBe(serializeNeonDSave(mockNeonD.getState()));
+  expect(click).toHaveBeenCalledOnce();
+  expect(document.querySelector('a[download="brmble-neon-d-save.json"]')).toBeNull();
+  expect(revokeObjectURL).toHaveBeenCalledWith('blob:neon-d');
+});
+
+it('does not import a valid save when replacement confirmation is canceled', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(false);
+  render(<NeonDGame />);
+
+  await user.upload(
+    screen.getByLabelText('Neon-D save file'),
+    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+  );
+
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'Import Neon-D save?',
+    message: 'Import this Neon-D save? Your current empire will be replaced.',
+    confirmLabel: 'Import',
+    cancelLabel: 'Cancel',
+    destructive: true,
+  });
+  expect(mockNeonD.importGameMock).not.toHaveBeenCalled();
+});
+
+it('shows an error and keeps the current empire when an imported file is invalid', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.upload(
+    screen.getByLabelText('Neon-D save file'),
+    new File(['not json'], 'save.json', { type: 'application/json' }),
+  );
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('not valid JSON');
+  expect(mockNeonD.importGameMock).not.toHaveBeenCalled();
+});
+
+it('processes a second file selection after the first import fails', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(true);
+  render(<NeonDGame />);
+  const input = screen.getByLabelText('Neon-D save file');
+
+  await user.upload(input, new File(['not json'], 'save.json', { type: 'application/json' }));
+  await screen.findByRole('alert');
+  await user.upload(
+    input,
+    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+  );
+
+  expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
 });
 
 it('shows protection state and risk label on an active dealer card', () => {
@@ -289,6 +368,7 @@ it('shows an offline earnings popup after a long enough break and dismisses it o
     fireDealer: vi.fn(),
     refreshPool: vi.fn(),
     resetGame: vi.fn(),
+    importGame: vi.fn(),
     unlockSlot: vi.fn(),
     setDealerSelling: vi.fn(),
     startDealerUpgrade: mockNeonD.startDealerUpgradeMock,

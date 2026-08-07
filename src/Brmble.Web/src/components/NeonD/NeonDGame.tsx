@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import { UNLOCK_COSTS, PRODUCT_TIERS, SLOT_UNLOCK_COSTS, PRODUCT_ARREST_RISK } from './constants';
 import { getBailCost } from './economy';
@@ -7,6 +7,7 @@ import { Tooltip } from '../Tooltip/Tooltip';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
+import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
 
 
 
@@ -101,6 +102,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     fireDealer,
     refreshPool,
     resetGame,
+    importGame,
     unlockSlot,
     setDealerSelling,
     startDealerUpgrade,
@@ -110,6 +112,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     dismissOfflineEarningsSummary,
   } = useGameEngine();
   const [upgradingDealerId, setUpgradingDealerId] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const upgradingDealer = upgradingDealerId
     ? state.activeDealers.find(dealer => dealer?.id === upgradingDealerId) ?? null
@@ -147,6 +151,37 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     });
 
     if (confirmed) resetGame();
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([serializeNeonDSave(state)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'brmble-neon-d-save.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const importedState = parseNeonDSave(await file.text());
+      const confirmed = await confirm({
+        title: 'Import Neon-D save?',
+        message: 'Import this Neon-D save? Your current empire will be replaced.',
+        confirmLabel: 'Import',
+        cancelLabel: 'Cancel',
+        destructive: true,
+      });
+
+      if (confirmed) importGame(importedState);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'The Neon-D save could not be imported.');
+    }
   };
 
 
@@ -189,13 +224,36 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           <div className={styles.label}>
             {state.activeDealers.filter(d => d !== null).length > 0 ? `($${Object.values(state.lastEarningsPerDealer).reduce((a, b) => a + b, 0).toFixed(2)}/s)` : ''}
           </div>
-          <button 
-            onClick={handleReset}
-            className={`${styles.upgradeButton} ${styles.resetButton}`}
-          >
-            Reset
-          </button>
+          <div className={styles.headerActions}>
+            <button type="button" className="btn btn-primary" onClick={handleExport}>
+              <Icon name="save" size={14} />
+              Export
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => {
+              setImportError(null);
+              importInputRef.current?.click();
+            }}>
+              <Icon name="upload" size={14} />
+              Import
+            </button>
+            <input
+              ref={importInputRef}
+              className={styles.hiddenFileInput}
+              aria-label="Neon-D save file"
+              type="file"
+              accept="application/json,.json"
+              onChange={handleImport}
+            />
+            <button
+              type="button"
+              onClick={handleReset}
+              className="btn btn-danger"
+            >
+              Reset
+            </button>
+          </div>
         </div>
+        {importError && <p className={styles.importError} role="alert">{importError}</p>}
       </header>
 
       <div className={styles.gridLayout}>
