@@ -54,7 +54,7 @@ const resetRunPreservingPrestige = (
   now: number,
 ): GameState => ({
   ...createBaseGameState(now),
-  captains,
+  captains: captains.map((captain) => ({ ...captain, selling: 'weed' })),
   kingpins,
   availableDealers: generateCandidatePool(['weed']),
 });

@@ -11,6 +11,7 @@ import {
 } from '../../economy';
 import type { Captain, GameState } from '../../types';
 import { makeReferenceDealer } from '../../__tests__/testFixtures';
+import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
 
 const renderSeededGame = (overrides: Partial<GameState>) => {
@@ -310,6 +311,30 @@ describe('useGameEngine', () => {
     expect(result.current.state.captains).toHaveLength(2);
     expect(result.current.state.captains[0]).toEqual(existingCaptain);
     expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('round-trips a later Captain reset when an existing Captain sells a non-Weed product', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'mushrooms',
+      equipmentIds: [],
+      personalEarnings: 1_000_000,
+    };
+
+    const { result } = renderSeededGame({
+      cash: 7_000_000,
+      runEarnings: 7_500_000,
+      unlockedProducts: ['weed', 'mushrooms'],
+      captains: [existingCaptain],
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(parseNeonDSave(serializeNeonDSave(result.current.state))).toEqual(result.current.state);
+    expect(result.current.state.captains.every((captain) =>
+      result.current.state.unlockedProducts.includes(captain.selling),
+    )).toBe(true);
   });
 
   it('charges the next Captain at base * 1.18^(captains + kingpins) before discount', () => {
