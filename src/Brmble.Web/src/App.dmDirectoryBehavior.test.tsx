@@ -33,7 +33,7 @@ const mockValues = vi.hoisted(() => {
     sendMessage: vi.fn(),
     sendImageMessage: vi.fn(),
     uploadContent: vi.fn(),
-    fetchHistory: vi.fn(),
+    fetchHistory: vi.fn().mockResolvedValue(undefined),
     sendReaction: vi.fn(),
     removeReaction: vi.fn(),
     dmLastMessages: new Map(),
@@ -49,6 +49,7 @@ const mockValues = vi.hoisted(() => {
     activeTypingText: 'Val is typing',
     startTyping: vi.fn(),
     stopTyping: vi.fn(),
+    deleteMessage: vi.fn().mockResolvedValue(undefined),
   };
   const dmStore = {
     contacts: [],
@@ -176,7 +177,7 @@ function renderConnectedApp() {
   const view = render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
   act(() => {
     (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('server.credentials', {
-      matrix: { homeserverUrl: 'https://example.com', accessToken: 'token', userId: '@me:example.com', roomMap: {} },
+      matrix: { homeserverUrl: 'https://example.com', accessToken: 'token', userId: '@me:example.com', roomMap: { '1': '!general:example.com' }, messageDeletion: { canModerate: true, maxAgeMs: 86_400_000 } },
     });
     (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', {
       username: 'Me', channelId: 1, channels: [{ id: 1, name: 'General' }], users: [],
@@ -200,6 +201,7 @@ function renderPaintReadyApp() {
         accessToken: 'token',
         userId: '@me:example.com',
         roomMap: { '1': '!general:example.com' },
+        messageDeletion: { canModerate: true, maxAgeMs: 86_400_000 },
       },
     });
     (bridge as unknown as {
@@ -541,6 +543,54 @@ describe('DM route Matrix isolation', () => {
       onTypingStart: mockValues.matrixClient.startTyping, onTypingStop: mockValues.matrixClient.stopTyping,
       onToggleReaction: expect.any(Function), currentUserMatrixId: '@me:example.com',
     }));
+  });
+
+  it('passes deletion capability and operation to Matrix channel chat', async () => {
+    renderPaintReadyApp();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('brmble.serviceStatus', {
+        service: 'server', state: 'connected',
+      });
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('chat.channelAccess', {
+        channels: { '1': { canRead: true, canSend: true } },
+      });
+    });
+
+    await waitFor(() => expect(mockValues.channelChatPanelProps).toEqual(expect.objectContaining({
+      onDeleteMessage: mockValues.matrixClient.deleteMessage,
+      canModerateRecentMessages: true,
+      messageDeletionWindowMs: 86_400_000,
+    })));
+
+    await (mockValues.channelChatPanelProps?.onDeleteMessage as (
+      roomId: string, eventId: string,
+    ) => Promise<void>)('!general:example.com', '$message:test');
+    expect(mockValues.matrixClient.deleteMessage).toHaveBeenCalledWith(
+      '!general:example.com', '$message:test',
+    );
+  });
+
+  it('passes deletion to a Matrix-backed DM', () => {
+    mockValues.dmStore.selectedContact = {
+      id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0,
+    };
+    mockValues.matrixClient.dmRoomMap.set('@val:example.com', '!val:example.com');
+    renderConnectedApp();
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+    expect(mockValues.dmChatPanelProps?.onDeleteMessage)
+      .toBe(mockValues.matrixClient.deleteMessage);
+  });
+
+  it('omits deletion from a Mumble-only DM', () => {
+    mockValues.dmStore.selectedContact = {
+      id: 'cert-val', displayName: 'Vanilla Val', unreadCount: 0,
+      isEphemeral: true, mumbleSessionId: 42,
+    };
+    renderConnectedApp();
+    expect(mockValues.dmChatPanelProps?.onDeleteMessage).toBeUndefined();
   });
 
   it('reports an unread foreground only when the workspace and selected contact match', () => {

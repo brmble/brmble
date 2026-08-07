@@ -55,4 +55,25 @@ describe('areMatrixCredentialsEqual', () => {
     })).toBe(false);
     expect(areMatrixCredentialsEqual(base, { ...base, customCompanions: undefined })).toBe(false);
   });
+
+  it('detects a message deletion capability change', () => {
+    const credentials = {
+      ...base,
+      messageDeletion: {
+        canModerate: false,
+        maxAgeMs: 86_400_000,
+      },
+    };
+
+    expect(areMatrixCredentialsEqual(
+      credentials,
+      {
+        ...credentials,
+        messageDeletion: {
+          ...credentials.messageDeletion,
+          canModerate: true,
+        },
+      },
+    )).toBe(false);
+  });
 });

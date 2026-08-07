@@ -4,6 +4,7 @@ using Brmble.Server.Companions;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Brmble.Server.Messages;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
@@ -165,6 +166,8 @@ public static class AuthEndpoints
 
             // Ensure user is in all rooms, then sync display name
             await matrixAppService.EnsureUserInRooms(result.Localpart, roomMap.Values);
+            var canModerateServer =
+                await aclAuthorization.CanModerateServerAsync(result.UserId);
             CustomCompanionCapability? customCompanions = null;
             try
             {
@@ -177,7 +180,7 @@ public static class AuthEndpoints
                         SchemaVersion: 1,
                         GalleryRoomId: galleryRoomId,
                         TrustedSender: $"@brmble:{matrixSettings.Value.ServerDomain}",
-                        CanModerate: await aclAuthorization.CanModerateServerAsync(result.UserId),
+                        CanModerate: canModerateServer,
                         SelectedCompanionId: await userRepository.GetCompanionId(result.UserId),
                         MaxActivePerUser: customCompanionOptions.Value.MaxActivePerUser,
                         MaxActiveTotal: customCompanionOptions.Value.MaxActiveTotal);
@@ -214,8 +217,14 @@ public static class AuthEndpoints
                 ["homeserverUrl"] = publicHomeserverUrl,
                 ["accessToken"] = result.MatrixAccessToken,
                 ["userId"] = result.MatrixUserId,
+                ["botUserId"] = $"@brmble:{matrixSettings.Value.ServerDomain}",
                 ["roomMap"] = roomMap,
-                ["dmRoomMap"] = dmRoomMap
+                ["dmRoomMap"] = dmRoomMap,
+                ["messageDeletion"] = new
+                {
+                    canModerate = canModerateServer,
+                    maxAgeMs = (long)MessageDeletionPolicy.DeletionWindow.TotalMilliseconds
+                }
             };
             if (customCompanions is not null)
                 matrixPayload["customCompanions"] = customCompanions;

@@ -13,6 +13,7 @@ using Brmble.Client.Services.Games;
 using Brmble.Client.Services.Paint;
 using Brmble.Client.Services.Update;
 using Brmble.Client.Services.Idle;
+using Brmble.Client.Services.Messages;
 using Brmble.Client.Overlay;
 using System.Text.Json;
 
@@ -30,6 +31,7 @@ static class Program
     private static MumbleAdapter? _mumbleClient;
     private static GameService? _gameService;
     private static PaintService? _paintService;
+    private static MessageService? _messageService;
     private static UpdateService? _updateService;
     private static IdleService? _idleService;
     private static CompanionOverlayRelay? _overlayRelay;
@@ -383,6 +385,14 @@ static class Program
                 MumbleAdapter.GetChannelRequestViaBcTls);
             _gameService.Initialize(_bridge);
             _gameService.RegisterHandlers(_bridge);
+
+            _messageService = new MessageService(
+                _bridge,
+                () => _certService?.GetExportableCertificate(),
+                () => _mumbleClient?.ApiUrl,
+                MumbleAdapter.PostChannelRequestViaBcTls);
+            _messageService.Initialize(_bridge);
+            _messageService.RegisterHandlers(_bridge);
 
             _paintService = new PaintService(
                 _bridge,

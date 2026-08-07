@@ -13,6 +13,7 @@ import {
 } from '../utils/matrixMessageEditing';
 import { useServiceStatus } from './useServiceStatus';
 import bridge from '../bridge';
+import { messageApi } from '../api/messages';
 
 const TYPING_TIMEOUT_MS = 10_000;
 const TYPING_REFRESH_MS = 5_000;
@@ -28,6 +29,15 @@ type TypingEntry = {
 
 /** Insert a message into a chronologically sorted array, deduplicating by id. Returns the same array if already present. */
 function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const transactionIndex = msg.transactionId
+    ? existing.findIndex(item => item.transactionId === msg.transactionId)
+    : -1;
+  if (transactionIndex >= 0) {
+    if (existing[transactionIndex].id === msg.id) return existing;
+    const updated = [...existing];
+    updated[transactionIndex] = msg;
+    return updated;
+  }
   if (existing.some(m => m.id === msg.id)) return existing;
   const last = existing[existing.length - 1];
   if (!last || msg.timestamp.getTime() >= last.timestamp.getTime()) {
@@ -52,11 +62,12 @@ function insertMessage(existing: ChatMessage[], msg: ChatMessage): ChatMessage[]
  *
  * Returns null for non-message events.
  */
-function transformEventToChatMessage(
+export function transformEventToChatMessage(
   event: MatrixEvent,
   room: Room | undefined,
   channelId: string,
   client: MatrixClient | null,
+  trustedBotUserId?: string,
 ): ChatMessage | null {
   if (event.getType() !== EventType.RoomMessage) return null;
 
@@ -71,6 +82,7 @@ function transformEventToChatMessage(
     info?: { thumbnail_url?: string; w?: number; h?: number; mimetype?: string; size?: number };
     'm.relates_to'?: { 'm.in_reply_to'?: { event_id: string } };
     'com.brmble.mumble_delivery'?: MumbleDeliveryState;
+    'com.brmble.author_matrix_user_id'?: unknown;
   };
 
   let media: MediaAttachment[] | undefined;
@@ -91,6 +103,11 @@ function transformEventToChatMessage(
   const isBridgeBotSender = /^@brmble[_-]?/.test(senderId);
   const bridgeMatch = isBridgeBotSender ? rawBody.match(/^\[(.+?)\]:\s*/) : null;
   const messageSender = bridgeMatch ? bridgeMatch[1] : displayName;
+  const effectiveSenderId = senderId === trustedBotUserId
+    && typeof content['com.brmble.author_matrix_user_id'] === 'string'
+    && content['com.brmble.author_matrix_user_id'].length > 0
+    ? content['com.brmble.author_matrix_user_id']
+    : senderId;
   let messageContent = bridgeMatch ? rawBody.slice(bridgeMatch[0].length) : rawBody;
 
   // Strip reply fallback from body (lines starting with > )
@@ -104,9 +121,10 @@ function transformEventToChatMessage(
 
   return {
     id: event.getId() ?? crypto.randomUUID(),
+    ...(event.getTxnId?.() && { transactionId: event.getTxnId() }),
     channelId,
     sender: messageSender,
-    senderMatrixUserId: senderId,
+    senderMatrixUserId: effectiveSenderId,
     content: displayContent,
     timestamp: new Date(event.getTs()),
     msgType: content.msgtype,
@@ -193,6 +211,23 @@ function getRedactedEventId(event: RedactionLikeEvent): string | undefined {
   return content?.redacts;
 }
 
+function sanitizeRedactedMessage(message: ChatMessage): ChatMessage {
+  return {
+    ...message,
+    redacted: true,
+    content: '',
+    media: undefined,
+    replyToEventId: undefined,
+    replyToSender: undefined,
+    replyToContent: undefined,
+    edited: false,
+    originalContent: undefined,
+    latestEditTimestamp: undefined,
+    latestEditEventId: undefined,
+    reactions: undefined,
+  };
+}
+
 function markMessageRedacted(
   existing: ChatMessage[],
   redactedEventId: string | undefined,
@@ -200,9 +235,9 @@ function markMessageRedacted(
   if (!redactedEventId) return existing;
   let changed = false;
   const updated = existing.map((message) => {
-    if (message.id !== redactedEventId) return message;
+    if (message.id !== redactedEventId || message.redacted) return message;
     changed = true;
-    return { ...message, redacted: true, content: '', media: undefined };
+    return sanitizeRedactedMessage(message);
   });
   return changed ? updated : existing;
 }
@@ -246,6 +281,7 @@ function loadMessagesFromTimeline(
   reactionEventsRef?: React.MutableRefObject<Map<string, ReactionEventRecord>>,
   ownReactionEventIdsRef?: React.MutableRefObject<Map<string, Map<string, string>>>,
   onReplacementEdit?: (replacement: ReplacementEventRecord) => void,
+  trustedBotUserId?: string,
 ): ChatMessage[] {
   const room = client.getRoom(roomId);
   if (!room) return [];
@@ -255,13 +291,14 @@ function loadMessagesFromTimeline(
   const redactedEventIds = new Set<string>();
 
   for (const ev of room.getLiveTimeline().getEvents()) {
-    // Track redaction events
     if (ev.getType() === 'm.room.redaction') {
       const redactedId = getRedactedEventId(ev);
       if (redactedId) redactedEventIds.add(redactedId);
     }
+  }
 
-    const m = transformEventToChatMessage(ev, room, targetId, client);
+  for (const ev of room.getLiveTimeline().getEvents()) {
+    const m = transformEventToChatMessage(ev, room, targetId, client, trustedBotUserId);
     if (m) {
       const bundled = parseBundledReplacementFromUnsigned(ev as never);
       if (bundled && !redactedEventIds.has(bundled.editEventId)) {
@@ -271,7 +308,7 @@ function loadMessagesFromTimeline(
       // Mark message as redacted if already redacted or has redaction event
       const isEventRedacted = typeof ev.isRedacted === 'function' && ev.isRedacted();
       if (isEventRedacted || redactedEventIds.has(m.id)) {
-        out.push({ ...m, redacted: true, content: '', media: undefined });
+        out.push(sanitizeRedactedMessage(m));
       } else {
         out.push(m);
       }
@@ -310,7 +347,12 @@ function loadMessagesFromTimeline(
 }
 
 export interface MatrixCredentials {
+  botUserId?: string;
   customCompanions?: CustomCompanionCapability;
+  messageDeletion?: {
+    canModerate: boolean;
+    maxAgeMs: number;
+  };
   homeserverUrl: string;
   accessToken: string;
   userId: string;
@@ -319,6 +361,7 @@ export interface MatrixCredentials {
 }
 
 export interface MessagePreview {
+  eventId: string;
   content: string;
   ts: number;
   sender: string;
@@ -412,6 +455,42 @@ export function useMatrixClient(
       Object.entries(credentials.roomMap).map(([channelId, roomId]) => [roomId, channelId])
     );
   }, [credentials]);
+
+  const reconcileRedaction = useCallback((roomId: string, eventId: string) => {
+    const channelId = roomIdToChannelId.get(roomId);
+    const dmUserId = roomIdToDMUserIdRef.current.get(roomId);
+
+    if (channelId && activeChannelIdRef.current === channelId) {
+      setActiveMessages(messages => markMessageRedacted(messages, eventId));
+    }
+    if (channelId) {
+      setLastMessages(previews => {
+        const preview = previews.get(channelId);
+        if (preview?.eventId !== eventId) return previews;
+        const next = new Map(previews);
+        next.set(channelId, { ...preview, content: 'Message deleted' });
+        return next;
+      });
+    }
+
+    if (dmUserId && activeDmContactIdRef.current === dmUserId) {
+      setActiveDmMessages(messages => markMessageRedacted(messages, eventId));
+    }
+    if (dmUserId) {
+      setDmLastMessages(previews => {
+        const preview = previews.get(dmUserId);
+        if (preview?.eventId !== eventId) return previews;
+        const next = new Map(previews);
+        next.set(dmUserId, { ...preview, content: 'Message deleted' });
+        return next;
+      });
+    }
+  }, [roomIdToChannelId]);
+
+  const deleteMessage = useCallback(async (roomId: string, eventId: string) => {
+    await messageApi.delete(roomId, eventId);
+    reconcileRedaction(roomId, eventId);
+  }, [reconcileRedaction]);
 
   const getActiveMatrixRoomId = useCallback((): string | null => {
     if (activeChannelIdRef.current && credentials?.roomMap[activeChannelIdRef.current]) {
@@ -666,23 +745,14 @@ export function useMatrixClient(
           return;
         }
 
-        const channelId2 = roomIdToChannelId.get(room?.roomId ?? '');
-        if (channelId2 && activeChannelIdRef.current === channelId2) {
-          setActiveMessages(prev => markMessageRedacted(prev, redactedEventId));
-          return;
-        }
-
-        const dmUserId2 = roomIdToDMUserIdRef.current.get(room?.roomId ?? '');
-        if (dmUserId2 && activeDmContactIdRef.current === dmUserId2) {
-          setActiveDmMessages(prev => markMessageRedacted(prev, redactedEventId));
-        }
+        if (redactedEventId && room?.roomId) reconcileRedaction(room.roomId, redactedEventId);
         return;
       }
 
       if (eventType !== EventType.RoomMessage) return;
       const channelId = roomIdToChannelId.get(room?.roomId ?? '');
       if (channelId) {
-        const message = transformEventToChatMessage(event, room, channelId, clientRef.current);
+        const message = transformEventToChatMessage(event, room, channelId, clientRef.current, credentials.botUserId);
         if (!message) return;
         
         // Apply cached replacement edits if any exist for this message
@@ -704,6 +774,7 @@ export function useMatrixClient(
           if (existing && existing.ts >= message.timestamp.getTime()) return prev;
           const next = new Map(prev);
           next.set(channelId, {
+            eventId: message.id,
             content: message.content,
             ts: message.timestamp.getTime(),
             sender: message.sender,
@@ -728,7 +799,7 @@ export function useMatrixClient(
         return;
       }
 
-      const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current);
+      const dmMessage = transformEventToChatMessage(event, room, dmUserId, clientRef.current, credentials.botUserId);
       if (!dmMessage) return;
       
       // Apply cached replacement edits if any exist for this message
@@ -750,6 +821,7 @@ export function useMatrixClient(
         if (existing && existing.ts >= dmMessage.timestamp.getTime()) return prev;
         const next = new Map(prev);
         next.set(dmUserId, {
+          eventId: dmMessage.id,
           content: dmMessage.content,
           ts: dmMessage.timestamp.getTime(),
           sender: dmMessage.sender,
@@ -813,13 +885,23 @@ export function useMatrixClient(
             if (!target) continue;
 
             const events = room.getLiveTimeline().getEvents();
+            const redactedEventIds = new Set<string>();
+            for (const ev of events) {
+              if (ev.getType() === EventType.RoomRedaction) {
+                const redactedId = getRedactedEventId(ev as unknown as RedactionLikeEvent);
+                if (redactedId) redactedEventIds.add(redactedId);
+              }
+            }
             for (let i = events.length - 1; i >= 0; i--) {
               const ev = events[i];
               if (ev.getType() !== EventType.RoomMessage) continue;
-              const msg = transformEventToChatMessage(ev, room, target, clientRef.current);
+              const msg = transformEventToChatMessage(ev, room, target, clientRef.current, credentials.botUserId);
               if (!msg) continue;
+              const isRedacted = redactedEventIds.has(msg.id)
+                || (typeof ev.isRedacted === 'function' && ev.isRedacted());
               const preview: MessagePreview = {
-                content: msg.content,
+                eventId: msg.id,
+                content: isRedacted ? 'Message deleted' : msg.content,
                 ts: msg.timestamp.getTime(),
                 sender: msg.sender,
               };
@@ -841,7 +923,7 @@ export function useMatrixClient(
             if (roomId) {
               activeRoomVersionRef.current += 1;
               const myVersion = activeRoomVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
+              const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
               if (activeRoomVersionRef.current === myVersion) {
                 setActiveMessages(messages);
               }
@@ -853,7 +935,7 @@ export function useMatrixClient(
             if (dmRoomId) {
               activeDmVersionRef.current += 1;
               const myVersion = activeDmVersionRef.current;
-              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
+              const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
               if (activeDmVersionRef.current === myVersion) {
                 setActiveDmMessages(messages);
               }
@@ -899,13 +981,13 @@ export function useMatrixClient(
       for (let i = timelineEvents.length - 1; i >= 0; i--) {
         const ev = timelineEvents[i];
         if (ev.getType() !== EventType.RoomMessage) continue;
-        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+        const msg = transformEventToChatMessage(ev, room, otherUserId, clientRef.current, credentials.botUserId);
         if (!msg) continue;
         setDmLastMessages(prev => {
           const existing = prev.get(otherUserId);
           if (existing && existing.ts >= msg.timestamp.getTime()) return prev;
           const next = new Map(prev);
-          next.set(otherUserId, { content: msg.content, ts: msg.timestamp.getTime(), sender: msg.sender });
+          next.set(otherUserId, { eventId: msg.id, content: msg.content, ts: msg.timestamp.getTime(), sender: msg.sender });
           return next;
         });
         break;
@@ -916,7 +998,7 @@ export function useMatrixClient(
         const myVersion = activeDmVersionRef.current;
         const messages: ChatMessage[] = [];
         for (const ev of timelineEvents) {
-          const m = transformEventToChatMessage(ev, room, otherUserId, clientRef.current);
+          const m = transformEventToChatMessage(ev, room, otherUserId, clientRef.current, credentials.botUserId);
           if (m) messages.push(m);
         }
         if (activeDmVersionRef.current === myVersion) {
@@ -1024,13 +1106,23 @@ export function useMatrixClient(
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [clearLocalTypingState, credentials, forgetReplacementEdit, rememberReplacementEdit, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
+  }, [clearLocalTypingState, credentials, forgetReplacementEdit, reconcileRedaction, rememberReplacementEdit, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
-    await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+    const txnId = clientRef.current.makeTxnId();
+    const response = await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text }, txnId);
+    if (response.event_id) {
+      setActiveMessages(prev => {
+        const index = prev.findIndex(message => message.transactionId === txnId);
+        if (index < 0 || prev[index].id === response.event_id) return prev;
+        const updated = [...prev];
+        updated[index] = { ...updated[index], id: response.event_id };
+        return updated;
+      });
+    }
     await stopTypingForRoom(roomId);
     clearLocalTypingState();
   }, [clearLocalTypingState, credentials, stopTypingForRoom]);
@@ -1146,7 +1238,21 @@ export function useMatrixClient(
       }
     }
 
-    await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text });
+    const txnId = client.makeTxnId();
+    const response = await client.sendMessage(
+      roomId,
+      { msgtype: MsgType.Text, body: text },
+      txnId,
+    );
+    if (response.event_id) {
+      setActiveDmMessages(prev => {
+        const index = prev.findIndex(message => message.transactionId === txnId);
+        if (index < 0 || prev[index].id === response.event_id) return prev;
+        const updated = [...prev];
+        updated[index] = { ...updated[index], id: response.event_id };
+        return updated;
+      });
+    }
   }, [credentials]);
 
   const fetchDMHistory = useCallback(async (targetMatrixUserId: string) => {
@@ -1235,7 +1341,7 @@ export function useMatrixClient(
       hydrateRoomTypingFromCurrentMembers(nextRoomId);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
+    const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
 
     if (activeRoomVersionRef.current === myVersion) {
       setActiveMessages(messages);
@@ -1272,7 +1378,7 @@ export function useMatrixClient(
       hydrateRoomTypingFromCurrentMembers(nextRoomId);
       return;
     }
-    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit);
+    const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials?.botUserId);
 
     if (activeDmVersionRef.current === myVersion) {
       setActiveDmMessages(messages);
@@ -1401,7 +1507,7 @@ export function useMatrixClient(
     }
   }, [credentials]);
 
-  return { lastMessages, activeMessages, setActiveChannel,
+  return { lastMessages, activeMessages, setActiveChannel, deleteMessage,
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
            sendReaction, removeReaction,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,

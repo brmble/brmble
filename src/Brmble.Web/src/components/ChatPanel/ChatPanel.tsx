@@ -17,6 +17,9 @@ import Avatar from '../Avatar/Avatar';
 import { SUPPORTED_REACTIONS } from '../../utils/chatReactions';
 import { buildMessageEditContent, canEditMessage } from '../../utils/matrixMessageEditing';
 import { isPaintSourceAttachment } from '../../utils/chatImagePaintSource';
+import { confirm } from '../../hooks/usePrompt';
+import { MessageDeletionError } from '../../api/messages';
+import { canDeleteMessage, DEFAULT_MESSAGE_DELETION_WINDOW_MS } from '../../utils/messageDeletion';
 import type { PaintSessionStatus } from '../../types/paint';
 import './ChatPanel.css';
 
@@ -59,6 +62,9 @@ interface ChatPanelProps {
   onJoinPaint?: (sessionId: string) => Promise<void> | void;
   onOpenPaint?: (sessionId: string) => void;
   onUseAsPaintBackground?: (attachment: MediaAttachment) => void | Promise<void>;
+  canModerateRecentMessages?: boolean;
+  messageDeletionWindowMs?: number;
+  onDeleteMessage?: (roomId: string, eventId: string) => Promise<void>;
 }
 
 const SCROLL_THRESHOLD = 150;
@@ -66,7 +72,7 @@ const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
 const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint, onUseAsPaintBackground }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint, onUseAsPaintBackground, canModerateRecentMessages = false, messageDeletionWindowMs = DEFAULT_MESSAGE_DELETION_WINDOW_MS, onDeleteMessage }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -184,6 +190,9 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const hiddenSetRef = useRef<Set<string>>(new Set());
   const replyHighlightTimeoutRef = useRef<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string; reactions?: Record<string, string[]>; attachment?: MediaAttachment } | null>(null);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const deletingMessageIdRef = useRef<string | null>(null);
+  const [messageDeletionError, setMessageDeletionError] = useState<string | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
   sender: string;
@@ -987,7 +996,7 @@ const [replyState, setReplyState] = useState<{
                     isActiveMatch={isActiveMatch}
                     messageIndex={msgIndex}
                     senderAvatarUrl={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.avatarUrl}
-                    senderMatrixUserId={lookupAvatar(item.message.sender, item.message.senderMatrixUserId)?.matrixUserId}
+                    senderMatrixUserId={item.message.senderMatrixUserId}
                     currentUsername={currentUsername}
                     knownUsernames={knownUsernames}
                     messageId={item.message.id}
@@ -996,11 +1005,13 @@ const [replyState, setReplyState] = useState<{
                     mumbleDelivery={item.message.mumbleDelivery}
                     replyToEventId={item.message.replyToEventId}
                     replyToSender={(item.message.replyToSender) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.sender : undefined)}
-                    replyToContent={(item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
+                    replyToContent={item.message.replyToEventId && lookupMessageById(item.message.replyToEventId)?.redacted
+                      ? 'Message deleted'
+                      : (item.message.replyToContent) || (item.message.replyToEventId ? lookupMessageById(item.message.replyToEventId)?.content : undefined)}
                     isReplyTargetHighlighted={highlightedMessageId === item.message.id}
                     onReplyClick={scrollToMessage}
                     onDismiss={onDismissMessage}
-                    onOpenContextMenu={(onMessageContextMenu || onUseAsPaintBackground) ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted, attachment) => {
+                    onOpenContextMenu={(onMessageContextMenu || onUseAsPaintBackground || onDeleteMessage) ? (x, y, s, m, c, msgId, msgType = 'm.text', reactions, redacted, attachment) => {
                       if (!redacted) {
                         setContextMenu({ x, y, sender: s, senderMatrixUserId: m, content: c, messageId: msgId, msgType, reactions, attachment });
                       }
@@ -1090,6 +1101,50 @@ const [replyState, setReplyState] = useState<{
                   },
                 });
               }
+              const canDeleteSelectedMessage = Boolean(
+                contextMessage && onDeleteMessage && canDeleteMessage(
+                  contextMessage,
+                  matrixRoomId,
+                  currentUserMatrixId,
+                  canModerateRecentMessages,
+                  messageDeletionWindowMs,
+                ),
+              );
+              if (canDeleteSelectedMessage && contextMenu) {
+                items.push({
+                  type: 'item',
+                  label: deletingMessageId !== null ? 'Deleting message…' : 'Delete message',
+                  disabled: deletingMessageId !== null,
+                  onClick: async () => {
+                    const eventId = contextMenu.messageId;
+                    const roomId = matrixRoomId;
+                    setContextMenu(null);
+                    setMessageDeletionError(null);
+                    if (!roomId || !eventId || deletingMessageIdRef.current !== null) return;
+                    deletingMessageIdRef.current = eventId;
+                    const accepted = await confirm({
+                      title: 'Delete message?',
+                      message: 'This message will be replaced with “Message deleted” for everyone.',
+                      confirmLabel: 'Delete message', cancelLabel: 'Cancel', destructive: true,
+                    });
+                    if (!accepted || !onDeleteMessage) {
+                      deletingMessageIdRef.current = null;
+                      return;
+                    }
+                    setDeletingMessageId(eventId);
+                    try {
+                      await onDeleteMessage(roomId, eventId);
+                    } catch (error) {
+                      setMessageDeletionError(error instanceof MessageDeletionError
+                        ? error.message
+                        : 'Message could not be deleted. Try again.');
+                    } finally {
+                      deletingMessageIdRef.current = null;
+                      setDeletingMessageId(null);
+                    }
+                  },
+                });
+              }
               items.push({
                 type: 'item',
                 label: 'Reply',
@@ -1129,6 +1184,12 @@ const [replyState, setReplyState] = useState<{
       </div>
 
       <div className="chat-input-area">
+        {messageDeletionError && (
+          <div className="chat-action-error" role="alert">
+            <span>{messageDeletionError}</span>
+            <button type="button" className="btn btn-ghost btn-icon chat-action-error__dismiss" aria-label="Dismiss message deletion error" onClick={() => setMessageDeletionError(null)}><Icon name="x" size={14} /></button>
+          </div>
+        )}
         {showScrollButton && (
           <Tooltip content="Scroll to bottom">
           <button

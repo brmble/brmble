@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Companions;
@@ -23,6 +24,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly SqliteConnection _keepAlive;
     private readonly string _cs;
     private readonly string? _certHash;
+    private readonly TimeProvider _timeProvider;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
     public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
@@ -36,9 +38,12 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         Services.GetRequiredService<CustomCompanionRepository>();
     public long AliceUserId { get; private set; }
 
-    public BrmbleServerFactory(string? certHash = "testcerthash123")
+    public BrmbleServerFactory(
+        string? certHash = "testcerthash123",
+        TimeProvider? timeProvider = null)
     {
         _certHash = certHash;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         var dbName = "brmble_server_" + Guid.NewGuid().ToString("N");
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
@@ -130,6 +135,11 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
             }
             services.AddSingleton(db);
 
+            var timeProvider = services.FirstOrDefault(d =>
+                d.ServiceType == typeof(TimeProvider));
+            if (timeProvider != null) services.Remove(timeProvider);
+            services.AddSingleton(_timeProvider);
+
             var mumbleIceHostedService = services.FirstOrDefault(d =>
                 d.ServiceType == typeof(IHostedService) &&
                 d.ImplementationType == typeof(MumbleIceService));
@@ -189,6 +199,15 @@ internal sealed class ControllableMatrixAppService
 
     public ControllableMatrixAppService()
     {
+        Mock.Setup(service => service.GetRoomEvent(
+                It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(JsonSerializer.SerializeToElement(new
+            {
+                type = "m.room.message",
+                sender = "@alice:test",
+                origin_server_ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                content = new { msgtype = "m.text", body = "test" }
+            }));
         Mock.Setup(service => service.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync("stub_matrix_token");
         Mock.Setup(service => service.LoginUser(It.IsAny<string>()))

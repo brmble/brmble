@@ -116,6 +116,18 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task SendMessage_WithAuthor_IncludesTrustedAuthorMetadata()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.SendMessage("!room:server", "Alice", "hello", "@alice:test");
+
+        using var json = JsonDocument.Parse(await _capturedRequests.Single().Content!.ReadAsStringAsync());
+        Assert.AreEqual("[Alice]: hello", json.RootElement.GetProperty("body").GetString());
+        Assert.AreEqual("@alice:test", json.RootElement.GetProperty("com.brmble.author_matrix_user_id").GetString());
+    }
+
+    [TestMethod]
     public async Task CreateRoom_ReturnsRoomId()
     {
         SetupHttpResponse(HttpStatusCode.OK,
@@ -362,6 +374,60 @@ public class MatrixAppServiceTests
 
         var body = JsonDocument.Parse(LastJsonBody()).RootElement;
         Assert.AreEqual("Removed after persistence failure", body.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task RedactRoomEvent_UsesCallerSuppliedActor()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"event_id":"$redaction:test"}""");
+
+        await _svc.RedactRoomEvent(
+            "!dm:server", "$message:server", "Deleted through Brmble", "@alice:server");
+
+        StringAssert.Contains(
+            _capturedRequests.Single().RequestUri!.Query,
+            "user_id=%40alice%3Aserver");
+    }
+
+    [TestMethod]
+    public async Task GetRoomEvent_UsesCallerSuppliedActor()
+    {
+        SetupHttpResponse(HttpStatusCode.OK, """{"type":"m.room.message"}""");
+
+        await _svc.GetRoomEvent("!dm:server", "$message:server", "@alice:server");
+
+        StringAssert.Contains(
+            _capturedRequests.Single().RequestUri!.Query,
+            "user_id=%40alice%3Aserver");
+    }
+
+    [TestMethod]
+    public async Task DmRedactionRequiresJoinedParticipant()
+    {
+        var homeserver = new MatrixPermissionTestServer();
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient(It.IsAny<string>()))
+            .Returns(new HttpClient(homeserver));
+        var service = new MatrixAppService(
+            factory.Object,
+            Options.Create(new MatrixSettings
+            {
+                HomeserverUrl = "http://matrix.test",
+                AppServiceToken = "test-token",
+                ServerDomain = "server"
+            }),
+            NullLogger<MatrixAppService>.Instance);
+
+        var roomId = await service.CreateDMRoom("alice", "bob");
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(() =>
+            service.RedactRoomEvent(
+                roomId, "$message:server", "Deleted through Brmble", "@brmble:server"));
+
+        await service.RedactRoomEvent(
+            roomId, "$message:server", "Deleted through Brmble", "@alice:server");
+
+        Assert.AreEqual("@alice:server", homeserver.LastRedactionActor);
     }
 
     [TestMethod]

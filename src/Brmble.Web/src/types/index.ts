@@ -55,6 +55,8 @@ export interface MediaAttachment {
 
 export interface ChatMessage {
   id: string;
+  /** Matrix transaction ID used to reconcile a local echo with its server event ID. */
+  transactionId?: string;
   channelId: string;
   sender: string;
   senderMatrixUserId?: string;

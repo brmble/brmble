@@ -1394,3 +1394,11 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
 | `game-command-error` (App) | `error` | `top-right` | No | `Ready check failed` / `Rematch response failed` / `Rematch request failed` | Server `reason` for the rejected duel command |
+#### Chat context action failures
+
+A rejected message context-menu mutation (for example, server-authorized
+message deletion) renders one localized `role="alert"` row directly above the
+chat composer. Use `.chat-action-error`, danger tokens, a labeled dismiss
+button, and the server-provided human-readable message. Clear the row before
+retrying and after success. Do not use `window.alert`, add a feature-specific
+modal, or create a second toast system.
