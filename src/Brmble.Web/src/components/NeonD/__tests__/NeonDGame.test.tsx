@@ -254,19 +254,43 @@ it('processes a second file selection after the first import fails', async () =>
   expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
 });
 
-it('renders Production, Distribution, and Muscle / Respect as primary areas', () => {
+it('renders Production as the default left tab and keeps Distribution visible', () => {
   render(<NeonDGame />);
 
+  const productionTab = screen.getByRole('tab', { name: 'Production' });
+  const muscleTab = screen.getByRole('tab', { name: 'Muscle' });
+
+  expect(productionTab).toHaveAttribute('aria-selected', 'true');
+  expect(muscleTab).toHaveAttribute('aria-selected', 'false');
   expect(screen.getByRole('heading', { name: /production/i })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { name: /muscle/i })).toBeInTheDocument();
-  expect(screen.getAllByText(/respect/i).length).toBeGreaterThan(0);
+  expect(screen.queryByRole('heading', { name: /muscle \/ respect/i })).not.toBeInTheDocument();
+});
+
+it('switches the left panel between Production and Muscle while retaining Distribution', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('tab', { name: 'Muscle' }));
+
+  expect(screen.getByRole('tab', { name: 'Muscle' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('heading', { name: /muscle \/ respect/i })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: /production/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Hood Rat' })).toBeInTheDocument();
 
   const muscleHeader = screen.getByRole('heading', { name: 'Hood Rat' }).parentElement;
 
   expect(muscleHeader?.className).toContain('muscleHeader');
   expect(muscleHeader).toHaveTextContent('Hood Rat');
   expect(muscleHeader).toHaveTextContent('Owned:');
+
+  await user.click(screen.getByRole('tab', { name: 'Production' }));
+
+  expect(screen.getByRole('tab', { name: 'Production' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('heading', { name: /production/i })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: /muscle \/ respect/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
 });
 
 it('does not render Research Speed', () => {

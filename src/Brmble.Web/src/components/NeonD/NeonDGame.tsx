@@ -34,6 +34,8 @@ const formatDuration = (durationMs: number) => {
   return `${minutes}m`;
 };
 
+type LeftPanel = 'production' | 'muscle';
+
 export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const {
     state,
@@ -59,6 +61,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     importGame,
   } = useGameEngine();
   const [importError, setImportError] = useState<string | null>(null);
+  const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanel>('production');
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const sellerIncomePerSecond = Object.values(state.lastEarningsPerSeller)
@@ -189,15 +192,46 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
       )}
 
       <div className={styles.gameplayGrid}>
-        <ProductionPanel
-          state={state}
-          buyProducer={buyProducer}
-          researchProduct={researchProduct}
-          buyProductUpgrade={buyProductUpgrade}
-          unlockBulkSelling={unlockBulkSelling}
-          bulkSellProduct={bulkSellProduct}
-          setAutoBulkEnabled={setAutoBulkEnabled}
-        />
+        <div className={styles.leftWorkspace}>
+          <div className={styles.panelTabs} role="tablist" aria-label="Neon-D management panels">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeLeftPanel === 'production'}
+              className={styles.panelTab}
+              onClick={() => setActiveLeftPanel('production')}
+            >
+              Production
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeLeftPanel === 'muscle'}
+              className={styles.panelTab}
+              onClick={() => setActiveLeftPanel('muscle')}
+            >
+              Muscle
+            </button>
+          </div>
+          {activeLeftPanel === 'production' ? (
+            <ProductionPanel
+              state={state}
+              buyProducer={buyProducer}
+              researchProduct={researchProduct}
+              buyProductUpgrade={buyProductUpgrade}
+              unlockBulkSelling={unlockBulkSelling}
+              bulkSellProduct={bulkSellProduct}
+              setAutoBulkEnabled={setAutoBulkEnabled}
+            />
+          ) : (
+            <MusclePanel
+              state={state}
+              buyMuscleWorker={buyMuscleWorker}
+              buyTerritory={buyTerritory}
+              buyDiscount={buyDiscount}
+            />
+          )}
+        </div>
         <DistributionPanel
           state={state}
           hireDealer={hireDealer}
@@ -207,12 +241,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           toggleDealerProtection={toggleDealerProtection}
           payDealerBail={payDealerBail}
           promoteCaptain={promoteCaptain}
-        />
-        <MusclePanel
-          state={state}
-          buyMuscleWorker={buyMuscleWorker}
-          buyTerritory={buyTerritory}
-          buyDiscount={buyDiscount}
         />
       </div>
 

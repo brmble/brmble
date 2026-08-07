@@ -64,7 +64,7 @@
 
 .gameplayGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
   flex: 1;
@@ -72,9 +72,60 @@
   overflow: hidden;
 }
 
-.panel {
+.leftWorkspace {
   display: grid;
   gap: var(--space-md);
+  align-content: start;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.panelTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 2px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.panelTab {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panelTab[aria-selected='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
+  box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
+}
+
+.panelTab:hover,
+.panelTab:focus-visible {
+  color: var(--text-primary);
+}
+
+.panelTab:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.panel {
+  display: grid;
+  gap: 10px;
   align-content: start;
   min-height: 0;
   max-height: 100%;
@@ -84,7 +135,7 @@
 
 .cardStack {
   display: grid;
-  gap: var(--space-md);
+  gap: 10px;
 }
 
 .panelHeader,
@@ -98,13 +149,13 @@
 }
 
 .metricRow {
-  margin-bottom: var(--space-xs);
+  margin-bottom: 2px;
 }
 
 .equipmentList {
   display: grid;
   gap: 8px;
-  margin-top: var(--space-md);
+  margin-top: 10px;
 }
 
 .equipmentOwned {
@@ -114,7 +165,7 @@
 .captainCard,
 .marketBanner {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .muscleWorkerRow {
@@ -133,7 +184,7 @@
   gap: var(--space-sm);
   background: var(--accent-primary);
   color: var(--bg-deep);
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   font-weight: 700;
 }
 
@@ -148,8 +199,8 @@
 
 .muscleBody {
   display: grid;
-  gap: 8px;
-  padding: var(--space-lg);
+  gap: 4px;
+  padding: 12px;
 }
 
 .bottleneckPositive {
@@ -202,7 +253,7 @@
   box-shadow: var(--shadow-elevated);
   overflow: hidden;
   transition: all var(--transition-normal);
-  margin-bottom: var(--space-md);
+  margin-bottom: 0;
 }
 
 .productionCard:hover {
@@ -227,7 +278,7 @@
   gap: var(--space-sm);
   background: var(--accent-success);
   color: var(--bg-deep);
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   font-weight: 700;
 }
 
@@ -242,7 +293,7 @@
 }
 
 .productionBody {
-  padding: var(--space-lg);
+  padding: 12px;
 }
 
 .columnHeader {
@@ -309,8 +360,8 @@
 }
 
 .dealerCard {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
+  margin-bottom: 10px;
+  padding: 10px;
 }
 
 .equipmentToggle {
@@ -319,7 +370,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: var(--space-xs) 0;
+  padding: 4px 0;
   border: none;
   background: transparent;
   color: var(--accent-primary);
@@ -340,25 +391,25 @@
 }
 
 .dealerBody {
-  padding: var(--space-md);
+  padding: 10px;
 }
 
 .actionStack {
   display: grid;
-  gap: var(--space-xs);
-  margin-top: var(--space-md);
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .buyButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: none;
   background: var(--accent-success);
   color: var(--bg-deep);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
@@ -382,14 +433,14 @@
 
 .unlockButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: 2px solid var(--accent-primary);
   background: transparent;
   color: var(--accent-primary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -408,14 +459,14 @@
 
 .dangerButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: 6px 10px;
   border-radius: var(--radius-md);
   border: 2px solid var(--accent-secondary);
   background: transparent;
   color: var(--accent-secondary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -437,15 +488,21 @@
 
 .dealerHeader {
   background: var(--accent-secondary);
-  padding: var(--space-xs);
+  padding: 6px 8px;
   text-align: center;
   font-weight: bold;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 900px) {
   .gameplayGrid {
     grid-template-columns: 1fr;
     overflow: auto;
+  }
+
+  .leftWorkspace {
+    max-height: none;
+    overflow: visible;
   }
 
   .panel {
