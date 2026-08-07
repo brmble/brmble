@@ -218,6 +218,24 @@ describe('Neon-D save format', () => {
         makeReferenceDealer({ id: 'candidate-c' }),
       ];
     })],
+    ['captains with duplicate ids', createCorruptEnvelope((state) => {
+      state.captains = [
+        makeReferenceCaptain({ id: 'captain-a' }),
+        makeReferenceCaptain({ id: 'captain-a', name: 'Duplicate Captain' }),
+      ];
+    })],
+    ['captain and active dealer with the same id', createCorruptEnvelope((state) => {
+      state.activeDealers = [makeReferenceDealer({ id: 'shared-seller-id' })];
+      state.captains = [makeReferenceCaptain({ id: 'shared-seller-id' })];
+    })],
+    ['active dealer and candidate with the same id', createCorruptEnvelope((state) => {
+      state.activeDealers = [makeReferenceDealer({ id: 'shared-seller-id' })];
+      state.availableDealers = [
+        makeReferenceDealer({ id: 'shared-seller-id' }),
+        makeReferenceDealer({ id: 'candidate-b' }),
+        makeReferenceDealer({ id: 'candidate-c' }),
+      ];
+    })],
     ['dealer equipment ids must be unique', createCorruptEnvelope((state) => {
       state.activeDealers = [
         makeReferenceDealer({

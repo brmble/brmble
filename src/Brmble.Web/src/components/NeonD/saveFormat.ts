@@ -172,8 +172,8 @@ function isNumericRecord(value: unknown): boolean {
   return isObject(value) && Object.values(value).every(isNonNegativeFiniteNumber);
 }
 
-function hasUniqueSellerIds(dealers: readonly Dealer[]): boolean {
-  return hasUniqueValues(dealers.map((dealer) => dealer.id));
+function hasUniqueSellerIds(sellers: readonly { id: string }[]): boolean {
+  return hasUniqueValues(sellers.map((seller) => seller.id));
 }
 
 function isGameState(value: unknown): value is GameState {
@@ -206,8 +206,7 @@ function isGameState(value: unknown): value is GameState {
     && isProductionRecord(value.production, unlockedProducts)
     && isMuscleOwnedRecord(value.muscleOwned)
     && isNonNegativeInteger(value.discountLevel)
-    && hasUniqueSellerIds(activeDealerRecords)
-    && hasUniqueSellerIds(availableDealers)
+    && hasUniqueSellerIds([...activeDealerRecords, ...availableDealers, ...captains])
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
     && typeof value.bulkUnlocked === 'boolean'
