@@ -261,6 +261,12 @@ it('renders Production, Distribution, and Muscle / Respect as primary areas', ()
   expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /muscle/i })).toBeInTheDocument();
   expect(screen.getAllByText(/respect/i).length).toBeGreaterThan(0);
+
+  const muscleHeader = screen.getByRole('heading', { name: 'Hood Rat' }).parentElement;
+
+  expect(muscleHeader?.className).toContain('muscleHeader');
+  expect(muscleHeader).toHaveTextContent('Hood Rat');
+  expect(muscleHeader).toHaveTextContent('Owned:');
 });
 
 it('does not render Research Speed', () => {

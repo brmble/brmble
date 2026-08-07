@@ -111,7 +111,6 @@
   opacity: 0.65;
 }
 
-.muscleWorkerRow,
 .captainCard,
 .marketBanner {
   display: grid;
@@ -123,6 +122,33 @@
   border: 1px solid var(--glass-border);
   border-left: 4px solid var(--accent-primary);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.muscleHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  padding: var(--space-sm) var(--space-md);
+  font-weight: 700;
+}
+
+.muscleHeader .productTitle {
+  color: inherit;
+}
+
+.muscleHeader span {
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.muscleBody {
+  display: grid;
+  gap: 8px;
   padding: var(--space-lg);
 }
 

@@ -51,25 +51,27 @@ export function MusclePanel(props: MusclePanelProps) {
           const cost = getMuscleWorkerCost(worker.id, owned, props.state.discountLevel);
           return (
             <article key={worker.id} className={styles.muscleWorkerRow}>
-              <div className={styles.panelHeader}>
+              <div className={styles.muscleHeader}>
                 <h4 className={styles.productTitle}>{worker.name}</h4>
                 <span>Owned: {owned.toLocaleString()}</span>
               </div>
-              <div className={styles.metricRow}>
-                <span>Base Respect/sec</span>
-                <strong>{worker.respectPerSecond.toLocaleString()} each</strong>
+              <div className={styles.muscleBody}>
+                <div className={styles.metricRow}>
+                  <span>Base Respect/sec</span>
+                  <strong>{worker.respectPerSecond.toLocaleString()} each</strong>
+                </div>
+                <div className={styles.metricRow}>
+                  <span>Total contribution</span>
+                  <strong>{(owned * worker.respectPerSecond).toLocaleString()} Respect/sec</strong>
+                </div>
+                <button
+                  className={styles.buyButton}
+                  onClick={() => props.buyMuscleWorker(worker.id)}
+                  disabled={props.state.cash < cost}
+                >
+                  Buy - {formatMoney(cost)}
+                </button>
               </div>
-              <div className={styles.metricRow}>
-                <span>Total contribution</span>
-                <strong>{(owned * worker.respectPerSecond).toLocaleString()} Respect/sec</strong>
-              </div>
-              <button
-                className={styles.buyButton}
-                onClick={() => props.buyMuscleWorker(worker.id)}
-                disabled={props.state.cash < cost}
-              >
-                Buy - {formatMoney(cost)}
-              </button>
             </article>
           );
         })}
