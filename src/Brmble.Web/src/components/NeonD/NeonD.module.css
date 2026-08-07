@@ -309,6 +309,44 @@
   padding: 12px;
 }
 
+.productionMetrics {
+  display: grid;
+  gap: 6px;
+}
+
+.productionFlow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.productionFlow > :nth-child(6) {
+  text-align: right;
+}
+
+.productionUpIndicator,
+.productionDownIndicator {
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+
+.productionUpIndicator {
+  border-bottom: 12px solid var(--accent-success);
+}
+
+.productionDownIndicator {
+  border-top: 12px solid var(--accent-danger);
+}
+
+.productionDelta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .columnHeader {
   text-transform: uppercase;
   letter-spacing: 0.05em;

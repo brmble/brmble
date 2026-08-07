@@ -330,6 +330,19 @@ it('shows producer, stock, production rate, sales rate, and bottleneck delta for
   expect(screen.getAllByText(/production/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/sales/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/delta/i).length).toBeGreaterThan(0);
+  expect(weedCard.querySelector('[class*="productionMetrics"]')).toHaveTextContent('Stock');
+  expect(weedCard.querySelector('[class*="productionFlow"]')).toHaveTextContent('Production');
+  expect(weedCard.querySelector('[class*="productionFlow"]')).toHaveTextContent('Sales');
+  expect(weedCard.querySelector('[class*="productionDelta"]')).toHaveTextContent('Delta');
+  expect(weedCard.querySelector('[class*="productionUpIndicator"]')).toHaveAttribute(
+    'aria-label',
+    'Production increasing',
+  );
+  expect(weedCard.querySelector('[class*="productionDownIndicator"]')).toHaveAttribute(
+    'aria-label',
+    'Sales decreasing',
+  );
+  expect(within(weedCard).getByRole('button', { name: /buy 5 cannabis plant/i })).toBeInTheDocument();
 });
 
 it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment choices', async () => {

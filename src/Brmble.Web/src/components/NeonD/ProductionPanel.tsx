@@ -63,40 +63,42 @@ export function ProductionPanel(props: ProductionPanelProps) {
               <div className={styles.productionBody}>
                 {unlocked ? (
                 <>
-                  <div className={styles.metricRow}>
-                    <span>Producer</span>
-                    <strong>{definition.producer.name}</strong>
-                  </div>
-                  <div className={styles.metricRow}>
-                    <span>Stock</span>
-                    <strong>{product.stock.toFixed(2)}g</strong>
-                  </div>
-                  <div className={styles.metricRow}>
-                    <span>Producers</span>
-                    <strong>{product.producersOwned.toLocaleString()}</strong>
-                  </div>
-                  <div className={styles.metricRow}>
-                    <span>Production</span>
-                    <strong>{productionRate.toFixed(2)}g/s</strong>
-                  </div>
-                  <div className={styles.metricRow}>
-                    <span>Sales</span>
-                    <strong>{salesRate.toFixed(2)}g/s</strong>
-                  </div>
-                  <div
-                    className={`${styles.metricRow} ${
+                  <div className={styles.productionMetrics}>
+                    <div className={styles.metricRow}>
+                      <span>Stock</span>
+                      <strong>{product.stock.toFixed(2)}g</strong>
+                    </div>
+                    <div className={styles.productionFlow}>
+                      <span>Production</span>
+                      <span
+                        className={styles.productionUpIndicator}
+                        role="img"
+                        aria-label="Production increasing"
+                      />
+                      <strong>{productionRate.toFixed(2)}g/s</strong>
+                      <strong>{salesRate.toFixed(2)}g/s</strong>
+                      <span
+                        className={styles.productionDownIndicator}
+                        role="img"
+                        aria-label="Sales decreasing"
+                      />
+                      <span>Sales</span>
+                    </div>
+                    <div
+                      className={`${styles.productionDelta} ${
                       delta >= 0 ? styles.bottleneckPositive : styles.bottleneckNegative
                     }`}
-                  >
-                    <span>Delta</span>
-                    <strong>{delta >= 0 ? '+' : ''}{delta.toFixed(2)}g/s</strong>
+                    >
+                      <span>Delta</span>
+                      <strong>{delta >= 0 ? '+' : ''}{delta.toFixed(2)}g/s</strong>
+                    </div>
                   </div>
                   <button
                     className={styles.buyButton}
                     onClick={() => props.buyProducer(productId)}
                     disabled={props.state.cash < getProducerCost(productId, product.producersOwned, props.state.discountLevel)}
                   >
-                    Buy {definition.producer.name} - {formatMoney(getProducerCost(productId, product.producersOwned, props.state.discountLevel))}
+                    Buy {product.producersOwned.toLocaleString()} {definition.producer.name}{product.producersOwned === 1 ? '' : 's'} - {formatMoney(getProducerCost(productId, product.producersOwned, props.state.discountLevel))}
                   </button>
                   {nextUpgrade ? (
                     <button
