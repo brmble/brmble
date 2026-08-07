@@ -305,6 +305,13 @@ it('allocates the left workspace panel row for local vertical scrolling', () => 
   expect(css).toMatch(/\.panel\s*\{[\s\S]*max-height:\s*none/);
 });
 
+it('constrains the Distribution panel for local vertical scrolling', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(/\.leftWorkspace\s*>\s*\.panel,\s*\.gameplayGrid\s*>\s*\.panel\s*\{[\s\S]*height:\s*100%/);
+});
+
 it('does not render Research Speed', () => {
   render(<NeonDGame />);
 
