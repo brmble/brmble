@@ -315,6 +315,19 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
 });
 
+it('shows Bulk and Captain progression controls at their visible thresholds', () => {
+  mockState({
+    cash: 10_000_000,
+    runEarnings: 7_500_000,
+    bulkUnlocked: false,
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByRole('button', { name: /bulk.*141[.,]592/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /captain/i })).toBeInTheDocument();
+});
+
 it('shows the offline summary with cash, Respect, and simulated duration', () => {
   mockState({
     offlineEarningsSummary: {

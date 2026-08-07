@@ -46,6 +46,28 @@ describe('Neon-D economy formulas', () => {
     expect(getVisibleProductIds(state)).toEqual(['weed', 'mushrooms', 'meth']);
   });
 
+  it('uses the exact progression gates from the alignment spec', () => {
+    const state = createBaseGameState(0);
+
+    state.runEarnings = 1_599;
+    expect(getVisibleProductIds(state)).toEqual(['weed']);
+    state.runEarnings = 1_600;
+    expect(getVisibleProductIds(state)).toContain('mushrooms');
+
+    const gates = [
+      { before: 29_999, at: 30_000, predicate: isRiskActive },
+      { before: 212_387, at: 212_388, predicate: isBulkSellingVisible },
+      { before: 7_499_999, at: 7_500_000, predicate: isCaptainVisible },
+    ] as const;
+
+    for (const gate of gates) {
+      state.runEarnings = gate.before;
+      expect(gate.predicate(state)).toBe(false);
+      state.runEarnings = gate.at;
+      expect(gate.predicate(state)).toBe(true);
+    }
+  });
+
   it('uses exact Respect progression formulas', () => {
     expect(getTerritoryCost(0)).toBe(500);
     expect(getTerritoryCost(1)).toBeCloseTo(2_600);
@@ -86,22 +108,6 @@ describe('Neon-D economy formulas', () => {
     expect(getRecruitmentRefreshMs(10)).toBe(50_000);
     expect(getRecruitmentRefreshMs(100)).toBe(1_000);
     expect(getRecruitmentRefreshRemainingMs({ kingpins: 1, lastDealerRefreshAt: 10_000 }, 20_000)).toBe(49_000);
-  });
-
-  it('uses the exact run-earnings visibility and risk gates', () => {
-    const state = createBaseGameState(0);
-    state.runEarnings = 29_999;
-    expect(isRiskActive(state)).toBe(false);
-    state.runEarnings = 30_000;
-    expect(isRiskActive(state)).toBe(true);
-    state.runEarnings = 212_387;
-    expect(isBulkSellingVisible(state)).toBe(false);
-    state.runEarnings = 212_388;
-    expect(isBulkSellingVisible(state)).toBe(true);
-    state.runEarnings = 7_499_999;
-    expect(isCaptainVisible(state)).toBe(false);
-    state.runEarnings = 7_500_000;
-    expect(isCaptainVisible(state)).toBe(true);
   });
 
   it('prices bail from the arrested dealer earnings snapshot only', () => {

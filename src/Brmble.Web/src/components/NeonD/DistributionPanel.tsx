@@ -121,7 +121,7 @@ const CandidateCard = ({
 export function DistributionPanel(props: DistributionPanelProps) {
   const refreshRemainingMs = getRecruitmentRefreshRemainingMs(
     props.state,
-    Date.now(),
+    props.state.lastTickAt,
   );
 
   return (

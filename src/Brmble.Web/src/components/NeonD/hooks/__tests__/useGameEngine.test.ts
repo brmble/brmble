@@ -1,7 +1,13 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
-import { getCaptainCost, getProducerCost } from '../../economy';
+import {
+  getCaptainCost,
+  getProducerCost,
+  getProductProductionRate,
+  getRecruitmentRefreshMs,
+  getRespectMultiplier,
+} from '../../economy';
 import type { Captain, GameState } from '../../types';
 import { makeReferenceDealer } from '../../__tests__/testFixtures';
 import { useGameEngine } from '../useGameEngine';
@@ -35,6 +41,39 @@ describe('useGameEngine', () => {
     expect(result.current.state.unlockedProducts).toEqual(['weed']);
     expect(result.current.state.production.weed.producersOwned).toBe(0);
     expect(getProducerCost('weed', 0, result.current.state.discountLevel)).toBe(15);
+  });
+
+  it('completes the fresh-run Production -> Distribution and Cash -> Muscle -> Respect loops', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.activeDealers).toEqual([null]);
+    expect(result.current.state.respect).toBe(0);
+
+    act(() => {
+      result.current.buyProducer('weed');
+      result.current.buyMuscleWorker('hoodRat');
+    });
+    expect(result.current.state.cash).toBeCloseTo(5);
+
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(result.current.state.production.weed.stock).toBeCloseTo(2);
+    expect(result.current.state.respect).toBeCloseTo(10);
+
+    const candidate = result.current.state.availableDealers[0];
+    expect(candidate.volumeMultiplier).toBeGreaterThanOrEqual(0.5);
+    expect(candidate.volumeMultiplier).toBeLessThanOrEqual(1.5);
+    expect(candidate.marginMultiplier).toBeGreaterThanOrEqual(0.5);
+    expect(candidate.marginMultiplier).toBeLessThanOrEqual(1.5);
+
+    act(() => result.current.hireDealer(candidate.id, 0));
+    const cashBeforeSales = result.current.state.cash;
+    act(() => vi.advanceTimersByTime(20_000));
+
+    expect(result.current.state.cash).toBeGreaterThan(cashBeforeSales);
+    expect(result.current.state.runEarnings).toBeGreaterThan(0);
+    expect(result.current.state.production.weed.stock).toBeGreaterThanOrEqual(0);
   });
 
   it('does not read the legacy v1 save key', () => {
@@ -246,6 +285,51 @@ describe('useGameEngine', () => {
     act(() => result.current.promoteCaptain('captain-10'));
 
     expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('keeps Kingpin bonuses permanent through the next Captain reset', () => {
+    const { result } = renderSeededGame({
+      cash: 20_000_000,
+      runEarnings: 20_000_000,
+      captains: [{
+        id: 'captain-10',
+        name: 'Captain Ten',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 161_340_000,
+      }],
+    });
+
+    act(() => result.current.promoteCaptain('captain-10'));
+    expect(result.current.state.kingpins).toBe(1);
+
+    const withKingpin: GameState = {
+      ...result.current.state,
+      production: {
+        ...result.current.state.production,
+        weed: { ...result.current.state.production.weed, producersOwned: 1 },
+      },
+    };
+    const zeroKingpin: GameState = {
+      ...withKingpin,
+      kingpins: 0,
+      production: {
+        ...withKingpin.production,
+        weed: { ...withKingpin.production.weed },
+      },
+    };
+
+    expect(getProductProductionRate(withKingpin, 'weed')).toBeCloseTo(
+      getProductProductionRate(zeroKingpin, 'weed') * 2,
+    );
+    expect(getRespectMultiplier(withKingpin)).toBeCloseTo(2);
+    expect(getRecruitmentRefreshMs(withKingpin.kingpins)).toBe(59_000);
+
+    act(() => result.current.buyCaptain());
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.territoryLevel).toBe(0);
     expect(result.current.state.kingpins).toBe(1);
   });
 

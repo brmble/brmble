@@ -2,6 +2,7 @@ import { EQUIPMENT_CATALOG, MUSCLE_CATALOG, NEON_D_SAVE_KEY, PRODUCT_CATALOG } f
 import type {
   Captain,
   Dealer,
+  EquipmentId,
   GameState,
   MarketEvent,
   OfflineEarningsSummary,
@@ -33,9 +34,13 @@ function isProductId(value: unknown): boolean {
   return typeof value === 'string' && PRODUCT_IDS.has(value as (typeof PRODUCT_CATALOG)[number]['id']);
 }
 
+function isEquipmentId(value: unknown): value is EquipmentId {
+  return typeof value === 'string' && EQUIPMENT_IDS.has(value as EquipmentId);
+}
+
 function isEquipmentIdArray(value: unknown): boolean {
   return Array.isArray(value)
-    && value.every((item) => typeof item === 'string' && EQUIPMENT_IDS.has(item));
+    && value.every(isEquipmentId);
 }
 
 function isProductState(value: unknown): value is ProductState {

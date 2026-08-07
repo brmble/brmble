@@ -66,7 +66,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const respectPerSecond = getRespectPerSecond(state);
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
-  const now = Date.now();
+  const renderNow = state.lastTickAt;
 
   const handleReset = async () => {
     const confirmed = await confirm({
@@ -180,11 +180,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         {importError && <p className={styles.importError} role="alert">{importError}</p>}
       </header>
 
-      {state.activeMarketEvent && state.activeMarketEvent.endsAt > now && (
+      {state.activeMarketEvent && state.activeMarketEvent.endsAt > renderNow && (
         <div className={`glass-panel ${styles.marketBanner}`}>
           <strong>Market spike: {getProductDefinition(state.activeMarketEvent.productId).name}</strong>
           <span>{state.activeMarketEvent.multiplier.toFixed(2)}x street value</span>
-          <span>{Math.ceil((state.activeMarketEvent.endsAt - now) / 1000)}s remaining</span>
+          <span>{Math.ceil((state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
         </div>
       )}
 

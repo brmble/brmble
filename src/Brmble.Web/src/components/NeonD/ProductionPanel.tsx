@@ -31,7 +31,7 @@ const formatMoney = (value: number) => `$${Math.round(value).toLocaleString()}`;
 export function ProductionPanel(props: ProductionPanelProps) {
   const visibleIds = getVisibleProductIds(props.state);
   const salesRates = getProductSalesRates(props.state);
-  const now = Date.now();
+  const renderNow = props.state.lastTickAt;
 
   return (
     <section className={styles.panel} aria-labelledby="neond-production-heading">
@@ -51,7 +51,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
           const effectiveStreetValue = getEffectiveStreetValue(props.state, productId);
           const hasMarketSpike =
             props.state.activeMarketEvent?.productId === productId &&
-            props.state.activeMarketEvent.endsAt > now;
+            props.state.activeMarketEvent.endsAt > renderNow;
 
           return (
             <article key={productId} className={styles.productionCard} aria-label={definition.name}>
@@ -111,7 +111,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
                   {hasMarketSpike && props.state.activeMarketEvent && (
                     <div className={styles.marketBanner}>
                       <span>Market spike: {formatMoney(baseStreetValue)}/g → {formatMoney(effectiveStreetValue)}/g</span>
-                      <span>{Math.ceil((props.state.activeMarketEvent.endsAt - now) / 1000)}s remaining</span>
+                      <span>{Math.ceil((props.state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
                     </div>
                   )}
                   {isBulkSellingVisible(props.state) && !props.state.bulkUnlocked && (

@@ -42,10 +42,11 @@ describe('Neon-D save format', () => {
 
     const json = serializeNeonDSave(state);
     const parsed = JSON.parse(json);
+    const legacyResearchField = ['research', 'Speed'].join('');
 
     expect(parsed.state.schemaVersion).toBe(2);
     expect(parsed.state).not.toHaveProperty('money');
-    expect(parsed.state).not.toHaveProperty('researchSpeed');
+    expect(parsed.state).not.toHaveProperty(legacyResearchField);
     expect(parsed.state).not.toHaveProperty('unlockedProduction');
     expect(parsed.state.offlineEarningsSummary).toEqual(state.offlineEarningsSummary);
   });

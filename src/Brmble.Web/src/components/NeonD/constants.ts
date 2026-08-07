@@ -2,10 +2,7 @@ import type {
   EquipmentDefinition,
   GameState,
   MuscleWorkerDefinition,
-  MuscleWorkerId,
   ProductDefinition,
-  ProductState,
-  ProductId,
 } from './types';
 
 export const NEON_D_SAVE_KEY = 'brmble_neon_d_save_v2';
@@ -46,6 +43,9 @@ export const CAPTAIN_BASE_MARGIN_MULTIPLIER = 1.5;
 export const CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER = 4;
 export const OFFLINE_MIN_AWAY_MS = 30_000;
 export const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
+
+const toRecord = <K extends string, V>(entries: readonly (readonly [K, V])[]) =>
+  Object.fromEntries(entries) as Record<K, V>;
 
 const upgrades = {
   weed: [
@@ -165,12 +165,12 @@ export const createBaseGameState = (now: number): GameState => ({
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,
-  production: Object.fromEntries(PRODUCT_CATALOG.map((product) => [
+  production: toRecord(PRODUCT_CATALOG.map((product) => [
     product.id,
     { stock: 0, producersOwned: 0, purchasedUpgradeIds: [] },
-  ])) as Record<ProductId, ProductState>,
+  ] as const)),
   unlockedProducts: ['weed'],
-  muscleOwned: Object.fromEntries(MUSCLE_CATALOG.map((worker) => [worker.id, 0])) as Record<MuscleWorkerId, number>,
+  muscleOwned: toRecord(MUSCLE_CATALOG.map((worker) => [worker.id, 0] as const)),
   territoryLevel: 0,
   discountLevel: 0,
   activeDealers: [null],
