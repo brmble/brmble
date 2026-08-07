@@ -15,6 +15,7 @@ import {
 import { getNormalDealerMainSaleRate } from './dealers';
 import { DealerRating } from './DealerRating';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import { Select } from '../Select';
 import styles from './NeonD.module.css';
 
 type DistributionPanelProps = {
@@ -55,18 +56,16 @@ const ProductSelect = ({
 }) => (
   <label className={styles.metricRow}>
     <span>Product</span>
-    <select
+    <Select
       className={styles.select}
-      aria-label={label}
+      ariaLabel={label}
       value={value}
-      onChange={(event) => onChange(event.target.value as ProductId)}
-    >
-      {state.unlockedProducts.map((productId) => (
-        <option key={productId} value={productId}>
-          {getProductDefinition(productId).name}
-        </option>
-      ))}
-    </select>
+      onChange={(productId) => onChange(productId as ProductId)}
+      options={state.unlockedProducts.map((productId) => ({
+        value: productId,
+        label: getProductDefinition(productId).name,
+      }))}
+    />
   </label>
 );
 
