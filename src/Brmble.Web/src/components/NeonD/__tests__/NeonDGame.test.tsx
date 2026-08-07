@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
@@ -280,12 +280,14 @@ it('shows producer, stock, production rate, sales rate, and bottleneck delta for
   expect(screen.getAllByText(/delta/i).length).toBeGreaterThan(0);
 });
 
-it('shows numeric dealer Volume, Margin, protection loss, and fixed equipment choices', () => {
+it('shows numeric dealer Volume, Margin, protection loss, and fixed equipment choices', async () => {
+  const user = userEvent.setup();
   render(<NeonDGame />);
 
   expect(screen.getAllByText(/volume/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/margin/i).length).toBeGreaterThan(0);
   expect(screen.getByText(/-10% income/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /expand equipment for test dealer/i }));
   expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
 });
 
@@ -301,6 +303,33 @@ it('shows all three auto-refreshed candidates without a manual refresh button', 
   expect(screen.getByText(/candidate three/i)).toBeInTheDocument();
   expect(screen.getByText(/next candidates in/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
+});
+
+it('keeps owned dealer equipment compact while leaving dealer details visible', async () => {
+  const user = userEvent.setup();
+  mockState({
+    activeDealers: [makeReferenceDealer({ id: 'dealer-ui', isProtected: false })],
+  });
+
+  render(<NeonDGame />);
+
+  const dealerCard = screen.getByText(/test dealer/i).closest('article');
+  expect(dealerCard).not.toBeNull();
+  const dealer = within(dealerCard as HTMLElement);
+  expect(dealer.getByText(/test dealer/i)).toBeInTheDocument();
+  expect(dealer.getByText(/volume/i)).toBeInTheDocument();
+  expect(dealer.getByText(/unprotected/i)).toBeInTheDocument();
+  expect(dealer.getByRole('button', { name: /expand equipment for test dealer/i })).toBeInTheDocument();
+  expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
+
+  await user.click(dealer.getByRole('button', { name: /expand equipment for test dealer/i }));
+
+  expect(dealer.getByRole('button', { name: /baseball bat/i })).toBeInTheDocument();
+  expect(dealer.getByRole('button', { name: /collapse equipment for test dealer/i })).toBeInTheDocument();
+
+  await user.click(dealer.getByRole('button', { name: /collapse equipment for test dealer/i }));
+
+  expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
 });
 
 it('shows the Captain prestige controls and invokes buyCaptain', async () => {

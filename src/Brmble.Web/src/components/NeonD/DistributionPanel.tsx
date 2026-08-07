@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   CAPTAIN_BASE_MARGIN_MULTIPLIER,
   CAPTAIN_BASE_VOLUME_MULTIPLIER,
@@ -119,6 +120,17 @@ const CandidateCard = ({
 );
 
 export function DistributionPanel(props: DistributionPanelProps) {
+  const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
+
+  const toggleEquipment = (dealerId: string) => {
+    setExpandedEquipmentIds((current) => {
+      const next = new Set(current);
+      if (next.has(dealerId)) next.delete(dealerId);
+      else next.add(dealerId);
+      return next;
+    });
+  };
+
   const refreshRemainingMs = getRecruitmentRefreshRemainingMs(
     props.state,
     props.state.lastTickAt,
@@ -176,12 +188,24 @@ export function DistributionPanel(props: DistributionPanelProps) {
                       >
                         {dealer.isProtected ? 'Disable protection' : 'Enable protection (-10% income)'}
                       </button>
-                      <EquipmentList
-                        seller={dealer}
-                        sellerKind="dealer"
-                        state={props.state}
-                        onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')}
-                      />
+                      <button
+                        type="button"
+                        className={styles.equipmentToggle}
+                        aria-expanded={expandedEquipmentIds.has(dealer.id)}
+                        aria-label={`${expandedEquipmentIds.has(dealer.id) ? 'Collapse' : 'Expand'} equipment for ${dealer.name}`}
+                        onClick={() => toggleEquipment(dealer.id)}
+                      >
+                        <span>Fixed equipment</span>
+                        <span aria-hidden="true">{expandedEquipmentIds.has(dealer.id) ? '▴' : '▾'}</span>
+                      </button>
+                      {expandedEquipmentIds.has(dealer.id) ? (
+                        <EquipmentList
+                          seller={dealer}
+                          sellerKind="dealer"
+                          state={props.state}
+                          onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')}
+                        />
+                      ) : null}
                       <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>
                         Fire Dealer
                       </button>
