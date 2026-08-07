@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
@@ -291,6 +293,16 @@ it('switches the left panel between Production and Muscle while retaining Distri
   expect(screen.getByRole('heading', { name: /production/i })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: /muscle \/ respect/i })).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
+});
+
+it('allocates the left workspace panel row for local vertical scrolling', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(/\.leftWorkspace\s*\{[\s\S]*height:\s*100%/);
+  expect(css).toMatch(/\.leftWorkspace\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/);
+  expect(css).toMatch(/\.panel\s*\{[\s\S]*overflow-y:\s*auto/);
+  expect(css).toMatch(/\.panel\s*\{[\s\S]*max-height:\s*none/);
 });
 
 it('does not render Research Speed', () => {
