@@ -27,7 +27,7 @@
 }
 
 .star::before {
-  content: '\\2605';
+  content: '\2605';
 }
 
 .star[data-star-state='full'] {
