@@ -135,22 +135,12 @@ public sealed class MessageDeletionService
         long requesterId,
         string roomId)
     {
-        var channelRooms = await _channels.GetAllAsync();
-        if (channelRooms.Any(mapping =>
-                string.Equals(
-                    mapping.MatrixRoomId,
-                    roomId,
-                    StringComparison.Ordinal)))
+        if (await _channels.IsRoomRegisteredAsync(roomId))
         {
             return ConversationKind.Channel;
         }
 
-        var dmRooms = await _directMessages.GetAllForUserAsync(requesterId);
-        return dmRooms.Any(mapping =>
-                string.Equals(
-                    mapping.MatrixRoomId,
-                    roomId,
-                    StringComparison.Ordinal))
+        return await _directMessages.IsRoomForUserAsync(requesterId, roomId)
             ? ConversationKind.DirectMessage
             : ConversationKind.Unknown;
     }

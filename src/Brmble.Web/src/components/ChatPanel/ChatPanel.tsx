@@ -191,6 +191,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
   const replyHighlightTimeoutRef = useRef<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sender: string; senderMatrixUserId?: string; content?: string; messageId?: string; msgType?: string; reactions?: Record<string, string[]>; attachment?: MediaAttachment } | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const deletingMessageIdRef = useRef<string | null>(null);
   const [messageDeletionError, setMessageDeletionError] = useState<string | null>(null);
 const [replyState, setReplyState] = useState<{
   eventId: string;
@@ -1112,21 +1113,24 @@ const [replyState, setReplyState] = useState<{
               if (canDeleteSelectedMessage && contextMenu) {
                 items.push({
                   type: 'item',
-                  label: deletingMessageId === contextMenu.messageId ? 'Deleting message…' : 'Delete message',
-                  disabled: deletingMessageId === contextMenu.messageId,
+                  label: deletingMessageId !== null ? 'Deleting message…' : 'Delete message',
+                  disabled: deletingMessageId !== null,
                   onClick: async () => {
                     const eventId = contextMenu.messageId;
                     const roomId = matrixRoomId;
                     setContextMenu(null);
                     setMessageDeletionError(null);
-                    if (!roomId || !eventId || deletingMessageId !== null) return;
+                    if (!roomId || !eventId || deletingMessageIdRef.current !== null) return;
+                    deletingMessageIdRef.current = eventId;
                     const accepted = await confirm({
                       title: 'Delete message?',
                       message: 'This message will be replaced with “Message deleted” for everyone.',
                       confirmLabel: 'Delete message', cancelLabel: 'Cancel', destructive: true,
                     });
-                    if (!accepted || deletingMessageId !== null) return;
-                    if (!onDeleteMessage) return;
+                    if (!accepted || !onDeleteMessage) {
+                      deletingMessageIdRef.current = null;
+                      return;
+                    }
                     setDeletingMessageId(eventId);
                     try {
                       await onDeleteMessage(roomId, eventId);
@@ -1135,6 +1139,7 @@ const [replyState, setReplyState] = useState<{
                         ? error.message
                         : 'Message could not be deleted. Try again.');
                     } finally {
+                      deletingMessageIdRef.current = null;
                       setDeletingMessageId(null);
                     }
                   },

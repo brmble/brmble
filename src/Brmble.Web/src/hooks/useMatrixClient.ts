@@ -298,12 +298,6 @@ function loadMessagesFromTimeline(
   }
 
   for (const ev of room.getLiveTimeline().getEvents()) {
-    // Track redaction events
-    if (ev.getType() === 'm.room.redaction') {
-      const redactedId = getRedactedEventId(ev);
-      if (redactedId) redactedEventIds.add(redactedId);
-    }
-
     const m = transformEventToChatMessage(ev, room, targetId, client, trustedBotUserId);
     if (m) {
       const bundled = parseBundledReplacementFromUnsigned(ev as never);
