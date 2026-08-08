@@ -19,8 +19,8 @@ interface AdminSettingsTabProps {
     session: number;
     name: string;
     channelId?: number;
-    matrixUserId?: string;
     // Tri-state on the projection: null means the server has not said yet.
+    matrixUserId?: string | null;
     companionId?: CompanionSelection | null;
     isBrmbleClient?: boolean | null;
   }>;

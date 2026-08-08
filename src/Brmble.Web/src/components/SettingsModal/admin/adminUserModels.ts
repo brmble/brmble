@@ -9,9 +9,9 @@ export interface AdminConnectedUser {
   session: number;
   name: string;
   channelId?: number;
-  matrixUserId?: string;
-  // Both are tri-state on the projection: null means the server has not said yet, which is
-  // distinct from a known absence.
+  // All three are tri-state on the projection: null means the server has not said yet, which
+  // is distinct from a known absence.
+  matrixUserId?: string | null;
   companionId?: CompanionSelection | null;
   isBrmbleClient?: boolean | null;
 }
@@ -73,7 +73,8 @@ export function buildAdminUserRows(input: {
     if (existing) {
       existing.isConnected = true;
       existing.sessionId = connectedUser.session;
-      existing.matrixUserId = connectedUser.matrixUserId;
+      // A row is a view, not wire state: an unresolved identity is just no identity here.
+      existing.matrixUserId = connectedUser.matrixUserId ?? undefined;
       existing.aliases = Array.from(new Set([...existing.aliases, connectedUser.name]));
       existing.searchText = normalize([...existing.aliases, connectedUser.matrixUserId ?? ''].join(' '));
       existing.sourceKinds = Array.from(new Set([...existing.sourceKinds, 'connected']));
@@ -89,7 +90,7 @@ export function buildAdminUserRows(input: {
       isConnected: true,
       isBanned: false,
       sessionId: connectedUser.session,
-      matrixUserId: connectedUser.matrixUserId,
+      matrixUserId: connectedUser.matrixUserId ?? undefined,
       sourceKinds: ['connected'],
     });
   }

@@ -42,7 +42,8 @@ interface ChatPanelProps {
   onViewerQualityChange?: (userId: number, quality: ViewerQuality) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
   /** Connected users for avatar lookup by sender name */
-  users?: { session: number; name: string; channelId?: number; matrixUserId?: string; avatarUrl?: string }[];
+  /** `matrixUserId` is tri-state on the projection: null means the server has not said yet. */
+  users?: { session: number; name: string; channelId?: number; matrixUserId?: string | null; avatarUrl?: string }[];
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
@@ -95,7 +96,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     // Then, overwrite with live Mumble users (higher priority — online with fresh data)
     if (users) {
       for (const u of users) {
-        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId };
+        // An unresolved identity is simply no identity to look up by.
+        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId ?? undefined };
         byName.set(u.name, entry);
         if (u.matrixUserId) {
           byMatrixId.set(u.matrixUserId, entry);
@@ -128,7 +130,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       for (const u of users) {
         result.push({
           displayName: u.name,
-          matrixUserId: u.matrixUserId,
+          matrixUserId: u.matrixUserId ?? undefined,
           avatarUrl: u.avatarUrl,
           isOnline: true,
         });

@@ -11,7 +11,8 @@ interface AvatarEditorModalProps {
     matrixUserId?: string;
     avatarUrl?: string;
   };
-  comment?: string;
+  /** Tri-state on the projection: null means the server has not said yet. */
+  comment?: string | null;
   onSetComment: (comment: string) => void;
   onUploadAvatar: (blob: Blob, contentType: string) => void;
   onRemoveAvatar: () => void;

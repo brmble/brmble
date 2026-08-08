@@ -9,7 +9,8 @@
 
 export interface AvatarFetchCandidate {
   session: number;
-  matrixUserId?: string;
+  /** The projection delivers an explicit null for an identity the server has not resolved. */
+  matrixUserId?: string | null;
   avatarUrl?: string;
 }
 

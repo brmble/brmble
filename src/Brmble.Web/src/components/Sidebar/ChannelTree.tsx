@@ -27,8 +27,9 @@ interface User {
   deafened?: boolean;
   self?: boolean;
   prioritySpeaker?: boolean;
-  comment?: string;
-  matrixUserId?: string;
+  /** Tri-state: null means the server has not said yet. */
+  comment?: string | null;
+  matrixUserId?: string | null;
   avatarUrl?: string;
   /** Tri-state: null means the server has not said yet. Renders as "not a Brmble user". */
   isBrmbleClient?: boolean | null;
