@@ -27,6 +27,7 @@ public class MatrixService
     };
 
     private readonly ChannelRepository _channelRepository;
+    private readonly UserRepository? _userRepository;
     private readonly IMatrixAppService _appService;
     private readonly IActiveBrmbleSessions _activeSessions;
     private readonly ILogger<MatrixService> _logger;
@@ -35,12 +36,14 @@ public class MatrixService
         ChannelRepository channelRepository,
         IMatrixAppService appService,
         IActiveBrmbleSessions activeSessions,
-        ILogger<MatrixService> logger)
+        ILogger<MatrixService> logger,
+        UserRepository? userRepository = null)
     {
         _channelRepository = channelRepository;
         _appService = appService;
         _activeSessions = activeSessions;
         _logger = logger;
+        _userRepository = userRepository;
     }
 
     public async Task RelayMessage(MumbleUser sender, string text, int channelId)
@@ -57,6 +60,13 @@ public class MatrixService
             _logger.LogWarning("No Matrix room mapped for Mumble channel {ChannelId} — message from {User} dropped", channelId, sender.Name);
             return;
         }
+
+        var user = _userRepository is null
+            ? null
+            : await _userRepository.GetByCertHash(sender.CertHash);
+        var authorMatrixUserId = string.IsNullOrWhiteSpace(user?.MatrixUserId)
+            ? null
+            : user.MatrixUserId;
 
         // Extract and upload base64 images
         var remaining = text;
@@ -99,7 +109,7 @@ public class MatrixService
             try
             {
                 var mxcUrl = await _appService.UploadMedia(imageData, mimetype, fileName);
-                await _appService.SendImageMessage(roomId, sender.Name, mxcUrl, fileName, mimetype, imageData.Length);
+                await _appService.SendImageMessage(roomId, sender.Name, mxcUrl, fileName, mimetype, imageData.Length, authorMatrixUserId);
                 remaining = remaining.Remove(match.Index - offset, match.Length);
                 offset += match.Length;
             }
@@ -114,7 +124,7 @@ public class MatrixService
         if (!string.IsNullOrWhiteSpace(plainText))
         {
             _logger.LogInformation("Relaying message from {User} in channel {ChannelId} to {RoomId}", sender.Name, channelId, roomId);
-            await _appService.SendMessage(roomId, sender.Name, plainText);
+            await _appService.SendMessage(roomId, sender.Name, plainText, authorMatrixUserId);
         }
     }
 

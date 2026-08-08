@@ -54,4 +54,13 @@ public class DmRoomRepository
             new { id = userId });
         return rows.Select(r => new DmRoomForUser((string)r.other_matrix_user_id, (string)r.matrix_room_id)).ToList();
     }
+
+    public async Task<bool> IsRoomForUserAsync(long userId, string matrixRoomId)
+    {
+        using var conn = _db.CreateConnection();
+        var match = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT matrix_room_id FROM dm_room_map WHERE (user_id_low = @userId OR user_id_high = @userId) AND matrix_room_id = @roomId LIMIT 1",
+            new { userId, roomId = matrixRoomId });
+        return match is not null;
+    }
 }
