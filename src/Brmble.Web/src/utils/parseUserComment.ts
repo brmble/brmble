@@ -17,7 +17,7 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/gi, "'");
 }
 
-export function parseUserComment(comment?: string): ParsedUserComment {
+export function parseUserComment(comment?: string | null): ParsedUserComment {
   if (!comment) {
     return { text: '', hasEmbeddedMedia: false };
   }

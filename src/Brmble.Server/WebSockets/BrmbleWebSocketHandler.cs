@@ -38,12 +38,17 @@ public static class BrmbleWebSocketHandler
         var activeSessions = context.RequestServices.GetRequiredService<IActiveBrmbleSessions>();
         var publisher = context.RequestServices.GetRequiredService<IMappingEventPublisher>();
 
+        // Read before the socket is accepted, so the version is known while the bootstrap
+        // payloads are built.
+        var projectionVersion = ParseProjectionVersion(context.Request.Query["pv"]);
+
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
         try
         {
             await InitializeAcceptedClientAsync(
                 ws, user.Id, hash, sessionMapping, eventBus, publisher, activeSessions,
-                context.RequestServices.GetRequiredService<IDuelSnapshotProvider>());
+                context.RequestServices.GetRequiredService<IDuelSnapshotProvider>(),
+                projectionVersion);
 
             // Read loop until close. Messages are reassembled across frames. A message that
             // exceeds the cap is discarded in full rather than truncated: truncating would let a
@@ -100,8 +105,12 @@ public static class BrmbleWebSocketHandler
                 // leave a window in which an event at a later revision reaches this socket first,
                 // and the client would either discard the repair it was waiting for or apply the
                 // event and be rolled back by the older snapshot.
+                //
+                // Per-socket, so it carries this reader's projection version. Forgetting that
+                // here would give a resyncing pv=1 client the legacy split — a bug that only
+                // shows after a gap, and only for custom companions.
                 await publisher.PublishSnapshotAsync(ws, (envelope, snapshot) =>
-                    CreateSessionMappingSnapshotPayload(snapshot, envelope));
+                    CreateSessionMappingSnapshotPayload(snapshot, envelope, projectionVersion));
 
                 // Unrelated to mapping ordering, so it can safely follow an await.
                 sessionMapping.TryGetSessionByUserId(user.Id, out var resyncSessionId);
@@ -123,9 +132,18 @@ public static class BrmbleWebSocketHandler
         }
     }
 
+    /// <summary>
+    /// Reads the client's projection version from the <c>pv</c> query parameter. Absent or
+    /// malformed means version 0, which gets the legacy companion split.
+    /// </summary>
+    internal static int ParseProjectionVersion(string? raw) =>
+        int.TryParse(raw, out var version) && version > 0 ? version : 0;
+
     internal static object CreateUserMappingAddedPayload(
         int sessionId, SessionMapping mapping, string certHash, MappingEnvelope envelope)
     {
+        // Broadcast: recipients are at mixed projection versions, so this must carry the legacy
+        // split. Only per-socket payloads know their reader's version.
         var wire = CompanionWireSelection.FromPersisted(mapping.CompanionId);
         return new
         {
@@ -157,7 +175,8 @@ public static class BrmbleWebSocketHandler
         IBrmbleEventBus eventBus,
         IMappingEventPublisher publisher,
         IActiveBrmbleSessions activeSessions,
-        IDuelSnapshotProvider snapshots) =>
+        IDuelSnapshotProvider snapshots,
+        int projectionVersion = 0) =>
         eventBus.AddClientAsync(socket, userId, async () =>
         {
             if (sessionMapping.TryGetMappingByUserId(userId, out var sessionId, out var mapping))
@@ -188,7 +207,8 @@ public static class BrmbleWebSocketHandler
             var bootstrapEnvelope = MappingEnvelope.Snapshot(
                 sessionMapping.InstanceId, sessionMapping.Revision);
             return await BuildInitialPayloadsAsync(
-                snapshots, queueSessionId, sessionMapping.GetSnapshot(), bootstrapEnvelope);
+                snapshots, queueSessionId, sessionMapping.GetSnapshot(), bootstrapEnvelope,
+                projectionVersion);
         });
 
     /// <summary>
@@ -200,9 +220,13 @@ public static class BrmbleWebSocketHandler
         IDuelSnapshotProvider snapshots,
         long sessionId,
         IReadOnlyDictionary<int, SessionMapping> mappings,
-        MappingEnvelope envelope)
+        MappingEnvelope envelope,
+        int projectionVersion = 0)
     {
-        var initial = new List<object> { CreateSessionMappingSnapshotPayload(mappings, envelope) };
+        var initial = new List<object>
+        {
+            CreateSessionMappingSnapshotPayload(mappings, envelope, projectionVersion)
+        };
         if (sessionId != 0)
             initial.Add(DuelWire.ToEvent(await snapshots.GetSnapshotForSessionAsync(sessionId)));
         return initial;
@@ -212,8 +236,14 @@ public static class BrmbleWebSocketHandler
     /// The complete statement of every session the server knows about. Shared by the bootstrap
     /// and resync paths so both describe membership identically.
     /// </summary>
+    /// <param name="projectionVersion">
+    /// The reader's projection version. Both callers are per-socket, so this is always known;
+    /// a snapshot is never broadcast.
+    /// </param>
     internal static object CreateSessionMappingSnapshotPayload(
-        IReadOnlyDictionary<int, SessionMapping> mappings, MappingEnvelope envelope) =>
+        IReadOnlyDictionary<int, SessionMapping> mappings,
+        MappingEnvelope envelope,
+        int projectionVersion = 0) =>
         new
         {
             type = "sessionMappingSnapshot",
@@ -221,7 +251,7 @@ public static class BrmbleWebSocketHandler
             revision = envelope.Revision,
             mappings = mappings.ToDictionary(
                 kvp => kvp.Key.ToString(),
-                kvp => SessionMappingWire.From(kvp.Value))
+                kvp => SessionMappingWire.From(kvp.Value, projectionVersion))
         };
 
     /// <summary>

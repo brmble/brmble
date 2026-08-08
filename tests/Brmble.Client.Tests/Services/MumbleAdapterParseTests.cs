@@ -78,10 +78,16 @@ internal static class MumbleAdapterTestHarness
         SetField(adapter, "_certService", certService);
         SetField(adapter, "_appConfigService", appConfigService);
         SetField(adapter, "_audioManager", audioManager);
-        SetField(adapter, "_userMappings", new Dictionary<string, string>());
-        SetField(adapter, "_sessionMappings", new ConcurrentDictionary<uint, MumbleAdapter.SessionMappingEntry>());
-        SetField(adapter, "_pendingBrmbleStatus", new ConcurrentDictionary<uint, bool>());
         SetField(adapter, "_channelPasswordRestrictions", new ConcurrentDictionary<uint, bool>());
+        // GetUninitializedObject skips field initialisers, so every field the adapter constructs
+        // inline has to be seeded here or it is null at first use. HandleWebSocketMessage
+        // swallows exceptions, so a missing one shows up as a silently dropped message rather
+        // than a failure.
+        SetField(adapter, "_projection", new Brmble.Client.Services.Voice.Projection.UserProjectionStore());
+        SetField(adapter, "_projectionEmitGate", new object());
+        SetField(adapter, "_resync", new Brmble.Client.Services.Voice.ResyncThrottle());
+        SetField(adapter, "_resyncClock", System.Diagnostics.Stopwatch.StartNew());
+        SetField(adapter, "_wsSendGate", new SemaphoreSlim(1, 1));
         return adapter;
     }
 
@@ -331,26 +337,6 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
 [TestClass]
 public class MumbleAdapterParseTests
 {
-    [TestMethod]
-    public void ParseSessionMappings_PreservesCertHash()
-    {
-        using var doc = JsonDocument.Parse("""
-        {
-            "42": {
-                "matrixUserId": "@mjg:example.com",
-                "mumbleName": "MJG",
-                "companionId": "bee",
-                "isBrmbleClient": false,
-                "certHash": "cert-mjg"
-            }
-        }
-        """);
-
-        var mappings = MumbleAdapter.ParseSessionMappings(doc.RootElement);
-
-        Assert.AreEqual("cert-mjg", mappings[42].CertHash);
-    }
-
     [TestMethod]
     public void ServerSync_JoinsReconnectTargetAfterAuthenticateTokensApply()
     {
@@ -1162,158 +1148,51 @@ public class MumbleAdapterParseTests
         Assert.AreEqual("https://noscope.it:1912", MumbleAdapter.ParseBrmbleApiUrl(text));
     }
 
-    [TestMethod]
-    public void ParseSessionMappings_WithIsBrmbleClient_RoundTrips()
-    {
-        var json = JsonDocument.Parse("""
-        {
-            "1": { "matrixUserId": "@alice:localhost", "mumbleName": "Alice", "isBrmbleClient": true },
-            "2": { "matrixUserId": "@bob:localhost", "mumbleName": "Bob", "isBrmbleClient": false }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual(2, result.Count);
-        Assert.IsTrue(result[1].IsBrmbleClient, "Alice should be a Brmble client");
-        Assert.IsFalse(result[2].IsBrmbleClient, "Bob should not be a Brmble client");
-        Assert.AreEqual("@alice:localhost", result[1].MatrixUserId);
-        Assert.AreEqual("Bob", result[2].MumbleName);
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_MissingIsBrmbleClient_DefaultsToFalse()
-    {
-        var json = JsonDocument.Parse("""
-        {
-            "5": { "matrixUserId": "@user:localhost", "mumbleName": "User" }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual(1, result.Count);
-        Assert.IsFalse(result[5].IsBrmbleClient, "Missing isBrmbleClient should default to false");
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_ExplicitNullIsBrmbleClient_DoesNotThrow()
-    {
-        // TryGetProperty returns true for an explicit JSON null and GetBoolean() throws on it.
-        // This runs inside /auth/token credential handling, so a null would take the client
-        // down on connect. Absent and null must both mean "unknown", rendering as false today.
-        var json = JsonDocument.Parse("""
-        {
-            "5": { "matrixUserId": "@user:localhost", "mumbleName": "User", "isBrmbleClient": null }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual(1, result.Count);
-        Assert.IsFalse(result[5].IsBrmbleClient);
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_SkipsEntriesWithMissingRequiredFields()
-    {
-        var json = JsonDocument.Parse("""
-        {
-            "1": { "matrixUserId": "@alice:localhost" },
-            "2": { "mumbleName": "Bob" },
-            "3": { "matrixUserId": "@charlie:localhost", "mumbleName": "Charlie" }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual(1, result.Count, "Only the complete entry should be parsed");
-        Assert.IsTrue(result.ContainsKey(3));
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_SkipsNonNumericKeys()
-    {
-        var json = JsonDocument.Parse("""
-        {
-            "abc": { "matrixUserId": "@x:localhost", "mumbleName": "X" },
-            "42": { "matrixUserId": "@y:localhost", "mumbleName": "Y" }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual(1, result.Count);
-        Assert.IsTrue(result.ContainsKey(42));
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_EmptyObject_ReturnsEmpty()
-    {
-        var json = JsonDocument.Parse("{}");
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-        Assert.AreEqual(0, result.Count);
-    }
-
-    [TestMethod]
-    public void ParseSessionMappings_WithCompanionId_RoundTrips()
-    {
-        using var json = JsonDocument.Parse("""
-        {
-          "42": {
-            "matrixUserId": "@alice:test",
-            "mumbleName": "Alice",
-            "companionId": "pip",
-            "isBrmbleClient": true
-          }
-        }
-        """);
-
-        var result = MumbleAdapter.ParseSessionMappings(json.RootElement);
-
-        Assert.AreEqual("pip", result[42].CompanionId);
-    }
-
-    [TestMethod]
-    public void ParseWireCompanionId_PrefersCustomCompanionId()
-    {
-        const string json =
-            """{"companionId":"floppy","customCompanionId":"custom:$sprite:test"}""";
-        using var document = JsonDocument.Parse(json);
-
-        Assert.AreEqual(
-            "custom:$sprite:test",
-            MumbleAdapter.ParseWireCompanionId(document.RootElement));
-    }
 
     [TestMethod]
     public void CustomCompanionId_FlowsThroughSnapshotAddedAndChangedMappings()
     {
+        // The legacy wire split sends companionId:"floppy" alongside the real selection in
+        // customCompanionId. The truth must win at every entry point, not just the snapshot.
         var bridge = NativeBridgeTestHarness.Create();
         var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+        var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), adapter, voiceSupport: false);
+        adapter.Initialise(connection);
+        adapter.ChannelState(new ChannelState { ChannelId = 0, Name = "Root" });
+        adapter.UserState(new UserState { Session = 42, Name = "Alice", ChannelId = 0 });
+        adapter.UserState(new UserState { Session = 43, Name = "Bob", ChannelId = 0 });
 
         MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
-        {"type":"sessionMappingSnapshot","mappings":{"42":{"matrixUserId":"@alice:test","mumbleName":"Alice","companionId":"floppy","customCompanionId":"custom:$snapshot:test"}}}
+        {"type":"sessionMappingSnapshot","instanceId":"i","revision":1,"mappings":{"42":{"matrixUserId":"@alice:test","mumbleName":"Alice","companionId":"floppy","customCompanionId":"custom:$snapshot:test"}}}
         """);
-        var snapshot = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.sessionMappingSnapshot");
-        using var snapshotDocument = JsonDocument.Parse(snapshot.DataJson);
-        Assert.AreEqual("custom:$snapshot:test", snapshotDocument.RootElement
-            .GetProperty("mappings").GetProperty("42").GetProperty("companionId").GetString());
+        Assert.AreEqual("custom:$snapshot:test", LastRowFor(bridge, 42).GetProperty("companionId").GetString());
 
         MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
-        {"type":"userMappingAdded","sessionId":43,"matrixUserId":"@bob:test","mumbleName":"Bob","companionId":"floppy","customCompanionId":"custom:$joined:test"}
+        {"type":"userMappingAdded","instanceId":"i","baseRevision":1,"revision":2,"sessionId":43,"matrixUserId":"@bob:test","mumbleName":"Bob","companionId":"floppy","customCompanionId":"custom:$joined:test"}
         """);
-        var added = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.userMappingUpdated");
-        using var addedDocument = JsonDocument.Parse(added.DataJson);
-        Assert.AreEqual("custom:$joined:test", addedDocument.RootElement.GetProperty("companionId").GetString());
+        Assert.AreEqual("custom:$joined:test", LastRowFor(bridge, 43).GetProperty("companionId").GetString());
 
         MumbleAdapterTestHarness.InvokeHandleWebSocketMessage(adapter, """
-        {"type":"companionChanged","sessionId":43,"matrixUserId":"@bob:test","companionId":"floppy","customCompanionId":"custom:$changed:test"}
+        {"type":"companionChanged","instanceId":"i","baseRevision":2,"revision":3,"sessionId":43,"matrixUserId":"@bob:test","companionId":"floppy","customCompanionId":"custom:$changed:test"}
         """);
-        var changed = NativeBridgeTestHarness.DrainMessages(bridge).Single(m => m.Type == "voice.companionChanged");
-        using var changedDocument = JsonDocument.Parse(changed.DataJson);
-        Assert.AreEqual("custom:$changed:test", changedDocument.RootElement.GetProperty("companionId").GetString());
+        Assert.AreEqual("custom:$changed:test", LastRowFor(bridge, 43).GetProperty("companionId").GetString());
     }
+
+    /// <summary>
+    /// The latest wire row for a session, drained from either projection state event.
+    /// </summary>
+    private static JsonElement LastRowFor(Brmble.Client.Bridge.NativeBridge bridge, uint session)
+        => NativeBridgeTestHarness.DrainMessages(bridge)
+            .Where(m => m.Type is "voice.usersChanged" or "voice.usersReset")
+            .SelectMany(m =>
+            {
+                var root = JsonDocument.Parse(m.DataJson).RootElement;
+                var rows = m.Type == "voice.usersReset"
+                    ? root.GetProperty("users")
+                    : root.GetProperty("changed");
+                return rows.EnumerateArray().ToList();
+            })
+            .Last(e => e.GetProperty("session").GetUInt32() == session);
 
     [TestMethod]
     public async Task SetCompanion_ResponsePrefersCustomCompanionId()

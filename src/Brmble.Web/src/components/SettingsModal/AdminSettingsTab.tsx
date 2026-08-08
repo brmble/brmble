@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import './AdminSettingsTab.css';
 import { ADMIN_WORKSPACE_TABS, type AdminWorkspaceTab } from './admin/AdminWorkspaceTypes';
+import type { CompanionSelection } from './InterfaceSettingsTypes';
 import { AdminModerationSection } from './admin/AdminModerationSection';
 import { AdminChannelsSection } from './admin/AdminChannelsSection';
 import { AdminChannelRequestsSection } from './admin/AdminChannelRequestsSection';
@@ -18,9 +19,10 @@ interface AdminSettingsTabProps {
     session: number;
     name: string;
     channelId?: number;
-    matrixUserId?: string;
-    companionId?: string;
-    isBrmbleClient?: boolean;
+    // Tri-state on the projection: null means the server has not said yet.
+    matrixUserId?: string | null;
+    companionId?: CompanionSelection | null;
+    isBrmbleClient?: boolean | null;
   }>;
   customCompanions?: Pick<CustomCompanionCapability, 'canModerate'>;
   customCompanionGallery?: CustomCompanionGalleryController;

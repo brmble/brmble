@@ -50,7 +50,8 @@ interface MessageBubbleProps {
   onToggleReaction?: (messageId: string, emoji: string, isReacted: boolean) => void;
   edited?: boolean;
   currentUserId?: number;
-  users?: { session: number; name: string; channelId?: number; matrixUserId?: string; avatarUrl?: string }[];
+  /** `matrixUserId` is tri-state on the projection: null means the server has not said yet. */
+  users?: { session: number; name: string; channelId?: number; matrixUserId?: string | null; avatarUrl?: string }[];
   paintSessionStatuses?: Record<string, PaintSessionStatus>;
   onJoinPaint?: (sessionId: string) => Promise<void> | void;
   onOpenPaint?: (sessionId: string) => void;

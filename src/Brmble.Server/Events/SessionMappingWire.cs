@@ -36,7 +36,7 @@ public sealed record SessionMappingWire
     public required string MumbleName { get; init; }
 
     [JsonPropertyName("companionId")]
-    public required string CompanionId { get; init; }
+    public required string? CompanionId { get; init; }
 
     [JsonPropertyName("customCompanionId")]
     public string? CustomCompanionId { get; init; }
@@ -48,9 +48,17 @@ public sealed record SessionMappingWire
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsBrmbleClient { get; init; }
 
-    public static SessionMappingWire From(SessionMapping mapping)
+    /// <summary>
+    /// Builds one snapshot entry for a reader at the given projection version.
+    /// </summary>
+    /// <param name="projectionVersion">
+    /// 0 gets the legacy companion split; 1 and above get one truthful <c>companionId</c>.
+    /// Snapshots are always per-socket, so the reader's version is always known here — unlike a
+    /// broadcast, whose recipients are at mixed versions.
+    /// </param>
+    public static SessionMappingWire From(SessionMapping mapping, int projectionVersion = 0)
     {
-        var wire = Companions.CompanionWireSelection.FromPersisted(mapping.CompanionId);
+        var wire = Companions.CompanionWireSelection.For(mapping.CompanionId, projectionVersion);
         return new SessionMappingWire
         {
             MatrixUserId = mapping.MatrixUserId,

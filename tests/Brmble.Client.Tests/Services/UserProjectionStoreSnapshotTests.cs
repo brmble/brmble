@@ -66,6 +66,29 @@ public class UserProjectionStoreSnapshotTests
     }
 
     [TestMethod]
+    public void Reset_ForgetsRowsHoldsAndCursor()
+    {
+        _store.ApplyServerSnapshot(Snapshot(5,
+            (1, new ServerMappingEntry("@alice:test", "retro", true, "cert-a")),
+            (99, new ServerMappingEntry("@ghost:test", null, null, null))));
+
+        _store.Reset();
+
+        Assert.AreEqual(0, _store.Snapshot().Count);
+
+        // The hold for session 99 is gone: a new occupant of that id on the next server gets
+        // no stale enrichment.
+        _store.ApplyMumbleUserState(new MumbleUserInput(99, "Mallory", 0, false, false, null, null, false));
+        Assert.IsNull(_store.Snapshot()[99].MatrixUserId);
+
+        // The cursor is gone too: the next event cannot sequence and must ask for a snapshot.
+        var change = _store.ApplyServerEvent(
+            new ServerEvent(ServerEventKind.CompanionChanged, "inst-a", 5, 6, 99,
+                new ServerMappingEntry(null, "bee", null, null)));
+        Assert.IsTrue(change.NeedsSnapshot);
+    }
+
+    [TestMethod]
     public void ApplyServerSnapshot_ForAnEntryWithNoMumbleRowIsIgnored()
     {
         // The server knows a session Mumble has not shown us. Existence is Mumble's to grant,
