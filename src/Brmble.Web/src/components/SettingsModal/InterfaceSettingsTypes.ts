@@ -17,6 +17,7 @@ export interface OverlaySettings {
   showJoinLeaveEvents: boolean;
   showModerationEvents: boolean;
   showActiveSpeakers: boolean;
+  showLocalCompanionWhenIdle: boolean;
 }
 
 export type CompanionOverlayMode = 'full' | 'minimal';
@@ -147,6 +148,7 @@ export const DEFAULT_OVERLAY: OverlaySettings = {
   showJoinLeaveEvents: true,
   showModerationEvents: true,
   showActiveSpeakers: true,
+  showLocalCompanionWhenIdle: true,
 };
 
 export interface BrmblegotchiSettings {

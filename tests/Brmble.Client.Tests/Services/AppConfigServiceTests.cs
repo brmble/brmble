@@ -156,13 +156,18 @@ public class AppConfigServiceTests
         var svc = new AppConfigService(_tempDir, null);
         var updated = AppSettings.Default with
         {
-            Overlay = new OverlaySettings(OverlayEnabled: true, Mode: "full", MyCompanion: "bee")
+            Overlay = new OverlaySettings(
+                OverlayEnabled: true,
+                Mode: "full",
+                MyCompanion: "bee",
+                ShowLocalCompanionWhenIdle: false)
         };
 
         svc.SetSettings(updated);
         var svc2 = new AppConfigService(_tempDir, null);
 
         Assert.AreEqual("bee", svc2.GetSettings().Overlay.MyCompanion);
+        Assert.IsFalse(svc2.GetSettings().Overlay.ShowLocalCompanionWhenIdle);
     }
 
     [TestMethod]

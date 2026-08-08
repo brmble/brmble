@@ -13,13 +13,15 @@ export interface OverlaySyncPayload {
 export function useCompanionOverlayPublisher(
   overlaySettings: OverlaySettings,
   snapshot: CompanionOverlaySnapshot | null,
+  connected: boolean,
 ) {
+  const visible = overlaySettings.overlayEnabled && connected;
   const payload = useMemo<OverlaySyncPayload>(() => ({
-    enabled: overlaySettings.overlayEnabled,
+    enabled: visible,
     mode: overlaySettings.mode,
-    settings: overlaySettings,
-    snapshot,
-  }), [overlaySettings, snapshot]);
+    settings: visible ? overlaySettings : null,
+    snapshot: visible ? snapshot : null,
+  }), [overlaySettings, snapshot, visible]);
 
   useEffect(() => {
     bridge.send('overlay.sync', payload);

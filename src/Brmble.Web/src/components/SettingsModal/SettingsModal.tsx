@@ -71,6 +71,7 @@ interface SettingsModalProps {
   customCompanionGallery?: CustomCompanionGalleryController;
   customCompanionMatrixClient?: MatrixUploadClient;
   onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
+  selectedCompanion?: CompanionSelection;
 }
 
 export interface ScreenShareSettings {
@@ -550,6 +551,7 @@ export function SettingsModal(props: SettingsModalProps) {
         customCompanionGallery={props.customCompanionGallery}
         customCompanionMatrixClient={props.customCompanionMatrixClient}
         onCustomCompanionAtlasRequest={props.onCustomCompanionAtlasRequest}
+        selectedCompanion={props.selectedCompanion}
         onCustomCompanionUploadActivityChange={setCustomCompanionUploadActive}
       />
           )}

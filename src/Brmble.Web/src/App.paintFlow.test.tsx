@@ -80,6 +80,12 @@ beforeAll(() => {
   }
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   vi.stubGlobal('IntersectionObserver', IntersectionObserverMock);
+  vi.stubGlobal('Image', class {
+    src = '';
+    naturalWidth = 1280;
+    naturalHeight = 720;
+    decode = vi.fn().mockResolvedValue(undefined);
+  });
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
@@ -204,6 +210,7 @@ async function openActivePaintSession(user: ReturnType<typeof userEvent.setup>, 
   await user.click(screen.getByRole('button', { name: 'Start paint' }));
   await user.click(screen.getByLabelText('Bob'));
   await user.upload(screen.getByLabelText('Source image'), new File(['source'], 'source.png', { type: 'image/png' }));
+  expect(await screen.findByText('source.png')).toBeInTheDocument();
   await user.click(within(screen.getByRole('dialog', { name: 'Start collaborative paint' })).getByRole('button', { name: 'Start paint' }));
   expect(await screen.findByLabelText('Collaborative paint')).toBeInTheDocument();
 
@@ -237,6 +244,7 @@ describe('collaborative paint app flow', () => {
     await user.click(screen.getByRole('button', { name: 'Start paint' }));
     await user.click(screen.getByLabelText('Bob'));
     await user.upload(screen.getByLabelText('Source image'), new File(['source'], 'source.png', { type: 'image/png' }));
+    expect(await screen.findByText('source.png')).toBeInTheDocument();
     await user.click(within(screen.getByRole('dialog', { name: 'Start collaborative paint' })).getByRole('button', { name: 'Start paint' }));
     await waitFor(() => expect(paint.attachSource).toHaveBeenCalledWith('session-1', '$source'));
     expect(paint.createSession.mock.invocationCallOrder[0]).toBeLessThan(paint.attachSource.mock.invocationCallOrder[0]);

@@ -12,6 +12,15 @@ vi.mock('../bridge', () => ({
 }));
 
 describe('useAclAdmin', () => {
+  it('keeps the refresh callback stable across state updates', () => {
+    const { result, rerender } = renderHook(() => useAclAdmin(4));
+    const initialRefresh = result.current.refresh;
+
+    rerender();
+
+    expect(result.current.refresh).toBe(initialRefresh);
+  });
+
   it('requests channel ACL and stores bridge snapshot', () => {
     let channelHandler: ((data: unknown) => void) | undefined;
     let errorHandler: ((data: unknown) => void) | undefined;

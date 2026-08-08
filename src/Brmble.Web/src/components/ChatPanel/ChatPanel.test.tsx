@@ -92,6 +92,40 @@ describe('ChatPanel image paint background menu', () => {
     })).not.toBeInTheDocument();
   });
 
+  it('does not offer an unsupported GIF as a Paint background', () => {
+    const gif = {
+      type: 'gif' as const,
+      url: 'https://matrix.example/animated.gif',
+      filename: 'animated.gif',
+      mimetype: 'image/gif',
+      size: 123,
+    };
+    const { container } = render(
+      <ChatPanel
+        channelId="42"
+        channelName="general"
+        messages={[{
+          ...imageMessage,
+          id: '$gif',
+          media: [gif],
+        }]}
+        onSendMessage={() => {}}
+        onMessageContextMenu={() => {}}
+        onUseAsPaintBackground={() => {}}
+      />,
+    );
+
+    fireEvent.load(container.querySelector('.image-attachment__img')!);
+    fireEvent.contextMenu(container.querySelector('.image-attachment')!, {
+      clientX: 40,
+      clientY: 50,
+    });
+
+    expect(screen.queryByRole('button', {
+      name: 'Use as paint background',
+    })).not.toBeInTheDocument();
+  });
+
   it('does not show the action for a plain-text message', () => {
     render(
       <ChatPanel
@@ -194,6 +228,59 @@ describe('ChatPanel typing indicator', () => {
     );
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel message scrolling', () => {
+  it('scrolls to a new message when the user was already at the bottom', () => {
+    vi.useFakeTimers();
+    try {
+      const messages = [{
+        id: '$first',
+        channelId: '42',
+        sender: 'Alice',
+        content: 'first',
+        timestamp: new Date('2026-01-01T00:00:00Z'),
+        msgType: 'm.text' as const,
+      }];
+      const { container, rerender } = render(
+        <ChatPanel
+          channelId="42"
+          channelName="general"
+          messages={messages}
+          onSendMessage={() => {}}
+        />,
+      );
+      const messagesContainer = container.querySelector('.chat-messages') as HTMLDivElement;
+      Object.defineProperties(messagesContainer, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 100 },
+        scrollTop: { configurable: true, writable: true, value: 0 },
+      });
+      fireEvent.scroll(messagesContainer);
+      vi.clearAllMocks();
+
+      Object.defineProperty(messagesContainer, 'scrollHeight', { configurable: true, value: 300 });
+      rerender(
+        <ChatPanel
+          channelId="42"
+          channelName="general"
+          messages={[...messages, {
+            id: '$second',
+            channelId: '42',
+            sender: 'Bob',
+            content: 'second',
+            timestamp: new Date('2026-01-01T00:01:00Z'),
+            msgType: 'm.text' as const,
+          }]}
+          onSendMessage={() => {}}
+        />,
+      );
+
+      expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

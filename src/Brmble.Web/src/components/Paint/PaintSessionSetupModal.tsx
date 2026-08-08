@@ -1,5 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+} from 'react';
 import { MsgType, type MatrixClient } from 'matrix-js-sdk';
+import {
+  PAINT_SOURCE_ACCEPT,
+  preparePaintSourceFile,
+  type PaintSourceOrigin,
+} from '../../utils/paintSourceFile';
 import './PaintSessionSetupModal.css';
 
 type Candidate = { userId: number; name: string };
@@ -44,6 +56,9 @@ export function PaintSessionSetupModal({
 }: PaintSessionSetupModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const sourceRevisionRef = useRef(0);
+  const uploadLimitPromiseRef = useRef<Promise<number | undefined> | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(
     () => initialSourceFile ?? null,
@@ -51,6 +66,7 @@ export function PaintSessionSetupModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [preparingSource, setPreparingSource] = useState(false);
 
   useEffect(() => {
     if (!file) {
@@ -66,6 +82,81 @@ export function PaintSessionSetupModal({
     cancelRef.current?.focus();
   }, []);
 
+  const getUploadLimit = useCallback(() => {
+    uploadLimitPromiseRef.current ??= matrixClient.getMediaConfig()
+      .then((config) => config['m.upload.size'])
+      .catch(() => {
+        uploadLimitPromiseRef.current = null;
+        throw new Error(
+          'Unable to check this image right now. Try again or choose a file.',
+        );
+      });
+    return uploadLimitPromiseRef.current;
+  }, [matrixClient]);
+
+  const stageSource = useCallback(async (
+    candidate: File,
+    origin: PaintSourceOrigin,
+  ) => {
+    if (saving) return;
+    const revision = ++sourceRevisionRef.current;
+    setPreparingSource(true);
+    setError(null);
+
+    try {
+      const prepared = await preparePaintSourceFile(
+        candidate,
+        origin,
+        await getUploadLimit(),
+      );
+      if (revision !== sourceRevisionRef.current) return;
+      setFile(prepared);
+      if (origin === 'paste' && fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (reason) {
+      if (revision !== sourceRevisionRef.current) return;
+      if (origin === 'file' && fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'This image cannot be used. Try another image or choose a file.',
+      );
+    } finally {
+      if (revision === sourceRevisionRef.current) {
+        setPreparingSource(false);
+      }
+    }
+  }, [getUploadLimit, saving]);
+
+  const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const candidate = event.currentTarget.files?.[0];
+    if (candidate) void stageSource(candidate, 'file');
+  }, [stageSource]);
+
+  const handlePaste = useCallback((event: ClipboardEvent<HTMLDivElement>) => {
+    if (saving) return;
+    const imageItem = Array.from(event.clipboardData.items)
+      .find((item) => item.type.startsWith('image/'));
+    event.preventDefault();
+
+    if (!imageItem) {
+      setError('The clipboard does not contain an image.');
+      return;
+    }
+
+    const candidate = imageItem.getAsFile();
+    if (!candidate) {
+      setError(
+        'This clipboard image cannot be used. Try copying another image or choose a file.',
+      );
+      return;
+    }
+    void stageSource(candidate, 'paste');
+  }, [saving, stageSource]);
+
   const start = async () => {
     if (!file) {
       setError('Choose a source image.');
@@ -77,8 +168,7 @@ export function PaintSessionSetupModal({
     let created: Created | null = null;
 
     try {
-      const config = await matrixClient.getMediaConfig();
-      const limit = config['m.upload.size'];
+      const limit = await getUploadLimit();
       if (limit && file.size > limit) {
         throw new Error('The source image exceeds the Matrix upload limit.');
       }
@@ -137,6 +227,7 @@ export function PaintSessionSetupModal({
         aria-modal="true"
         aria-label="Start collaborative paint"
         onClick={(event) => event.stopPropagation()}
+        onPaste={handlePaste}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
@@ -179,18 +270,24 @@ export function PaintSessionSetupModal({
         <label>
           Source image
           <input
+            ref={fileInputRef}
             aria-label="Source image"
             type="file"
-            accept="image/*"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            accept={PAINT_SOURCE_ACCEPT}
+            onChange={handleFileChange}
+            disabled={saving}
           />
         </label>
         {file && previewUrl && (
-          <div className="paint-setup-source">
+          <div
+            className="paint-setup-source"
+            role="status"
+            aria-live="polite"
+          >
             <img
               className="paint-setup-source__preview"
               src={previewUrl}
-              alt="Selected paint source"
+              alt={`Selected paint source: ${file.name}`}
             />
             <span className="paint-setup-source__name">{file.name}</span>
           </div>
@@ -204,7 +301,7 @@ export function PaintSessionSetupModal({
             type="button"
             className="btn btn-primary"
             onClick={() => void start()}
-            disabled={saving}
+            disabled={saving || preparingSource}
           >
             {saving ? 'Starting...' : 'Start paint'}
           </button>

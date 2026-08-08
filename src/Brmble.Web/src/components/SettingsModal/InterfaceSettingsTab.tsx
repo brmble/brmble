@@ -24,6 +24,7 @@ interface InterfaceSettingsTabProps {
   customCompanionMatrixClient?: MatrixUploadClient;
   onCustomCompanionAtlasRequest?: (selection: CompanionSelection) => void;
   onCustomCompanionUploadActivityChange?: (active: boolean) => void;
+  selectedCompanion?: CompanionSelection;
 }
 
 export function InterfaceSettingsTab({ 
@@ -35,6 +36,7 @@ export function InterfaceSettingsTab({
   customCompanionMatrixClient,
   onCustomCompanionAtlasRequest,
   onCustomCompanionUploadActivityChange,
+  selectedCompanion,
 }: InterfaceSettingsTabProps) {
   
   const [localAppearance, setLocalAppearance] = useState<AppearanceSettings>(appearanceSettings);
@@ -126,7 +128,7 @@ export function InterfaceSettingsTab({
             <label>My Companion</label>
             {customCompanionGallery ? (
               <CompanionPicker
-                value={overlaySettings.myCompanion}
+                value={selectedCompanion ?? overlaySettings.myCompanion}
                 gallery={customCompanionGallery}
                 onChange={handleMyCompanionChange}
                 onRequestCustomAtlas={onCustomCompanionAtlasRequest}
@@ -217,6 +219,21 @@ export function InterfaceSettingsTab({
               type="checkbox"
               checked={overlaySettings.showActiveSpeakers}
               onChange={() => onOverlayChange({ ...overlaySettings, showActiveSpeakers: !overlaySettings.showActiveSpeakers })}
+            />
+            <span className="brmble-toggle-slider"></span>
+          </label>
+        </div>
+        <div className="settings-item settings-toggle">
+          <label htmlFor="overlay-show-local-idle">Show My Companion When Idle</label>
+          <label className="brmble-toggle">
+            <input
+              id="overlay-show-local-idle"
+              type="checkbox"
+              checked={overlaySettings.showLocalCompanionWhenIdle}
+              onChange={() => onOverlayChange({
+                ...overlaySettings,
+                showLocalCompanionWhenIdle: !overlaySettings.showLocalCompanionWhenIdle,
+              })}
             />
             <span className="brmble-toggle-slider"></span>
           </label>

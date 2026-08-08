@@ -232,25 +232,39 @@ internal sealed class MumbleProtocolTestHarness : IAsyncDisposable
     }
 }
 
+internal sealed record CapturedHttpRequest(string Method, string Path, string Body);
+internal sealed record TestHttpResponse(string Body, int StatusCode = 200);
+
 internal sealed class TestTlsHttpServer : IAsyncDisposable
 {
     private readonly TcpListener _listener;
     private readonly X509Certificate2 _serverCertificate;
     private readonly Task _serverTask;
     private readonly CancellationTokenSource _cts = new();
-    private readonly int _statusCode;
+    private readonly IReadOnlyList<TestHttpResponse> _responses;
+    private readonly List<CapturedHttpRequest> _requests = new();
+    private readonly object _requestsLock = new();
 
     public string Url { get; }
+    public IReadOnlyList<CapturedHttpRequest> Requests
+    {
+        get { lock (_requestsLock) return _requests.ToList(); }
+    }
 
     public TestTlsHttpServer(string responseBody, int statusCode = 200)
+        : this([new TestHttpResponse(responseBody, statusCode)])
     {
-        _statusCode = statusCode;
+    }
+
+    public TestTlsHttpServer(params TestHttpResponse[] responses)
+    {
+        _responses = responses;
         _serverCertificate = CreateCertificate("CN=localhost");
         _listener = new TcpListener(IPAddress.Loopback, 0);
         _listener.Start();
         var port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         Url = $"https://127.0.0.1:{port}/";
-        _serverTask = HandleOneRequestAsync(responseBody, _cts.Token);
+        _serverTask = HandleRequestsAsync(_cts.Token);
     }
 
     public static X509Certificate2 CreateCertificate(string subject)
@@ -263,22 +277,51 @@ internal sealed class TestTlsHttpServer : IAsyncDisposable
         return X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pkcs12), password: null, X509KeyStorageFlags.Exportable);
     }
 
-    private async Task HandleOneRequestAsync(string responseBody, CancellationToken cancellationToken)
+    private async Task HandleRequestsAsync(CancellationToken cancellationToken)
     {
-        using var tcp = await _listener.AcceptTcpClientAsync(cancellationToken);
-        await using var ssl = new SslStream(tcp.GetStream(), false);
-        await ssl.AuthenticateAsServerAsync(_serverCertificate, clientCertificateRequired: false, enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12, checkCertificateRevocation: false);
+        foreach (var response in _responses)
+        {
+            using var tcp = await _listener.AcceptTcpClientAsync(cancellationToken);
+            await using var ssl = new SslStream(tcp.GetStream(), false);
+            await ssl.AuthenticateAsServerAsync(_serverCertificate, clientCertificateRequired: false, enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12, checkCertificateRevocation: false);
 
-        var buffer = new byte[4096];
-        _ = await ssl.ReadAsync(buffer, cancellationToken);
+            using var requestBuffer = new MemoryStream();
+            var buffer = new byte[4096];
+            var headerEnd = -1;
+            while (headerEnd < 0)
+            {
+                var read = await ssl.ReadAsync(buffer, cancellationToken);
+                if (read == 0) throw new EndOfStreamException();
+                requestBuffer.Write(buffer, 0, read);
+                var bytes = requestBuffer.GetBuffer().AsSpan(0, checked((int)requestBuffer.Length));
+                headerEnd = bytes.IndexOf("\r\n\r\n"u8);
+            }
 
-        var bodyBytes = System.Text.Encoding.UTF8.GetBytes(responseBody);
-        var reason = _statusCode == 409 ? "Conflict" : "OK";
-        var header = $"HTTP/1.1 {_statusCode} {reason}\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
-        var headerBytes = System.Text.Encoding.UTF8.GetBytes(header);
-        await ssl.WriteAsync(headerBytes, cancellationToken);
-        await ssl.WriteAsync(bodyBytes, cancellationToken);
-        await ssl.FlushAsync(cancellationToken);
+            var requestBytes = requestBuffer.ToArray();
+            var headerText = System.Text.Encoding.ASCII.GetString(requestBytes, 0, headerEnd);
+            var requestLine = headerText.Split("\r\n", StringSplitOptions.None)[0].Split(' ');
+            var contentLength = headerText.Split("\r\n", StringSplitOptions.None)
+                .FirstOrDefault(line => line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))?
+                .Split(':', 2)[1].Trim() is string lengthText ? int.Parse(lengthText) : 0;
+            var bodyOffset = headerEnd + 4;
+            while (requestBytes.Length - bodyOffset < contentLength)
+            {
+                var read = await ssl.ReadAsync(buffer, cancellationToken);
+                if (read == 0) throw new EndOfStreamException();
+                requestBuffer.Write(buffer, 0, read);
+                requestBytes = requestBuffer.ToArray();
+            }
+
+            var body = System.Text.Encoding.UTF8.GetString(requestBytes, bodyOffset, contentLength);
+            lock (_requestsLock) _requests.Add(new CapturedHttpRequest(requestLine[0], requestLine[1], body));
+
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(response.Body);
+            var reason = response.StatusCode == 409 ? "Conflict" : "OK";
+            var header = $"HTTP/1.1 {response.StatusCode} {reason}\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
+            await ssl.WriteAsync(System.Text.Encoding.UTF8.GetBytes(header), cancellationToken);
+            await ssl.WriteAsync(bodyBytes, cancellationToken);
+            await ssl.FlushAsync(cancellationToken);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -966,6 +1009,99 @@ public class MumbleAdapterParseTests
             Assert.AreEqual(409, payload.RootElement.GetProperty("statusCode").GetInt32());
             Assert.AreEqual(4, payload.RootElement.GetProperty("channelId").GetInt32());
             Assert.IsTrue(payload.RootElement.GetProperty("body").GetString()!.Contains("canonical-hash"));
+        }
+        finally
+        {
+            tempDir.Delete(recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AclHandlers_RejectMalformedChannelIdsWithoutRequests()
+    {
+        await using var server = new TestTlsHttpServer("{}");
+        var bridge = NativeBridgeTestHarness.Create();
+        var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: server.Url);
+        adapter.RegisterHandlers(bridge);
+
+        var handlers = new[]
+        {
+            ("acl.getChannel", "{}"),
+            ("acl.setChannel", "{\"request\":{}}"),
+            ("acl.setChannelPassword", "{\"password\":\"secret\"}"),
+            ("acl.addGroupMember", "{\"session\":1,\"group\":\"officers\"}"),
+            ("acl.removeGroupMember", "{\"session\":1,\"group\":\"officers\"}"),
+        };
+        var channelIds = new[] { "", "\"5\"", "-1", "2147483648" };
+
+        foreach (var (handler, suffix) in handlers)
+        foreach (var channelId in channelIds)
+        {
+            var extra = suffix.Length > 1 ? suffix[1..^1] : "";
+            var json = channelId == ""
+                ? "{}"
+                : $"{{\"channelId\":{channelId}{(string.IsNullOrEmpty(extra) ? "" : "," + extra)}}}";
+            using var doc = JsonDocument.Parse(json);
+            await NativeBridgeTestHarness.InvokeAsync(bridge, handler, doc.RootElement.Clone());
+            var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+            var error = sent.SingleOrDefault(message => message.Type == "acl.error");
+            Assert.AreNotEqual(default, error, $"Expected acl.error for {handler} and channelId {channelId}");
+            StringAssert.Contains(error.DataJson, "Not connected or invalid channel", $"Expected invalid-channel error for {handler} and channelId {channelId}");
+            Assert.AreEqual(0, server.Requests.Count, $"Unexpected request for {handler} and channelId {channelId}");
+        }
+    }
+
+    [TestMethod]
+    public async Task AclHandlers_ForwardRootChannelIdToApi()
+    {
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            using var clientCertificate = TestTlsHttpServer.CreateCertificate("CN=client");
+            await File.WriteAllBytesAsync(Path.Combine(tempDir.FullName, "Test_test.pfx"), clientCertificate.Export(X509ContentType.Pkcs12));
+            var certService = new CertificateService(bridge, new TestAppConfigService(tempDir.FullName));
+            await using var server = new TestTlsHttpServer(
+                new TestHttpResponse("{\"channelId\":0,\"inheritAcls\":true,\"groups\":[],\"acls\":[],\"fetchedAt\":\"2026-05-15T12:00:00Z\",\"stale\":false,\"warning\":null,\"snapshotHash\":\"root-hash\"}"),
+                new TestHttpResponse("{}"),
+                new TestHttpResponse("{\"channelId\":0,\"inheritAcls\":true,\"groups\":[],\"acls\":[],\"fetchedAt\":\"2026-05-15T12:00:00Z\",\"stale\":false,\"warning\":null,\"snapshotHash\":\"root-hash\"}"),
+                new TestHttpResponse("{}"),
+                new TestHttpResponse("{}"),
+                new TestHttpResponse("{}"));
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge, apiUrl: server.Url, certService: certService);
+            adapter.RegisterHandlers(bridge);
+            certService.RegisterHandlers(bridge);
+            using var statusDoc = JsonDocument.Parse("{}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "cert.requestStatus", statusDoc.RootElement.Clone());
+            _ = NativeBridgeTestHarness.DrainMessages(bridge);
+
+            using var getDoc = JsonDocument.Parse("{\"channelId\":0}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "acl.getChannel", getDoc.RootElement.Clone());
+            using var setDoc = JsonDocument.Parse("{\"channelId\":0,\"request\":{\"inheritAcls\":true,\"groups\":[],\"acls\":[]}}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "acl.setChannel", setDoc.RootElement.Clone());
+            using var passwordDoc = JsonDocument.Parse("{\"channelId\":0,\"password\":\"secret\"}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "acl.setChannelPassword", passwordDoc.RootElement.Clone());
+            using var addDoc = JsonDocument.Parse("{\"channelId\":0,\"session\":7,\"group\":\"officers\"}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "acl.addGroupMember", addDoc.RootElement.Clone());
+            using var removeDoc = JsonDocument.Parse("{\"channelId\":0,\"session\":7,\"group\":\"officers\"}");
+            await NativeBridgeTestHarness.InvokeAsync(bridge, "acl.removeGroupMember", removeDoc.RootElement.Clone());
+
+            var sent = NativeBridgeTestHarness.DrainMessages(bridge);
+            Assert.IsFalse(sent.Any(message => message.Type == "acl.error"));
+            CollectionAssert.AreEqual(new[]
+            {
+                ("GET", "/acl/channels/0"),
+                ("PUT", "/acl/channels/0"),
+                ("GET", "/acl/channels/0"),
+                ("PUT", "/acl/channels/0"),
+                ("POST", "/acl/channels/0/groups/add"),
+                ("POST", "/acl/channels/0/groups/remove"),
+            }, server.Requests.Select(request => (request.Method, request.Path)).ToArray());
+            using var setBody = JsonDocument.Parse(server.Requests[3].Body);
+            Assert.AreEqual("root-hash", setBody.RootElement.GetProperty("expectedSnapshotHash").GetString());
+            using var addBody = JsonDocument.Parse(server.Requests[4].Body);
+            Assert.AreEqual(7, addBody.RootElement.GetProperty("session").GetInt32());
+            Assert.AreEqual("officers", addBody.RootElement.GetProperty("group").GetString());
         }
         finally
         {

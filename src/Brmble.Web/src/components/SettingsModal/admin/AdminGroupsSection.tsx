@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAclAdmin } from '../../../hooks/useAclAdmin';
-import type { Channel } from '../../../types';
+import { confirm } from '../../../hooks/usePrompt';
 import { Permission, type AclGroup, type AclRule } from '../../../types/acl';
 import { useAdminRegisteredUsers } from './useAdminRegisteredUsers';
-import { useAdminGroupCatalog } from './useAdminGroupCatalog';
 
 const PASSWORD_MARKER_PREFIX = '__brmble_password_marker__:';
+const EMPTY_GROUPS: AclGroup[] = [];
+const EMPTY_ACLS: AclRule[] = [];
 
 type DisplayGroup = AclGroup & {
   aclOnly: boolean;
+};
+
+type PendingMembershipChange = {
+  action: 'add' | 'remove';
+  registrationUserId: number;
+  registeredName: string;
 };
 
 interface GroupPermissionOption {
@@ -66,19 +73,11 @@ const GROUP_PERMISSION_CATEGORIES: GroupPermissionCategory[] = [
   },
 ];
 
-interface AdminGroupsSectionProps {
-  channels?: Channel[];
-}
-
-export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
-  const isCatalogMode = channels.length > 0;
-  const { snapshot, loading: snapshotLoading, error: snapshotError, refresh, save } = useAclAdmin(isCatalogMode ? null : 0);
-  const { groups: catalogGroups, acls: catalogAcls, loading: catalogLoading, error: catalogError, warning: catalogWarning } = useAdminGroupCatalog(channels);
+export function AdminGroupsSection() {
+  const { snapshot, loading, saving, error, refresh, save } = useAclAdmin(0);
   const { registeredUsers, loading: registeredUsersLoading, error: registeredUsersError } = useAdminRegisteredUsers();
-  const sourceGroups = useMemo(() => (isCatalogMode ? catalogGroups : (snapshot?.groups ?? [])), [catalogGroups, isCatalogMode, snapshot]);
-  const sourceAcls = useMemo(() => (isCatalogMode ? catalogAcls : (snapshot?.acls ?? [])), [catalogAcls, isCatalogMode, snapshot]);
-  const loading = isCatalogMode ? catalogLoading : snapshotLoading;
-  const error = isCatalogMode ? catalogError : snapshotError;
+  const sourceGroups = snapshot?.groups ?? EMPTY_GROUPS;
+  const sourceAcls = snapshot?.acls ?? EMPTY_ACLS;
   const [draftGroups, setDraftGroups] = useState<AclGroup[]>(sourceGroups);
   const [draftAcls, setDraftAcls] = useState<AclRule[]>(sourceAcls);
   const [selectedGroupName, setSelectedGroupName] = useState('');
@@ -86,9 +85,8 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
   const lastSubmittedDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (isCatalogMode) return;
     refresh();
-  }, [isCatalogMode, refresh]);
+  }, [refresh]);
 
   useEffect(() => {
     const sourceSignature = JSON.stringify({ groups: sourceGroups, acls: sourceAcls });
@@ -183,14 +181,6 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
     return registeredUsers.filter(user => !selectedGroup.members.includes(user.registrationUserId));
   }, [registeredUsers, selectedGroup]);
 
-  const updateSelectedGroupMembers = (updater: (group: AclGroup) => AclGroup) => {
-    if (!selectedEditableGroup) return;
-    setHasLocalEdits(true);
-    setDraftGroups(currentGroups => currentGroups.map(group => (
-      group.name === selectedEditableGroup.name ? updater(group) : group
-    )));
-  };
-
   const toggleSelectedGroupPermission = (mask: number, checked: boolean) => {
     if (!selectedGroup) return;
 
@@ -244,24 +234,67 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
     });
   };
 
-  const addMember = (registrationUserId: number) => {
-    if (isCatalogMode) return;
-    updateSelectedGroupMembers(group => ({
+  const applyMembershipChange = (group: AclGroup, change: PendingMembershipChange): AclGroup => {
+    if (change.action === 'add') {
+      return {
+        ...group,
+        members: [...new Set([...group.members, change.registrationUserId])].sort((left, right) => left - right),
+        add: group.remove.includes(change.registrationUserId)
+          ? group.add
+          : [...new Set([...group.add, change.registrationUserId])].sort((left, right) => left - right),
+        remove: group.remove.filter(memberId => memberId !== change.registrationUserId),
+      };
+    }
+
+    return {
       ...group,
-      members: [...new Set([...group.members, registrationUserId])].sort((left, right) => left - right),
-    }));
+      members: group.members.filter(memberId => memberId !== change.registrationUserId),
+      add: group.add.filter(memberId => memberId !== change.registrationUserId),
+      remove: group.add.includes(change.registrationUserId)
+        ? group.remove
+        : [...new Set([...group.remove, change.registrationUserId])].sort((left, right) => left - right),
+    };
   };
 
-  const removeMember = (registrationUserId: number) => {
-    if (isCatalogMode) return;
-    updateSelectedGroupMembers(group => ({
-      ...group,
-      members: group.members.filter(memberId => memberId !== registrationUserId),
-    }));
+  const requestMemberChange = async (action: PendingMembershipChange['action'], registrationUserId: number, registeredName: string) => {
+    if (saving || !selectedGroup || selectedGroup.inherited) return;
+
+    const approved = await confirm({
+      title: `${action === 'add' ? 'Add' : 'Remove'} ${registeredName} ${action === 'add' ? 'to' : 'from'} @${selectedGroup.name}?`,
+      message: 'This change will be saved immediately.',
+      confirmLabel: 'Save',
+      cancelLabel: 'Cancel',
+    });
+    if (!approved) return;
+
+    const change: PendingMembershipChange = { action, registrationUserId, registeredName };
+    const serverGroup = sourceGroups.find(group => group.name === selectedGroup.name);
+    const baseGroup = serverGroup ?? {
+      name: selectedGroup.name,
+      inherited: false,
+      inherit: selectedGroup.inherit,
+      inheritable: selectedGroup.inheritable,
+      add: [...selectedGroup.add],
+      remove: [...selectedGroup.remove],
+      members: [...selectedGroup.members],
+    };
+    const updatedGroup = applyMembershipChange(baseGroup, change);
+    const groups = serverGroup
+      ? sourceGroups.map(group => group.name === selectedGroup.name ? updatedGroup : group)
+      : [...sourceGroups, updatedGroup];
+
+    save({
+      inheritAcls: snapshot?.inheritAcls ?? true,
+      groups,
+      acls: sourceAcls,
+    });
+  };
+
+  const selectGroup = (name: string) => {
+    setSelectedGroupName(name);
   };
 
   const addGroup = () => {
-    if (isCatalogMode) return;
     const baseName = 'New Group';
     let name = baseName;
     let index = 1;
@@ -281,7 +314,6 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
   };
 
   const deleteGroup = () => {
-    if (isCatalogMode) return;
     if (!selectedEditableGroup) return;
     setHasLocalEdits(true);
     const next = draftGroups.filter(group => group.name !== selectedEditableGroup.name);
@@ -299,7 +331,6 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
   };
 
   const saveChanges = () => {
-    if (isCatalogMode) return;
     lastSubmittedDraftRef.current = JSON.stringify({ groups: draftGroups, acls: draftAcls });
     const payload = {
       inheritAcls: snapshot?.inheritAcls ?? true,
@@ -333,15 +364,15 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
               key={group.name}
               type="button"
               className={`admin-channel-row ${group.name === selectedGroupName ? 'selected' : ''}`}
-              onClick={() => setSelectedGroupName(group.name)}
+              onClick={() => selectGroup(group.name)}
             >
               {getDisplayGroupLabel(group.name)}
             </button>
           ))}
         </div>
         <div className="admin-action-row admin-groups-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={addGroup} disabled={isCatalogMode}>Add Group</button>
-          <button type="button" className="btn btn-danger btn-sm" onClick={deleteGroup} disabled={isCatalogMode || !selectedEditableGroup}>Delete Group</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={addGroup}>Add Group</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={deleteGroup} disabled={!selectedEditableGroup}>Delete Group</button>
         </div>
       </div>
 
@@ -349,11 +380,7 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
         <div className="admin-groups-status">
           {error && <div className="admin-error">{error}</div>}
           {registeredUsersError && <div className="admin-error">{registeredUsersError}</div>}
-          {catalogWarning && !error && <div className="admin-warning">{catalogWarning}</div>}
           {(loading || registeredUsersLoading) && <div className="admin-loading">Loading groups and registered users...</div>}
-          {isCatalogMode && !loading && !error && (
-            <div className="admin-help-text">Showing groups aggregated from all Mumble channels.</div>
-          )}
         </div>
 
         <div className="admin-groups-transfer-grid">
@@ -377,8 +404,8 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-primary btn-sm admin-groups-transfer-button"
-                        disabled={isCatalogMode}
-                        onClick={() => addMember(user.registrationUserId)}
+                        disabled={selectedGroup.inherited || saving}
+                        onClick={() => requestMemberChange('add', user.registrationUserId, user.registeredName)}
                       >
                         Add
                       </button>
@@ -416,8 +443,8 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm admin-groups-transfer-button"
-                        disabled={isCatalogMode}
-                        onClick={() => removeMember(user.registrationUserId)}
+                        disabled={selectedGroup.inherited || saving}
+                        onClick={() => requestMemberChange('remove', user.registrationUserId, user.registeredName)}
                       >
                         Remove
                       </button>
@@ -450,9 +477,9 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
                           <input
                             type="checkbox"
                             checked={permissionState.checked}
-                            disabled={isCatalogMode || option.supported === false || !selectedGroup || permissionState.inheritedOnly}
+                            disabled={option.supported === false || !selectedGroup || permissionState.inheritedOnly}
                             onChange={event => {
-                              if (isCatalogMode || option.mask == null || permissionState.inheritedOnly) return;
+                              if (option.mask == null || permissionState.inheritedOnly) return;
                               toggleSelectedGroupPermission(option.mask, event.target.checked);
                             }}
                           />
@@ -469,8 +496,8 @@ export function AdminGroupsSection({ channels = [] }: AdminGroupsSectionProps) {
       </div>
 
       <div className="admin-footer-row">
-        <button type="button" className="btn btn-secondary" onClick={cancelChanges} disabled={isCatalogMode}>Cancel</button>
-        <button type="button" className="btn btn-primary" onClick={saveChanges} disabled={isCatalogMode}>Save Changes</button>
+        <button type="button" className="btn btn-secondary" onClick={cancelChanges}>Cancel</button>
+        <button type="button" className="btn btn-primary" onClick={saveChanges}>Save Changes</button>
       </div>
     </section>
   );

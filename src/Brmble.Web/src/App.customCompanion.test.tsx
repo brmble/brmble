@@ -489,6 +489,7 @@ describe('App custom companion delivery', () => {
       showJoinLeaveEvents: false,
       showModerationEvents: true,
       showActiveSpeakers: false,
+      showLocalCompanionWhenIdle: true,
     };
     localStorage.setItem('brmble-settings', JSON.stringify({
       appearance: { theme: 'classic' },

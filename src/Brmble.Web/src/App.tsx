@@ -1308,12 +1308,12 @@ function App() {
           eventQueue: [],
           speakerCandidates: [],
         },
-      }, now), now);
+      }, now), now, overlaySettingsRef.current);
     });
     const interval = window.setInterval(() => {
       setOverlaySnapshot((prev) => {
         const now = Date.now();
-        return resolveFullCompanionDisplay(pruneOverlaySnapshot(prev, now), now);
+        return resolveFullCompanionDisplay(pruneOverlaySnapshot(prev, now), now, overlaySettingsRef.current);
       });
     }, 1000);
     return () => window.clearInterval(interval);
@@ -1397,7 +1397,7 @@ function App() {
           }),
           settings,
         );
-        return resolveFullCompanionDisplay(next, now);
+        return resolveFullCompanionDisplay(next, now, settings);
       });
     },
     onDirectMessage: (_matrixUserId: string, message: ChatMessage) => {
@@ -1417,7 +1417,7 @@ function App() {
           },
           settings,
         );
-        return resolveFullCompanionDisplay(next, now);
+        return resolveFullCompanionDisplay(next, now, settings);
       });
     },
     onUserAvatarChanged: (matrixUserId: string, avatarUrl: string | null) => {
@@ -1531,7 +1531,7 @@ function App() {
     requestCompanionAtlas,
     users,
   ]);
-  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot);
+  useCompanionOverlayPublisher(overlaySettings, overlaySnapshot, connected);
   useServerHealth();
 
   // Avatar state and management
@@ -2469,7 +2469,7 @@ function App() {
                   }),
                   overlaySettings,
                 );
-                return resolveFullCompanionDisplay(next, now);
+                return resolveFullCompanionDisplay(next, now, overlaySettings);
               });
             }
           }
@@ -2540,7 +2540,7 @@ function App() {
               }),
               overlaySettings,
             );
-            return resolveFullCompanionDisplay(next, now);
+            return resolveFullCompanionDisplay(next, now, overlaySettings);
           });
         } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
           const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
@@ -2558,7 +2558,7 @@ function App() {
                 }),
                 overlaySettings,
               );
-              return resolveFullCompanionDisplay(next, now);
+              return resolveFullCompanionDisplay(next, now, overlaySettings);
             });
           }
         }
@@ -2756,7 +2756,7 @@ function App() {
               }),
               overlaySettings,
             );
-            return resolveFullCompanionDisplay(next, now);
+            return resolveFullCompanionDisplay(next, now, overlaySettings);
           });
         }
 
@@ -2824,7 +2824,7 @@ function App() {
                 true,
                 now,
               );
-              return resolveFullCompanionDisplay(next, now);
+              return resolveFullCompanionDisplay(next, now, overlaySettings);
             });
           }
         }
@@ -2853,7 +2853,7 @@ function App() {
                 false,
                 now,
               );
-              return resolveFullCompanionDisplay(next, now);
+              return resolveFullCompanionDisplay(next, now, overlaySettings);
             });
           }
         }
@@ -2880,7 +2880,7 @@ function App() {
             }),
             overlaySettings,
           );
-          return resolveFullCompanionDisplay(next, now);
+          return resolveFullCompanionDisplay(next, now, overlaySettings);
         });
       }
     });
@@ -5002,6 +5002,7 @@ const handleConnect = (serverData: SavedServer) => {
         customCompanionGallery={customCompanionGallery}
         customCompanionMatrixClient={matrixClient.client ?? undefined}
         onCustomCompanionAtlasRequest={requestSettingsCompanionAtlas}
+        selectedCompanion={requestedLocalCompanion}
         liveUsers={users}
         channels={channels}
         onChannelsChange={setChannels}

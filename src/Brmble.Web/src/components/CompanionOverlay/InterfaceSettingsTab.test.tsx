@@ -42,4 +42,25 @@ describe('InterfaceSettingsTab overlay controls', () => {
       showDirectMessages: false,
     }));
   });
+
+  it('forwards the local idle companion visibility preference', () => {
+    const onOverlayChange = vi.fn();
+
+    render(
+      <InterfaceSettingsTab
+        appearanceSettings={DEFAULT_APPEARANCE}
+        overlaySettings={DEFAULT_OVERLAY}
+        brmblegotchiSettings={DEFAULT_BRMBLEGOTCHI}
+        onAppearanceChange={vi.fn()}
+        onOverlayChange={onOverlayChange}
+        onBrmblegotchiChange={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Show My Companion When Idle'));
+
+    expect(onOverlayChange).toHaveBeenCalledWith(expect.objectContaining({
+      showLocalCompanionWhenIdle: false,
+    }));
+  });
 });
