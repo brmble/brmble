@@ -62,20 +62,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private readonly Stopwatch _notifyThrottle = Stopwatch.StartNew();
     private string? _apiUrl;
     private string? _activeServerId;
-    private Dictionary<string, string> _userMappings = new();
-    private readonly ConcurrentDictionary<uint, SessionMappingEntry> _sessionMappings = new();
 
     /// <summary>
-    /// Brmble status for sessions this client has not been told the mapping for yet. The
-    /// server may announce that a session became a Brmble client before this client learns
-    /// who that session is, and every later user state re-asserts the flag from the mapping
-    /// cache, so an activation that had nowhere to land would not merely be missed once, it
-    /// would be contradicted from then on.
+    /// The authoritative user projection. Replaces _sessionMappings, _pendingBrmbleStatus and
+    /// _userMappings: it merges Mumble presence and Brmble identity under one set of rules
+    /// rather than three ad-hoc ones spread across the adapter and App.tsx.
     /// </summary>
-    private readonly ConcurrentDictionary<uint, bool> _pendingBrmbleStatus = new();
+    private readonly Projection.UserProjectionStore _projection = new();
+
+    /// <summary>
+    /// Serializes apply+emit pairs. The store's own lock orders the applies, but emission
+    /// happens after release from three threads, and the consumer replaces rows wholesale —
+    /// so a change set computed first must also be enqueued first, or a stale full row
+    /// enqueued late silently wins until the next event for that session.
+    /// </summary>
+    private readonly object _projectionEmitGate = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, bool> _channelPasswordRestrictions = new();
     private CancellationTokenSource? _wsCts;
     private long _wsGeneration;
+
+    /// <summary>
+    /// The live WebSocket stream, or null when disconnected. Hoisted out of the reconnect loop
+    /// so application messages can be sent; guarded by _wsSendGate because the read loop answers
+    /// pings on the same socket and two interleaved frames corrupt the stream.
+    /// </summary>
+    private Stream? _wsStream;
+    private readonly SemaphoreSlim _wsSendGate = new(1, 1);
+    private readonly ResyncThrottle _resync = new();
+    private readonly System.Diagnostics.Stopwatch _resyncClock = System.Diagnostics.Stopwatch.StartNew();
     private readonly IAppConfigService? _appConfigService;
     private readonly VoiceIdleTracker? _voiceIdleTracker;
     private readonly ChannelRequestBridgeHandler _channelRequestBridgeHandler;
@@ -106,40 +120,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
     })
     { Timeout = TimeSpan.FromSeconds(5) };
-
-    internal record SessionMappingEntry(string MatrixUserId, string MumbleName, string CompanionId, bool IsBrmbleClient = false, string? CertHash = null);
-
-    /// <summary>
-    /// Parses a JSON object whose keys are session IDs and values contain
-    /// matrixUserId, mumbleName, companionId, and optionally isBrmbleClient into a dictionary.
-    /// Shared by the auth-response and WebSocket snapshot parsers.
-    /// </summary>
-    internal static Dictionary<uint, SessionMappingEntry> ParseSessionMappings(System.Text.Json.JsonElement mappingsElement)
-    {
-        var result = new Dictionary<uint, SessionMappingEntry>();
-        foreach (var prop in mappingsElement.EnumerateObject())
-        {
-            if (uint.TryParse(prop.Name, out var sid))
-            {
-                var matrixId = prop.Value.TryGetProperty("matrixUserId", out var m) ? m.GetString() : null;
-                var name = prop.Value.TryGetProperty("mumbleName", out var n) ? n.GetString() : null;
-                var companionId = ParseWireCompanionId(prop.Value);
-                var certHash = prop.Value.TryGetProperty("certHash", out var h) ? h.GetString() : null;
-                if (matrixId is not null && name is not null && companionId is not null)
-                {
-                    // Only an explicit `true` counts. A JSON null means "unknown" and
-                    // TryGetProperty reports it as present, so GetBoolean() would throw.
-                    var isBrmble = prop.Value.TryGetProperty("isBrmbleClient", out var b)
-                        && b.ValueKind == System.Text.Json.JsonValueKind.True;
-                    result[sid] = new SessionMappingEntry(matrixId, name, companionId, isBrmble, certHash);
-                }
-            }
-        }
-        return result;
-    }
-
-    internal static string ParseWireCompanionId(System.Text.Json.JsonElement element)
-        => ParseWireCompanionIdOrNull(element) ?? "floppy";
 
     /// <summary>
     /// Reads the companion from a wire payload, preferring a custom companion id.
@@ -538,16 +518,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsCts?.Cancel();
         _wsCts?.Dispose();
         _wsCts = null;
+        // The read loop clears _wsStream asynchronously, and cancellation of a read blocked
+        // inside the TLS stream is not prompt. A quick reconnect would otherwise see the stale
+        // stream, skip StartWebSocketConnection, and nothing would ever start the socket again.
+        _wsStream = null;
         Interlocked.Increment(ref _wsGeneration);
         StopHealthCheck();
         _serverHealthWasConnected = false;
         _credentialsAlreadyFetched = false;
         _sawServerHealthFailureSinceCredentials = false;
-        _sessionMappings.Clear();
 
         UserDictionary.Clear();
         ChannelDictionary.Clear();
         _channelPasswordRestrictions.Clear();
+        // The store's within-connection invariants (session-id continuity, one revision line)
+        // do not hold across connections: a different or restarted server reuses session ids,
+        // and leftover rows would hand its users the previous server's identities.
+        _projection.Reset();
         _lastWelcomeText = null;
         _previousChannelId = null;
         _pendingLocalJoinChannelId = null;
@@ -1997,24 +1984,25 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 return;
             }
 
-            // Parse user mappings (displayName -> matrixUserId) from the auth response
-            if (credentials.Value.TryGetProperty("userMappings", out var mappingsElement))
+            // The credential body carries the same envelope as a WebSocket snapshot, so it
+            // establishes the cursor too. Without this the first event after connect looks like a
+            // gap and the client resyncs immediately.
+            if (ProjectionWire.ReadSnapshot(credentials.Value) is { } tokenSnapshot)
             {
-                _userMappings = new Dictionary<string, string>();
-                foreach (var prop in mappingsElement.EnumerateObject())
+                lock (_projectionEmitGate)
                 {
-                    var matrixId = prop.Value.GetString();
-                    if (matrixId is not null)
-                        _userMappings[prop.Name] = matrixId;
+                    EmitProjectionChange(_projection.ApplyServerSnapshot(tokenSnapshot));
                 }
             }
-
-            // Parse session mappings (sessionId -> matrixUserId + mumbleName) from the auth response
-            if (credentials.Value.TryGetProperty("sessionMappings", out var sessionMappingsElement))
+            else
             {
-                _sessionMappings.Clear();
-                foreach (var (sid, entry) in ParseSessionMappings(sessionMappingsElement))
-                    _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
+                // A rejected snapshot leaves the store without a cursor, so every subsequent
+                // event asks for a resync that this payload was supposed to satisfy. Nothing
+                // recovers on its own, and the visible result is only that identities are
+                // blank, so say so here rather than leaving it to be inferred.
+                LogToFile(
+                    "[Brmble] /auth/token carried no usable mapping snapshot (missing envelope " +
+                    "or mappings block); identities will stay unknown until one arrives");
             }
 
             ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
@@ -2030,8 +2018,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             _sawServerHealthFailureSinceCredentials = false;
             SendBrmbleServiceStatus("server", "connected");
 
-            // Start WebSocket connection for real-time session mapping updates
-            StartWebSocketConnection(apiUrl);
+            // Start WebSocket connection for real-time session mapping updates.
+            // Only connect if we do not already have a live socket. A credential refresh -- which
+            // the health check can trigger at any time -- must not tear down a working
+            // connection: the old read loop and the new one would then race, and the survivor
+            // may be the one being torn down. Disconnect() nulls _wsStream synchronously, so a
+            // reconnect always passes this guard even while the old read loop is still unwinding.
+            if (_wsStream is null) StartWebSocketConnection(apiUrl);
 
             // Start periodic health checks (runs from C# to avoid CORS issues)
             StartHealthCheck(apiUrl);
@@ -2103,23 +2096,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private string GetSelfCompanionOrDefault()
     {
-        if (LocalUser is not null &&
-            _sessionMappings.TryGetValue(LocalUser.Id, out var mapping) &&
-            !string.IsNullOrWhiteSpace(mapping.CompanionId))
-        {
-            return mapping.CompanionId;
-        }
-
-        return "floppy";
-    }
-
-    private void UpdateSelfCompanionMapping(string companionId)
-    {
-        if (LocalUser is null) return;
-        if (_sessionMappings.TryGetValue(LocalUser.Id, out var existing))
-        {
-            _sessionMappings[LocalUser.Id] = existing with { CompanionId = companionId };
-        }
+        if (LocalUser is null) return "floppy";
+        // "floppy" is a render-time fallback for an unknown companion, never a stored value.
+        return _projection.Snapshot().TryGetValue(LocalUser.Id, out var row)
+               && !string.IsNullOrWhiteSpace(row.CompanionId)
+            ? row.CompanionId!
+            : "floppy";
     }
 
     private async Task<object> SyncCompanionAsync(string companionId)
@@ -2174,10 +2156,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             if (!string.IsNullOrWhiteSpace(result.Body))
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
-                synced = ParseWireCompanionId(doc.RootElement);
+                // The reply echoes what the server stored. If it names no companion, the value
+                // we asked for is a better answer than "floppy", which would be a default
+                // reported as a fact.
+                synced = ParseWireCompanionIdOrNull(doc.RootElement) ?? companionId;
             }
 
-            UpdateSelfCompanionMapping(synced);
+            // No local write-back: the server announces the change and the store applies it.
+            // Guessing here is exactly the confidently-wrong value the projection removes.
             return new { success = true, companionId = synced };
         }
         catch (Exception ex)
@@ -2283,7 +2269,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Keep the original scheme for TCP connection; we do TLS via BouncyCastle
         var host = builder.Host;
         var port = builder.Port > 0 ? builder.Port : (builder.Scheme == "https" ? 443 : 80);
-        var wsPath = builder.Path.TrimEnd('/') + "/ws";
+        // Announce projection version 1: send one truthful companion field rather than the split.
+        var wsPath = builder.Path.TrimEnd('/') + "/ws?pv=1";
 
         _ = Task.Run(async () =>
         {
@@ -2294,6 +2281,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             {
                 TlsClientProtocol? tlsProtocol = null;
                 TcpClient? tcp = null;
+                Stream? stream = null;
                 try
                 {
                     using var cert = _certService?.GetExportableCertificate();
@@ -2315,10 +2303,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     tlsProtocol = new TlsClientProtocol(tcp.GetStream());
                     tlsProtocol.Connect(tlsClient);
 
-                    var stream = tlsProtocol.Stream;
+                    stream = tlsProtocol.Stream;
 
-                    // Perform WebSocket upgrade handshake
-                    var wsKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+                    var wsKey =Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
                     var hostHeader = port == 443 ? host : $"{host}:{port}";
                     var upgradeRequest =
                         $"GET {wsPath} HTTP/1.1\r\n" +
@@ -2399,6 +2386,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         throw new InvalidOperationException("WebSocket upgrade rejected");
                     }
 
+                    // Published only after the upgrade is validated: a pre-upgrade publish would
+                    // let a concurrent RequestSnapshot interleave a masked frame with the HTTP
+                    // handshake and corrupt it.
+                    _wsStream = stream;
+
                     backoff = TimeSpan.FromSeconds(1); // reset on successful connect
                     Debug.WriteLine("[WS] Connected to Brmble WebSocket (BouncyCastle TLS)");
                     SendBrmbleServiceStatus("session", "connected");
@@ -2418,6 +2410,10 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 finally
                 {
+                    // Cleared before the stream is disposed so no send can pick up a dead socket.
+                    // CAS, not assignment: Disconnect() nulls the field synchronously and a
+                    // successor loop may already have published a new stream — only clear our own.
+                    Interlocked.CompareExchange(ref _wsStream, null, stream);
                     try { tlsProtocol?.Close(); } catch { }
                     try { tcp?.Dispose(); } catch { }
                 }
@@ -2442,7 +2438,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// Handles continuation frames, ping/pong, and close frames.
     /// Returns null on connection close.
     /// </summary>
-    private static async Task<string?> ReadWebSocketFrame(Stream stream, CancellationToken ct)
+    private async Task<string?> ReadWebSocketFrame(Stream stream, CancellationToken ct)
     {
         using var payload = new MemoryStream();
 
@@ -2533,40 +2529,52 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <summary>
     /// Sends a masked WebSocket frame (client-to-server frames must be masked per RFC 6455).
     /// </summary>
-    private static async Task SendWebSocketFrame(Stream stream, int opcode, byte[] data)
+    /// <remarks>
+    /// Serialised on _wsSendGate: the read loop answers pings on this same socket, and two
+    /// frames interleaved mid-write corrupt the stream for both.
+    /// </remarks>
+    private async Task SendWebSocketFrame(Stream stream, int opcode, byte[] data)
     {
-        // Client frames must be masked
-        var maskKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
-
-        using var frame = new MemoryStream();
-        frame.WriteByte((byte)(0x80 | opcode)); // FIN + opcode
-
-        if (data.Length < 126)
-            frame.WriteByte((byte)(0x80 | data.Length)); // masked + length
-        else if (data.Length <= 65535)
+        await _wsSendGate.WaitAsync();
+        try
         {
-            frame.WriteByte(0x80 | 126);
-            frame.WriteByte((byte)(data.Length >> 8));
-            frame.WriteByte((byte)(data.Length & 0xFF));
+            // Client frames must be masked
+            var maskKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+
+            using var frame = new MemoryStream();
+            frame.WriteByte((byte)(0x80 | opcode)); // FIN + opcode
+
+            if (data.Length < 126)
+                frame.WriteByte((byte)(0x80 | data.Length)); // masked + length
+            else if (data.Length <= 65535)
+            {
+                frame.WriteByte(0x80 | 126);
+                frame.WriteByte((byte)(data.Length >> 8));
+                frame.WriteByte((byte)(data.Length & 0xFF));
+            }
+            else
+            {
+                frame.WriteByte(0x80 | 127);
+                var len = (long)data.Length;
+                for (int i = 7; i >= 0; i--)
+                    frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+            }
+
+            frame.Write(maskKey, 0, 4);
+
+            var masked = new byte[data.Length];
+            for (int i = 0; i < data.Length; i++)
+                masked[i] = (byte)(data[i] ^ maskKey[i % 4]);
+            frame.Write(masked, 0, masked.Length);
+
+            var bytes = frame.ToArray();
+            await stream.WriteAsync(bytes, 0, bytes.Length);
+            await stream.FlushAsync();
         }
-        else
+        finally
         {
-            frame.WriteByte(0x80 | 127);
-            var len = (long)data.Length;
-            for (int i = 7; i >= 0; i--)
-                frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+            _wsSendGate.Release();
         }
-
-        frame.Write(maskKey, 0, 4);
-
-        var masked = new byte[data.Length];
-        for (int i = 0; i < data.Length; i++)
-            masked[i] = (byte)(data[i] ^ maskKey[i % 4]);
-        frame.Write(masked, 0, masked.Length);
-
-        var bytes = frame.ToArray();
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-        await stream.FlushAsync();
     }
 
     /// <summary>Reads exactly count bytes from stream. Returns false on EOF.</summary>
@@ -2576,7 +2584,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         while (totalRead < count)
         {
             ct.ThrowIfCancellationRequested();
-            var read = await stream.ReadAsync(buffer, offset + totalRead, count - totalRead);
+            // Pass the token: without it the read only unblocks when the stream is disposed,
+            // so a cancelled connection lingers and races its own replacement.
+            var read = await stream.ReadAsync(buffer.AsMemory(offset + totalRead, count - totalRead), ct);
             if (read == 0) return false;
             totalRead += read;
         }
@@ -2584,29 +2594,82 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     }
 
     /// <summary>
-    /// Records a Brmble status announcement against the session's mapping, holding it aside
-    /// when the mapping is not known yet so the next mapping for that session adopts it.
+    /// Relays a change set to the UI as the projection's two state events.
     /// </summary>
-    private void RecordBrmbleStatus(uint sessionId, bool isBrmbleClient)
+    /// <remarks>
+    /// Called after Apply* has returned and released the store's lock — never inside it.
+    ///
+    /// <para>
+    /// These two events are the only source of user state. <c>voice.userLeft</c> still fires
+    /// alongside them but is presentation-only: it announces "left your channel", which is not
+    /// a removal at all when the user merely moved.
+    /// </para>
+    /// </remarks>
+    private void EmitProjectionChange(Projection.ChangeSet change)
     {
-        if (_sessionMappings.TryGetValue(sessionId, out var entry))
+        if (change.NeedsSnapshot) RequestSnapshot();
+        if (change.IsEmpty) return;
+
+        if (change.IsReset)
         {
-            _sessionMappings[sessionId] = entry with { IsBrmbleClient = isBrmbleClient };
-            _pendingBrmbleStatus.TryRemove(sessionId, out _);
+            // Membership was replaced wholesale, so the consumer replaces its list rather than
+            // reconciling additions against removals.
+            _bridge?.Send("voice.usersReset", new
+            {
+                users = change.Changed.Select(ProjectionWire.ToWireRow).ToArray()
+            });
+            _bridge?.NotifyUiThread();
             return;
         }
 
-        _pendingBrmbleStatus[sessionId] = isBrmbleClient;
+        _bridge?.Send("voice.usersChanged", new
+        {
+            changed = change.Changed.Select(ProjectionWire.ToWireRow).ToArray(),
+            removed = change.Removed.ToArray()
+        });
+        _bridge?.NotifyUiThread();
     }
 
     /// <summary>
-    /// Folds a status announcement that arrived before this mapping into it. The announcement
-    /// is the newer of the two, so it wins over the status the mapping was built with.
+    /// Asks the server to restate the mapping table. Fire-and-forget: the reply arrives as a
+    /// normal sessionMappingSnapshot on the read loop.
     /// </summary>
-    private SessionMappingEntry ApplyPendingBrmbleStatus(uint sessionId, SessionMappingEntry entry)
-        => _pendingBrmbleStatus.TryRemove(sessionId, out var pending)
-            ? entry with { IsBrmbleClient = pending }
-            : entry;
+    /// <remarks>
+    /// Deliberately no retry timer. If the send fails, or the server discards the request
+    /// inside its cooldown (measured at the server, so client-side spacing does not fully
+    /// prevent it), the gap stays until the next event that reports NeedsSnapshot or the next
+    /// (re)connect bootstrap. Accepted: a server quiet enough never to trigger that repair is
+    /// also one where the stale window has nothing visible in it.
+    /// </remarks>
+    private void RequestSnapshot()
+    {
+        if (!_resync.TryBegin(_resyncClock.Elapsed)) return;
+
+        var stream = _wsStream;
+        if (stream is null)
+        {
+            // No socket: the reconnect will bring a bootstrap snapshot anyway.
+            _resync.Complete(_resyncClock.Elapsed);
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var payload = System.Text.Json.JsonSerializer.Serialize(new { type = "requestSnapshot" });
+                await SendWebSocketFrame(stream, 0x1, System.Text.Encoding.UTF8.GetBytes(payload));
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"[Brmble] resync request failed: {ex.Message}");
+            }
+            finally
+            {
+                _resync.Complete(_resyncClock.Elapsed);
+            }
+        });
+    }
 
     private void HandleWebSocketMessage(string json)
     {
@@ -2616,103 +2679,41 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var root = doc.RootElement;
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
 
+            // Every mapping payload goes through the projection. The store decides whether the
+            // event is contiguous, a duplicate or a gap; the adapter only relays the result.
+            if (type == "sessionMappingSnapshot")
+            {
+                if (ProjectionWire.ReadSnapshot(root) is { } wsSnapshot)
+                {
+                    lock (_projectionEmitGate)
+                    {
+                        EmitProjectionChange(_projection.ApplyServerSnapshot(wsSnapshot));
+                    }
+                    _resync.OnSnapshotApplied();
+                }
+                else
+                {
+                    // As on the /auth/token path: without a cursor every later event asks for a
+                    // resync this payload should have satisfied, and the only symptom is blank
+                    // identities. Make the cause visible.
+                    LogToFile(
+                        "[Brmble] sessionMappingSnapshot carried no usable envelope or mappings " +
+                        "block; identities will stay unknown until one arrives");
+                }
+                return;
+            }
+
+            if (ProjectionWire.ReadEvent(type, root) is { } mappingEvent)
+            {
+                lock (_projectionEmitGate)
+                {
+                    EmitProjectionChange(_projection.ApplyServerEvent(mappingEvent));
+                }
+                return;
+            }
+
             switch (type)
             {
-                case "sessionMappingSnapshot":
-        _sessionMappings.Clear();
-        _pendingBrmbleStatus.Clear();
-                    if (root.TryGetProperty("mappings", out var mappings))
-                    {
-                        foreach (var (sid, entry) in ParseSessionMappings(mappings))
-                            _sessionMappings[sid] = ApplyPendingBrmbleStatus(sid, entry);
-                    }
-                    _bridge?.Send("voice.sessionMappingSnapshot",
-                        new
-                        {
-                            mappings = _sessionMappings.ToDictionary(k => k.Key, k => new
-                            {
-                                k.Value.MatrixUserId,
-                                k.Value.MumbleName,
-                                k.Value.CompanionId,
-                                k.Value.CertHash,
-                                k.Value.IsBrmbleClient
-                            })
-                        });
-                    _bridge?.NotifyUiThread();
-                    break;
-
-                case "userMappingAdded":
-                    var addSid = root.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetUInt32() : 0u;
-                    var addMatrixId = root.TryGetProperty("matrixUserId", out var matrixProp) ? matrixProp.GetString() : null;
-                    var addName = root.TryGetProperty("mumbleName", out var nameProp) ? nameProp.GetString() : null;
-                    // An announcement that carries no companion is not a claim that the user has
-                    // none. It is sent for a session this client may already know in full, so the
-                    // known companion is kept rather than replaced with the default.
-                    var announcedCompanionId = ParseWireCompanionIdOrNull(root);
-                    var addCertHash = root.TryGetProperty("certHash", out var certProp) ? certProp.GetString() : null;
-                    // As in ParseSessionMappings: null means unknown, not false, and
-                    // GetBoolean() would throw on it.
-                    var addIsBrmble = root.TryGetProperty("isBrmbleClient", out var brmbleProp)
-                        && brmbleProp.ValueKind == System.Text.Json.JsonValueKind.True;
-                    if (addSid > 0 && addMatrixId is not null && addName is not null)
-                    {
-                        var knownCompanionId = _sessionMappings.TryGetValue(addSid, out var priorMapping)
-                            ? priorMapping.CompanionId
-                            : null;
-                        var addCompanionId = announcedCompanionId ?? knownCompanionId ?? "floppy";
-                        _sessionMappings[addSid] = ApplyPendingBrmbleStatus(
-                            addSid, new SessionMappingEntry(addMatrixId, addName, addCompanionId, addIsBrmble, addCertHash));
-                        var storedMapping = _sessionMappings[addSid];
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = addSid, matrixUserId = addMatrixId, mumbleName = addName, companionId = addCompanionId, certHash = addCertHash, isBrmbleClient = storedMapping.IsBrmbleClient, action = "added" });
-                        _bridge?.NotifyUiThread();
-                    }
-                    break;
-
-                case "companionChanged":
-                    var changedSid = root.GetProperty("sessionId").GetUInt32();
-                    var changedCompanionId = ParseWireCompanionId(root);
-                    if (_sessionMappings.TryGetValue(changedSid, out var changed))
-                        _sessionMappings[changedSid] = changed with { CompanionId = changedCompanionId };
-                    _bridge?.Send("voice.companionChanged", new
-                    {
-                        session = changedSid,
-                        matrixUserId = root.TryGetProperty("matrixUserId", out var matrixIdProp) ? matrixIdProp.GetString() : null,
-                        companionId = changedCompanionId
-                    });
-                    _bridge?.NotifyUiThread();
-                    break;
-
-                case "userMappingRemoved":
-                    var rmSid = root.TryGetProperty("sessionId", out var rmSidProp) ? rmSidProp.GetUInt32() : 0u;
-                    if (rmSid > 0)
-                    {
-                        _sessionMappings.TryRemove(rmSid, out _);
-                        _pendingBrmbleStatus.TryRemove(rmSid, out _);
-                        _bridge?.Send("voice.userMappingUpdated", new { sessionId = rmSid, action = "removed" });
-                        _bridge?.NotifyUiThread();
-                    }
-                    break;
-
-                case "brmbleClientActivated":
-                    var actSid = root.TryGetProperty("sessionId", out var actSidProp) ? actSidProp.GetUInt32() : 0u;
-                    if (actSid > 0)
-                    {
-                        RecordBrmbleStatus(actSid, true);
-                    }
-                    _bridge?.Send("voice.brmbleClientActivated", new { sessionId = actSid });
-                    _bridge?.NotifyUiThread();
-                    break;
-
-                case "brmbleClientDeactivated":
-                    var deactSid = root.TryGetProperty("sessionId", out var deactSidProp) ? deactSidProp.GetUInt32() : 0u;
-                    if (deactSid > 0)
-                    {
-                        RecordBrmbleStatus(deactSid, false);
-                    }
-                    _bridge?.Send("voice.brmbleClientDeactivated", new { sessionId = deactSid });
-                    _bridge?.NotifyUiThread();
-                    break;
-
                 case "screenShare.started":
                     var startRoom = root.TryGetProperty("roomName", out var startRoomProp) ? startRoomProp.GetString() : null;
                     var startUser = root.TryGetProperty("userName", out var startUserProp) ? startUserProp.GetString() : null;
@@ -4190,44 +4191,65 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     /// <c>LocalUser.Channel.Id</c>.  This avoids a race when the server hasn't
     /// echoed a channel move yet (e.g. fresh connect moving to root).
     /// </param>
+    /// <summary>
+    /// Reduces a MumbleSharp user to the fields Mumble owns. Muted folds server mute, self mute
+    /// and both deafen flags together, matching what the UI has always shown.
+    /// </summary>
+    /// <remarks>
+    /// The certificate hash is normalised to null when empty. MumbleSharp initialises
+    /// <c>CertificateHash</c> to <see cref="string.Empty"/> and never nulls it, so an
+    /// unauthenticated user would otherwise reach the store as "has a certificate, and it is the
+    /// empty string". Two such users then compare equal, which lets the reset occupant check
+    /// carry one user's identity onto another across a session-id reuse, and also stops
+    /// <c>UserProjection.CertHash</c> falling back to the server's recorded copy.
+    /// </remarks>
+    private Projection.MumbleUserInput ToProjectionInput(MumbleSharp.Model.User user) =>
+        new(user.Id,
+            user.Name,
+            (uint)(user.Channel?.Id ?? 0),
+            user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf,
+            user.Deaf || user.SelfDeaf,
+            user.Comment,
+            string.IsNullOrEmpty(user.CertificateHash) ? null : user.CertificateHash,
+            user == LocalUser);
+
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(CreateChannelPayload).ToList();
-        var users = Users.Select(u =>
-        {
-            var hasMap = _sessionMappings.TryGetValue(u.Id, out var sm);
-            return new
-            {
-                session = u.Id,
-                name = u.Name,
-                channelId = u.Channel?.Id ?? 0,
-                muted = u.Muted || u.SelfMuted || u.Deaf || u.SelfDeaf,
-                deafened = u.Deaf || u.SelfDeaf,
-                self = u == LocalUser,
-                comment = u.Comment,
-                certHash = u.CertificateHash ?? (hasMap ? sm!.CertHash : null),
-                matrixUserId = hasMap ? sm!.MatrixUserId : _userMappings.GetValueOrDefault(u.Name),
-                companionId = hasMap ? sm!.CompanionId : null,
-                isBrmbleClient = hasMap ? sm!.IsBrmbleClient : _pendingBrmbleStatus.GetValueOrDefault(u.Id)
-            };
-        }).ToList();
 
-        _bridge?.Send("voice.connected", new
+        // A reconnect replaces membership wholesale. Server-owned fields survive for sessions
+        // present both before and after, so a voice reconnect costs no identity.
+        object[] rows;
+        lock (_projectionEmitGate)
         {
-            username = LocalUser?.Name,
-            channelId,
-            channels,
-            users,
-            registered = LocalUser?.IsRegistered ?? false,
-            registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
-        });
+            _projection.ApplyMumbleReset([.. Users.Select(ToProjectionInput)]);
+
+            _bridge?.Send("voice.connected", new
+            {
+                username = LocalUser?.Name,
+                channelId,
+                channels,
+                registered = LocalUser?.IsRegistered ?? false,
+                registeredName = LocalUser?.IsRegistered == true ? LocalUser.Name : (string?)null
+            });
+
+            // Membership travels as a reset rather than riding on voice.connected, so there is
+            // exactly one path by which the user list is ever populated.
+            rows = _projection.Snapshot().Values.Select(ProjectionWire.ToWireRow).ToArray();
+            _bridge?.Send("voice.usersReset", new { users = rows });
+        }
+
+        // Send only enqueues; the caller owns the flush. Both messages are already queued, and
+        // one notify drains the whole queue in order, so this delivers the connect and the
+        // membership that follows it together.
+        _bridge?.NotifyUiThread();
 
         // Voice lifecycle transition: force-release any held input so PTT
         // cannot remain latched across a reconnect (#538).
         _inputRouter?.ReleaseAllHeld();
 
-        Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {users.Count} users");
+        Debug.WriteLine($"[Mumble] Sent {channels.Count} channels and {rows.Length} users");
     }
 
     private object CreateChannelPayload(Channel channel) => new
@@ -4307,6 +4329,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             previousUserChannel == previousChannel && currentChannelId != previousChannel)
         {
             var leftUserName = user?.Name ?? userState.Name;
+            // Presentation only: the user still exists and their row is merely changed. State
+            // travels in voice.usersChanged; this drives the "left your channel" TTS line and
+            // the overlay's user-left event, neither of which a removal could express.
             _bridge?.Send("voice.userLeft", new { 
                 session = userState.Session, 
                 name = leftUserName, 
@@ -4320,23 +4345,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
 
         var joinedUserName = user?.Name ?? userState.Name;
-        var hasJoinMapping = _sessionMappings.TryGetValue(userState.Session, out var joinMapping);
-        _bridge?.Send("voice.userJoined", new
+        if (user is not null)
         {
-            session = userState.Session,
-            name = joinedUserName,
-            channelId = currentChannelId,
-            muted = user != null ? (user.Muted || user.SelfMuted || user.Deaf || user.SelfDeaf) : (userState.Mute || userState.SelfMute || userState.Deaf || userState.SelfDeaf),
-            deafened = user != null ? (user.Deaf || user.SelfDeaf) : (userState.Deaf || userState.SelfDeaf),
-            self = isSelf,
-            comment = user?.Comment,
-            certHash = user?.CertificateHash ?? (hasJoinMapping ? joinMapping!.CertHash : null),
-            matrixUserId = hasJoinMapping ? joinMapping!.MatrixUserId : _userMappings.GetValueOrDefault(joinedUserName),
-            companionId = hasJoinMapping ? joinMapping!.CompanionId : null,
-            isBrmbleClient = hasJoinMapping
-                ? joinMapping!.IsBrmbleClient
-                : _pendingBrmbleStatus.GetValueOrDefault(userState.Session)
-        });
+            lock (_projectionEmitGate)
+            {
+                EmitProjectionChange(_projection.ApplyMumbleUserState(ToProjectionInput(user)));
+            }
+        }
         _bridge?.NotifyUiThread();
 
         // Emit system message for genuinely new users (not initial sync, not self)
@@ -4409,17 +4424,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 ActivateLeaveVoice();
             }
         }
-    }
-
-    protected override void UserStateCommentChanged(User user, string oldComment)
-    {
-        base.UserStateCommentChanged(user, oldComment);
-        _bridge?.Send("voice.userCommentChanged", new
-        {
-            session = user.Id,
-            comment = user.Comment
-        });
-        _bridge?.NotifyUiThread();
     }
 
     public override void UserStats(UserStats userStats)
@@ -4523,12 +4527,21 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         base.UserRemove(userRemove);
 
+        // The only path that deletes a row: Mumble alone owns existence.
+        lock (_projectionEmitGate)
+        {
+            EmitProjectionChange(_projection.ApplyMumbleUserRemove(userRemove.Session));
+        }
+
         Debug.WriteLine($"[Mumble] UserRemove: session {userRemove.Session}, name: {userName}, isSelf: {isSelf}");
 
         _voiceIdleTracker?.RemoveUser(userRemove.Session);
         _audioManager?.RemoveUser(userRemove.Session);
         var channelId = user?.Channel?.Id;
         var certHash = user?.CertificateHash;
+        // Presentation only, as above: it carries the name, channel and cert hash the TTS,
+        // overlay and DM-presence side effects need. The row itself is removed by the
+        // ApplyMumbleUserRemove change set.
         _bridge?.Send("voice.userLeft", new { session = userRemove.Session, name = userName, channelId, certHash, moved = false });
         _bridge?.NotifyUiThread();
 

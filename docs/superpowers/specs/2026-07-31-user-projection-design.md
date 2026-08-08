@@ -192,12 +192,33 @@ fact, which §3.2 rule 2 exists to prevent.
 Resolution: `UserProjection` carries a single `CompanionSelection` (a built-in id or
 `custom:$eventId`), with `null` meaning unknown. The client announces a projection version at
 WebSocket registration; the server sends the single truthful field to clients that support it and
-the legacy split to those that do not. The compatibility lie lives at the compatibility boundary
-rather than in the core protocol, and `ParseWireCompanionId`'s `"floppy"` defaults collapse to one
+the legacy split to those that do not. `ParseWireCompanionId`'s `"floppy"` defaults collapse to one
 render-time fallback.
 
-`TryUpdateCompanionIdIfCurrent` (the per-field CAS added by `custom-companion`) is retired: a
-mutation carrying a stale revision is rejected wholesale.
+**As built (Phase 3).** The negotiation covers less than the paragraph above claimed, deliberately.
+Only the two per-socket snapshot paths — the bootstrap payload and the resync reply — collapse the
+companion to one field, because only there is the reader's `pv` known:
+
+- `/auth/token` keeps the legacy split. It is fetched before the WebSocket exists, so there is no
+  projection version to negotiate against.
+- Every broadcast keeps the legacy split. Its recipients are at mixed projection versions, and one
+  payload cannot be truthful to a `pv=1` client and parseable by a `pv=0` one simultaneously.
+
+So the compatibility lie still lives in the core protocol, not only at the boundary. What changed is
+that it is now lossless to a projection-aware reader: `ProjectionWire.ReadCompanionId` prefers
+`customCompanionId` over the legacy `companionId`, so a custom skin never degrades to a floppy on a
+client that understands the field. Removing the split outright would require every client on a
+server to be at `pv>=1`, a deployment guarantee this design does not make.
+
+`TryUpdateCompanionIdIfCurrent` (the per-field CAS added by `custom-companion`) was **kept**; the
+proposal above to retire it was wrong. Revision rejection guards a client submitting a mutation
+against a table it has fallen behind. The CAS guards a different race: a moderator deleting a custom
+companion resets affected sessions to `"floppy"` while an affected user may concurrently be choosing
+something else. Neither party carries a client revision — `CustomCompanionEndpoints` computes its
+target inside `PublishAsync`'s own gate — so there is no stale revision for the revision path to
+reject. The CAS also gates the announcement: `PublishAsync` publishes only when the mutation returns
+true, so a refused reset emits no `companionChanged` and cannot overwrite the user's newer choice on
+every other client.
 
 ### 4.5 Client → server resync request
 
@@ -270,7 +291,7 @@ The moderation path is sound. The WebSocket `companionChanged` is only the selec
 
 - `voice.usersReset { users: [...] }` — the complete list. Voice connect, disconnect (empty),
   reconnect.
-- `voice.usersChanged { users: [...], removed: [sessions] }` — full rows for changed sessions.
+- `voice.usersChanged { changed: [...], removed: [sessions] }` — full rows for changed sessions.
 
 `voice.connected` survives, but stops carrying `users`: it keeps the channel list and connection
 metadata, and the user list arrives as the first `voice.usersReset`. This removes the only

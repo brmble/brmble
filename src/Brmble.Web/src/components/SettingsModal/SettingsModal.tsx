@@ -59,9 +59,10 @@ interface SettingsModalProps {
     session: number;
     name: string;
     channelId?: number;
-    matrixUserId?: string;
-    companionId?: string;
-    isBrmbleClient?: boolean;
+    // Tri-state on the projection: null means the server has not said yet.
+    matrixUserId?: string | null;
+    companionId?: CompanionSelection | null;
+    isBrmbleClient?: boolean | null;
   }>;
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
