@@ -40,7 +40,7 @@ public sealed class PaintEndpointsTests
         CollectionAssert.IsSubsetOf(new[]
         {
             "/paint/sessions", "/paint/sessions/{id:guid}/source", "/paint/sessions/{id:guid}/summary",
-            "/paint/sessions/{id:guid}", "/paint/sessions/{id:guid}/join", "/paint/sessions/{id:guid}/leave",
+            "/paint/sessions/{id:guid}", "/paint/sessions/{id:guid}/prepare-join", "/paint/sessions/{id:guid}/join", "/paint/sessions/{id:guid}/leave",
             "/paint/sessions/{id:guid}/stroke", "/paint/sessions/{id:guid}/preview", "/paint/sessions/{id:guid}/undo",
             "/paint/sessions/{id:guid}/clear", "/paint/sessions/{id:guid}/end",
         }, endpoints.ToArray());
@@ -82,6 +82,22 @@ public sealed class PaintEndpointsTests
         var body = await response.Content
             .ReadFromJsonAsync<PaintErrorDto>();
         Assert.AreEqual("MATRIX_MEMBERSHIP_REQUIRED", body!.Code);
+    }
+
+    [TestMethod]
+    public async Task PrepareJoin_InvitesAnyChannelMemberAndReturnsRoom()
+    {
+        await using var app = await EndpointFixture.StartActiveInviteeAsync();
+
+        var response = await app.Client.PostAsync(
+            $"/paint/sessions/{app.SessionId}/prepare-join",
+            null);
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.AreEqual("!paint:test", body.GetProperty("matrixRoomId").GetString());
+        Assert.IsFalse(body.GetProperty("alreadyJoined").GetBoolean());
+        Assert.AreEqual(1, app.InvitedMatrixUserIds.Count);
     }
 
     [TestMethod]
@@ -248,6 +264,7 @@ public sealed class PaintEndpointsTests
         private readonly TestCertificate _certificate;
         public HttpClient Client { get; }
         public Guid SessionId { get; private set; }
+        public List<string> InvitedMatrixUserIds => _matrix.InvitedMatrixUserIds;
 
         private EndpointFixture(WebApplication app, Database database, TestPresence presence, TestMatrix matrix, TestCertificate certificate)
         {
@@ -283,7 +300,7 @@ public sealed class PaintEndpointsTests
             var invitee = await users.Insert("alice-cert", "alice");
             presence.Participants[host.Id] = new(host.Id, 9, 101, host.MatrixUserId);
             presence.Participants[invitee.Id] = new(invitee.Id, 9, 102, invitee.MatrixUserId);
-            fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(host.Id, [102])).SessionId;
+            fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(host.Id, [])).SessionId;
             return fixture;
         }
 
@@ -351,8 +368,13 @@ public sealed class PaintEndpointsTests
         private static readonly byte[] ValidPng = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
         public Dictionary<string, string?> Memberships { get; } = [];
+        public List<string> InvitedMatrixUserIds { get; } = [];
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> ids, CancellationToken token) => Task.FromResult("!paint:test");
-        public Task InvitePaintUserAsync(string roomId, string id, CancellationToken token) => Task.CompletedTask;
+        public Task InvitePaintUserAsync(string roomId, string id, CancellationToken token)
+        {
+            InvitedMatrixUserIds.Add(id);
+            return Task.CompletedTask;
+        }
         public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken token) => Task.FromResult(JsonDocument.Parse($"{{\"room_id\":\"!paint:test\",\"sender\":\"@1:test\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://test/image\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{ValidPng.Length}}}}}}}").RootElement.Clone());
         public Task<string?> GetMembershipAsync(string roomId, string id, CancellationToken token) => Task.FromResult(Memberships.GetValueOrDefault(id));
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken token) => Task.FromResult(ValidPng);

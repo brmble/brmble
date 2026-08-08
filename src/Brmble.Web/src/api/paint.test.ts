@@ -18,6 +18,7 @@ describe('paintApi browser fallback', () => {
     ['createSession', () => paintApi.createSession({ channelId: 7, participantSessionIds: [2] }), '/paint/sessions', 'POST'],
     ['attachSource', () => paintApi.attachSource(sessionId, '$source'), '/paint/sessions/session-1/source', 'POST'],
     ['join', () => paintApi.join(sessionId), '/paint/sessions/session-1/join', 'POST'],
+    ['prepareJoin', () => paintApi.prepareJoin(sessionId), '/paint/sessions/session-1/prepare-join', 'POST'],
     ['leave', () => paintApi.leave(sessionId), '/paint/sessions/session-1/leave', 'POST'],
     ['commitStroke', () => paintApi.commitStroke(sessionId, { correlationId: 'stroke-1', generation: 0, tool: 'pen', width: 6, points: [] }), '/paint/sessions/session-1/stroke', 'POST'],
     ['sendPreview', () => paintApi.sendPreview(sessionId, { correlationId: 'stroke-1', generation: 0, tool: 'pen', width: 6, points: [] }), '/paint/sessions/session-1/preview', 'POST'],
@@ -132,6 +133,30 @@ describe('paintApi WebView bridge', () => {
     });
 
     await expect(result).resolves.toBeUndefined();
+  });
+
+  it('returns the prepared Matrix room from the bridge', async () => {
+    const result = paintApi.prepareJoin(sessionId);
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+
+    expect(request).toEqual({
+      type: 'paint.prepareJoin',
+      data: { sessionId, requestId: expect.any(Number) },
+    });
+
+    bridge._handleMessage({
+      data: {
+        type: 'paint.response',
+        data: {
+          requestId: request.data.requestId,
+          success: true,
+          body: JSON.stringify({ sessionId, matrixRoomId: '!paint:test', alreadyJoined: false }),
+        },
+      },
+    });
+
+    await expect(result).resolves.toEqual({ sessionId, matrixRoomId: '!paint:test', alreadyJoined: false });
   });
 
   it('keeps end pending until its correlated response arrives', async () => {

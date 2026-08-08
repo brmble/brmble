@@ -10,6 +10,12 @@ export interface CreatedPaintSession {
   channelId: number;
 }
 
+export interface PaintJoinPreparation {
+  sessionId: string;
+  matrixRoomId: string;
+  alreadyJoined: boolean;
+}
+
 interface BridgeResponse {
   requestId?: number;
   success?: boolean;
@@ -76,6 +82,11 @@ async function mutate(event: string, path: string, payload: Record<string, unkno
   await post<unknown>(path, payload);
 }
 
+async function mutateWithResponse<T>(event: string, path: string, payload: Record<string, unknown>): Promise<T> {
+  if (isWebViewBridgeAvailable()) return bridgeRequest<T>(event, payload);
+  return post<T>(path, payload);
+}
+
 function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
   return {
     correlationId: stroke.correlationId,
@@ -97,6 +108,7 @@ export const paintApi = {
   },
   attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', `/paint/sessions/${encodeURIComponent(sessionId)}/source`, { sessionId, sourceEventId }),
   join: (sessionId: string) => mutate('paint.join', `/paint/sessions/${encodeURIComponent(sessionId)}/join`, { sessionId }),
+  prepareJoin: (sessionId: string) => mutateWithResponse<PaintJoinPreparation>('paint.prepareJoin', `/paint/sessions/${encodeURIComponent(sessionId)}/prepare-join`, { sessionId }),
   leave: (sessionId: string) => mutate('paint.leave', `/paint/sessions/${encodeURIComponent(sessionId)}/leave`, { sessionId }),
   commitStroke: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.commitStroke', `/paint/sessions/${encodeURIComponent(sessionId)}/stroke`, { sessionId, ...normalizedStroke(stroke) }),
   sendPreview: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.sendPreview', `/paint/sessions/${encodeURIComponent(sessionId)}/preview`, { sessionId, ...normalizedStroke(stroke) }),

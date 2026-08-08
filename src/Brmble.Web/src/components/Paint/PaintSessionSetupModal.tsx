@@ -14,7 +14,6 @@ import {
 } from '../../utils/paintSourceFile';
 import './PaintSessionSetupModal.css';
 
-type Candidate = { userId: number; name: string };
 type Created = { sessionId: string; matrixRoomId: string; channelId: number };
 type Matrix = Pick<
   MatrixClient,
@@ -24,8 +23,10 @@ type Matrix = Pick<
 type PaintSessionSetupModalProps = {
   channelId: number;
   channelRoomId: string;
-  candidates: Candidate[];
-  hostUserId: number;
+  /** @deprecated Participant selection is no longer used; channel members can join later. */
+  candidates?: unknown;
+  /** @deprecated Kept for compatibility with older callers. */
+  hostUserId?: number;
   paintApi: {
     createSession(input: {
       channelId: number;
@@ -46,7 +47,6 @@ type PaintSessionSetupModalProps = {
 export function PaintSessionSetupModal({
   channelId,
   channelRoomId,
-  candidates,
   paintApi,
   matrixClient,
   onAttachSource,
@@ -59,7 +59,6 @@ export function PaintSessionSetupModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceRevisionRef = useRef(0);
   const uploadLimitPromiseRef = useRef<Promise<number | undefined> | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(
     () => initialSourceFile ?? null,
   );
@@ -174,7 +173,7 @@ export function PaintSessionSetupModal({
       }
       created = await paintApi.createSession({
         channelId,
-        participantSessionIds: selected,
+        participantSessionIds: [],
       });
       await matrixClient.joinRoom(created.matrixRoomId);
       const uploaded = await matrixClient.uploadContent(file, {
@@ -252,21 +251,6 @@ export function PaintSessionSetupModal({
             Start collaborative paint
           </h2>
         </div>
-        {candidates.map((candidate) => (
-          <label key={candidate.userId}>
-            <input
-              aria-label={candidate.name}
-              type="checkbox"
-              checked={selected.includes(candidate.userId)}
-              onChange={() => setSelected((value) => (
-                value.includes(candidate.userId)
-                  ? value.filter((id) => id !== candidate.userId)
-                  : [...value, candidate.userId]
-              ))}
-            />
-            {candidate.name}
-          </label>
-        ))}
         <label>
           Source image
           <input

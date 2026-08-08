@@ -33,6 +33,7 @@ internal sealed class PaintService : IService
         bridge.RegisterHandler("paint.create", data => PostAsync("paint/sessions", data));
         bridge.RegisterHandler("paint.attachSource", data => PostSessionAsync(data, "source"));
         bridge.RegisterHandler("paint.join", data => PostSessionAsync(data, "join"));
+        bridge.RegisterHandler("paint.prepareJoin", data => PostSessionAsync(data, "prepare-join"));
         bridge.RegisterHandler("paint.leave", data => PostSessionAsync(data, "leave"));
         bridge.RegisterHandler("paint.commitStroke", data => PostSessionAsync(data, "stroke"));
         bridge.RegisterHandler("paint.sendPreview", data => PostSessionAsync(data, "preview"));

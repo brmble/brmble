@@ -7,6 +7,7 @@ public sealed class PaintConflictException(string message) : Exception(message);
 public sealed class PaintNotFoundException(string message) : Exception(message);
 
 public sealed record CreatePaintSessionResult(Guid SessionId, string MatrixRoomId);
+public sealed record PaintJoinPreparationResult(Guid SessionId, string MatrixRoomId, bool AlreadyJoined);
 public sealed record PaintSourceAttachedResult(PaintSource Source, long Revision, long Generation);
 public sealed record PaintParticipantChangeResult(PaintParticipant Participant, long Revision, long Generation);
 public sealed record PaintStrokeCommittedResult(PaintStroke Stroke, long Revision, long Generation);
@@ -170,6 +171,35 @@ public sealed class PaintSessionManager(
         return new PaintParticipantChangeResult(participant, revision, generation);
     }
 
+    public async Task<PaintJoinPreparationResult> PrepareJoinAsync(Guid sessionId, long userId, CancellationToken cancellationToken = default)
+    {
+        var session = GetSession(sessionId);
+        if (!presence.TryGetParticipant(userId, out var current) || current.ChannelId != session.ChannelId)
+            throw new PaintAuthorizationException("You must be in the paint channel.");
+
+        PaintInvitee invitee;
+        string roomId;
+        lock (session.Lock)
+        {
+            RequireOpen(session);
+            invitee = GetInvitee(session, userId);
+            roomId = session.MatrixRoomId;
+        }
+
+        var membership = await matrixPaintService.GetMembershipAsync(roomId, invitee.MatrixUserId, cancellationToken);
+        var alreadyJoined = string.Equals(membership, "join", StringComparison.OrdinalIgnoreCase);
+        if (!alreadyJoined)
+        {
+            await matrixPaintService.InvitePaintUserAsync(roomId, invitee.MatrixUserId, cancellationToken);
+            lock (session.Lock)
+            {
+                session.Invitees[userId] = invitee;
+            }
+        }
+
+        return new PaintJoinPreparationResult(session.SessionId, roomId, alreadyJoined);
+    }
+
     public async Task<PaintParticipantChangeResult> LeaveAsync(Guid sessionId, long userId)
     {
         var session = GetSession(sessionId); PaintParticipant participant; long revision, generation; Task publish;
@@ -308,7 +338,8 @@ public sealed class PaintSessionManager(
 
         lock (session.Lock)
         {
-            var canJoin = session.Invitees.ContainsKey(userId);
+            var canJoin = session.Status is not (PaintSessionStatus.Ended or PaintSessionStatus.Expired)
+                && current.ChannelId == session.ChannelId;
             var isParticipant = canJoin && IsCurrentParticipant(session, userId, out _);
             return Task.FromResult(new PaintSessionSummary(
                 session.SessionId,
@@ -500,7 +531,15 @@ public sealed class PaintSessionManager(
             else _openSessionCounts[userId] = count - 1;
         }
     }
-    private static PaintInvitee GetInvitee(LivePaintSession session, long userId) => session.Invitees.TryGetValue(userId, out var invitee) ? invitee : throw new PaintAuthorizationException("You are not selected for this paint session.");
+    private PaintInvitee GetInvitee(LivePaintSession session, long userId)
+    {
+        if (session.Invitees.TryGetValue(userId, out var invitee)) return invitee;
+        if (!presence.TryGetParticipant(userId, out var current) || current.ChannelId != session.ChannelId)
+            throw new PaintAuthorizationException("You must be in the paint channel.");
+        invitee = new PaintInvitee(userId, current.MatrixUserId);
+        session.Invitees[userId] = invitee;
+        return invitee;
+    }
     private bool IsCurrentParticipant(LivePaintSession session, long userId, out PaintParticipant participant)
     {
         participant = null!;

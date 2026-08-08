@@ -4806,14 +4806,14 @@ const handleConnect = (serverData: SavedServer) => {
     },
     [isCurrentPaintPreparation, notifQueue],
   );
-  const paintCandidates = paintChannelId === null
-    ? []
-    : users
-      .filter(user => user.channelId === paintChannelId && !user.self)
-      .map(user => ({ userId: user.session, name: user.name }));
   const handleJoinPaint = useCallback(async (sessionId: string) => {
+    if (!matrixClient.client) throw new Error('Matrix is not connected.');
+    const preparation = await paintApi.prepareJoin(sessionId);
+    if (!preparation.alreadyJoined) {
+      await matrixClient.client.joinRoom(preparation.matrixRoomId);
+    }
     await paintApi.join(sessionId);
-  }, []);
+  }, [matrixClient.client]);
   const handleOpenPaint = useCallback((sessionId: string) => {
     invalidatePaintPreparation();
     activePaintChannelIdRef.current = currentChannelId;
@@ -4870,8 +4870,6 @@ const handleConnect = (serverData: SavedServer) => {
         <PaintSessionSetupModal
           channelId={paintChannelId}
           channelRoomId={paintChannelRoomId}
-          candidates={paintCandidates}
-          hostUserId={selfSession}
           paintApi={paintApi}
           matrixClient={matrixClient.client}
           onAttachSource={paintApi.attachSource}

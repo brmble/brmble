@@ -12,7 +12,7 @@ import type { ChatMessage } from './types';
 import type { PaintSessionSnapshot, PaintSessionStatus } from './types/paint';
 
 const paint = vi.hoisted(() => ({
-  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), getSummary: vi.fn(), join: vi.fn(), end: vi.fn(),
+  createSession: vi.fn(), attachSource: vi.fn(), getSnapshot: vi.fn(), getSummary: vi.fn(), prepareJoin: vi.fn(), join: vi.fn(), end: vi.fn(),
 }));
 
 type TestBridge = typeof bridge & {
@@ -150,7 +150,7 @@ function PaintFlowApp({ matrixClient, initialUsers = [{ session: 7, name: 'Alice
   const currentUserId = users.find(user => user.self)?.session;
 
   return <><header><button onClick={() => setSetup(true)}>Start paint</button></header>
-    {setup && <PaintSessionSetupModal channelId={5} channelRoomId="!channel:test" candidates={[{ userId: 2, name: 'Bob' }]} hostUserId={7} paintApi={paintApi} matrixClient={matrixClient} onAttachSource={paint.attachSource} onComplete={id => { setSessionId(id); setSetup(false); }} />}
+    {setup && <PaintSessionSetupModal channelId={5} channelRoomId="!channel:test" paintApi={paintApi} matrixClient={matrixClient} onAttachSource={paint.attachSource} onComplete={id => { setSessionId(id); setSetup(false); }} />}
     <VerticalSplitPane
       top={sessionId ? <PaintSessionView sessionId={sessionId} matrixClient={matrixClient} channelRoomMap={{ '5': '!channel:test' }} onClose={() => setSessionId(null)} /> : null}
       storageKey="paint-flow-split"
@@ -166,7 +166,11 @@ function PaintFlowApp({ matrixClient, initialUsers = [{ session: 7, name: 'Alice
         users={users}
         currentUserId={currentUserId}
         paintSessionStatuses={paintSessionStatuses}
-        onJoinPaint={async id => { await paintApi.join(id); }}
+        onJoinPaint={async id => {
+          const preparation = await paintApi.prepareJoin(id);
+          if (!preparation.alreadyJoined) await matrixClient.joinRoom(preparation.matrixRoomId);
+          await paintApi.join(id);
+        }}
         onOpenPaint={id => setSessionId(id)}
       />
     </VerticalSplitPane>
@@ -208,7 +212,6 @@ async function openActivePaintSession(user: ReturnType<typeof userEvent.setup>, 
   paint.getSnapshot.mockResolvedValue(initial);
 
   await user.click(screen.getByRole('button', { name: 'Start paint' }));
-  await user.click(screen.getByLabelText('Bob'));
   await user.upload(screen.getByLabelText('Source image'), new File(['source'], 'source.png', { type: 'image/png' }));
   expect(await screen.findByText('source.png')).toBeInTheDocument();
   await user.click(within(screen.getByRole('dialog', { name: 'Start collaborative paint' })).getByRole('button', { name: 'Start paint' }));
@@ -242,7 +245,6 @@ describe('collaborative paint app flow', () => {
     render(<PaintFlowApp matrixClient={matrixClient} />);
 
     await user.click(screen.getByRole('button', { name: 'Start paint' }));
-    await user.click(screen.getByLabelText('Bob'));
     await user.upload(screen.getByLabelText('Source image'), new File(['source'], 'source.png', { type: 'image/png' }));
     expect(await screen.findByText('source.png')).toBeInTheDocument();
     await user.click(within(screen.getByRole('dialog', { name: 'Start collaborative paint' })).getByRole('button', { name: 'Start paint' }));
@@ -463,6 +465,7 @@ describe('collaborative paint app flow', () => {
         canJoin: true,
         isParticipant: true,
       });
+    paint.prepareJoin.mockResolvedValue({ sessionId: 'session-1', matrixRoomId: '!paint:test', alreadyJoined: false });
     paint.join.mockResolvedValue(undefined);
     paint.getSnapshot.mockResolvedValue({
       ...initial,
@@ -476,6 +479,8 @@ describe('collaborative paint app flow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Join paint' }));
 
+    expect(paint.prepareJoin).toHaveBeenCalledWith('session-1');
+    expect(matrixClient.joinRoom).toHaveBeenCalledWith('!paint:test');
     expect(paint.join).toHaveBeenCalledWith('session-1');
     expect(screen.queryByLabelText('Collaborative paint')).toBeNull();
     expect(composer).toHaveValue('draft survives');

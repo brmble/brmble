@@ -85,12 +85,11 @@ describe('PaintSessionSetupModal', () => {
       onAttachSource={attachSource}
     />);
 
-    await user.click(screen.getByLabelText('Bob'));
     await user.upload(screen.getByLabelText('Source image'), new File(['image'], 'source.png', { type: 'image/png' }));
     expect(await screen.findByText('source.png')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /start paint/i }));
 
-    expect(paintApi.createSession).toHaveBeenCalledWith({ channelId: 5, participantSessionIds: [2] });
+    expect(paintApi.createSession).toHaveBeenCalledWith({ channelId: 5, participantSessionIds: [] });
     expect(matrixClient.joinRoom).toHaveBeenCalledWith('!paint:server');
     expect(matrixClient.sendMessage).toHaveBeenCalledWith('!paint:server', expect.objectContaining({ msgtype: 'm.image' }));
     expect(attachSource).toHaveBeenCalledWith('session-1', '$source');
@@ -321,7 +320,6 @@ describe('PaintSessionSetupModal', () => {
         onAttachSource={attachSource}
       />,
     );
-    await user.click(screen.getByLabelText('Bob'));
     screen.getByRole('button', { name: 'Cancel' }).focus();
     const pasted = new File(['clipboard-pixels'], 'image.png', {
       type: 'image/png',
@@ -337,7 +335,6 @@ describe('PaintSessionSetupModal', () => {
     expect(screen.getByAltText(
       'Selected paint source: Pasted screenshot.png',
     )).toHaveAttribute('src', 'blob:source-preview');
-    expect(screen.getByLabelText('Bob')).toBeChecked();
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
     expect(paintApi.createSession).not.toHaveBeenCalled();
 
@@ -349,7 +346,7 @@ describe('PaintSessionSetupModal', () => {
     expect(paintApi.createSession).toHaveBeenCalledOnce();
   });
 
-  it('replaces a selected file with a valid paste without changing participants', async () => {
+  it('replaces a selected file with a valid paste', async () => {
     const user = userEvent.setup();
     const { paintApi, matrixClient, attachSource } = createHarness();
     render(
@@ -363,7 +360,6 @@ describe('PaintSessionSetupModal', () => {
         onAttachSource={attachSource}
       />,
     );
-    await user.click(screen.getByLabelText('Bob'));
     await user.upload(
       screen.getByLabelText('Source image'),
       new File(['first'], 'first.webp', { type: 'image/webp' }),
@@ -378,7 +374,6 @@ describe('PaintSessionSetupModal', () => {
     expect(await screen.findByText('Pasted screenshot.jpg'))
       .toBeInTheDocument();
     expect(screen.queryByText('first.webp')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Bob')).toBeChecked();
     expect(screen.getByLabelText('Source image')).toHaveValue('');
   });
 

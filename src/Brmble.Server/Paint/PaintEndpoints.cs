@@ -74,6 +74,10 @@ public static class PaintEndpoints
             UserRepository users, PaintSessionManager manager, CancellationToken cancellationToken) =>
             await ExecuteAsync(async user => Results.Ok(await manager.JoinAsync(id, user.UserId, cancellationToken)), context, certificates, users));
 
+        app.MapPost("/paint/sessions/{id:guid}/prepare-join", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
+            UserRepository users, PaintSessionManager manager, CancellationToken cancellationToken) =>
+            await ExecuteAsync(async user => Results.Ok(await manager.PrepareJoinAsync(id, user.UserId, cancellationToken)), context, certificates, users));
+
         app.MapPost("/paint/sessions/{id:guid}/leave", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
             UserRepository users, PaintSessionManager manager) =>
             await ExecuteAsync(async user => Results.Ok(await manager.LeaveAsync(id, user.UserId)), context, certificates, users));

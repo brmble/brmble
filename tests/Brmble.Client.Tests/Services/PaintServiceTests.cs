@@ -94,6 +94,34 @@ public sealed class PaintServiceTests
     }
 
     [TestMethod]
+    public async Task PaintPrepareJoin_ForwardsRoomPreparationResult()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var key = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest("CN=paint-test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        Uri? calledUri = null;
+        var service = new PaintService(bridge, () => certificate, () => "https://api.example.com",
+            (_, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, null, 200, null)),
+            (_, uri, _) =>
+            {
+                calledUri = uri;
+                return Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true,
+                    "{\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"matrixRoomId\":\"!paint:test\",\"alreadyJoined\":false}", 200, null));
+            });
+        service.RegisterHandlers(bridge);
+
+        using var request = JsonDocument.Parse("{ \"sessionId\": \"11111111-1111-1111-1111-111111111111\", \"requestId\": 13 }");
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.prepareJoin", request.RootElement.Clone());
+
+        Assert.AreEqual("https://api.example.com/paint/sessions/11111111-1111-1111-1111-111111111111/prepare-join", calledUri?.ToString());
+        var response = NativeBridgeTestHarness.DrainMessages(bridge).Single(message => message.Type == "paint.response");
+        StringAssert.Contains(response.DataJson, "alreadyJoined");
+        StringAssert.Contains(response.DataJson, "false");
+        StringAssert.Contains(response.DataJson, "\"requestId\":13");
+    }
+
+    [TestMethod]
     public async Task PaintMutationFailure_ReturnsCorrelatedFailure()
     {
         var bridge = NativeBridgeTestHarness.Create();
