@@ -43,6 +43,7 @@ let globalOptions: PromptOptions = { title: '', message: '' };
 let globalInputOptions: PromptWithInputOptions = { title: '', message: '', placeholder: '', defaultValue: '' };
 let globalPasswordOptions: PasswordPromptOptions = { title: '', message: '' };
 let globalForceUpdate: (() => void) | null = null;
+let globalInputPromptVersion = 0;
 
 function handleConfirm() {
   if (globalResolve) {
@@ -79,6 +80,10 @@ export function confirm(options: PromptOptions): Promise<boolean> {
     globalResolveInput(null);
     globalResolveInput = null;
   }
+  if (globalResolvePassword) {
+    globalResolvePassword(null);
+    globalResolvePassword = null;
+  }
   globalOptions = options;
   return new Promise((resolve) => {
     globalResolve = resolve;
@@ -100,6 +105,7 @@ export function prompt(options: PromptWithInputOptions): Promise<string | null> 
     globalResolvePassword = null;
   }
   globalInputOptions = options;
+  globalInputPromptVersion += 1;
   return new Promise((resolve) => {
     globalResolveInput = resolve;
     globalForceUpdate?.();
@@ -120,6 +126,7 @@ export function promptPassword(options: PasswordPromptOptions): Promise<Password
     globalResolvePassword = null;
   }
   globalPasswordOptions = options;
+  globalInputPromptVersion += 1;
   return new Promise((resolve) => {
     globalResolvePassword = resolve;
     globalForceUpdate?.();
@@ -185,6 +192,7 @@ function PromptComponent() {
 function PromptWithInputComponent() {
   const isPasswordPromptOpen = globalResolvePassword !== null;
   const isOpen = globalResolveInput !== null || isPasswordPromptOpen;
+  const promptVersion = globalInputPromptVersion;
   const [inputValue, setInputValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberChecked, setRememberChecked] = useState(false);
@@ -193,13 +201,14 @@ function PromptWithInputComponent() {
 
   useEffect(() => {
     if (isOpen) {
-      setInputValue(globalInputOptions.defaultValue || '');
+      const activeOptions = isPasswordPromptOpen ? globalPasswordOptions : globalInputOptions;
+      setInputValue(activeOptions.defaultValue || '');
       setShowPassword(false);
       setRememberChecked(isPasswordPromptOpen && globalPasswordOptions.rememberDefaultChecked === true);
       setInputFocused(false);
       setToggleFocused(false);
     }
-  }, [isOpen, isPasswordPromptOpen]);
+  }, [isOpen, isPasswordPromptOpen, promptVersion]);
 
   useEffect(() => {
     if (!isOpen) return;

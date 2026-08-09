@@ -79,4 +79,12 @@ describe('useAdminRegisteredUsers', () => {
     expect(result.current.error).toBe('Registered users lookup failed with status 403.');
     expect(result.current.registeredUsers).toHaveLength(0);
   });
+
+  it('does not request the server-wide directory when disabled', () => {
+    const { result } = renderHook(() => useAdminRegisteredUsers(false));
+
+    expect(bridgeSend).not.toHaveBeenCalled();
+    expect(result.current.registeredUsers).toEqual([]);
+    expect(result.current.error).toBeNull();
+  });
 });

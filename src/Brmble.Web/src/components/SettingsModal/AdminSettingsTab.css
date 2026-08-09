@@ -143,8 +143,8 @@
 
 .admin-channel-expand-button {
   display: inline-grid;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: calc(var(--space-xl) + var(--space-2xs));
+  height: calc(var(--space-xl) + var(--space-2xs));
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle));
   border-radius: var(--radius-sm);

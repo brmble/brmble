@@ -2,17 +2,42 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAccessPanel } from './ChannelAccessPanel';
 import { Permission } from '../../../types/acl';
+import type { AclChannelSnapshot } from '../../../types/acl';
+import { replaceManagedPassword } from '../../../utils/channelAccessAcl';
 
 const channelSave = vi.fn();
 const channelRefresh = vi.fn();
 const rootRefresh = vi.fn();
+const nullRefresh = vi.fn();
+const registeredUsersHook = vi.fn((enabled = true) => ({
+  registeredUsers: enabled ? [
+    { registrationUserId: 42, registeredName: 'Alice' },
+    { registrationUserId: 77, registeredName: 'Bob' },
+  ] : [],
+  loading: false,
+  error: null,
+}));
+let channelSnapshot: AclChannelSnapshot = {
+  channelId: 7,
+  inheritAcls: true,
+  groups: [],
+  acls: [{ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'Hunters', allow: Permission.Traverse | Permission.Enter, deny: 0 }],
+  fetchedAt: '2026-08-04T18:00:00Z',
+  stale: false,
+  warning: null,
+  snapshotHash: 'channel-hash',
+};
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 vi.mock('../../../hooks/useAclAdmin', () => ({
-  useAclAdmin: (channelId: number) => channelId === 0
+  useAclAdmin: (channelId: number | null) => channelId == null
+    ? {
+        snapshot: null, loading: false, saving: false, error: null, refresh: nullRefresh, save: vi.fn(),
+      }
+    : channelId === 0
     ? {
         snapshot: { channelId: 0, inheritAcls: true, groups: [
           { name: 'Classleaders', inherited: false, inherit: true, inheritable: true, add: [], remove: [], members: [42] },
@@ -21,40 +46,49 @@ vi.mock('../../../hooks/useAclAdmin', () => ({
         loading: false, saving: false, error: null, refresh: rootRefresh, save: vi.fn(),
       }
     : {
-        snapshot: {
-          channelId: 7,
-          inheritAcls: true,
-          groups: [],
-          acls: [{ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'Hunters', allow: Permission.Traverse | Permission.Enter, deny: 0 }],
-          fetchedAt: '2026-08-04T18:00:00Z',
-          stale: false,
-          warning: null,
-          snapshotHash: 'channel-hash',
-        },
+        snapshot: channelSnapshot,
         loading: false, saving: false, error: null, refresh: channelRefresh, save: channelSave,
       },
 }));
 
 vi.mock('./useAdminRegisteredUsers', () => ({
-  useAdminRegisteredUsers: () => ({
-    registeredUsers: [
-      { registrationUserId: 42, registeredName: 'Alice' },
-      { registrationUserId: 77, registeredName: 'Bob' },
-    ],
-    loading: false,
-    error: null,
-  }),
+  useAdminRegisteredUsers: (enabled?: boolean) => registeredUsersHook(enabled),
 }));
 
 const channel = { id: 7, name: 'ChannelA', parent: 2, description: 'Class A voice' } as never;
 
 describe('ChannelAccessPanel', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    channelSnapshot = {
+      channelId: 7,
+      inheritAcls: true,
+      groups: [],
+      acls: [{ applyHere: true, applySubs: false, inherited: false, userId: null, group: 'Hunters', allow: Permission.Traverse | Permission.Enter, deny: 0 }],
+      fetchedAt: '2026-08-04T18:00:00Z',
+      stale: false,
+      warning: null,
+      snapshotHash: 'channel-hash',
+    };
+  });
 
   it('refreshes channel and root ACL state when opened', () => {
     render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
     expect(channelRefresh).toHaveBeenCalled();
     expect(rootRefresh).toHaveBeenCalled();
+  });
+
+  it('uses only channel-authorized data and controls in scoped mode', () => {
+    render(<ChannelAccessPanel channel={channel} parentName="Classes" scoped />);
+
+    expect(channelRefresh).toHaveBeenCalled();
+    expect(rootRefresh).not.toHaveBeenCalled();
+    expect(nullRefresh).not.toHaveBeenCalled();
+    expect(registeredUsersHook).toHaveBeenCalledWith(false);
+    expect(screen.getByText('@Hunters')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add group' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add user' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Adding groups or registered users requires a server administrator/)).toBeInTheDocument();
   });
 
   it('shows channel information and the administrator-visible password label', () => {
@@ -156,5 +190,46 @@ describe('ChannelAccessPanel', () => {
         expect.objectContaining({ group: 'Hunters', allow: 0 }),
       ]),
     }));
+  });
+
+  it('preserves a dirty draft when canonical ACL state changes and offers an explicit reload', () => {
+    const { rerender } = render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+    const passwordInput = screen.getByLabelText(/Channel password/);
+    fireEvent.change(passwordInput, { target: { value: 'unsaved-local-password' } });
+
+    channelSnapshot = {
+      ...channelSnapshot,
+      snapshotHash: 'remote-hash',
+      acls: replaceManagedPassword(channelSnapshot.acls, 'remote-password'),
+    };
+    rerender(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+
+    expect(passwordInput).toHaveValue('unsaved-local-password');
+    expect(screen.getByText('Access settings changed on the server.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save access settings' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload server changes' }));
+
+    expect(passwordInput).toHaveValue('remote-password');
+    expect(screen.queryByText('Access settings changed on the server.')).not.toBeInTheDocument();
+  });
+
+  it('preserves edits made after saving when the submitted snapshot is acknowledged', () => {
+    const { rerender } = render(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+    const passwordInput = screen.getByLabelText(/Channel password/);
+    fireEvent.change(passwordInput, { target: { value: 'submitted-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save access settings' }));
+    fireEvent.change(passwordInput, { target: { value: 'continued-edit' } });
+
+    channelSnapshot = {
+      ...channelSnapshot,
+      snapshotHash: 'saved-hash',
+      acls: replaceManagedPassword(channelSnapshot.acls, 'submitted-password'),
+    };
+    rerender(<ChannelAccessPanel channel={channel} parentName="Classes" />);
+
+    expect(passwordInput).toHaveValue('continued-edit');
+    expect(screen.queryByText('Access settings changed on the server.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save access settings' })).toBeEnabled();
   });
 });

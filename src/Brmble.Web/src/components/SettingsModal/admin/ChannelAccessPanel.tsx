@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Channel } from '../../../types';
 import { useAclAdmin } from '../../../hooks/useAclAdmin';
 import {
@@ -15,39 +15,96 @@ import './ChannelAccessPanel.css';
 interface ChannelAccessPanelProps {
   channel: Channel;
   parentName: string;
+  scoped?: boolean;
 }
 
-export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelProps) {
+const BUILT_IN_ACL_GROUPS = new Set(['all', 'auth', 'in', 'out', 'sub']);
+
+const isEditableScopedGroup = (group: string | null): group is string => (
+  group != null
+  && /^[A-Za-z0-9_-]+$/.test(group)
+  && !BUILT_IN_ACL_GROUPS.has(group)
+);
+
+export function ChannelAccessPanel({ channel, parentName, scoped = false }: ChannelAccessPanelProps) {
   const channelAcl = useAclAdmin(channel.id);
-  const rootAcl = useAclAdmin(0);
-  const users = useAdminRegisteredUsers();
+  const rootAcl = useAclAdmin(scoped ? null : 0);
+  const users = useAdminRegisteredUsers(!scoped);
   const [draft, setDraft] = useState<SimpleChannelAccessDraft>({ groups: [], userIds: [], password: '' });
   const [groupToAdd, setGroupToAdd] = useState('');
   const [userToAdd, setUserToAdd] = useState('');
+  const [baselineSignature, setBaselineSignature] = useState<string | null>(null);
+  const [hasExternalChanges, setHasExternalChanges] = useState(false);
+  const submittedDraftSignatureRef = useRef<string | null>(null);
+  const refreshChannelAcl = channelAcl.refresh;
+  const refreshRootAcl = rootAcl.refresh;
 
   useEffect(() => {
-    channelAcl.refresh();
-    rootAcl.refresh();
-  }, [channel.id, channelAcl.refresh, rootAcl.refresh]);
+    refreshChannelAcl();
+    if (!scoped) refreshRootAcl();
+  }, [channel.id, refreshChannelAcl, refreshRootAcl, scoped]);
 
   const rootGroups = useMemo(
     () => (rootAcl.snapshot?.groups ?? []).filter(group => !group.inherited && group.inheritable),
     [rootAcl.snapshot],
   );
-  const rootGroupNames = useMemo(() => new Set(rootGroups.map(group => group.name)), [rootGroups]);
+  const rootGroupNames = useMemo(() => {
+    if (!scoped) return new Set(rootGroups.map(group => group.name));
+
+    return new Set([
+      ...(channelAcl.snapshot?.groups ?? []).map(group => group.name),
+      ...(channelAcl.snapshot?.acls ?? [])
+        .map(rule => rule.group)
+        .filter(isEditableScopedGroup),
+    ]);
+  }, [channelAcl.snapshot, rootGroups, scoped]);
   const access = useMemo(
     () => channelAcl.snapshot ? readSimpleChannelAccess(channelAcl.snapshot, rootGroupNames) : null,
     [channelAcl.snapshot, rootGroupNames],
   );
-  const accessSignature = access ? JSON.stringify(access) : '';
+  const canonicalDraft = useMemo<SimpleChannelAccessDraft | null>(() => access ? ({
+    groups: access.localGroups,
+    userIds: access.localUserIds,
+    password: access.password,
+  }) : null, [access]);
+  const canonicalDraftSignature = canonicalDraft ? JSON.stringify(canonicalDraft) : '';
+  const draftSignature = JSON.stringify(draft);
 
   useEffect(() => {
-    if (!access) return;
-    setDraft({ groups: access.localGroups, userIds: access.localUserIds, password: access.password });
-  // Hydrate only when canonical ACL-derived values change, not when a hook
-  // recreates an equivalent snapshot object.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessSignature]);
+    if (!canonicalDraft) return;
+
+    if (baselineSignature == null) {
+      // Canonical ACL data arrives asynchronously and is the source used to hydrate this editor.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDraft(canonicalDraft);
+      setBaselineSignature(canonicalDraftSignature);
+      setHasExternalChanges(false);
+      return;
+    }
+
+    if (canonicalDraftSignature === baselineSignature) return;
+
+    const submittedDraftSignature = submittedDraftSignatureRef.current;
+    if (submittedDraftSignature != null && canonicalDraftSignature === submittedDraftSignature) {
+      if (draftSignature === submittedDraftSignature) {
+        setDraft(canonicalDraft);
+      }
+      submittedDraftSignatureRef.current = null;
+      setBaselineSignature(canonicalDraftSignature);
+      setHasExternalChanges(false);
+      return;
+    }
+
+    if (draftSignature === baselineSignature) {
+      setDraft(canonicalDraft);
+      submittedDraftSignatureRef.current = null;
+      setBaselineSignature(canonicalDraftSignature);
+      setHasExternalChanges(false);
+      return;
+    }
+
+    setHasExternalChanges(true);
+  }, [baselineSignature, canonicalDraft, canonicalDraftSignature, draftSignature]);
 
   const namesById = useMemo(
     () => new Map(users.registeredUsers.map(user => [user.registrationUserId, user.registeredName])),
@@ -55,8 +112,17 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
   );
 
   const save = () => {
-    if (!channelAcl.snapshot) return;
+    if (!channelAcl.snapshot || hasExternalChanges) return;
+    submittedDraftSignatureRef.current = draftSignature;
     channelAcl.save(mergeSimpleChannelAccess(channelAcl.snapshot, rootGroupNames, draft));
+  };
+
+  const reloadServerChanges = () => {
+    if (!canonicalDraft) return;
+    setDraft(canonicalDraft);
+    submittedDraftSignatureRef.current = null;
+    setBaselineSignature(canonicalDraftSignature);
+    setHasExternalChanges(false);
   };
 
   const removeGroup = (name: string) => setDraft(current => ({
@@ -89,11 +155,24 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
         <div><dt>ACL inheritance</dt><dd>{channelAcl.snapshot?.inheritAcls ? 'Enabled' : 'Disabled'}</dd></div>
       </dl>
 
-      {(channelAcl.error || rootAcl.error || users.error) && (
+      {(channelAcl.error || (!scoped && (rootAcl.error || users.error))) && (
         <div className="admin-error">{channelAcl.error ?? rootAcl.error ?? users.error}</div>
       )}
       {access?.hasAdvancedRules && (
         <p className="admin-help-text">This channel also has advanced ACL rules. They will be preserved.</p>
+      )}
+      {scoped && (
+        <p className="admin-help-text">
+          You can edit existing channel access entries and the password. Adding groups or registered users requires a server administrator.
+        </p>
+      )}
+      {hasExternalChanges && (
+        <div className="admin-warning" role="alert">
+          <p>Access settings changed on the server.</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={reloadServerChanges}>
+            Reload server changes
+          </button>
+        </div>
       )}
 
       <section aria-labelledby={`channel-${channel.id}-groups`}>
@@ -145,26 +224,30 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
             </li>
           ))}
         </ul>
-        <label>
-          <span>Group to add</span>
-          <Select
-            ariaLabel="Group to add"
-            value={groupToAdd}
-            onChange={setGroupToAdd}
-            placeholder="Select a group"
-            options={rootGroups
-              .filter(group => !draft.groups.some(draftGroup => draftGroup.name === group.name))
-              .map(group => ({ value: group.name, label: group.name }))}
-          />
-        </label>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={!groupToAdd} onClick={() => {
-          setDraft(current => ({
-            ...current,
-            groups: [...current.groups, { name: groupToAdd, allow: SIMPLE_GROUP_PERMISSIONS }]
-              .sort((a, b) => a.name.localeCompare(b.name)),
-          }));
-          setGroupToAdd('');
-        }}>Add group</button>
+        {!scoped && (
+          <>
+            <label>
+              <span>Group to add</span>
+              <Select
+                ariaLabel="Group to add"
+                value={groupToAdd}
+                onChange={setGroupToAdd}
+                placeholder="Select a group"
+                options={rootGroups
+                  .filter(group => !draft.groups.some(draftGroup => draftGroup.name === group.name))
+                  .map(group => ({ value: group.name, label: group.name }))}
+              />
+            </label>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={!groupToAdd} onClick={() => {
+              setDraft(current => ({
+                ...current,
+                groups: [...current.groups, { name: groupToAdd, allow: SIMPLE_GROUP_PERMISSIONS }]
+                  .sort((a, b) => a.name.localeCompare(b.name)),
+              }));
+              setGroupToAdd('');
+            }}>Add group</button>
+          </>
+        )}
       </section>
 
       <section aria-labelledby={`channel-${channel.id}-users`}>
@@ -178,23 +261,27 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
             </li>
           ))}
         </ul>
-        <label>
-          <span>Registered user to add</span>
-          <Select
-            ariaLabel="Registered user to add"
-            value={userToAdd}
-            onChange={setUserToAdd}
-            placeholder="Select a user"
-            options={users.registeredUsers
-              .filter(user => !draft.userIds.includes(user.registrationUserId))
-              .map(user => ({ value: String(user.registrationUserId), label: user.registeredName }))}
-          />
-        </label>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={!userToAdd} onClick={() => {
-          const registrationUserId = Number.parseInt(userToAdd, 10);
-          setDraft(current => ({ ...current, userIds: [...new Set([...current.userIds, registrationUserId])].sort((a, b) => a - b) }));
-          setUserToAdd('');
-        }}>Add user</button>
+        {!scoped && (
+          <>
+            <label>
+              <span>Registered user to add</span>
+              <Select
+                ariaLabel="Registered user to add"
+                value={userToAdd}
+                onChange={setUserToAdd}
+                placeholder="Select a user"
+                options={users.registeredUsers
+                  .filter(user => !draft.userIds.includes(user.registrationUserId))
+                  .map(user => ({ value: String(user.registrationUserId), label: user.registeredName }))}
+              />
+            </label>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={!userToAdd} onClick={() => {
+              const registrationUserId = Number.parseInt(userToAdd, 10);
+              setDraft(current => ({ ...current, userIds: [...new Set([...current.userIds, registrationUserId])].sort((a, b) => a - b) }));
+              setUserToAdd('');
+            }}>Add user</button>
+          </>
+        )}
       </section>
 
       <label className="channel-access-password">
@@ -210,7 +297,7 @@ export function ChannelAccessPanel({ channel, parentName }: ChannelAccessPanelPr
       </label>
 
       <div className="admin-action-row">
-        <button type="button" className="btn btn-primary" disabled={!channelAcl.snapshot || channelAcl.saving || channelAcl.snapshot.stale} onClick={save}>
+        <button type="button" className="btn btn-primary" disabled={!channelAcl.snapshot || channelAcl.saving || channelAcl.snapshot.stale || hasExternalChanges} onClick={save}>
           {channelAcl.saving ? 'Saving...' : 'Save access settings'}
         </button>
       </div>

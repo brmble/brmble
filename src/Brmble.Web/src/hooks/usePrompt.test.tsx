@@ -36,9 +36,91 @@ describe('usePrompt confirmations', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await expect(decision).resolves.toBe(false);
   });
+
+  it('cancels a pending password prompt before opening a confirmation', async () => {
+    render(<PromptHarness />);
+
+    let passwordResult!: Promise<PasswordPromptResult | null>;
+    await act(async () => {
+      passwordResult = promptPassword({
+        title: 'Channel Password',
+        message: 'Enter the password.',
+      });
+    });
+
+    let confirmationResult!: Promise<boolean>;
+    await act(async () => {
+      confirmationResult = confirm({
+        title: 'Continue?',
+        message: 'Confirm the next action.',
+      });
+    });
+
+    let settledPasswordResult: PasswordPromptResult | null | 'pending' = 'pending';
+    void passwordResult.then(result => {
+      settledPasswordResult = result;
+    });
+    await act(async () => Promise.resolve());
+
+    try {
+      expect(settledPasswordResult).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Continue?' })).toBeInTheDocument();
+    } finally {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
+      await expect(confirmationResult).resolves.toBe(false);
+    }
+  });
 });
 
 describe('usePrompt input prompts', () => {
+  it('prefills a password prompt from its active options', async () => {
+    render(<PromptHarness />);
+
+    await act(async () => {
+      void promptPassword({
+        title: 'Channel Password',
+        message: 'Enter the password.',
+        placeholder: 'Password',
+        defaultValue: 'saved-password',
+      });
+    });
+
+    expect(screen.getByPlaceholderText('Password')).toHaveValue('saved-password');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  });
+
+  it('reinitializes input and remember state when a password prompt replaces another', async () => {
+    render(<PromptHarness />);
+
+    let firstResult!: Promise<PasswordPromptResult | null>;
+    await act(async () => {
+      firstResult = promptPassword({
+        title: 'First Channel',
+        message: 'Enter the first password.',
+        placeholder: 'Password',
+        defaultValue: 'first-password',
+        rememberLabel: 'Remember password',
+        rememberDefaultChecked: true,
+      });
+    });
+
+    await act(async () => {
+      void promptPassword({
+        title: 'Second Channel',
+        message: 'Enter the second password.',
+        placeholder: 'Password',
+        defaultValue: 'second-password',
+        rememberLabel: 'Remember password',
+        rememberDefaultChecked: false,
+      });
+    });
+
+    await expect(firstResult).resolves.toBeNull();
+    expect(screen.getByPlaceholderText('Password')).toHaveValue('second-password');
+    expect(screen.getByRole('checkbox', { name: 'Remember password' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  });
+
   it('returns the password and remember choice', async () => {
     const user = userEvent.setup();
     render(<PromptHarness />);
