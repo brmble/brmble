@@ -65,12 +65,12 @@
 .gameplayGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--neond-grid-gap);
   align-items: start;
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--neond-grid-max-width);
   margin: 0 auto;
   overflow: hidden;
 }
@@ -89,7 +89,7 @@
 .leftWorkspace > .panel,
 .gameplayGrid > .panel {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--neond-panel-max-width);
   height: 100%;
   justify-self: center;
 }
@@ -98,17 +98,17 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
-  max-width: 520px;
+  max-width: var(--neond-tabs-max-width);
   margin: 0 auto;
-  padding: 2px;
-  border: 1px solid var(--glass-border);
+  padding: var(--space-2xs);
+  border: var(--border-width-thin) solid var(--glass-border);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
 }
 
 .panelTab {
-  min-height: 34px;
-  border: 1px solid transparent;
+  min-height: var(--neond-control-min-height);
+  border: var(--border-width-thin) solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-muted);
@@ -132,13 +132,13 @@
 }
 
 .panelTab:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .panel {
   display: grid;
-  gap: 10px;
+  gap: var(--space-xs);
   align-content: start;
   min-height: 0;
   max-height: none;
@@ -148,7 +148,7 @@
 
 .cardStack {
   display: grid;
-  gap: 10px;
+  gap: var(--space-xs);
 }
 
 .panelHeader,
@@ -158,17 +158,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-xs);
 }
 
 .metricRow {
-  margin-bottom: 2px;
+  margin-bottom: var(--space-2xs);
 }
 
 .equipmentList {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
 }
 
 .equipmentOwned {
@@ -178,13 +178,13 @@
 .captainCard,
 .marketBanner {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 
 .muscleWorkerRow {
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
-  border-left: 4px solid var(--accent-primary);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-primary);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-elevated);
   overflow: hidden;
@@ -197,7 +197,7 @@
   gap: var(--space-sm);
   background: var(--accent-primary);
   color: var(--bg-deep);
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-xs);
   font-weight: 700;
 }
 
@@ -212,8 +212,8 @@
 
 .muscleBody {
   display: grid;
-  gap: 4px;
-  padding: 12px;
+  gap: var(--space-2xs);
+  padding: var(--space-sm);
 }
 
 .bottleneckPositive {
@@ -244,7 +244,7 @@
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
+  border: var(--border-width-thin) solid var(--glass-border);
   background: var(--bg-hover-light);
   color: var(--text-primary);
   cursor: pointer;
@@ -260,8 +260,8 @@
 
 .productionCard {
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
-  border-left: 4px solid var(--accent-success);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-success);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-elevated);
   overflow: hidden;
@@ -270,15 +270,15 @@
 }
 
 .productionCard:hover {
-  transform: translateY(-5px);
+  transform: translateY(calc(-1 * var(--space-2xs)));
   border-color: var(--accent-success);
   box-shadow: 0 0 var(--glow-lg) var(--accent-success-glow);
 }
 
 .distributionCard {
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
-  border-left: 4px solid var(--accent-secondary);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-secondary);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-elevated);
   overflow: hidden;
@@ -291,7 +291,7 @@
   gap: var(--space-sm);
   background: var(--accent-success);
   color: var(--bg-deep);
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-xs);
   font-weight: 700;
 }
 
@@ -306,26 +306,26 @@
 }
 
 .productionBody {
-  padding: 12px;
+  padding: var(--space-sm);
 }
 
 .productionMetrics {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 
 .productionFlow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 
 .productionSide {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 6px;
+  gap: var(--space-2xs);
 }
 
 .productionSideSales {
@@ -336,16 +336,16 @@
 .productionDownIndicator {
   width: 0;
   height: 0;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
+  border-left: var(--neond-arrow-width) solid transparent;
+  border-right: var(--neond-arrow-width) solid transparent;
 }
 
 .productionUpIndicator {
-  border-bottom: 12px solid var(--accent-success);
+  border-bottom: var(--neond-arrow-height) solid var(--accent-success);
 }
 
 .productionDownIndicator {
-  border-top: 12px solid var(--accent-danger);
+  border-top: var(--neond-arrow-height) solid var(--accent-danger);
 }
 
 .productionDelta {
@@ -412,14 +412,14 @@
 
 .offlineSummaryModal {
   padding: var(--space-xl);
-  max-width: 420px;
+  max-width: var(--neond-modal-max-width);
   display: grid;
   gap: var(--space-md);
 }
 
 .dealerCard {
-  margin-bottom: 10px;
-  padding: 10px;
+  margin-bottom: var(--space-xs);
+  padding: var(--space-xs);
 }
 
 .equipmentToggle {
@@ -428,7 +428,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: 4px 0;
+  padding: var(--space-2xs) 0;
   border: none;
   background: transparent;
   color: var(--accent-primary);
@@ -444,23 +444,23 @@
 }
 
 .equipmentToggle:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 3px;
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .dealerBody {
-  padding: 10px;
+  padding: var(--space-xs);
 }
 
 .actionStack {
   display: grid;
-  gap: 6px;
-  margin-top: 10px;
+  gap: var(--space-2xs);
+  margin-top: var(--space-xs);
 }
 
 .buyButton {
   width: 100%;
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   border: none;
   background: var(--accent-success);
@@ -475,7 +475,7 @@
 }
 
 .buyButton:hover:not(:disabled) {
-  transform: translateY(-2px);
+  transform: translateY(calc(-1 * var(--space-2xs)));
   box-shadow: 0 0 var(--glow-lg) var(--accent-success-glow);
 }
 
@@ -491,9 +491,9 @@
 
 .unlockButton {
   width: 100%;
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
-  border: 2px solid var(--accent-primary);
+  border: var(--border-width-strong) solid var(--accent-primary);
   background: transparent;
   color: var(--accent-primary);
   cursor: pointer;
@@ -517,9 +517,9 @@
 
 .dangerButton {
   width: 100%;
-  padding: 6px 10px;
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
-  border: 2px solid var(--accent-secondary);
+  border: var(--border-width-strong) solid var(--accent-secondary);
   background: transparent;
   color: var(--accent-secondary);
   cursor: pointer;
@@ -539,14 +539,14 @@
 .select {
   background: var(--bg-deep);
   color: var(--text-primary);
-  border: 1px solid var(--glass-border);
+  border: var(--border-width-thin) solid var(--glass-border);
   border-radius: var(--radius-xs);
   padding: var(--space-2xs) var(--space-xs);
 }
 
 .dealerHeader {
   background: var(--accent-secondary);
-  padding: 6px 8px;
+  padding: var(--space-2xs) var(--space-xs);
   text-align: center;
   font-weight: bold;
   font-size: var(--text-xs);

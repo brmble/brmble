@@ -30,6 +30,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const expected = new Set(keys);
+  return Object.keys(value).length === expected.size
+    && Object.keys(value).every((key) => expected.has(key));
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -75,6 +81,7 @@ function isEquipmentIdArray(value: unknown): value is EquipmentId[] {
 
 function isProductState(value: unknown): value is ProductState {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, ['stock', 'producersOwned', 'purchasedUpgradeIds'])) return false;
   return isNonNegativeFiniteNumber(value.stock)
     && isNonNegativeInteger(value.producersOwned);
 }
@@ -96,6 +103,7 @@ function isDealer(
   unlockedProducts: readonly string[],
 ): value is Dealer {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, ['id', 'name', 'selling', 'volumeMultiplier', 'marginMultiplier', 'equipmentIds', 'isProtected', 'isArrested', 'earningsPerSecondAtArrest'])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
@@ -117,6 +125,7 @@ function isCaptain(
   unlockedProducts: readonly string[],
 ): value is Captain {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, ['id', 'name', 'selling', 'equipmentIds', 'personalEarnings'])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
@@ -130,6 +139,7 @@ function isMarketEvent(
   unlockedProducts: readonly string[],
 ): value is MarketEvent {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, ['productId', 'multiplier', 'endsAt'])) return false;
   const productId = value.productId;
   if (!isProductId(productId) || !unlockedProducts.includes(productId)) return false;
   return isNonNegativeFiniteNumber(value.multiplier)
@@ -140,6 +150,7 @@ function isMarketEvent(
 
 function isOfflineEarningsSummary(value: unknown): value is OfflineEarningsSummary {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, ['actualAwayMs', 'simulatedMs', 'cashEarned', 'respectEarned'])) return false;
   return isNonNegativeFiniteNumber(value.actualAwayMs)
     && isNonNegativeFiniteNumber(value.simulatedMs)
     && value.simulatedMs <= value.actualAwayMs
@@ -187,6 +198,13 @@ function hasUniqueSellerIds(sellers: readonly { id: string }[]): boolean {
 
 function isGameState(value: unknown): value is GameState {
   if (!isObject(value)) return false;
+  if (!hasExactKeys(value, [
+    'schemaVersion', 'cash', 'runEarnings', 'respect', 'production', 'unlockedProducts',
+    'muscleOwned', 'territoryLevel', 'discountLevel', 'activeDealers', 'availableDealers',
+    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlocked', 'autoBulkEnabled',
+    'activeMarketEvent', 'nextMarketCheckAt', 'nextRiskCheckAt', 'lastEarningsPerSeller',
+    'lastTickAt', 'offlineEarningsSummary',
+  ])) return false;
   const unlockedProducts = value.unlockedProducts;
   if (!isUnlockedProductPrefix(unlockedProducts)) return false;
 
@@ -247,7 +265,7 @@ export function parseNeonDSave(text: string): GameState {
     throw new Error('The selected file is not valid JSON.');
   }
 
-  if (!isObject(parsed) || parsed.format !== NEON_D_SAVE_FORMAT) {
+  if (!isObject(parsed) || !hasExactKeys(parsed, ['format', 'version', 'state']) || parsed.format !== NEON_D_SAVE_FORMAT) {
     throw new Error('This file is not a Neon-D save.');
   }
   if (parsed.version !== NEON_D_SAVE_VERSION) {

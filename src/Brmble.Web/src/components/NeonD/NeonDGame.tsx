@@ -25,6 +25,8 @@ const formatPreciseMoney = (value: number) =>
   })}`;
 
 const formatDuration = (durationMs: number) => {
+  const totalSeconds = Math.floor(durationMs / 1_000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
   const totalMinutes = Math.floor(durationMs / 60_000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -245,9 +247,15 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
       </div>
 
       {state.offlineEarningsSummary && (
-        <div className={styles.equipmentModalOverlay}>
-          <div className={`glass-panel animate-slide-up ${styles.offlineSummaryModal}`}>
-            <h3 className={`heading-section ${styles.columnHeader}`}>Welcome back</h3>
+        <div className="modal-overlay" onClick={dismissOfflineEarningsSummary}>
+          <div
+            className={`glass-panel animate-slide-up ${styles.offlineSummaryModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="neond-offline-summary-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="neond-offline-summary-title" className="heading-title modal-title">Welcome back</h2>
             <div className={styles.offlineSummaryGrid}>
               <span>Away</span>
               <strong>{formatDuration(state.offlineEarningsSummary.actualAwayMs)}</strong>

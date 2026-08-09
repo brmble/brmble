@@ -36,6 +36,25 @@ export function ProductionPanel(props: ProductionPanelProps) {
   return (
     <section className={styles.panel} aria-labelledby="neond-production-heading">
       <h3 id="neond-production-heading" className={styles.columnHeader}>Production</h3>
+      {isBulkSellingVisible(props.state) && !props.state.bulkUnlocked && (
+        <button
+          className={styles.unlockButton}
+          onClick={props.unlockBulkSelling}
+          disabled={props.state.cash < BULK_UNLOCK_COST}
+        >
+          Unlock Bulk Selling - {formatMoney(BULK_UNLOCK_COST)}
+        </button>
+      )}
+      {props.state.bulkUnlocked && (
+        <button
+          type="button"
+          className={styles.toggleButtonText}
+          aria-pressed={props.state.autoBulkEnabled}
+          onClick={() => props.setAutoBulkEnabled(!props.state.autoBulkEnabled)}
+        >
+          Auto Bulk {props.state.autoBulkEnabled ? 'On' : 'Off'} ({AUTO_BULK_TRIGGER_STOCK.toLocaleString()}g → {AUTO_BULK_RETAIN_STOCK.toLocaleString()}g)
+        </button>
+      )}
       <div className={styles.cardStack}>
         {visibleIds.map((productId) => {
           const definition = getProductDefinition(productId);
@@ -102,7 +121,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
                     onClick={() => props.buyProducer(productId)}
                     disabled={props.state.cash < getProducerCost(productId, product.producersOwned, props.state.discountLevel)}
                   >
-                    Buy {product.producersOwned.toLocaleString()} {definition.producer.name}{product.producersOwned === 1 ? '' : 's'} - {formatMoney(getProducerCost(productId, product.producersOwned, props.state.discountLevel))}
+                    Buy one {definition.producer.name} - {formatMoney(getProducerCost(productId, product.producersOwned, props.state.discountLevel))}
                   </button>
                   {nextUpgrade ? (
                     <button
@@ -121,15 +140,6 @@ export function ProductionPanel(props: ProductionPanelProps) {
                       <span>{Math.ceil((props.state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
                     </div>
                   )}
-                  {isBulkSellingVisible(props.state) && !props.state.bulkUnlocked && (
-                    <button
-                      className={styles.unlockButton}
-                      onClick={props.unlockBulkSelling}
-                      disabled={props.state.cash < BULK_UNLOCK_COST}
-                    >
-                      Unlock Bulk Selling - {formatMoney(BULK_UNLOCK_COST)}
-                    </button>
-                  )}
                   {props.state.bulkUnlocked && (
                     <div className={styles.actionStack}>
                       <button
@@ -138,14 +148,6 @@ export function ProductionPanel(props: ProductionPanelProps) {
                         disabled={product.stock <= AUTO_BULK_RETAIN_STOCK}
                       >
                         Bulk sell overflow
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.toggleButtonText}
-                        aria-pressed={props.state.autoBulkEnabled}
-                        onClick={() => props.setAutoBulkEnabled(!props.state.autoBulkEnabled)}
-                      >
-                        Auto Bulk {props.state.autoBulkEnabled ? 'On' : 'Off'} ({AUTO_BULK_TRIGGER_STOCK.toLocaleString()}g → {AUTO_BULK_RETAIN_STOCK.toLocaleString()}g)
                       </button>
                     </div>
                   )}

@@ -156,6 +156,12 @@ describe('Neon-D save format', () => {
     ['wrong format', JSON.stringify({ format: 'other-game', version: NEON_D_SAVE_VERSION, state: createState() })],
     ['unsupported version', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION + 1, state: createState() })],
     ['missing state', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION })],
+    ['unknown top-level state field', createCorruptEnvelope((state) => {
+      (state as GameState & { money?: number }).money = 123;
+    })],
+    ['unknown product state field', createCorruptEnvelope((state) => {
+      (state.production.weed as GameState['production']['weed'] & { legacyRate?: number }).legacyRate = 1;
+    })],
     ['non-object state', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION, state: null })],
     ['invalid numeric state field', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION, state: createState({ cash: 'rich' as unknown as number }) })],
     ['wrong schema version in state', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION, state: { ...createState(), schemaVersion: 1 } })],

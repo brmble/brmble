@@ -28,6 +28,7 @@ import {
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
   RISK_LIFETIME_EARNINGS_THRESHOLD,
+  CAPTAIN_LEVEL_THRESHOLDS,
 } from './constants';
 import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
@@ -347,13 +348,47 @@ export const applyOfflineProgress = (
     offlineEarningsSummary: null,
   };
   const wholeSeconds = Math.floor(simulatedMs / 1000);
+  let remainingSeconds = wholeSeconds;
 
-  for (let second = 0; second < wholeSeconds; second += 1) {
-    advanced = advanceDeterministicState(
+  while (remainingSeconds > 0) {
+    if (advanced.bulkUnlocked && advanced.autoBulkEnabled) {
+      const bulkApplied = applyAutoBulk(advanced);
+      if (bulkApplied !== advanced) {
+        advanced = bulkApplied;
+        continue;
+      }
+    }
+
+    let span = remainingSeconds;
+    const salesRates = getProductSalesRates(advanced);
+    advanced.unlockedProducts.forEach((productId) => {
+      const netProductionRate = getProductProductionRate(advanced, productId) - salesRates[productId];
+      const stock = advanced.production[productId].stock;
+      if (netProductionRate > 0 && stock < AUTO_BULK_TRIGGER_STOCK) {
+        span = Math.min(span, (AUTO_BULK_TRIGGER_STOCK - stock) / netProductionRate);
+      }
+    });
+
+    const oneSecondPreview = advanceDeterministicState(
       advanced,
       1,
       advanced.lastTickAt + 1_000,
     );
+    advanced.captains.forEach((captain, index) => {
+      const earningsPerSecond = oneSecondPreview.captains[index].personalEarnings - captain.personalEarnings;
+      const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS.find((threshold) => threshold > captain.personalEarnings);
+      if (earningsPerSecond > 0 && nextThreshold !== undefined) {
+        span = Math.min(span, (nextThreshold - captain.personalEarnings) / earningsPerSecond);
+      }
+    });
+
+    const step = Math.max(Math.min(span, remainingSeconds), Number.EPSILON);
+    advanced = advanceDeterministicState(
+      advanced,
+      step,
+      advanced.lastTickAt + step * 1_000,
+    );
+    remainingSeconds -= step;
   }
 
   const fractionalSeconds = (simulatedMs % 1_000) / 1_000;

@@ -343,7 +343,7 @@ it('shows producer, stock, production rate, sales rate, and bottleneck delta for
     'Sales decreasing',
   );
   expect(weedCard.querySelectorAll('[class*="productionSide"]').length).toBe(2);
-  expect(within(weedCard).getByRole('button', { name: /buy 5 cannabis plant/i })).toBeInTheDocument();
+  expect(within(weedCard).getByRole('button', { name: /buy one cannabis plant/i })).toBeInTheDocument();
 });
 
 it('keeps production on the left and sales on the right in the card flow', () => {
@@ -436,6 +436,21 @@ it('shows Bulk and Captain progression controls at their visible thresholds', ()
   expect(screen.getByRole('button', { name: /captain/i })).toBeInTheDocument();
 });
 
+it('renders global bulk controls once and labels each producer purchase as one producer', () => {
+  mockState({
+    cash: 10_000_000,
+    runEarnings: 7_500_000,
+    bulkUnlocked: true,
+    unlockedProducts: ['weed', 'mushrooms'],
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getAllByRole('button', { name: /buy one cannabis plant/i })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: /auto bulk off/i })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /auto bulk off/i })).toHaveLength(1);
+});
+
 it('shows the offline summary with cash, Respect, and simulated duration', () => {
   mockState({
     offlineEarningsSummary: {
@@ -451,6 +466,22 @@ it('shows the offline summary with cash, Respect, and simulated duration', () =>
   expect(screen.getByText(/24h simulated/i)).toBeInTheDocument();
   expect(screen.getByText(/12[.,]345/)).toBeInTheDocument();
   expect(screen.getByText(/678.*respect/i)).toBeInTheDocument();
+});
+
+it('formats sub-minute simulated durations with seconds and exposes the summary as a dialog', () => {
+  mockState({
+    offlineEarningsSummary: {
+      actualAwayMs: 45_000,
+      simulatedMs: 45_000,
+      cashEarned: 12,
+      respectEarned: 3,
+    },
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByRole('dialog', { name: 'Welcome back' })).toBeInTheDocument();
+  expect(screen.getByText('45s simulated')).toBeInTheDocument();
 });
 
 it('dismisses the offline summary on accept', async () => {
