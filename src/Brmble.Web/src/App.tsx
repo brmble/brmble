@@ -4806,11 +4806,6 @@ const handleConnect = (serverData: SavedServer) => {
     },
     [isCurrentPaintPreparation, notifQueue],
   );
-  const paintCandidates = paintChannelId === null
-    ? []
-    : users
-      .filter(user => user.channelId === paintChannelId && !user.self)
-      .map(user => ({ userId: user.session, name: user.name }));
   const handleJoinPaint = useCallback(async (sessionId: string) => {
     await paintApi.join(sessionId);
   }, []);
@@ -4870,11 +4865,8 @@ const handleConnect = (serverData: SavedServer) => {
         <PaintSessionSetupModal
           channelId={paintChannelId}
           channelRoomId={paintChannelRoomId}
-          candidates={paintCandidates}
-          hostUserId={selfSession}
           paintApi={paintApi}
           matrixClient={matrixClient.client}
-          onAttachSource={paintApi.attachSource}
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             invalidatePaintPreparation();
@@ -4959,6 +4951,7 @@ const handleConnect = (serverData: SavedServer) => {
                           sessionId={activePaintSessionId}
                           matrixClient={matrixClient.client}
                           channelRoomMap={matrixCredentials?.roomMap}
+                          currentVoiceChannelId={currentChannelId === 'server-root' ? undefined : Number(currentChannelId)}
                           onClose={handleClosePaint}
                         />
                       ) : null}
