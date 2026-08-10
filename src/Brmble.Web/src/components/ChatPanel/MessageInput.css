@@ -67,6 +67,11 @@
   box-shadow: none;
 }
 
+.emoji-trigger-symbol {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
 .send-button {
   width: 40px;
   height: 40px;

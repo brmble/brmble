@@ -511,7 +511,7 @@ export function MessageInput({ onSend, placeholder = 'Type a message...', mentio
             aria-expanded={isEmojiPickerOpen}
             aria-haspopup="dialog"
           >
-            <Icon name="palette" size={18} />
+            <span className="emoji-trigger-symbol" aria-hidden="true">☺</span>
           </button>
         </Tooltip>
         {isEmojiPickerOpen && (
