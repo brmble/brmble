@@ -6,12 +6,8 @@ import './PaintSessionCard.css';
 export interface PaintInvitation {
   version?: 2;
   sessionId: string;
-  hostUserId?: number;
-  participantUserIds?: number[];
   channelId: number;
   status: 'active' | 'ended' | 'expired' | 'unavailable';
-  sourceEventId?: string;
-  sourcePreview?: string;
 }
 
 export function PaintSessionCard({

@@ -7,7 +7,6 @@ const activeSession = {
   sessionId: 'session-1',
   status: 'active' as const,
   hostUserId: 1,
-  participantUserIds: [2],
   channelId: 5,
 };
 
