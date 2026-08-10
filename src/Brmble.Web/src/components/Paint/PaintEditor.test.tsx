@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PaintEditor, PAINT_PREVIEW_THROTTLE_MS } from './PaintEditor';
 import type { PaintSessionSnapshot } from '../../types/paint';
@@ -350,6 +350,61 @@ describe('PaintEditor', () => {
     expect(screen.getByRole('button', { name: 'Clear' })).toHaveClass('btn', 'btn-danger');
     expect(screen.getByRole('button', { name: 'End' })).toHaveClass('btn', 'btn-danger');
     expect(screen.getByRole('button', { name: 'Save to chat' })).toHaveClass('btn', 'btn-primary');
+  });
+
+  it('shows zoom controls and starts at the fit scale', () => {
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
+
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Fit image' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeEnabled();
+    expect(screen.getByRole('status')).toHaveTextContent('100%');
+  });
+
+  it('changes zoom with buttons and returns to fit', async () => {
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(screen.getByRole('status')).toHaveTextContent('125%');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fit image' }));
+    expect(screen.getByRole('status')).toHaveTextContent('100%');
+  });
+
+  it('zooms only with shift-wheel over the image and prevents page scrolling', async () => {
+    const pendingSource = () => new Promise<Blob>(() => {});
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} loadSource={pendingSource} />);
+    const viewport = screen.getByTestId('paint-viewport');
+    const event = new WheelEvent('wheel', { deltaY: -100, clientX: 200, clientY: 150, shiftKey: true, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(event, 'preventDefault');
+
+    await act(async () => viewport.dispatchEvent(event));
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('125%');
+  });
+
+  it('keeps normal wheel scrolling available without changing zoom', async () => {
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
+    const viewport = screen.getByTestId('paint-viewport');
+    const event = new WheelEvent('wheel', { deltaY: -100, clientX: 200, clientY: 150, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(event, 'preventDefault');
+
+    await act(async () => viewport.dispatchEvent(event));
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('100%');
+  });
+
+  it('disables zoom controls at 25% and 400%', async () => {
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
+    const zoomOut = screen.getByRole('button', { name: 'Zoom out' });
+    const zoomIn = screen.getByRole('button', { name: 'Zoom in' });
+
+    for (let i = 0; i < 12; i++) await userEvent.click(zoomIn);
+    expect(zoomIn).toBeDisabled();
+    for (let i = 0; i < 15; i++) await userEvent.click(zoomOut);
+    expect(zoomOut).toBeDisabled();
   });
 
   it('redraws committed strokes and previews after the source image loads', async () => {
