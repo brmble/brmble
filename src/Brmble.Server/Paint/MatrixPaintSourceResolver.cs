@@ -4,13 +4,7 @@ namespace Brmble.Server.Paint;
 
 public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintService)
 {
-    public const long MaxSourceImageBytes = 10 * 1024 * 1024;
-    private static readonly HashSet<string> SupportedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "image/png",
-        "image/jpeg",
-        "image/webp",
-    };
+    private static readonly PaintSourceValidator SourceValidator = new();
 
     public async Task<PaintSource> ResolveAsync(string matrixRoomId, string hostMatrixUserId, string sourceEventId, CancellationToken cancellationToken)
     {
@@ -26,53 +20,23 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         ValidateMxcUrl(mxcUrl, matrixRoomId);
 
         var mimeType = TryGetNestedString(content, "info", "mimetype") ?? "application/octet-stream";
-        if (string.Equals(mimeType, "image/svg+xml", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new PaintValidationException("svg sources are not supported.");
-        }
-
-        if (string.Equals(mimeType, "image/gif", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new PaintValidationException("gif sources are not supported.");
-        }
-
-        if (!SupportedMimeTypes.Contains(mimeType))
-        {
-            throw new PaintValidationException("source image type is invalid.");
-        }
 
         var declaredSizeBytes = TryGetNestedInt64(content, "info", "size");
-        if (declaredSizeBytes is < 0 or > MaxSourceImageBytes)
+        if (declaredSizeBytes is < 0 or > PaintSourceValidator.MaxSourceImageBytes)
         {
-            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
+            throw new PaintValidationException($"source image exceeds the {PaintSourceValidator.MaxSourceImageBytes} byte limit.");
         }
 
         byte[] bytes;
         try
         {
-            bytes = await matrixPaintService.DownloadMediaAsync(mxcUrl, MaxSourceImageBytes, cancellationToken);
+            bytes = await matrixPaintService.DownloadMediaAsync(mxcUrl, PaintSourceValidator.MaxSourceImageBytes, cancellationToken);
         }
         catch (InvalidDataException)
         {
-            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
+            throw new PaintValidationException($"source image exceeds the {PaintSourceValidator.MaxSourceImageBytes} byte limit.");
         }
-        if (bytes.LongLength > MaxSourceImageBytes)
-        {
-            throw new PaintValidationException($"source image exceeds the {MaxSourceImageBytes} byte limit.");
-        }
-        var metadata = ImageMetadataReader.Read(bytes, mimeType);
-        // Dimensions are read as signed 32-bit ints straight from attacker-controlled headers,
-        // so a declared width of 0xFFFFFFFF arrives here as -1 and would pass an upper bound alone.
-        if (metadata.Width <= 0 || metadata.Height <= 0)
-        {
-            throw new PaintValidationException("source image dimensions are invalid.");
-        }
-        if (metadata.Width > 4096 || metadata.Height > 4096)
-        {
-            throw new PaintValidationException("source image dimensions exceed 4096x4096.");
-        }
-
-        var sizeBytes = declaredSizeBytes ?? bytes.LongLength;
+        var metadata = SourceValidator.Validate(mimeType, bytes);
         return new PaintSource(
             matrixRoomId,
             sourceEventId,
@@ -80,7 +44,7 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
             metadata.MimeType,
             metadata.Width,
             metadata.Height,
-            sizeBytes);
+            declaredSizeBytes ?? metadata.SizeBytes);
     }
 
     private static void ValidateMxcUrl(string mxcUrl, string matrixRoomId)

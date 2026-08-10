@@ -133,6 +133,45 @@ public sealed class MatrixPaintSourceResolverTests
     }
 
     [TestMethod]
+    public async Task ResolveAsync_UsesDecodedMimeTypeFromDownloadedBytes()
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            EventRoomId = "!paint:server",
+            EventType = "m.room.message",
+            MxcUrl = "mxc://server/source",
+            MimeType = "image/jpeg",
+            MediaBytes = ImageFixtures.Png1x1,
+            SizeBytes = ImageFixtures.Png1x1.Length,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        var source = await resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None);
+
+        Assert.AreEqual("image/png", source.MimeType);
+        Assert.AreEqual(1, source.Width);
+        Assert.AreEqual(1, source.Height);
+    }
+
+    [TestMethod]
+    public async Task ResolveAsync_RejectsCorruptDownloadedMediaForSupportedMimeType()
+    {
+        var matrix = new FakeMatrixPaintService
+        {
+            EventRoomId = "!paint:server",
+            EventType = "m.room.message",
+            MxcUrl = "mxc://server/source",
+            MimeType = "image/png",
+            MediaBytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            SizeBytes = 12,
+        };
+        var resolver = new MatrixPaintSourceResolver(matrix);
+
+        await Assert.ThrowsExceptionAsync<PaintValidationException>(() =>
+            resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task ResolveAsync_PropagatesMediaDownloadFailure()
     {
         var matrix = new FakeMatrixPaintService
