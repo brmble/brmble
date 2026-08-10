@@ -26,7 +26,12 @@ export function applyPaintStrokeToContext(ctx: CanvasRenderingContext2D, width: 
     return;
   }
   ctx.moveTo(x, y);
-  for (const point of stroke.points.slice(1)) ctx.lineTo(point.x * width, point.y * height);
+  if (stroke.tool === 'line') {
+    const last = stroke.points.at(-1)!;
+    ctx.lineTo(last.x * width, last.y * height);
+  } else {
+    for (const point of stroke.points.slice(1)) ctx.lineTo(point.x * width, point.y * height);
+  }
   ctx.stroke();
 }
 

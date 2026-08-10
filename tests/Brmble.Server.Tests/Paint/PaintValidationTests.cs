@@ -40,6 +40,36 @@ public sealed class PaintValidationTests
     }
 
     [TestMethod]
+    public void ValidateStrokeInput_NormalizesLineColor()
+    {
+        var input = new PaintStrokeInput(
+            Guid.NewGuid(),
+            0,
+            PaintTool.Line,
+            "#EF4444",
+            PaintStrokeWidth.Medium,
+            new[] { new PaintPoint(0.1, 0.2, null), new PaintPoint(0.8, 0.9, null) });
+
+        var result = PaintValidation.ValidateStrokeInput(input);
+
+        Assert.AreEqual("#ef4444", result.Color);
+    }
+
+    [TestMethod]
+    public void ValidateStrokeInput_RejectsUnsupportedLineColor()
+    {
+        var input = new PaintStrokeInput(
+            Guid.NewGuid(),
+            0,
+            PaintTool.Line,
+            "#not-a-palette-color",
+            PaintStrokeWidth.Medium,
+            new[] { new PaintPoint(0.1, 0.2, null), new PaintPoint(0.8, 0.9, null) });
+
+        Assert.ThrowsException<PaintValidationException>(() => PaintValidation.ValidateStrokeInput(input));
+    }
+
+    [TestMethod]
     public void ValidateStrokeInput_RejectsOutOfRangePoint()
     {
         var input = new PaintStrokeInput(

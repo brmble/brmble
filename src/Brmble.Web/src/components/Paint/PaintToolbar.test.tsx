@@ -48,4 +48,25 @@ describe('PaintToolbar', () => {
     expect(screen.getByRole('button', { name: 'Color Blue' }))
       .toHaveStyle({ '--paint-swatch-color': '#4ec9ff' });
   });
+
+  it('selects the Line tool', () => {
+    const onTool = vi.fn();
+
+    render(
+      <PaintToolbar
+        tool="pen"
+        color="#111827"
+        width={6}
+        onTool={onTool}
+        onColor={vi.fn()}
+        onWidth={vi.fn()}
+      />,
+    );
+
+    const lineButton = screen.getByRole('button', { name: 'Line' });
+    expect(lineButton).toHaveAttribute('type', 'button');
+    fireEvent.click(lineButton);
+
+    expect(onTool).toHaveBeenCalledWith('line');
+  });
 });

@@ -6,6 +6,7 @@ namespace Brmble.Server.Paint;
 public enum PaintTool
 {
     Pen,
+    Line,
     Eraser,
 }
 

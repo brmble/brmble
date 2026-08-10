@@ -68,6 +68,46 @@ describe('PaintEditor', () => {
     expect(correlationIds[0]).not.toBe('');
   });
 
+  it('commits a Line gesture with only its start and end points', async () => {
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    await userEvent.click(screen.getByRole('button', { name: 'Line' }));
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 40, clientY: 70, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 30, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 90, clientY: 90, pointerId: 1 });
+
+    expect(paintApi.sendPreview).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      tool: 'line',
+      points: [{ x: 0.2, y: 0.2 }, { x: 0.4, y: 0.7 }],
+    }));
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      tool: 'line',
+      points: [{ x: 0.2, y: 0.2 }, { x: 0.9, y: 0.9 }],
+    }));
+  });
+
+  it('uses the selected color for Line strokes', async () => {
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    await userEvent.click(screen.getByRole('button', { name: 'Line' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Color Red' }));
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 90, clientY: 90, pointerId: 1 });
+
+    expect(paintApi.commitStroke).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      tool: 'line',
+      color: '#ef4444',
+      width: 6,
+    }));
+  });
+
   it('ignores overlapping pointers so the active gesture keeps its correlation ID', () => {
     const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);

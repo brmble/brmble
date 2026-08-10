@@ -1,4 +1,4 @@
-export type PaintTool = 'pen' | 'eraser';
+export type PaintTool = 'pen' | 'line' | 'eraser';
 
 export interface PaintPoint {
   x: number;

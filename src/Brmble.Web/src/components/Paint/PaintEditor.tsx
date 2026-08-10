@@ -161,7 +161,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     correlationId: correlationId.current!,
     generation: snapshot.generation,
     tool,
-    ...(tool === 'pen' ? { color } : {}),
+    ...(tool !== 'eraser' ? { color } : {}),
     width,
     points: points.current,
   });
@@ -171,7 +171,9 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const point = normalizeCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
     const last = points.current.at(-1);
     if (!last || last.x !== point.x || last.y !== point.y) {
-      points.current = [...points.current, point];
+      points.current = tool === 'line'
+        ? [points.current[0], point]
+        : [...points.current, point];
     }
   };
 
