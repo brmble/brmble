@@ -46,8 +46,9 @@ These checks remain required and must stay exact:
 1. Host uses **Save to chat**.
 2. Confirm exactly one finished `m.image` is posted to the normal channel chat.
 3. Confirm the saved image stays viewable after temporary cleanup removes the session source directory.
-4. Force an upload or normal-chat post failure and confirm the editor stays open, the session stays active, and retry remains possible.
-5. Force the ambiguous-end follow-up path: after the image post is already confirmed, make the first end attempt fail ambiguously and verify the client treats a terminal snapshot status as success without uploading or posting the image again.
+4. Force an upload failure and confirm the editor stays open, the session stays active, and retry reuses the exact same composed PNG file object and bytes instead of recomposing a new upload payload.
+5. Force a timed-out normal-chat post and confirm retry reuses the same message content metadata and the same Matrix transaction identity instead of posting a distinct save attempt.
+6. Force the ambiguous-end follow-up path: after the image post is already confirmed, make the first end attempt fail ambiguously and verify the client treats a terminal snapshot status as success without uploading or posting the normal-chat image again.
 
 The recovery behavior above is still specified in [Paint-follow-up-ambiguous-end-recovery.md](Paint-follow-up-ambiguous-end-recovery.md).
 
