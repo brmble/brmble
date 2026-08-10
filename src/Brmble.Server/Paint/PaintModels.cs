@@ -30,17 +30,10 @@ public enum PaintSessionStatus
 public sealed record PaintPoint(double X, double Y, double? Pressure);
 
 public sealed record PaintSource(
-    string MatrixRoomId,
-    string SourceEventId,
-    string MxcUrl,
     string MimeType,
     int Width,
     int Height,
     long SizeBytes);
-
-public sealed record PaintInvitee(
-    long UserId,
-    string MatrixUserId);
 
 public sealed record PaintParticipant(
     long UserId,
@@ -71,8 +64,6 @@ public sealed record PaintStrokeInput(
 public sealed record PaintSessionSnapshot(
     Guid SessionId,
     int ChannelId,
-    string MatrixRoomId,
-    string? SourceEventId,
     long HostUserId,
     long CurrentUserId,
     bool IsHost,

@@ -38,9 +38,6 @@ public sealed class MatrixPaintSourceResolver(IMatrixPaintService matrixPaintSer
         }
         var metadata = SourceValidator.Validate(mimeType, bytes);
         return new PaintSource(
-            matrixRoomId,
-            sourceEventId,
-            mxcUrl,
             metadata.MimeType,
             metadata.Width,
             metadata.Height,

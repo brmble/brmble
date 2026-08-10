@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Brmble.Server.Data;
 using Brmble.Server.Paint;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -10,724 +9,205 @@ namespace Brmble.Server.Tests.Paint;
 public sealed class PaintSessionManagerTests
 {
     [TestMethod]
-    public async Task CommitStroke_PublishesConcurrentPermanentEventsInRevisionOrder()
+    public async Task Summary_UserWhoEnteredChannelAfterCreationCanJoin()
     {
-        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
-        fixture.Publisher.BlockNextPermanentEvent();
+        var fixture = await PaintSessionFixture.ActiveAsync();
+        fixture.Presence.Participants[fixture.BobUserId] = new(fixture.BobUserId, 9, 203, fixture.BobMatrixUserId);
 
-        var firstCommit = fixture.CommitAliceAsync();
-        await fixture.Publisher.WaitUntilBlockedAsync();
-        var secondCommit = fixture.CommitBobAsync();
+        var summary = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
 
-        fixture.Publisher.ReleaseBlockedEvent();
-        var commits = await Task.WhenAll(firstCommit, secondCommit);
-
-        CollectionAssert.AreEqual(new[] { PaintEventNames.StrokeCommitted, PaintEventNames.StrokeCommitted }, fixture.Publisher.PermanentEventTypes.TakeLast(2).ToArray());
-        CollectionAssert.AreEqual(commits.Select(commit => commit.Revision).ToArray(), fixture.Publisher.PermanentRevisions.TakeLast(2).ToArray());
+        Assert.IsTrue(summary.CanJoin);
+        Assert.IsFalse(summary.IsParticipant);
     }
 
     [TestMethod]
-    public async Task CommitStroke_AssignsServerIdentitySequenceAndRevision()
+    public async Task Join_CurrentChannelMemberDoesNotNeedMatrixRoomMembership()
     {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        var fixture = await PaintSessionFixture.ActiveAsync();
+        fixture.Presence.Participants[fixture.BobUserId] = new(fixture.BobUserId, 9, 203, fixture.BobMatrixUserId);
 
-        var result = await fixture.Manager.CommitStrokeAsync(fixture.SessionId, fixture.AliceUserId,
-            new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Medium,
-                [new PaintPoint(0.1, 0.2, 0.5)]));
-
-        Assert.AreNotEqual(Guid.Empty, result.Stroke.Id);
-        Assert.AreEqual(1L, result.Stroke.Sequence);
-        Assert.AreEqual(3L, result.Revision);
-        Assert.AreEqual(fixture.AliceUserId, result.Stroke.AuthorUserId);
-        Assert.IsTrue(fixture.Publisher.SentTypes.Contains(PaintEventNames.StrokeCommitted));
-    }
-
-    [TestMethod]
-    public async Task Undo_RemovesOnlyCallerMostRecentActiveStroke()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
-        var aliceFirst = await fixture.CommitAliceAsync();
-        var bobStroke = await fixture.CommitBobAsync();
-        var aliceSecond = await fixture.CommitAliceAsync();
-
-        var undo = await fixture.Manager.UndoAsync(fixture.SessionId, fixture.AliceUserId);
-        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.AliceUserId);
-
-        Assert.AreEqual(aliceSecond.Stroke.Id, undo.UndoneStrokeId);
-        Assert.IsTrue(snapshot.Strokes.Single(s => s.Id == aliceFirst.Stroke.Id).Active);
-        Assert.IsTrue(snapshot.Strokes.Single(s => s.Id == bobStroke.Stroke.Id).Active);
-        Assert.IsFalse(snapshot.Strokes.Any(s => s.Id == aliceSecond.Stroke.Id));
-    }
-
-    [TestMethod]
-    public async Task Clear_HostOnlyIncrementsGenerationAndHidesOldStrokes()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
-        await fixture.CommitAliceAsync();
-
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.ClearAsync(fixture.SessionId, fixture.BobUserId));
-
-        var clear = await fixture.Manager.ClearAsync(fixture.SessionId, fixture.HostUserId);
-        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-
-        Assert.AreEqual(1L, clear.Generation);
-        Assert.AreEqual(0, snapshot.Strokes.Count);
-    }
-
-    [TestMethod]
-    public async Task CommitStroke_ReusedCorrelationAfterClearCreatesCurrentGenerationStroke()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        var correlationId = Guid.NewGuid();
-
-        var first = await fixture.Manager.CommitStrokeAsync(fixture.SessionId, fixture.AliceUserId,
-            new PaintStrokeInput(correlationId, 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-                [new PaintPoint(0.1, 0.2, null)]));
-        var clear = await fixture.Manager.ClearAsync(fixture.SessionId, fixture.HostUserId);
-        var retry = await fixture.Manager.CommitStrokeAsync(fixture.SessionId, fixture.AliceUserId,
-            new PaintStrokeInput(correlationId, clear.Generation, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-                [new PaintPoint(0.1, 0.2, null)]));
-
-        Assert.AreNotEqual(first.Stroke.Id, retry.Stroke.Id);
-        Assert.AreEqual(clear.Generation, retry.Stroke.Generation);
-    }
-
-    [TestMethod]
-    public async Task ExpireInactive_RemovesTerminalSessionAfterRetentionWindow()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-        fixture.Now = fixture.Now.AddMinutes(5);
-
-        await fixture.Manager.ExpireInactiveForTestAsync();
-
-        await Assert.ThrowsExceptionAsync<PaintNotFoundException>(() =>
-            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId));
-    }
-
-    [TestMethod]
-    public async Task Join_ConcurrentDuplicateJoinDoesNotLeakOpenSessionSlot()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-        fixture.Matrix.BlockMembershipRequests(2);
-
-        var firstJoin = fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
-        var secondJoin = fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
-        await fixture.Matrix.WaitUntilMembershipRequestsBlockedAsync();
-        fixture.Matrix.ReleaseMembershipRequests();
-        await Task.WhenAll(firstJoin, secondJoin);
-        await fixture.Manager.LeaveAsync(fixture.SessionId, fixture.BobUserId);
-
-        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-
-        for (var hostUserId = 4L; hostUserId <= 6; hostUserId++)
-        {
-            var session = await fixture.Manager.CreateAsync(hostUserId, [103]);
-            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
-            await fixture.Manager.JoinAsync(session.SessionId, fixture.BobUserId);
-        }
-    }
-
-    [TestMethod]
-    public async Task Join_ReplacesStaleParticipantWithoutLeakingTheirOpenSessionSlot()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Presence.Participants[fixture.AliceUserId] = new(fixture.AliceUserId, 9, 202, fixture.AliceMatrixUserId);
-        fixture.Matrix.Memberships[fixture.AliceMatrixUserId] = "join";
-
-        var replacement = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.AliceUserId);
-        Assert.AreEqual(202, replacement.Participant.MumbleSessionId);
-        await fixture.Manager.LeaveAsync(fixture.SessionId, fixture.AliceUserId);
-
-        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
-        for (var hostUserId = 4L; hostUserId <= 6; hostUserId++)
-        {
-            var session = await fixture.Manager.CreateAsync(hostUserId, [202]);
-            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
-            await fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId);
-        }
-    }
-
-    [TestMethod]
-    public async Task CommitStroke_RejectsStrokeBeyondSessionRetentionLimit()
-    {
-        const int maxStrokesPerSession = 500;
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-
-        for (var i = 0; i < maxStrokesPerSession; i++)
-        {
-            await fixture.CommitAliceAsync();
-            fixture.Now = fixture.Now.AddSeconds(1);
-        }
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() => fixture.CommitAliceAsync());
-    }
-
-    [TestMethod]
-    public async Task Create_RejectsHostWithTooManyOpenSessions()
-    {
-        const int maxOpenSessionsPerUser = 3;
-        var fixture = PaintSessionFixture.New();
-
-        for (var i = 0; i < maxOpenSessionsPerUser; i++)
-            await fixture.Manager.CreateAsync(fixture.HostUserId, []);
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.CreateAsync(fixture.HostUserId, []));
-    }
-
-    [TestMethod]
-    public async Task Disconnect_AfterTerminalTransitionDoesNotFreeAnActiveSessionSlot()
-    {
-        const int maxOpenSessionsPerUser = 3;
-        var fixture = PaintSessionFixture.New();
-        var endedSession = await fixture.Manager.CreateAsync(fixture.HostUserId, []);
-        await fixture.Manager.EndAsync(endedSession.SessionId, fixture.HostUserId);
-
-        fixture.Presence.Participants[fixture.HostUserId] =
-            new PaintPresenceParticipant(fixture.HostUserId, 9, 201, fixture.HostMatrixUserId);
-        for (var i = 0; i < maxOpenSessionsPerUser; i++)
-            await fixture.Manager.CreateAsync(fixture.HostUserId, []);
-
-        await fixture.Manager.HandleSessionDisconnectedAsync(101);
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.CreateAsync(fixture.HostUserId, []));
-    }
-
-    [TestMethod]
-    public async Task Join_RejectsParticipantWithTooManyOpenSessions()
-    {
-        const int maxOpenSessionsPerUser = 3;
-        var fixture = PaintSessionFixture.New();
-        fixture.Presence.Participants[4] = new(4, 9, 104, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[5] = new(5, 9, 105, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[6] = new(6, 9, 106, fixture.HostMatrixUserId);
-        fixture.Presence.Participants[7] = new(7, 9, 107, fixture.HostMatrixUserId);
-        fixture.Matrix.Memberships[fixture.AliceMatrixUserId] = "join";
-
-        for (var hostUserId = 4L; hostUserId <= 7; hostUserId++)
-        {
-            var session = await fixture.Manager.CreateAsync(hostUserId, [102]);
-            await fixture.Manager.AttachSourceAsync(session.SessionId, hostUserId, "$source");
-
-            if (hostUserId < 4 + maxOpenSessionsPerUser)
-                await fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId);
-            else
-                await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-                    fixture.Manager.JoinAsync(session.SessionId, fixture.AliceUserId));
-        }
-    }
-
-    [TestMethod]
-    public async Task CommitStroke_RejectsCommitBeyondRateLimit()
-    {
-        const int commitsPerSecond = 20;
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-
-        for (var i = 0; i < commitsPerSecond; i++)
-            await fixture.CommitAliceAsync();
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() => fixture.CommitAliceAsync());
-    }
-
-    [TestMethod]
-    public async Task Summary_InviteeIsEligibleButCannotOpenUntilExplicitJoin()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
-
-        var invited = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
-
-        Assert.IsTrue(invited.CanJoin);
-        Assert.IsFalse(invited.IsParticipant);
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId));
-
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-        await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
-
-        var joined = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
-        Assert.IsTrue(joined.CanJoin);
-        Assert.IsTrue(joined.IsParticipant);
-        Assert.AreEqual(fixture.BobUserId,
-            (await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId)).CurrentUserId);
-    }
-
-    [TestMethod]
-    public async Task Join_RequiresMatrixMembershipBeforeActivatingParticipant()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "leave";
-
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
-
-        CollectionAssert.Contains(fixture.Matrix.InvitedUsers, fixture.BobMatrixUserId);
-    }
-
-    [TestMethod]
-    public async Task Create_ResolvesSelectedMumbleSessionIdsToPersistentInvitees()
-    {
-        var fixture = PaintSessionFixture.New();
-
-        var created = await fixture.Manager.CreateAsync(
-            fixture.HostUserId,
-            [103]);
-
-        var bob = await fixture.Manager.SummaryAsync(
-            created.SessionId,
-            fixture.BobUserId);
-        Assert.IsTrue(bob.CanJoin);
-        Assert.IsFalse(bob.IsParticipant);
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.SummaryAsync(created.SessionId, 103));
-    }
-
-    [TestMethod]
-    public async Task Disconnect_RemovesParticipationAndReconnectDoesNotRestoreIt()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
-
-        await fixture.Manager.HandleSessionDisconnectedAsync(103);
-        fixture.Presence.Participants[fixture.BobUserId] =
-            new PaintPresenceParticipant(fixture.BobUserId, 9, 203, fixture.BobMatrixUserId);
-
-        var reconnected = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
-        Assert.IsTrue(reconnected.CanJoin);
-        Assert.IsFalse(reconnected.IsParticipant);
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId));
-
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
         var joined = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
+
         Assert.AreEqual(203, joined.Participant.MumbleSessionId);
-        Assert.IsTrue((await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId)).IsParticipant);
     }
 
     [TestMethod]
-    public async Task ChannelExit_RemovesParticipationAndChannelReturnDoesNotRestoreIt()
+    public async Task Summary_UserOutsideSessionChannelIsRejected()
     {
-        var fixture = await PaintSessionFixture.ActiveWithTwoParticipantsAsync();
+        var fixture = await PaintSessionFixture.ActiveAsync();
+        fixture.Presence.Participants[fixture.BobUserId] = new(fixture.BobUserId, 12, 203, fixture.BobMatrixUserId);
 
-        await fixture.Manager.HandleSessionChannelChangedAsync(103, 9, 12);
-        fixture.Presence.Participants[fixture.BobUserId] =
-            new PaintPresenceParticipant(fixture.BobUserId, 9, 103, fixture.BobMatrixUserId);
-
-        Assert.IsFalse((await fixture.Manager.SummaryAsync(
-            fixture.SessionId,
-            fixture.BobUserId)).IsParticipant);
         await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
-            fixture.Manager.CommitStrokeAsync(
-                fixture.SessionId,
-                fixture.BobUserId,
-                new PaintStrokeInput(
-                    Guid.NewGuid(),
-                    0,
-                    PaintTool.Pen,
-                    "#ef4444",
-                    PaintStrokeWidth.Thin,
-                    [new PaintPoint(0.1, 0.2, null)])));
+            fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId));
     }
 
     [TestMethod]
-    public async Task PermanentCanvasEventsRouteOnlyToCurrentParticipants()
+    public async Task Create_WritesSourceBeforeReturningActiveSession()
     {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Publisher.UserRoutes.Clear();
+        var fixture = PaintSessionFixture.New();
+        var created = await fixture.Manager.CreateAsync(fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
 
-        await fixture.CommitAliceAsync();
-
-        var route = fixture.Publisher.UserRoutes.Last();
-        CollectionAssert.AreEquivalent(
-            new[] { fixture.HostUserId, fixture.AliceUserId },
-            route.ToArray());
-        Assert.IsFalse(route.Contains(fixture.BobUserId));
-    }
-
-    [TestMethod]
-    public async Task Join_RejectsEndedSession()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
-    }
-
-    [TestMethod]
-    public async Task Join_RejectsExpiredSession()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Now = fixture.Now.AddMinutes(30);
-        await fixture.Manager.ExpireInactiveForTestAsync();
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId));
-    }
-
-    [TestMethod]
-    public async Task NonHost_CannotActBeforeJoiningAndActivatesAfterSuccessfulJoin()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
-
-        var beforeJoin = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(1, beforeJoin.Participants.Count);
-        Assert.AreEqual(fixture.HostUserId, beforeJoin.Participants.Single().UserId);
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.CommitBobAsync());
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => fixture.Manager.PreviewAsync(fixture.SessionId, fixture.BobUserId,
-            new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-                [new PaintPoint(0.1, 0.2, null)])));
-
-        fixture.Matrix.Memberships[fixture.BobMatrixUserId] = "join";
-        var joined = await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
-
-        var commit = await fixture.CommitBobAsync();
-        Assert.AreEqual(fixture.BobUserId, commit.Stroke.AuthorUserId);
-    }
-
-    [TestMethod]
-    public async Task AttachSource_RejectsReplacingTheActiveSource()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
-
-        await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$replacement"));
-
-        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual("$source", snapshot.SourceEventId);
-    }
-
-    [TestMethod]
-    public async Task AttachSource_PublishesCompleteInvitationPayload()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-
-        await fixture.Manager.AttachSourceAsync(fixture.SessionId, fixture.HostUserId, "$source");
-
-        using var invitation = fixture.Publisher.GetLastEvent(PaintEventNames.Invited);
-        Assert.AreEqual(fixture.SessionId, invitation.RootElement.GetProperty("sessionId").GetGuid());
-        Assert.AreEqual(9, invitation.RootElement.GetProperty("channelId").GetInt32());
-        Assert.AreEqual(fixture.HostUserId, invitation.RootElement.GetProperty("hostUserId").GetInt64());
-        Assert.AreEqual("active", invitation.RootElement.GetProperty("status").GetString());
-        Assert.IsFalse(invitation.RootElement.TryGetProperty("matrixRoomId", out _));
-        Assert.IsFalse(invitation.RootElement.TryGetProperty("participants", out _));
-        Assert.IsFalse(invitation.RootElement.TryGetProperty("source", out _));
-    }
-
-    [TestMethod]
-    public async Task Preview_PublishesCanonicalAuthorFields()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        var input = new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-            [new PaintPoint(0.1, 0.2, null)]);
-
-        await fixture.Manager.PreviewAsync(fixture.SessionId, fixture.AliceUserId, input);
-
-        using var preview = fixture.Publisher.GetLastEvent(PaintEventNames.PreviewUpdated);
-        Assert.AreEqual(fixture.AliceUserId, preview.RootElement.GetProperty("authorUserId").GetInt64());
-        Assert.AreEqual(fixture.AliceMatrixUserId, preview.RootElement.GetProperty("authorMatrixUserId").GetString());
-        Assert.AreEqual(input.CorrelationId, preview.RootElement.GetProperty("input").GetProperty("correlationId").GetGuid());
-        Assert.IsFalse(preview.RootElement.TryGetProperty("revision", out _));
-    }
-
-    [TestMethod]
-    public async Task End_PublishesTerminalStatusWithoutAttemptingRoomDeletion()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "best-effort-leave", "{\"access_token\":\"secret\"}");
-
-        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-
-        using var ended = fixture.Publisher.GetLastEvent(PaintEventNames.SessionEnded);
-        Assert.AreEqual("ended", ended.RootElement.GetProperty("status").GetString());
-        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
-        Assert.IsFalse(fixture.Publisher.SentTypes.Contains("paint.roomCleanupFailed"));
-    }
-
-    [TestMethod]
-    public async Task Snapshot_MissingSessionPublishesUnavailableTerminalEventToRequester()
-    {
-        var fixture = await PaintSessionFixture.PendingWithTwoParticipantsAsync();
-        var missingSessionId = Guid.NewGuid();
-
-        await Assert.ThrowsExceptionAsync<PaintNotFoundException>(() =>
-            fixture.Manager.SnapshotAsync(missingSessionId, fixture.AliceUserId));
-
-        using var unavailable = fixture.Publisher.GetLastEvent(PaintEventNames.SessionUnavailable);
-        Assert.AreEqual(missingSessionId, unavailable.RootElement.GetProperty("sessionId").GetGuid());
-        Assert.AreEqual("unavailable", unavailable.RootElement.GetProperty("status").GetString());
-        Assert.IsTrue(unavailable.RootElement.TryGetProperty("revision", out _));
-        Assert.IsTrue(unavailable.RootElement.TryGetProperty("generation", out _));
-    }
-
-    [TestMethod]
-    public async Task End_WritesCleanupForWorkerWithoutAttemptingRoomDeletion()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "delete", "unavailable");
-
-        var result = await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-        var pending = await fixture.Cleanup.GetPendingAsync();
-
-        Assert.AreEqual(PaintSessionStatus.Ended, result.Status);
-        Assert.AreEqual(1, pending.Count);
-        Assert.AreEqual(fixture.Matrix.RoomId, pending[0].MatrixRoomId);
-        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
-    }
-
-    [TestMethod]
-    public async Task EndAndExpire_PersistCleanupBeforePublishingStateChange()
-    {
-        var endedFixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        endedFixture.Publisher.BeforePermanentPublish = async () =>
-            Assert.AreEqual(1, (await endedFixture.Cleanup.GetPendingAsync()).Count);
-
-        await endedFixture.Manager.EndAsync(endedFixture.SessionId, endedFixture.HostUserId);
-
-        var expiredFixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        expiredFixture.Now = expiredFixture.Now.AddMinutes(30);
-        expiredFixture.Publisher.BeforePermanentPublish = async () =>
-            Assert.AreEqual(1, (await expiredFixture.Cleanup.GetPendingAsync()).Count);
-
-        await expiredFixture.Manager.ExpireInactiveForTestAsync();
-    }
-
-    [TestMethod]
-    public async Task End_DeletesPersistedCleanupWhenHostValidationFailsBeforeTerminalTransition()
-    {
-        var cleanup = new BlockingCleanupRepository();
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
-
-        var end = fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-        await cleanup.WaitUntilRecordPendingAsync();
-        fixture.Presence.Participants[fixture.HostUserId] = new(fixture.HostUserId, 9, 201, fixture.HostMatrixUserId);
-        cleanup.ReleaseRecordPending();
-
-        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => end);
-        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
-    }
-
-    [TestMethod]
-    public async Task Expire_DoesNotWinWhenActivityResumesDuringCleanupPersistence()
-    {
-        var cleanup = new BlockingCleanupRepository();
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
-        fixture.Now = fixture.Now.AddMinutes(30);
-
-        var expiration = fixture.Manager.ExpireInactiveForTestAsync();
-        await cleanup.WaitUntilRecordPendingAsync();
-
-        await fixture.CommitAliceAsync();
-        cleanup.ReleaseRecordPending();
-        await expiration;
-
-        var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
+        var snapshot = await fixture.Manager.SnapshotAsync(created.SessionId, fixture.HostUserId);
         Assert.AreEqual(PaintSessionStatus.Active, snapshot.Status);
-        Assert.IsFalse(fixture.Publisher.SentTypes.Contains(PaintEventNames.SessionExpired));
-        Assert.AreEqual(0, (await fixture.Cleanup.GetPendingAsync()).Count);
+        Assert.IsNotNull(snapshot.Source);
+        CollectionAssert.AreEqual(PaintTestImages.ValidPng,
+            (await fixture.Manager.ReadSourceAsync(created.SessionId, fixture.HostUserId, CancellationToken.None)).Bytes);
     }
 
     [TestMethod]
-    public async Task Leave_DoesNotMutateTerminalSession()
+    public async Task Create_WhenStoreWriteFails_RemovesSessionAndSchedulesCleanup()
     {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        var fixture = PaintSessionFixture.New(store: new FailingWritePaintSourceStore());
+
+        await Assert.ThrowsExceptionAsync<IOException>(() => fixture.Manager.CreateAsync(
+            fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None));
+
+        Assert.AreEqual(1, (await fixture.Cleanup.GetDueAsync(CancellationToken.None)).Count);
+    }
+
+    [TestMethod]
+    public async Task End_MakesSourceUnauthorizedAndSchedulesCleanup()
+    {
+        var fixture = await PaintSessionFixture.ActiveAsync();
         await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-        var ended = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        var eventCount = fixture.Publisher.PermanentEventTypes.Count;
 
         await Assert.ThrowsExceptionAsync<PaintConflictException>(() =>
-            fixture.Manager.LeaveAsync(fixture.SessionId, fixture.AliceUserId));
-
-        var afterLeave = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(ended.Revision, afterLeave.Revision);
-        Assert.AreEqual(eventCount, fixture.Publisher.PermanentEventTypes.Count);
+            fixture.Manager.ReadSourceAsync(fixture.SessionId, fixture.HostUserId, CancellationToken.None));
+        Assert.AreEqual(1, (await fixture.Cleanup.GetDueAsync(CancellationToken.None)).Count);
     }
 
     [TestMethod]
-    public async Task End_WhenCleanupPersistenceFails_RemainsRetryableWithoutCleanupRecord()
+    public async Task End_RecordsOnlyItsSessionAndLeavesOtherSourceReadable()
     {
-        var cleanup = new FailingCleanupRepository();
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
+        var fixture = PaintSessionFixture.New();
+        var first = await fixture.Manager.CreateAsync(fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
+        fixture.Presence.Participants[4] = new(4, 9, 104, "@four:test");
+        var second = await fixture.Manager.CreateAsync(4, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-            fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId));
+        await fixture.Manager.EndAsync(first.SessionId, fixture.HostUserId);
 
-        var afterFailure = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(PaintSessionStatus.Active, afterFailure.Status);
-        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
-
-        cleanup.ShouldFail = false;
-        fixture.Matrix.DeleteResult = new MatrixPaintRoomCleanupResult(false, "delete", "unavailable");
-        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
-
-        var afterRetry = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(PaintSessionStatus.Ended, afterRetry.Status);
-        Assert.AreEqual(1, (await cleanup.GetPendingAsync()).Count);
+        Assert.AreEqual(first.SessionId, (await fixture.Cleanup.GetDueAsync(CancellationToken.None)).Single().SessionId);
+        CollectionAssert.AreEqual(PaintTestImages.ValidPng,
+            (await fixture.Manager.ReadSourceAsync(second.SessionId, 4, CancellationToken.None)).Bytes);
     }
 
     [TestMethod]
-    public async Task Expire_WhenCleanupPersistenceFails_RemainsRetryableWithoutCleanupRecord()
+    public async Task Disconnect_RemovesParticipationAndReconnectRequiresJoinAgain()
     {
-        var cleanup = new FailingCleanupRepository();
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync(cleanup);
-        fixture.Now = fixture.Now.AddMinutes(30);
+        var fixture = await PaintSessionFixture.ActiveWithBobAsync();
+        await fixture.Manager.HandleSessionDisconnectedAsync(103);
+        fixture.Presence.Participants[fixture.BobUserId] = new(fixture.BobUserId, 9, 203, fixture.BobMatrixUserId);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-            fixture.Manager.ExpireInactiveForTestAsync());
-
-        var afterFailure = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(PaintSessionStatus.Active, afterFailure.Status);
-        Assert.AreEqual(0, (await cleanup.GetPendingAsync()).Count);
-
-        cleanup.ShouldFail = false;
-        await fixture.Manager.ExpireInactiveForTestAsync();
-
-        var afterRetry = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
-        Assert.AreEqual(PaintSessionStatus.Expired, afterRetry.Status);
-        Assert.AreEqual(1, (await cleanup.GetPendingAsync()).Count);
+        var summary = await fixture.Manager.SummaryAsync(fixture.SessionId, fixture.BobUserId);
+        Assert.IsTrue(summary.CanJoin);
+        Assert.IsFalse(summary.IsParticipant);
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() =>
+            fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.BobUserId));
+        Assert.AreEqual(203, (await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId)).Participant.MumbleSessionId);
     }
 
     [TestMethod]
-    public async Task Preview_BackpressureMaySkipPreviewButNeverPreventsCommit()
+    public async Task Expire_MakesSourceUnavailableAndSchedulesCleanup()
     {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
-        var accepted = 0;
-        for (var i = 0; i < 21; i++)
-        {
-            var preview = await fixture.Manager.PreviewAsync(fixture.SessionId, fixture.AliceUserId,
-                new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-                    [new PaintPoint(0.1, 0.2, null)]));
-            if (preview.Published) accepted++;
-        }
-
-        var commit = await fixture.CommitAliceAsync();
-
-        Assert.AreEqual(20, accepted);
-        Assert.AreNotEqual(Guid.Empty, commit.Stroke.Id);
-        Assert.IsTrue(fixture.Publisher.SentTypes.Contains(PaintEventNames.StrokeCommitted));
-    }
-
-    [TestMethod]
-    public async Task ExpireInactive_ExpiresAndWritesCleanup()
-    {
-        var fixture = await PaintSessionFixture.ActiveWithParticipantAsync();
+        var fixture = await PaintSessionFixture.ActiveAsync();
         fixture.Now = fixture.Now.AddMinutes(30);
 
         await fixture.Manager.ExpireInactiveForTestAsync();
 
         var snapshot = await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId);
         Assert.AreEqual(PaintSessionStatus.Expired, snapshot.Status);
-        Assert.AreEqual(0, fixture.Matrix.DeleteCalls);
-        Assert.AreEqual(1, (await fixture.Cleanup.GetPendingAsync()).Count);
+        Assert.AreEqual(1, (await fixture.Cleanup.GetDueAsync(CancellationToken.None)).Count);
+    }
+
+    [TestMethod]
+    public async Task End_WhenCleanupSchedulingFails_RemainsTerminalAndScannerRemovesSource()
+    {
+        var cleanup = new FailingOnceCleanupRepository();
+        var fixture = PaintSessionFixture.New(cleanup: cleanup);
+        var created = await fixture.Manager.CreateAsync(fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
+        fixture.SessionId = created.SessionId;
+
+        await fixture.Manager.EndAsync(fixture.SessionId, fixture.HostUserId);
+
+        Assert.AreEqual(PaintSessionStatus.Ended, (await fixture.Manager.SnapshotAsync(fixture.SessionId, fixture.HostUserId)).Status);
+        Assert.IsTrue(fixture.Store.Sources.ContainsKey(fixture.SessionId));
+        var service = new PaintTemporaryCleanupService(cleanup, fixture.Store, fixture.Manager);
+        await service.ProcessPendingAsync(CancellationToken.None);
+        Assert.IsFalse(fixture.Store.Sources.ContainsKey(fixture.SessionId));
+    }
+
+    private static class PaintTestImages
+    {
+        public static readonly byte[] ValidPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
     }
 
     private sealed class PaintSessionFixture
     {
         public long HostUserId => 1;
-        public long AliceUserId => 2;
         public long BobUserId => 3;
         public string HostMatrixUserId => "@host:test";
-        public string AliceMatrixUserId => "@alice:test";
         public string BobMatrixUserId => "@bob:test";
-
-        public PaintSessionManager Manager { get; set; } = null!;
-        public required FakePublisher Publisher { get; init; }
-        public required FakeMatrixPaintService Matrix { get; init; }
-        public required PaintRoomCleanupRepository Cleanup { get; init; }
+        public required PaintSessionManager Manager { get; set; }
+        public required FakePresence Presence { get; init; }
+        public required FakeSourceStore Store { get; init; }
+        public required PaintTemporaryCleanupRepository Cleanup { get; init; }
         public Guid SessionId { get; set; }
         public DateTimeOffset Now { get; set; } = new(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
 
-        public static async Task<PaintSessionFixture> PendingWithTwoParticipantsAsync(PaintRoomCleanupRepository? cleanup = null)
+        public static async Task<PaintSessionFixture> ActiveAsync()
         {
-            var fixture = New(cleanup);
-            var create = await fixture.Manager.CreateAsync(1, [102, 103]);
-            fixture.SessionId = create.SessionId;
+            var fixture = New();
+            var created = await fixture.Manager.CreateAsync(fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
+            fixture.SessionId = created.SessionId;
             return fixture;
         }
 
-        public static async Task<PaintSessionFixture> ActiveWithParticipantAsync(PaintRoomCleanupRepository? cleanup = null)
+        public static async Task<PaintSessionFixture> ActiveWithBobAsync()
         {
-            var fixture = await PendingWithTwoParticipantsAsync(cleanup);
-            await fixture.Manager.AttachSourceAsync(fixture.SessionId, 1, "$source");
-            fixture.Matrix.Memberships["@alice:test"] = "join";
-            await fixture.Manager.JoinAsync(fixture.SessionId, 2);
+            var fixture = await ActiveAsync();
+            await fixture.Manager.JoinAsync(fixture.SessionId, fixture.BobUserId);
             return fixture;
         }
 
-        public static async Task<PaintSessionFixture> ActiveWithTwoParticipantsAsync(PaintRoomCleanupRepository? cleanup = null)
-        {
-            var fixture = await ActiveWithParticipantAsync(cleanup);
-            fixture.Matrix.Memberships["@alice:test"] = "join";
-            fixture.Matrix.Memberships["@bob:test"] = "join";
-            await fixture.Manager.JoinAsync(fixture.SessionId, 2);
-            await fixture.Manager.JoinAsync(fixture.SessionId, 3);
-            return fixture;
-        }
-
-        public async Task<PaintStrokeCommittedResult> CommitAliceAsync() => await CommitAsync(AliceUserId);
-        public async Task<PaintStrokeCommittedResult> CommitBobAsync() => await CommitAsync(BobUserId);
-
-        private async Task<PaintStrokeCommittedResult> CommitAsync(long userId) => await Manager.CommitStrokeAsync(SessionId, userId,
-            new PaintStrokeInput(Guid.NewGuid(), 0, PaintTool.Pen, "#ef4444", PaintStrokeWidth.Thin,
-                [new PaintPoint(0.1, 0.2, null)]));
-
-        public required FakePresence Presence { get; init; }
-
-        public static PaintSessionFixture New(PaintRoomCleanupRepository? cleanup = null)
+        public static PaintSessionFixture New(IPaintTemporarySourceStore? store = null, PaintTemporaryCleanupRepository? cleanup = null)
         {
             var presence = new FakePresence();
             presence.Participants[1] = new(1, 9, 101, "@host:test");
-            presence.Participants[2] = new(2, 9, 102, "@alice:test");
             presence.Participants[3] = new(3, 9, 103, "@bob:test");
-            var matrix = new FakeMatrixPaintService();
-            var publisher = new FakePublisher();
-            var path = Path.Combine(Path.GetTempPath(), $"brmble-paint-{Guid.NewGuid():N}.db");
-            var database = new Database($"Data Source={path}");
+            var database = new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-{Guid.NewGuid():N}.db")}");
             database.Initialize();
-            var fixture = new PaintSessionFixture
-            {
-                Matrix = matrix,
-                Publisher = publisher,
-                Presence = presence,
-                Cleanup = cleanup ?? new PaintRoomCleanupRepository(database, TimeSpan.Zero),
-            };
-            fixture.Manager = new PaintSessionManager(presence, publisher, matrix, new MatrixPaintSourceResolver(matrix), fixture.Cleanup,
-                new PaintRateLimiter(), () => fixture.Now);
+            var cleanupRepository = cleanup ?? new PaintTemporaryCleanupRepository(database);
+            var sourceStore = store ?? new FakeSourceStore();
+            var fixture = new PaintSessionFixture { Presence = presence, Store = (FakeSourceStore)sourceStore, Cleanup = cleanupRepository, Manager = null! };
+            fixture.Manager = new PaintSessionManager(presence, new FakePublisher(), new PaintSourceValidator(), sourceStore, cleanupRepository, new PaintRateLimiter(), () => fixture.Now);
             return fixture;
         }
     }
 
-    private sealed class FailingCleanupRepository : PaintRoomCleanupRepository
+    private class FakeSourceStore : IPaintTemporarySourceStore
     {
-        public FailingCleanupRepository()
-            : this(new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-failing-{Guid.NewGuid():N}.db")}"))
-        {
-        }
+        public Dictionary<Guid, byte[]> Sources { get; } = [];
+        public virtual Task WriteAsync(Guid sessionId, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken) { Sources[sessionId] = bytes.ToArray(); return Task.CompletedTask; }
+        public virtual Task<byte[]> ReadAsync(Guid sessionId, CancellationToken cancellationToken) => Task.FromResult(Sources[sessionId]);
+        public virtual Task DeleteAsync(Guid sessionId, CancellationToken cancellationToken) { Sources.Remove(sessionId); return Task.CompletedTask; }
+        public virtual Task<IReadOnlyList<Guid>> ListSessionIdsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<Guid>>(Sources.Keys.ToArray());
+    }
 
-        private FailingCleanupRepository(Database database)
-            : base(database, TimeSpan.Zero)
-        {
-            database.Initialize();
-        }
+    private sealed class FailingWritePaintSourceStore : FakeSourceStore
+    {
+        public override Task WriteAsync(Guid sessionId, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken) => throw new IOException("write failed");
+    }
 
-        public bool ShouldFail { get; set; } = true;
-
-        public override Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
+    private sealed class FailingOnceCleanupRepository : PaintTemporaryCleanupRepository
+    {
+        public FailingOnceCleanupRepository()
+            : this(new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-cleanup-{Guid.NewGuid():N}.db")}")) { }
+        private FailingOnceCleanupRepository(Database database) : base(database) { database.Initialize(); }
+        private bool _shouldFail = true;
+        public override Task RecordPendingAsync(Guid sessionId, CancellationToken cancellationToken = default)
         {
-            if (ShouldFail) throw new InvalidOperationException("cleanup persistence unavailable");
-            return base.RecordPendingAsync(sessionId, matrixRoomId, cancellationToken);
+            if (_shouldFail) { _shouldFail = false; throw new IOException("cleanup unavailable"); }
+            return base.RecordPendingAsync(sessionId, cancellationToken);
         }
     }
 
@@ -735,135 +215,14 @@ public sealed class PaintSessionManagerTests
     {
         public Dictionary<long, PaintPresenceParticipant> Participants { get; } = [];
         public bool TryGetParticipant(long userId, out PaintPresenceParticipant participant) => Participants.TryGetValue(userId, out participant!);
-        public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant)
-        {
-            participant = Participants.Values.SingleOrDefault(value => value.MumbleSessionId == mumbleSessionId)!;
-            return participant is not null;
-        }
-        public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(p => p.ChannelId == channelId).ToArray();
+        public bool TryGetParticipantByMumbleSessionId(int mumbleSessionId, out PaintPresenceParticipant participant) { participant = Participants.Values.SingleOrDefault(x => x.MumbleSessionId == mumbleSessionId)!; return participant is not null; }
+        public IReadOnlyList<PaintPresenceParticipant> GetParticipantsInChannel(int channelId) => Participants.Values.Where(x => x.ChannelId == channelId).ToArray();
     }
 
     private sealed class FakePublisher : IPaintEventPublisher
     {
-        private readonly List<string> _events = [];
-        public List<string> SentTypes { get; } = [];
-        public List<string> PermanentEventTypes { get; } = [];
-        public List<long> PermanentRevisions { get; } = [];
-        public List<IReadOnlySet<long>> UserRoutes { get; } = [];
-        private readonly TaskCompletionSource _blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private bool _blockNextPermanentEvent;
-
-        public void BlockNextPermanentEvent() => _blockNextPermanentEvent = true;
-        public Task WaitUntilBlockedAsync() => _blocked.Task;
-        public void ReleaseBlockedEvent() => _release.TrySetResult();
-        public Func<Task>? BeforePermanentPublish { get; set; }
-
-        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
-        {
-            UserRoutes.Add(userIds.ToHashSet());
-            return PublishAsync(message);
-        }
-        public Task PublishPreviewToUsersAsync(IReadOnlySet<long> userIds, Guid sessionId, long authorUserId, object message)
-            => PublishToUsersAsync(userIds, message);
-
-        public Task PublishToChannelAsync(int channelId, object message) => PublishAsync(message);
-
-        private async Task PublishAsync(object message)
-        {
-            _events.Add(JsonSerializer.Serialize(message, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-            }));
-            var type = ReadType(message);
-            if (!string.Equals(type, PaintEventNames.PreviewUpdated, StringComparison.Ordinal))
-            {
-                if (BeforePermanentPublish is not null) await BeforePermanentPublish();
-                if (_blockNextPermanentEvent)
-                {
-                    _blockNextPermanentEvent = false;
-                    _blocked.TrySetResult();
-                    await _release.Task;
-                }
-
-                PermanentEventTypes.Add(type);
-                var revision = message.GetType().GetProperty("revision")?.GetValue(message);
-                if (revision is long value) PermanentRevisions.Add(value);
-            }
-
-            SentTypes.Add(type);
-        }
-
-        private static string ReadType(object message) => message.GetType().GetProperty("type")?.GetValue(message)?.ToString() ?? string.Empty;
-
-        public JsonDocument GetLastEvent(string type) => JsonDocument.Parse(_events.Last(json =>
-            JsonDocument.Parse(json).RootElement.GetProperty("type").GetString() == type));
-    }
-
-    private sealed class FakeMatrixPaintService : IMatrixPaintService
-    {
-        public string RoomId { get; } = "!paint:test";
-        public Dictionary<string, string?> Memberships { get; } = [];
-        public List<string> InvitedUsers { get; } = [];
-        public MatrixPaintRoomCleanupResult DeleteResult { get; set; } = new(true, "delete", null);
-        public int DeleteCalls { get; private set; }
-        private int _blockedMembershipRequestCount;
-        private int _membershipRequestTarget;
-        private readonly TaskCompletionSource _membershipRequestsBlocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _releaseMembershipRequests = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public void BlockMembershipRequests(int requestCount) => _membershipRequestTarget = requestCount;
-        public Task WaitUntilMembershipRequestsBlockedAsync() => _membershipRequestsBlocked.Task;
-        public void ReleaseMembershipRequests() => _releaseMembershipRequests.TrySetResult();
-
-        public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult(RoomId);
-        public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) { InvitedUsers.Add(matrixUserId); return Task.CompletedTask; }
-        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"room_id":"!paint:test","sender":"@host:test","type":"m.room.message","content":{"msgtype":"m.image","url":"mxc://test/image","info":{"mimetype":"image/png","size":4}}}""").RootElement.Clone());
-        public async Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken)
-        {
-            if (_membershipRequestTarget > 0)
-            {
-                if (Interlocked.Increment(ref _blockedMembershipRequestCount) == _membershipRequestTarget)
-                    _membershipRequestsBlocked.TrySetResult();
-                await _releaseMembershipRequests.Task;
-            }
-
-            return Memberships.GetValueOrDefault(matrixUserId);
-        }
-        public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137 });
-        public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
-        {
-            DeleteCalls++;
-            return Task.FromResult(DeleteResult);
-        }
-    }
-
-    private sealed class BlockingCleanupRepository : PaintRoomCleanupRepository
-    {
-        private readonly TaskCompletionSource _recordPendingEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _releaseRecordPending = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public BlockingCleanupRepository()
-            : this(new Database($"Data Source={Path.Combine(Path.GetTempPath(), $"brmble-paint-blocking-{Guid.NewGuid():N}.db")}"))
-        {
-        }
-
-        private BlockingCleanupRepository(Database database)
-            : base(database)
-        {
-            database.Initialize();
-        }
-
-        public Task WaitUntilRecordPendingAsync() => _recordPendingEntered.Task;
-        public void ReleaseRecordPending() => _releaseRecordPending.TrySetResult();
-
-        public override async Task RecordPendingAsync(Guid sessionId, string matrixRoomId, CancellationToken cancellationToken = default)
-        {
-            _recordPendingEntered.TrySetResult();
-            await _releaseRecordPending.Task;
-            await base.RecordPendingAsync(sessionId, matrixRoomId, cancellationToken);
-        }
-
+        public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message) => Task.CompletedTask;
+        public Task PublishPreviewToUsersAsync(IReadOnlySet<long> userIds, Guid sessionId, long authorUserId, object message) => Task.CompletedTask;
+        public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
     }
 }

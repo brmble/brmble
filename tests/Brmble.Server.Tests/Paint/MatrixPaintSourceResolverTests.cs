@@ -22,8 +22,6 @@ public sealed class MatrixPaintSourceResolverTests
 
         var source = await resolver.ResolveAsync("!paint:server", "@host:test", "$source", CancellationToken.None);
 
-        Assert.AreEqual("!paint:server", source.MatrixRoomId);
-        Assert.AreEqual("$source", source.SourceEventId);
         Assert.AreEqual("image/png", source.MimeType);
         Assert.AreEqual(1, source.Width);
         Assert.AreEqual(1, source.Height);
