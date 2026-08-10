@@ -45,18 +45,19 @@ builder.Services.AddGames();
 builder.Services.AddCustomCompanions();
 builder.Services.AddOptions<PaintStorageOptions>()
     .BindConfiguration("PaintStorage");
-builder.Services.AddSingleton<IMatrixPaintService, MatrixPaintService>();
 builder.Services.AddSingleton<IPaintTemporarySourceStore, FilePaintTemporarySourceStore>();
 builder.Services.AddSingleton<PaintSourceValidator>();
-builder.Services.AddSingleton<MatrixPaintSourceResolver>();
 builder.Services.AddSingleton<IPaintPresence, SessionMappingPaintPresence>();
 builder.Services.AddSingleton<IPaintEventPublisher, BrmblePaintEventPublisher>();
 builder.Services.AddSingleton<PaintRateLimiter>();
 builder.Services.AddSingleton<PaintTemporaryCleanupRepository>();
 builder.Services.AddSingleton<PaintSessionManager>();
+builder.Services.AddSingleton<IPaintTemporaryDataLifetime>(services =>
+    services.GetRequiredService<PaintSessionManager>());
 builder.Services.AddSingleton<IPaintParticipationLifecycle>(services =>
     services.GetRequiredService<PaintSessionManager>());
 builder.Services.AddHostedService<PaintSessionExpirationService>();
+builder.Services.AddHostedService<PaintTemporaryCleanupService>();
 builder.Services.AddOptions<ServerInfoSettings>()
     .BindConfiguration("ServerInfo");
 builder.Services.AddSingleton<IServerVersionProvider, ServerVersionProvider>();

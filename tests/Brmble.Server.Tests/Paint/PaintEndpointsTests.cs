@@ -34,7 +34,7 @@ public sealed class PaintEndpointsTests
     }
 
     [TestMethod]
-    public async Task CreateSession_AcceptsBase64SourceAndReturnsNoMatrixRoomId()
+    public async Task CreateSession_AcceptsBase64SourceAndReturnsOnlyTheCurrentSessionIdentifiers()
     {
         await using var app = await EndpointFixture.StartAsync();
         var payload = new
@@ -45,9 +45,10 @@ public sealed class PaintEndpointsTests
 
         var response = await app.Client.PostAsJsonAsync("/paint/sessions", payload);
         var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var propertyNames = json.RootElement.EnumerateObject().Select(property => property.Name).ToArray();
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
-        Assert.IsFalse(json.RootElement.TryGetProperty("matrixRoomId", out _));
+        CollectionAssert.AreEquivalent(new[] { "sessionId", "channelId" }, propertyNames);
         Assert.AreEqual(9, json.RootElement.GetProperty("channelId").GetInt32());
     }
 

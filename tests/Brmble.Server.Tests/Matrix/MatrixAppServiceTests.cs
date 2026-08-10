@@ -66,18 +66,6 @@ public class MatrixAppServiceTests
     private IReadOnlyList<HttpRequestMessage> SentRequests => _capturedRequests;
 
     [TestMethod]
-    public async Task DeletePaintRoom_TreatsAuthoritativeMissingRoomAsRemoved()
-    {
-        SetupHttpResponse(HttpStatusCode.NotFound, """{"errcode":"M_NOT_FOUND","error":"Unknown room"}""");
-
-        var result = await _svc.DeletePaintRoomAsync("!removed:server", CancellationToken.None);
-
-        Assert.IsTrue(result.Removed);
-        Assert.AreEqual("admin-delete-already-absent", result.Mode);
-        Assert.IsNull(result.Error);
-    }
-
-    [TestMethod]
     public async Task SendMessage_SendsPutWithCorrectPath()
     {
         SetupHttpResponse(HttpStatusCode.OK);
@@ -235,62 +223,6 @@ public class MatrixAppServiceTests
         StringAssert.Contains(req.RequestUri!.AbsolutePath, "avatar_url");
         var body = await req.Content!.ReadAsStringAsync();
         StringAssert.Contains(body, "mxc://server/abc123");
-    }
-
-    [TestMethod]
-    public async Task CreatePaintRoom_UsesInviteOnlyStateAndDoesNotJoinUsers()
-    {
-        var svc = CreateServiceReturning("""{"room_id":"!paint:server"}""");
-
-        var roomId = await svc.CreatePaintRoom("Paint in General", ["@alice:server", "@bob:server"]);
-
-        Assert.AreEqual("!paint:server", roomId);
-        var body = LastJsonBody();
-        StringAssert.Contains(body, @"""preset"":""private_chat""");
-        StringAssert.Contains(body, @"""invite"":[""@alice:server"",""@bob:server""]");
-        StringAssert.Contains(body, @"""join_rule"":""invite""");
-        StringAssert.Contains(body, @"""history_visibility"":""invited""");
-        StringAssert.Contains(body, "m.room.power_levels");
-        StringAssert.Contains(body, @"""invite"":50");
-        Assert.IsFalse(SentRequests.Any(r => r.RequestUri!.AbsolutePath.Contains("/join/")));
-    }
-
-    [TestMethod]
-    public async Task CreatePaintRoom_RetainsBotPowerForLaterReinvites()
-    {
-        var svc = CreateServiceReturning("""{"room_id":"!paint:server"}""");
-
-        await svc.CreatePaintRoom("Paint in General", ["@alice:server"]);
-        await svc.InvitePaintUser("!paint:server", "@alice:server");
-
-        using var createPayload = JsonDocument.Parse(SentRequests.First().Content!.ReadAsStringAsync().GetAwaiter().GetResult());
-        var powerLevels = createPayload.RootElement.GetProperty("initial_state")
-            .EnumerateArray().Single(state => state.GetProperty("type").GetString() == "m.room.power_levels")
-            .GetProperty("content");
-        Assert.AreEqual(100, powerLevels.GetProperty("users").GetProperty("@brmble:localhost").GetInt32());
-        var reinvite = SentRequests.Last();
-        StringAssert.Contains(reinvite.RequestUri!.AbsolutePath, "/rooms/%21paint%3Aserver/invite");
-        StringAssert.Contains(reinvite.RequestUri.Query, "user_id=%40brmble%3Alocalhost");
-    }
-
-    [TestMethod]
-    public async Task DeletePaintRoom_ReportsMissingAdminTokenAsTerminal()
-    {
-        var factory = new Mock<IHttpClientFactory>();
-        factory.Setup(f => f.CreateClient(It.IsAny<string>()))
-            .Returns(new HttpClient(_mockHandler.Object));
-        var service = new MatrixAppService(factory.Object, Options.Create(new MatrixSettings
-        {
-            HomeserverUrl = "http://localhost:8008",
-            AppServiceToken = "test-token",
-        }), NullLogger<MatrixAppService>.Instance);
-
-        var result = await service.DeletePaintRoomAsync("!room:server", CancellationToken.None);
-
-        Assert.IsFalse(result.Removed);
-        Assert.AreEqual("admin-token-missing", result.Mode);
-        Assert.AreEqual("MATRIX_ADMIN_TOKEN_MISSING", result.Error);
-        Assert.IsTrue(result.Terminal);
     }
 
     [TestMethod]

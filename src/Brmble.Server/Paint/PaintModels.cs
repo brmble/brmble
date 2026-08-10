@@ -85,8 +85,6 @@ public sealed record PaintSessionSummary(
 
 public static class PaintEventNames
 {
-    public const string SourceAttached = "paint.sourceAttached";
-    public const string Invited = "paint.invited";
     public const string ParticipantJoined = "paint.participantJoined";
     public const string ParticipantLeft = "paint.participantLeft";
     public const string PreviewUpdated = "paint.previewUpdated";
@@ -99,8 +97,6 @@ public static class PaintEventNames
 
     public static readonly IReadOnlyList<string> BroadcastEvents =
     [
-        SourceAttached,
-        Invited,
         ParticipantJoined,
         ParticipantLeft,
         PreviewUpdated,

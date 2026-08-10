@@ -117,7 +117,6 @@ export const paintApi = {
 
     return { ...created, channelId: input.channelId };
   },
-  attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', `/paint/sessions/${encodeURIComponent(sessionId)}/source`, { sessionId, sourceEventId }),
   join: (sessionId: string) => mutate('paint.join', `/paint/sessions/${encodeURIComponent(sessionId)}/join`, { sessionId }),
   leave: (sessionId: string) => mutate('paint.leave', `/paint/sessions/${encodeURIComponent(sessionId)}/leave`, { sessionId }),
   commitStroke: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.commitStroke', `/paint/sessions/${encodeURIComponent(sessionId)}/stroke`, { sessionId, ...normalizedStroke(stroke) }),

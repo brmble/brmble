@@ -16,7 +16,6 @@ describe('paintApi browser fallback', () => {
 
   it.each([
     ['createSession', () => paintApi.createSession({ channelId: 7, source: new File([new Uint8Array([1])], 'source.png', { type: 'image/png' }) }), '/paint/sessions', 'POST'],
-    ['attachSource', () => paintApi.attachSource(sessionId, '$source'), '/paint/sessions/session-1/source', 'POST'],
     ['join', () => paintApi.join(sessionId), '/paint/sessions/session-1/join', 'POST'],
     ['leave', () => paintApi.leave(sessionId), '/paint/sessions/session-1/leave', 'POST'],
     ['commitStroke', () => paintApi.commitStroke(sessionId, { correlationId: 'stroke-1', generation: 0, tool: 'pen', width: 6, points: [] }), '/paint/sessions/session-1/stroke', 'POST'],
@@ -135,7 +134,6 @@ describe('paintApi WebView bridge', () => {
   });
 
   it.each([
-    ['attachSource', 'paint.attachSource', () => paintApi.attachSource(sessionId, '$source'), { sessionId, sourceEventId: '$source' }],
     ['join', 'paint.join', () => paintApi.join(sessionId), { sessionId }],
     ['leave', 'paint.leave', () => paintApi.leave(sessionId), { sessionId }],
     ['commitStroke', 'paint.commitStroke', () => paintApi.commitStroke(sessionId, stroke), { sessionId, ...stroke }],

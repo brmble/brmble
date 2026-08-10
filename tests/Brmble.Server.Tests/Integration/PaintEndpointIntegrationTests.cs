@@ -5,7 +5,6 @@ using System.Text.Json.Serialization;
 using Brmble.Server.Auth;
 using Brmble.Server.Data;
 using Brmble.Server.Events;
-using Brmble.Server.Matrix;
 using Brmble.Server.Paint;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -141,17 +140,13 @@ public sealed class PaintEndpointIntegrationTests
             var database = new Database($"Data Source={databasePath}");
             database.Initialize();
             var presence = new TestPresence();
-            var matrix = new TestMatrix();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(database);
-            builder.Services.Configure<MatrixSettings>(settings => settings.ServerDomain = "test");
             builder.Services.AddSingleton<UserRepository>();
             builder.Services.AddSingleton<ICertificateHashExtractor, HeaderCertificateHashExtractor>();
             builder.Services.AddSingleton<IPaintPresence>(presence);
-            builder.Services.AddSingleton<IMatrixPaintService>(matrix);
             builder.Services.AddSingleton<IPaintEventPublisher, TestPublisher>();
-            builder.Services.AddSingleton<MatrixPaintSourceResolver>();
             builder.Services.AddSingleton<PaintRateLimiter>();
             builder.Services.AddSingleton<PaintSourceValidator>();
             builder.Services.AddSingleton<IPaintTemporarySourceStore, TestSourceStore>();
@@ -166,8 +161,6 @@ public sealed class PaintEndpointIntegrationTests
             var bob = await users.Insert("bob-cert", "bob");
             presence.Participants[host.Id] = new(host.Id, 5, 100, host.MatrixUserId);
             presence.Participants[bob.Id] = new(bob.Id, 5, 101, bob.MatrixUserId);
-            matrix.SourceSender = host.MatrixUserId;
-            matrix.Memberships[bob.MatrixUserId] = "join";
 
             var fixture = new PaintIntegrationFixture(app, presence)
             {
@@ -226,18 +219,6 @@ public sealed class PaintEndpointIntegrationTests
             public Task<byte[]> ReadAsync(Guid id, CancellationToken token) => Task.FromResult(_sources[id]);
             public Task DeleteAsync(Guid id, CancellationToken token) { _sources.Remove(id); return Task.CompletedTask; }
             public Task<IReadOnlyList<Guid>> ListSessionIdsAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<Guid>>(_sources.Keys.ToArray());
-        }
-
-        private sealed class TestMatrix : IMatrixPaintService
-        {
-            public string SourceSender { get; set; } = null!;
-            public Dictionary<string, string?> Memberships { get; } = [];
-            public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> invitedMatrixUserIds, CancellationToken cancellationToken) => Task.FromResult("!paint:test");
-            public Task InvitePaintUserAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.CompletedTask;
-            public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse($"{{\"room_id\":\"!paint:test\",\"sender\":\"{SourceSender}\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://test/source\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{SourcePng.Length}}}}}}}").RootElement.Clone());
-            public Task<string?> GetMembershipAsync(string roomId, string matrixUserId, CancellationToken cancellationToken) => Task.FromResult(Memberships.GetValueOrDefault(matrixUserId));
-            public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken cancellationToken) => Task.FromResult(SourcePng);
-            public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken) => Task.FromResult(new MatrixPaintRoomCleanupResult(true, "delete", null));
         }
     }
 }
