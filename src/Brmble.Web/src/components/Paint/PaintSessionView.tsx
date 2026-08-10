@@ -1,12 +1,15 @@
 import type { MatrixClient } from 'matrix-js-sdk';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { paintApi } from '../../api/paint';
 import { usePaintSession } from '../../hooks/usePaintSession';
 import { PaintEditor } from './PaintEditor';
 import './PaintSessionView.css';
 
-export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; onClose: () => void }) {
+export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, currentVoiceChannelId, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; currentVoiceChannelId?: number; onClose: () => void }) {
   const { snapshot, previews, error, refresh } = usePaintSession(sessionId);
+  useEffect(() => {
+    if (snapshot && currentVoiceChannelId !== undefined && currentVoiceChannelId !== snapshot.channelId) onClose();
+  }, [currentVoiceChannelId, onClose, snapshot]);
   const saveOperationIdRef = useRef(`save-${sessionId}`);
   const saveTxnIdRef = useRef(`brmble-paint-save-${sessionId}-${saveOperationIdRef.current}`);
   const saveFileRef = useRef<File | null>(null);
@@ -85,5 +88,5 @@ export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, onCl
 
   if (snapshot.status === 'pendingSource') return <section className="paint-session-view" aria-label="Collaborative paint">Waiting for the host to add an image...<button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></section>;
 
-  return <section className="paint-session-view" aria-label="Collaborative paint"><div className="paint-session-view__actions"><button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></div><PaintEditor sessionId={sessionId} paintApi={paintApi} snapshot={snapshot} previews={previews} currentUserId={snapshot.currentUserId ?? snapshot.hostUserId} matrixClient={matrixClient} onSave={saveToChat} /></section>;
+  return <section className="paint-session-view" aria-label="Collaborative paint"><div className="paint-session-view__actions"><button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>Close paint</button></div><PaintEditor sessionId={sessionId} paintApi={paintApi} snapshot={snapshot} previews={previews} currentUserId={snapshot.currentUserId ?? snapshot.hostUserId} onSave={saveToChat} /></section>;
 }

@@ -15,7 +15,7 @@ describe('paintApi browser fallback', () => {
   });
 
   it.each([
-    ['createSession', () => paintApi.createSession({ channelId: 7, participantSessionIds: [2] }), '/paint/sessions', 'POST'],
+    ['createSession', () => paintApi.createSession({ channelId: 7, source: new File([new Uint8Array([1])], 'source.png', { type: 'image/png' }) }), '/paint/sessions', 'POST'],
     ['attachSource', () => paintApi.attachSource(sessionId, '$source'), '/paint/sessions/session-1/source', 'POST'],
     ['join', () => paintApi.join(sessionId), '/paint/sessions/session-1/join', 'POST'],
     ['leave', () => paintApi.leave(sessionId), '/paint/sessions/session-1/leave', 'POST'],
@@ -33,10 +33,24 @@ describe('paintApi browser fallback', () => {
   });
 
   it('returns the created paint session from the browser fallback', async () => {
-    const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
+    const response = { sessionId: 'session-1' };
     fetchMock.mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }));
 
-    await expect(paintApi.createSession({ channelId: 7, participantSessionIds: [2] })).resolves.toEqual({ ...response, channelId: 7 });
+    const source = new File([new Uint8Array([1, 2, 3])], 'source.png', { type: 'image/png' });
+    await expect(paintApi.createSession({ channelId: 7, source })).resolves.toEqual({ ...response, channelId: 7 });
+    expect(JSON.parse(fetchMock.mock.calls.at(-1)![1].body)).toEqual({
+      channelId: 7,
+      source: { mimeType: 'image/png', dataBase64: 'AQID' },
+    });
+  });
+
+  it('decodes a browser source response to a Blob', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ mimeType: 'image/png', dataBase64: 'AQID' }), { status: 200 }));
+
+    const blob = await paintApi.getSource(sessionId);
+
+    expect(blob.type).toBe('image/png');
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([1, 2, 3]);
   });
 
   it('accepts an empty successful mutation response', async () => {
@@ -64,14 +78,16 @@ describe('paintApi WebView bridge', () => {
   });
 
   it('returns the correlated created paint session response', async () => {
-    const response = { sessionId: 'session-1', matrixRoomId: '!paint:server' };
-    const result = paintApi.createSession({ channelId: 7, participantSessionIds: [2] });
+    const response = { sessionId: 'session-1' };
+    const source = new File([new Uint8Array([1, 2, 3])], 'source.png', { type: 'image/png' });
+    const result = paintApi.createSession({ channelId: 7, source });
     const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalled());
     const request = postMessage.mock.calls[0][0];
 
     expect(request).toEqual(expect.objectContaining({
       type: 'paint.create',
-      data: expect.objectContaining({ channelId: 7, participantSessionIds: [2], requestId: expect.any(Number) }),
+      data: expect.objectContaining({ channelId: 7, source: { mimeType: 'image/png', dataBase64: 'AQID' }, requestId: expect.any(Number) }),
     }));
 
     bridge._handleMessage({
@@ -82,6 +98,19 @@ describe('paintApi WebView bridge', () => {
     });
 
     await expect(result).resolves.toEqual({ ...response, channelId: 7 });
+  });
+
+  it('decodes a correlated paint source response to a Blob', async () => {
+    const result = paintApi.getSource(sessionId);
+    const postMessage = window.chrome!.webview!.postMessage as ReturnType<typeof vi.fn>;
+    const request = postMessage.mock.calls[0][0];
+
+    expect(request).toEqual({ type: 'paint.request', data: { action: 'source', sessionId, requestId: expect.any(Number) } });
+    bridge._handleMessage({ data: { type: 'paint.response', data: { requestId: request.data.requestId, success: true, body: JSON.stringify({ mimeType: 'image/png', dataBase64: 'AQID' }) } } });
+
+    const blob = await result;
+    expect(blob.type).toBe('image/png');
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([1, 2, 3]);
   });
 
   it('requests a summary through the bridge without fetching the snapshot', async () => {

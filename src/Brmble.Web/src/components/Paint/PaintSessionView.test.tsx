@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PaintSessionView } from './PaintSessionView';
 
@@ -79,5 +79,15 @@ describe('PaintSessionView', () => {
 
     expect(screen.queryByText(/chat channel is unavailable/)).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('You no longer have access');
+  });
+
+  it('closes paint when the local user leaves the session voice channel', async () => {
+    sessionState = { snapshot: { ...terminalSnapshot('active'), channelId: 5, status: 'active', source: { mimeType: 'image/png', width: 1, height: 1, sizeBytes: 1 }, expiresAt: '' }, previews: [], error: null };
+    const onClose = vi.fn();
+    const { rerender } = render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={5} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+
+    rerender(<PaintSessionView sessionId="session-1" currentVoiceChannelId={12} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 });
