@@ -1330,9 +1330,9 @@ function App() {
   // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
   const brmbleIdleSec = useBrmbleIdle();
   const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
-  const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
+  const selfVoiceChannelId = users.find(user => user.self)?.channelId;
   const inVoiceChannelForIdle =
-    !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
+    !selfLeftVoice && selfVoiceChannelId != null && selfVoiceChannelId !== 0;
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1354,7 +1354,11 @@ function App() {
   const invalidatePaintPreparation = useCallback(() => {
     paintPreparationGenerationRef.current += 1;
   }, []);
-  const activePaintChannelIdRef = useRef<string | undefined>(undefined);
+  const activePaintChannelIdRef = useRef<number | null>(null);
+  const paintVoiceChannelId: number | null | undefined =
+    connectionStatus !== 'connected' || selfLeftVoice || selfVoiceChannelId === 0
+      ? null
+      : selfVoiceChannelId;
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
@@ -1367,13 +1371,16 @@ function App() {
 
   useEffect(() => {
     invalidatePaintPreparation();
-    if (!activePaintSessionId) return;
-    if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
+  }, [currentChannelId, invalidatePaintPreparation]);
+
+  useEffect(() => {
+    if (!activePaintSessionId || paintVoiceChannelId === undefined) return;
+    if (activePaintChannelIdRef.current !== paintVoiceChannelId) {
       activePaintSessionIdRef.current = null;
       setActivePaintSessionId(null);
-      activePaintChannelIdRef.current = undefined;
+      activePaintChannelIdRef.current = null;
     }
-  }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
+  }, [activePaintSessionId, paintVoiceChannelId]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -4416,7 +4423,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, hasPendingViewerShares, updateStatus]);
 
-  const selfVoiceChannelId = users.find(u => u.self)?.channelId;
   const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
 
   useEffect(() => {
@@ -4726,7 +4732,9 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
-  const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
+  const paintChannelId = typeof paintVoiceChannelId === 'number'
+    ? paintVoiceChannelId
+    : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
   const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
   const canStartPaintRef = useRef(false);
@@ -4810,14 +4818,15 @@ const handleConnect = (serverData: SavedServer) => {
     await paintApi.join(sessionId);
   }, []);
   const handleOpenPaint = useCallback((sessionId: string) => {
+    if (paintVoiceChannelId == null) return;
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = currentChannelId;
+    activePaintChannelIdRef.current = paintVoiceChannelId;
     activePaintSessionIdRef.current = sessionId;
     setActivePaintSessionId(sessionId);
-  }, [currentChannelId, invalidatePaintPreparation]);
+  }, [invalidatePaintPreparation, paintVoiceChannelId]);
   const handleClosePaint = useCallback(() => {
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = undefined;
+    activePaintChannelIdRef.current = null;
     activePaintSessionIdRef.current = null;
     setActivePaintSessionId(null);
   }, [invalidatePaintPreparation]);
@@ -4870,7 +4879,7 @@ const handleConnect = (serverData: SavedServer) => {
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             invalidatePaintPreparation();
-            activePaintChannelIdRef.current = currentChannelId;
+            activePaintChannelIdRef.current = paintChannelId;
             activePaintSessionIdRef.current = sessionId;
             setActivePaintSessionId(sessionId);
             closePaintSetup();
@@ -4951,7 +4960,7 @@ const handleConnect = (serverData: SavedServer) => {
                           sessionId={activePaintSessionId}
                           matrixClient={matrixClient.client}
                           channelRoomMap={matrixCredentials?.roomMap}
-                          currentVoiceChannelId={currentChannelId === 'server-root' ? undefined : Number(currentChannelId)}
+                          currentVoiceChannelId={paintVoiceChannelId}
                           onClose={handleClosePaint}
                         />
                       ) : null}

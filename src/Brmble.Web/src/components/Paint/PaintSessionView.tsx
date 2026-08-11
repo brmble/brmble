@@ -5,7 +5,7 @@ import { usePaintSession } from '../../hooks/usePaintSession';
 import { PaintEditor } from './PaintEditor';
 import './PaintSessionView.css';
 
-export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, currentVoiceChannelId, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; currentVoiceChannelId?: number; onClose: () => void }) {
+export function PaintSessionView({ sessionId, matrixClient, channelRoomMap, currentVoiceChannelId, onClose }: { sessionId: string; matrixClient: MatrixClient | null; channelRoomMap: Record<string, string> | undefined; currentVoiceChannelId?: number | null; onClose: () => void }) {
   const { snapshot, previews, error, refresh } = usePaintSession(sessionId);
   useEffect(() => {
     if (snapshot && currentVoiceChannelId !== undefined && currentVoiceChannelId !== snapshot.channelId) onClose();

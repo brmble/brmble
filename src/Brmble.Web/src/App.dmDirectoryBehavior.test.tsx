@@ -25,6 +25,7 @@ const mockValues = vi.hoisted(() => {
   let channelChatPanelProps: Record<string, unknown> | undefined;
   let dmContactListProps: Record<string, unknown> | undefined;
   let headerProps: Record<string, unknown> | undefined;
+  let sidebarProps: Record<string, unknown> | undefined;
   let dmStoreOptions: Record<string, unknown> | undefined;
   const matrixClient = {
     lastMessages: new Map(),
@@ -106,6 +107,10 @@ const mockValues = vi.hoisted(() => {
     setDmContactListProps: (props: Record<string, unknown> | undefined) => { dmContactListProps = props; },
     get headerProps() { return headerProps; },
     setHeaderProps: (props: Record<string, unknown> | undefined) => { headerProps = props; },
+    get sidebarProps() { return sidebarProps; },
+    setSidebarProps: (props: Record<string, unknown> | undefined) => {
+      sidebarProps = props;
+    },
     get dmStoreOptions() { return dmStoreOptions; },
     setDmStoreOptions: (options: Record<string, unknown> | undefined) => { dmStoreOptions = options; },
   };
@@ -125,9 +130,11 @@ vi.mock('./bridge', () => {
 vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => { mockValues.setHeaderProps(props); return <header />; } }));
 vi.mock('./components/Sidebar/Sidebar', () => ({
   Sidebar: (props: Record<string, unknown>) => {
+    mockValues.setSidebarProps(props);
     return (
       <>
         <button type="button" data-testid="sidebar-select-channel" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(1)} />
+        <button type="button" data-testid="sidebar-select-channel-2" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(2)} />
         <button type="button" data-testid="sidebar-select-server" onClick={() => (props.onSelectServer as (() => void) | undefined)?.()} />
       </>
     );
@@ -207,7 +214,10 @@ function renderPaintReadyApp() {
     }).__emit('voice.connected', {
       username: 'Me',
       channelId: 1,
-      channels: [{ id: 1, name: 'General' }],
+      channels: [
+        { id: 1, name: 'General' },
+        { id: 2, name: 'Gaming' },
+      ],
       users: [{
         session: 7,
         name: 'Me',
@@ -215,6 +225,22 @@ function renderPaintReadyApp() {
         channelId: 1,
       }],
     });
+  });
+  return view;
+}
+
+async function renderAppWithActivePaint() {
+  const view = renderPaintReadyApp();
+  await waitFor(() => {
+    expect(mockValues.channelChatPanelProps?.onOpenPaint).toEqual(expect.any(Function));
+  });
+  act(() => {
+    (mockValues.channelChatPanelProps?.onOpenPaint as (sessionId: string) => void)(
+      'active-paint-session',
+    );
+  });
+  await waitFor(() => {
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
   });
   return view;
 }
@@ -252,6 +278,7 @@ describe('DM route Matrix isolation', () => {
     mockValues.setChannelChatPanelProps(undefined);
     mockValues.setDmContactListProps(undefined);
     mockValues.setHeaderProps(undefined);
+    mockValues.setSidebarProps(undefined);
     mockValues.setDmStoreOptions(undefined);
     mockValues.matrixClient.dmRoomMap.clear();
     mockValues.dmStore.selectedContact = null;
@@ -316,6 +343,80 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByRole('dialog', {
       name: 'Start collaborative paint',
     })).not.toBeInTheDocument();
+  });
+
+  it('keeps active paint open when browsing another channel chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-channel-2').click());
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing server chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-server').click());
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing a direct message', async () => {
+    mockValues.dmStore.selectedContact = {
+      id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0,
+    };
+    await renderAppWithActivePaint();
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)(
+        '@val:example.com',
+      );
+    });
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('closes active paint after an actual voice-channel move', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.userJoined', {
+        session: 7, name: 'Me', self: true, channelId: 2,
+      });
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 2, name: 'Gaming',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after Leave Voice is confirmed', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.leftVoiceChanged', { leftVoice: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after voice disconnects', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.disconnected', { reconnectAvailable: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('keeps active paint open while connected self voice membership is temporarily unknown', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.connected', {
+          username: 'Me',
+          channelId: 1,
+          channels: [
+            { id: 1, name: 'General' },
+            { id: 2, name: 'Gaming' },
+          ],
+          users: [],
+        });
+    });
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
   });
 
   it('does nothing when the user chooses No', async () => {

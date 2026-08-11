@@ -121,6 +121,21 @@ describe('PaintSessionView', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
+  it('closes paint when the local user has confirmed absence from voice', async () => {
+    sessionState = { snapshot: { ...activeSnapshot(), channelId: 5 }, previews: [], error: null };
+    const onClose = vi.fn();
+    render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={null} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it('does not close paint while local voice membership is unknown', async () => {
+    sessionState = { snapshot: { ...activeSnapshot(), channelId: 5 }, previews: [], error: null };
+    const onClose = vi.fn();
+    render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={undefined} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+    await Promise.resolve();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('uploads only the composed finished image to the normal channel before ending the session', async () => {
     sessionState = { snapshot: activeSnapshot('s1'), previews: [], error: null };
     const uploadContent = vi.fn().mockResolvedValue({ content_uri: 'mxc://test/final' });
