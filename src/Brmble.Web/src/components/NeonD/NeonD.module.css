@@ -33,16 +33,76 @@
 
 .statsBar {
   display: flex;
+  align-items: stretch;
   gap: var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) auto;
   align-items: center;
-  padding: var(--space-xs) var(--space-lg);
+  gap: var(--space-lg);
+  flex: 1;
+  min-width: 0;
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.metricLabel {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-style: italic;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.primaryMetricValue {
+  color: var(--accent-success);
+  font-size: var(--text-2xl);
+}
+
+.secondaryMetricValue {
+  color: var(--accent-primary);
+  font-size: var(--text-xl);
+}
+
+.cashMetricValue {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.primaryMetricValue,
+.secondaryMetricValue,
+.cashMetricValue {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prestigeMetrics {
+  display: flex;
+  gap: var(--space-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.prestigeMetrics > span {
+  display: grid;
+  gap: var(--space-2xs);
 }
 
 .headerActions {
-  display: flex;
-  gap: var(--space-xs);
   align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
   margin-left: auto;
+  padding-left: var(--space-lg);
+  border-left: var(--glass-border);
 }
 
 .hiddenFileInput {
@@ -54,12 +114,6 @@
   margin: 0;
   padding: var(--space-xs) var(--space-md);
   text-align: right;
-}
-
-.money {
-  font-size: var(--text-lg);
-  font-weight: bold;
-  color: var(--accent-success);
 }
 
 .gameplayGrid {
@@ -86,12 +140,66 @@
   overflow: hidden;
 }
 
+.rightWorkspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .leftWorkspace > .panel,
-.gameplayGrid > .panel {
+.rightWorkspace > .panel {
   width: 100%;
   max-width: var(--neond-panel-max-width);
   height: 100%;
   justify-self: center;
+}
+
+.captainMilestone {
+  display: grid;
+  gap: var(--space-xs);
+  width: 100%;
+  max-width: var(--neond-panel-max-width);
+  justify-self: center;
+  padding: var(--space-sm);
+  border-left: var(--space-2xs) solid var(--accent-primary);
+}
+
+.captainMilestone:has(> .captainMilestoneCopy) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.captainMilestoneHeader,
+.captainMilestoneCopy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.captainMilestoneCopy {
+  display: grid;
+  justify-content: start;
+  gap: var(--space-2xs);
+}
+
+.captainProgressTrack {
+  height: var(--space-xs);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+}
+
+.captainProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
 }
 
 .panelTabs {
@@ -654,7 +762,43 @@
   gap: var(--space-sm);
 }
 
+@media (max-width: 1200px) {
+  .statsBar {
+    flex-wrap: wrap;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: var(--space-sm);
+    padding-left: 0;
+    border-top: var(--glass-border);
+    border-left: 0;
+  }
+}
+
 @media (max-width: 900px) {
+
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .prestigeMetrics {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .captainMilestone:has(> .captainMilestoneCopy) {
+    grid-template-columns: 1fr;
+  }
+
+  .captainMilestone > button {
+    width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
   .gameplayGrid {
     grid-template-columns: 1fr;
     overflow: auto;
@@ -665,13 +809,19 @@
     overflow: visible;
   }
 
+  .rightWorkspace {
+    max-height: none;
+    overflow: visible;
+  }
+
   .panel {
     max-height: none;
     overflow: visible;
   }
 
   .leftWorkspace > .panel,
-  .gameplayGrid > .panel {
+  .rightWorkspace > .panel,
+  .captainMilestone {
     max-width: none;
   }
 

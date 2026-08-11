@@ -4,7 +4,11 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
-import { createBaseGameState } from '../constants';
+import {
+  CAPTAIN_BASE_COST,
+  CAPTAIN_VISIBLE_EARNINGS,
+  createBaseGameState,
+} from '../constants';
 import { serializeNeonDSave } from '../saveFormat';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 import type { GameState } from '../types';
@@ -151,6 +155,9 @@ const mockState = (overrides: Partial<GameState>) => {
   mockNeonD.setState(createState(overrides));
 };
 
+const formatExpectedMoney = (value: number) =>
+  `$${Math.round(value).toLocaleString()}`;
+
 beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   mockNeonD.setState(createState());
@@ -257,6 +264,144 @@ it('processes a second file selection after the first import fails', async () =>
   expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
 });
 
+it('prioritizes income, then Respect per second, cash, and prestige counters', () => {
+  const baseState = createBaseGameState(0);
+  mockState({
+    cash: 31_253.15,
+    respect: 2_345,
+    lastEarningsPerSeller: { first: 10, second: 6.65 },
+    muscleOwned: {
+      ...baseState.muscleOwned,
+      hoodRat: 1,
+    },
+    captains: [makeReferenceCaptain({ id: 'captain-priority', personalEarnings: 0 })],
+    kingpins: 2,
+  });
+
+  render(<NeonDGame />);
+
+  const statistics = screen.getByRole('region', { name: 'Empire statistics' });
+  const primary = statistics.querySelector('[data-stat-priority="primary"]');
+  const secondary = statistics.querySelector('[data-stat-priority="secondary"]');
+  const tertiary = statistics.querySelector('[data-stat-priority="tertiary"]');
+  const prestige = statistics.querySelector('[data-stat-priority="prestige"]');
+
+  expect(primary).toHaveTextContent(/seller income\/sec/i);
+  expect(primary).toHaveTextContent(/16[.,]65/);
+  const respectLabel = within(secondary as HTMLElement).getByText('Respect/sec');
+  const respectValue = within(secondary as HTMLElement).getByText('4.00');
+  expect(respectLabel).not.toBe(respectValue);
+  expect(respectLabel.tagName).toBe('SPAN');
+  expect(respectValue.tagName).toBe('STRONG');
+  expect(tertiary).toHaveTextContent(/cash/i);
+  expect(tertiary).toHaveTextContent(/31[.,]253[.,]15/);
+  expect(prestige).toHaveTextContent(/captains\s*1/i);
+  expect(prestige).toHaveTextContent(/kingpins\s*2/i);
+  expect(primary).not.toHaveClass('undefined');
+  expect(secondary).not.toHaveClass('undefined');
+  expect(tertiary).not.toHaveClass('undefined');
+});
+
+it('does not reference undefined priority metric CSS modifiers', () => {
+  const componentPath = resolve(process.cwd(), 'src/components/NeonD/NeonDGame.tsx');
+  const source = readFileSync(componentPath, 'utf8');
+
+  expect(source).not.toMatch(/styles\.(?:primaryMetric|secondaryMetric|cashMetric)\b/);
+});
+
+it('places locked Captain progress immediately before Distribution', () => {
+  mockState({ runEarnings: 3_750_000, captains: [] });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  const progress = within(workspace).getByRole('progressbar', {
+    name: 'Captain unlock progress',
+  });
+  const distribution = within(workspace).getByRole('region', {
+    name: 'Distribution',
+  });
+
+  expect(progress).toHaveAttribute('aria-valuemin', '0');
+  expect(progress).toHaveAttribute('aria-valuemax', '7500000');
+  expect(progress).toHaveAttribute('aria-valuenow', '3750000');
+  expect(progress).toHaveAttribute(
+    'aria-valuetext',
+    `${formatExpectedMoney(3_750_000)} of ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
+  );
+  expect(progress.closest('section')?.nextElementSibling).toBe(distribution);
+  expect(screen.getByRole('region', { name: 'Empire statistics' }))
+    .not.toHaveTextContent(/captain progress/i);
+});
+
+it('keeps fractional locked earnings below the Captain threshold', () => {
+  const runEarnings = CAPTAIN_VISIBLE_EARNINGS - 0.25;
+  const expectedProgressValue = Math.floor(runEarnings);
+  mockState({ runEarnings, captains: [] });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  const progress = within(workspace).getByRole('progressbar', {
+    name: 'Captain unlock progress',
+  });
+  const milestone = progress.closest('section') as HTMLElement;
+
+  expect(progress).toHaveAttribute('aria-valuenow', String(expectedProgressValue));
+  expect(progress).toHaveAttribute(
+    'aria-valuetext',
+    `${formatExpectedMoney(expectedProgressValue)} of ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
+  );
+  expect(within(milestone).getByText(
+    `${formatExpectedMoney(expectedProgressValue)} / ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
+  )).toBeInTheDocument();
+  expect(progress.firstElementChild).toHaveStyle({
+    width: `${(expectedProgressValue / CAPTAIN_VISIBLE_EARNINGS) * 100}%`,
+  });
+  expect(within(workspace).queryByRole('button', { name: /hire captain/i }))
+    .not.toBeInTheDocument();
+});
+
+it('shows the Hire Captain action above Distribution after unlock', async () => {
+  const user = userEvent.setup();
+  mockState({
+    cash: 10_000_000,
+    runEarnings: 7_500_000,
+    captains: [],
+  });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  expect(within(workspace).queryByRole('progressbar')).not.toBeInTheDocument();
+  const hireButton = within(workspace).getByRole('button', { name: /hire captain/i });
+  expect(hireButton.closest('section')?.nextElementSibling)
+    .toBe(within(workspace).getByRole('region', { name: 'Distribution' }));
+
+  await user.click(hireButton);
+  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+});
+
+it('shows the exact Captain price and disables hiring when unlocked but unaffordable', () => {
+  mockState({
+    cash: CAPTAIN_BASE_COST - 1,
+    runEarnings: CAPTAIN_VISIBLE_EARNINGS,
+    captains: [],
+    kingpins: 0,
+    discountLevel: 0,
+  });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  const hireButton = within(workspace).getByRole('button', {
+    name: `Hire Captain - ${formatExpectedMoney(CAPTAIN_BASE_COST)}`,
+  });
+
+  expect(hireButton).toBeDisabled();
+  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
+});
+
 it('renders Production as the default left tab and keeps Distribution visible', () => {
   render(<NeonDGame />);
 
@@ -350,11 +495,37 @@ it('allocates the left workspace panel row for local vertical scrolling', () => 
   expect(css).toMatch(/\.panel\s*\{[\s\S]*max-height:\s*none/);
 });
 
-it('constrains the Distribution panel for local vertical scrolling', () => {
+it('constrains the Distribution panel in its right workspace for local vertical scrolling', () => {
   const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
   const css = readFileSync(cssPath, 'utf8');
 
-  expect(css).toMatch(/\.leftWorkspace\s*>\s*\.panel,\s*\.gameplayGrid\s*>\s*\.panel\s*\{[\s\S]*height:\s*100%/);
+  expect(css).toMatch(/\.leftWorkspace\s*>\s*\.panel,\s*\.rightWorkspace\s*>\s*\.panel\s*\{[\s\S]*height:\s*100%/);
+});
+
+it('uses complete glass-border tokens for the redesigned dividers and progress track', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(/\.headerActions\s*\{[^}]*border-left:\s*var\(--glass-border\);/);
+  expect(css).toMatch(/\.captainProgressTrack\s*\{[^}]*border:\s*var\(--glass-border\);/);
+  expect(css).toMatch(/border-top:\s*var\(--glass-border\);/);
+});
+
+it('reflows redesigned controls before they can overflow at narrow widths', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(
+    /\.primaryMetricValue,\s*\.secondaryMetricValue,\s*\.cashMetricValue\s*\{[^}]*overflow-wrap:\s*anywhere;/,
+  );
+  expect(css).toMatch(/\.headerActions\s*\{[^}]*flex-wrap:\s*wrap;/);
+  expect(css).toMatch(
+    /@media \(max-width:\s*1200px\)\s*\{[\s\S]*?\.statsBar\s*\{[^}]*flex-wrap:\s*wrap;[\s\S]*?\.headerActions\s*\{[^}]*width:\s*100%;/,
+  );
+  expect(css).toMatch(
+    /@media \(max-width:\s*900px\)\s*\{[\s\S]*?\.captainMilestone:has\(>\s*\.captainMilestoneCopy\)\s*\{[^}]*grid-template-columns:\s*1fr;/,
+  );
+  expect(css).toMatch(/\.captainMilestone\s*>\s*button\s*\{[^}]*white-space:\s*normal;/);
 });
 
 it('does not render Research Speed', () => {

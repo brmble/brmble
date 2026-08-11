@@ -71,6 +71,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const respectPerSecond = getRespectPerSecond(state);
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
+  const captainProgressValue = Math.min(
+    CAPTAIN_VISIBLE_EARNINGS,
+    Math.max(0, Math.floor(state.runEarnings)),
+  );
+  const captainProgress = captainProgressValue / CAPTAIN_VISIBLE_EARNINGS;
   const renderNow = state.lastTickAt;
 
   const handleReset = async () => {
@@ -133,27 +138,27 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         </div>
 
         <div className={`glass-panel ${styles.statsBar}`}>
-          <div className={styles.money}>{formatPreciseMoney(state.cash)}</div>
-          <div className={styles.label}>Seller income/sec {formatPreciseMoney(sellerIncomePerSecond)}</div>
-          <div className={styles.label}>Respect {Math.floor(state.respect).toLocaleString()}</div>
-          <div className={styles.label}>Respect/sec {respectPerSecond.toFixed(2)}</div>
-          <div className={styles.label}>Captains {state.captains.length}</div>
-          <div className={styles.kingpinBadge}>Kingpins {state.kingpins}</div>
+          <section className={styles.statsGrid} aria-label="Empire statistics">
+            <div className={styles.metric} data-stat-priority="primary">
+              <span className={styles.metricLabel}>Seller income/sec</span>
+              <strong className={styles.primaryMetricValue}>
+                {formatPreciseMoney(sellerIncomePerSecond)}
+              </strong>
+            </div>
+            <div className={styles.metric} data-stat-priority="secondary">
+              <span className={styles.metricLabel}>Respect/sec</span>
+              <strong className={styles.secondaryMetricValue}>{respectPerSecond.toFixed(2)}</strong>
+            </div>
+            <div className={styles.metric} data-stat-priority="tertiary">
+              <span className={styles.metricLabel}>Cash</span>
+              <strong className={styles.cashMetricValue}>{formatPreciseMoney(state.cash)}</strong>
+            </div>
+            <div className={styles.prestigeMetrics} data-stat-priority="prestige">
+              <span><span className={styles.metricLabel}>Captains</span> <strong>{state.captains.length}</strong></span>
+              <span><span className={styles.metricLabel}>Kingpins</span> <strong>{state.kingpins}</strong></span>
+            </div>
+          </section>
           <div className={styles.headerActions}>
-            {captainVisible ? (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={buyCaptain}
-                disabled={state.cash < captainCost}
-              >
-                Hire Captain - {formatMoney(captainCost)}
-              </button>
-            ) : (
-              <span className={styles.label}>
-                Captain progress {formatMoney(state.runEarnings)} / {formatMoney(CAPTAIN_VISIBLE_EARNINGS)}
-              </span>
-            )}
             <button type="button" className="btn btn-primary" onClick={handleExport}>
               <Icon name="save" size={14} />
               Export
@@ -234,16 +239,57 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             />
           )}
         </div>
-        <DistributionPanel
-          state={state}
-          hireDealer={hireDealer}
-          fireDealer={fireDealer}
-          setSellerProduct={setSellerProduct}
-          buySellerEquipment={buySellerEquipment}
-          toggleDealerProtection={toggleDealerProtection}
-          payDealerBail={payDealerBail}
-          promoteCaptain={promoteCaptain}
-        />
+        <div className={styles.rightWorkspace} data-testid="distribution-workspace">
+          <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
+            {captainVisible ? (
+              <>
+                <div className={styles.captainMilestoneCopy}>
+                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain recruitment</span>
+                  <strong>Expand your command</strong>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={buyCaptain}
+                  disabled={state.cash < captainCost}
+                >
+                  Hire Captain - {formatMoney(captainCost)}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className={styles.captainMilestoneHeader}>
+                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain unlock</span>
+                  <strong>{formatMoney(captainProgressValue)} / {formatMoney(CAPTAIN_VISIBLE_EARNINGS)}</strong>
+                </div>
+                <div
+                  className={styles.captainProgressTrack}
+                  role="progressbar"
+                  aria-label="Captain unlock progress"
+                  aria-valuemin={0}
+                  aria-valuemax={CAPTAIN_VISIBLE_EARNINGS}
+                  aria-valuenow={captainProgressValue}
+                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(CAPTAIN_VISIBLE_EARNINGS)}`}
+                >
+                  <span
+                    className={styles.captainProgressFill}
+                    style={{ width: `${captainProgress * 100}%` }}
+                  />
+                </div>
+              </>
+            )}
+          </section>
+          <DistributionPanel
+            state={state}
+            hireDealer={hireDealer}
+            fireDealer={fireDealer}
+            setSellerProduct={setSellerProduct}
+            buySellerEquipment={buySellerEquipment}
+            toggleDealerProtection={toggleDealerProtection}
+            payDealerBail={payDealerBail}
+            promoteCaptain={promoteCaptain}
+          />
+        </div>
       </div>
 
       {state.offlineEarningsSummary && (
