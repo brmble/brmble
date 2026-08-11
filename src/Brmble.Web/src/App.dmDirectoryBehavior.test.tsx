@@ -384,6 +384,20 @@ describe('DM route Matrix isolation', () => {
     await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
   });
 
+  it('closes active paint after moving to the root voice channel', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.userJoined', {
+        session: 7, name: 'Me', self: true, channelId: 0,
+      });
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 0, name: 'Root',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
   it('closes active paint after Leave Voice is confirmed', async () => {
     await renderAppWithActivePaint();
     act(() => {
