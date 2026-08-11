@@ -15,6 +15,7 @@ import {
 import { getNormalDealerMainSaleRate } from './dealers';
 import { DealerRating } from './DealerRating';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
 
@@ -121,9 +122,19 @@ const CandidateCard = ({
 
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
+  const [collapsedDealerIds, setCollapsedDealerIds] = useState<Set<string>>(() => new Set());
 
   const toggleEquipment = (dealerId: string) => {
     setExpandedEquipmentIds((current) => {
+      const next = new Set(current);
+      if (next.has(dealerId)) next.delete(dealerId);
+      else next.add(dealerId);
+      return next;
+    });
+  };
+
+  const toggleDealerCard = (dealerId: string) => {
+    setCollapsedDealerIds((current) => {
       const next = new Set(current);
       if (next.has(dealerId)) next.delete(dealerId);
       else next.add(dealerId);
@@ -142,14 +153,52 @@ export function DistributionPanel(props: DistributionPanelProps) {
       <div className={styles.label}>Next candidates in {Math.ceil(refreshRemainingMs / 1000)}s</div>
 
       <div className={styles.cardStack}>
-        {props.state.activeDealers.map((dealer, slotIndex) => (
-          <article key={dealer?.id ?? `empty-${slotIndex}`} className={styles.distributionCard}>
+        {props.state.activeDealers.map((dealer, slotIndex) => {
+          const isCollapsed = dealer ? collapsedDealerIds.has(dealer.id) : false;
+          const bodyId = dealer ? `distribution-body-${dealer.id}` : undefined;
+
+          return (
+          <article
+            key={dealer?.id ?? `empty-${slotIndex}`}
+            className={styles.distributionCard}
+            aria-label={dealer ? `${dealer.name} distribution` : undefined}
+          >
             {dealer ? (
               <>
-                <div className={styles.dealerHeader}>
-                  {dealer.name} ({getProductDefinition(dealer.selling).name})
+                <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
+                  <span className={styles.dealerHeaderTitle}>
+                    {dealer.name} ({getProductDefinition(dealer.selling).name})
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.cardCollapseButton}
+                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dealer.name} distribution`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={bodyId}
+                    onClick={() => toggleDealerCard(dealer.id)}
+                  >
+                    <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+                  </button>
                 </div>
-                <div className={styles.dealerBody}>
+                {isCollapsed ? (
+                  <div id={bodyId} className={styles.collapsedDealerBody}>
+                    <ProductSelect
+                      value={dealer.selling}
+                      label={`Product for ${dealer.name}`}
+                      state={props.state}
+                      onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
+                    />
+                    <div className={styles.collapsedDealerSummary}>
+                      <span>Earnings</span>
+                      <strong>
+                        {dealer.isArrested
+                          ? '$0/s'
+                          : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                <div id={bodyId} className={styles.dealerBody}>
                   <div className={styles.metricRow}><span>Slot</span><strong>{slotIndex + 1}</strong></div>
                   <ProductSelect
                     value={dealer.selling}
@@ -212,6 +261,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     </>
                   )}
                 </div>
+                )}
               </>
             ) : (
               <div className={styles.dealerBody}>
@@ -227,7 +277,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
               </div>
             )}
           </article>
-        ))}
+          );
+        })}
 
         {props.state.captains.map((captain) => {
           const level = getCaptainLevel(captain.personalEarnings);

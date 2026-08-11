@@ -354,6 +354,33 @@
   text-align: right;
 }
 
+.cardHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.cardCollapseButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cardCollapseButton:hover,
+.cardCollapseButton:focus-visible {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
 .productionBody {
   padding: var(--space-sm);
 }
@@ -599,6 +626,32 @@
   text-align: center;
   font-weight: bold;
   font-size: var(--text-xs);
+}
+
+.collapsibleDealerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.dealerHeaderTitle {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.collapsedDealerBody {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.collapsedDealerSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
 @media (max-width: 900px) {
