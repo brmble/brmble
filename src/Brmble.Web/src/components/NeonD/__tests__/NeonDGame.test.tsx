@@ -279,13 +279,9 @@ it('switches the left panel between Production and Muscle while retaining Distri
   expect(screen.getByRole('heading', { name: /muscle \/ respect/i })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: /production/i })).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { name: 'Hood Rat' })).toBeInTheDocument();
-
-  const muscleHeader = screen.getByRole('heading', { name: 'Hood Rat' }).parentElement;
-
-  expect(muscleHeader?.className).toContain('muscleHeader');
-  expect(muscleHeader).toHaveTextContent('Hood Rat');
-  expect(muscleHeader).toHaveTextContent('Owned:');
+  const hoodRatRow = screen.getByRole('listitem', { name: 'Hood Rat' });
+  expect(hoodRatRow.className).toContain('muscleWorkerRow');
+  expect(hoodRatRow).toHaveTextContent('Owned 0');
 
   await user.click(screen.getByRole('tab', { name: 'Production' }));
 
@@ -293,6 +289,54 @@ it('switches the left panel between Production and Muscle while retaining Distri
   expect(screen.getByRole('heading', { name: /production/i })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: /muscle \/ respect/i })).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /distribution/i })).toBeInTheDocument();
+});
+
+it('keeps Muscle compact and reveals every later tier on request', async () => {
+  const user = userEvent.setup();
+  mockState({ cash: 100 });
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('tab', { name: 'Muscle' }));
+
+  const muscleList = screen.getByRole('list', { name: 'Muscle workers' });
+  expect(within(muscleList).getByRole('listitem', { name: 'Hood Rat' })).toBeInTheDocument();
+  expect(within(muscleList).getByRole('listitem', { name: 'Young Thug' })).toBeInTheDocument();
+  expect(within(muscleList).queryByRole('listitem', { name: 'Hired Goon' })).not.toBeInTheDocument();
+
+  const hoodRatRow = within(muscleList).getByRole('listitem', { name: 'Hood Rat' });
+  const youngThugRow = within(muscleList).getByRole('listitem', { name: 'Young Thug' });
+  await user.click(within(hoodRatRow).getByRole('button', { name: 'Buy one Hood Rat for $80' }));
+
+  expect(mockNeonD.buyMuscleWorkerMock).toHaveBeenCalledWith('hoodRat');
+  expect(
+    within(youngThugRow).getByRole('button', { name: /Buy one Young Thug for \$1[.,]000/ }),
+  ).toBeDisabled();
+
+  const revealButton = screen.getByRole('button', { name: 'Show all 8 later tiers' });
+  expect(revealButton).toHaveAttribute('aria-expanded', 'false');
+  expect(revealButton).toHaveAttribute('aria-controls', 'neond-muscle-workers');
+
+  await user.click(revealButton);
+
+  expect(screen.getByRole('button', { name: 'Hide later tiers' })).toHaveAttribute('aria-expanded', 'true');
+  expect(within(muscleList).getByRole('listitem', { name: 'Orbital Ion Cannon' })).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Hide later tiers' }));
+
+  expect(within(muscleList).queryByRole('listitem', { name: 'Orbital Ion Cannon' })).not.toBeInTheDocument();
+});
+
+it('uses compact Muscle rows and a two-column progression action grid', () => {
+  const cssPath = resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css');
+  const css = readFileSync(cssPath, 'utf8');
+
+  expect(css).toMatch(
+    /\.muscleActionGrid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  expect(css).toMatch(
+    /\.muscleWorkerRow\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+  );
+  expect(css).toMatch(/\.muscleBuyButton\s*\{[\s\S]*width:\s*auto/);
 });
 
 it('allocates the left workspace panel row for local vertical scrolling', () => {

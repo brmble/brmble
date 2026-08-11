@@ -181,39 +181,88 @@
   gap: var(--space-2xs);
 }
 
+.muscleActionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2xs);
+  margin-top: var(--space-xs);
+}
+
+.muscleWorkerList {
+  display: grid;
+  gap: var(--space-xs);
+}
+
 .muscleWorkerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs);
   background: var(--bg-surface);
   border: var(--border-width-thin) solid var(--glass-border);
   border-left: var(--space-2xs) solid var(--accent-primary);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-elevated);
-  overflow: hidden;
 }
 
-.muscleHeader {
+.muscleWorkerDetails {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2xs);
+}
+
+.muscleWorkerHeading,
+.muscleWorkerMetrics {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-sm);
-  background: var(--accent-primary);
-  color: var(--bg-deep);
-  padding: var(--space-2xs) var(--space-xs);
-  font-weight: 700;
+  gap: var(--space-xs);
 }
 
-.muscleHeader .productTitle {
-  color: inherit;
-}
-
-.muscleHeader span {
+.muscleWorkerHeading span,
+.muscleWorkerMetrics {
+  color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.muscleWorkerHeading span,
+.muscleWorkerMetrics strong {
   text-align: right;
 }
 
-.muscleBody {
-  display: grid;
-  gap: var(--space-2xs);
-  padding: var(--space-sm);
+.muscleWorkerMetrics strong {
+  color: var(--text-primary);
+}
+
+.muscleBuyButton {
+  width: auto;
+  white-space: nowrap;
+}
+
+.muscleRevealButton {
+  width: 100%;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.muscleRevealButton:hover,
+.muscleRevealButton:focus-visible {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.muscleRevealButton:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .bottleneckPositive {
@@ -571,5 +620,14 @@
   .leftWorkspace > .panel,
   .gameplayGrid > .panel {
     max-width: none;
+  }
+
+  .muscleActionGrid,
+  .muscleWorkerRow {
+    grid-template-columns: 1fr;
+  }
+
+  .muscleBuyButton {
+    width: 100%;
   }
 }
