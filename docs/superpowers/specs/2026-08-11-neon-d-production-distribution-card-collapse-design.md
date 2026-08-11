@@ -25,10 +25,11 @@ Reduce the vertical footprint of active Production and Distribution cards on dem
 
 - Every hired dealer card is independently collapsible, including arrested dealers.
 - The card border and colored header remain visible in the collapsed state.
-- The compact summary always displays the dealer name, the product currently being sold, and current Earnings.
+- The compact summary always displays the dealer name, an interactive product dropdown showing the product currently being sold, and current Earnings.
+- The collapsed product dropdown reuses the existing unlocked-product options and `setSellerProduct` flow, so the player can change a dealer's product without expanding the card.
 - A normal dealer's collapsed Earnings value remains the existing live per-second value.
 - An arrested dealer's collapsed Earnings value is `$0.00/s`.
-- Collapsing hides slot information, product selection, ratings, risk or protection status, side volume, protection controls, equipment, upgrade actions, bail actions, and fire actions.
+- Collapsing hides slot information, ratings, risk or protection status, side volume, protection controls, equipment, upgrade actions, bail actions, and fire actions. Product selection remains available.
 - Expanding restores the existing body unchanged.
 - Empty dealer slots, dealer candidate cards, and locked slots remain unchanged because they are not active Distribution cards.
 
@@ -56,6 +57,7 @@ Extend the focused `NeonDGame` UI tests to verify:
 - A collapsed Production card retains its border/header and product name while hiding its body details and actions.
 - A hired Distribution card can collapse and expand without changing another hired dealer card.
 - A collapsed Distribution card retains dealer name, current product, and live Earnings while hiding other details and controls.
+- The collapsed Distribution product dropdown remains interactive and invokes the existing seller-product callback with the dealer ID and selected product.
 - An arrested Distribution card retains dealer name, product, and `$0.00/s` while collapsed.
 - Toggle buttons have card-specific labels and correct `aria-expanded` state.
 - Empty slots, candidate cards, and locked slots retain their current behavior.
