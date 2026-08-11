@@ -39,7 +39,7 @@ describe('PaintSessionCard', () => {
     expect(screen.queryByRole('button', { name: /join/i })).toBeNull();
   });
 
-  it('joins an eligible session, refreshes summary, and does not open paint', async () => {
+  it('joins an eligible session and opens paint immediately', async () => {
     const onJoin = vi.fn().mockResolvedValue(undefined);
     const onOpen = vi.fn();
     const getSummary = vi.fn()
@@ -50,10 +50,22 @@ describe('PaintSessionCard', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Join paint' }));
 
-    await waitFor(() => expect(getSummary).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith('session-1'));
     expect(onJoin).toHaveBeenCalledWith('session-1');
+    expect(onJoin.mock.invocationCallOrder[0]).toBeLessThan(onOpen.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(getSummary).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not open paint when joining fails', async () => {
+    const onJoin = vi.fn().mockRejectedValue(new Error('Join denied'));
+    const onOpen = vi.fn();
+
+    render(<PaintSessionCard session={activeSession} getSummary={vi.fn().mockResolvedValue(summary())} onJoin={onJoin} onOpen={onOpen} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Join paint' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Join denied');
     expect(onOpen).not.toHaveBeenCalled();
-    expect(await screen.findByRole('button', { name: 'Open paint' })).toBeEnabled();
   });
 
   it('opens paint only from the participant action', async () => {

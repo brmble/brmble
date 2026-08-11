@@ -59,7 +59,8 @@ export function PaintSessionCard({
     setError(null);
     try {
       await onJoin(session.sessionId);
-      await refresh();
+      onOpen(session.sessionId);
+      void refresh().catch(() => {});
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to join paint.');
     } finally {

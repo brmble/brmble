@@ -125,11 +125,7 @@ describe('MessageBubble', () => {
     await user.click(await screen.findByRole('button', { name: 'Join paint' }));
 
     expect(onJoinPaint).toHaveBeenCalledWith('session-1');
-    expect(onOpenPaint).not.toHaveBeenCalled();
-
-    await user.click(await screen.findByRole('button', { name: 'Open paint' }));
-
-    expect(onOpenPaint).toHaveBeenCalledWith('session-1');
+    await waitFor(() => expect(onOpenPaint).toHaveBeenCalledWith('session-1'));
   });
 
   it('refreshes a paint invitation when the current user joins its voice channel', async () => {

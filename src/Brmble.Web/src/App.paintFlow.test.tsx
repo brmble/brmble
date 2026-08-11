@@ -436,7 +436,7 @@ describe('collaborative paint app flow', () => {
     expect(screen.getByText('Session has ended')).toBeInTheDocument();
   });
 
-  it('keeps chat mounted and requires join then open after reconnect', async () => {
+  it('keeps chat mounted and opens paint when joining after reconnect', async () => {
     const user = userEvent.setup();
     const matrixClient = fakeMatrixClient();
     paint.getSummary
@@ -470,12 +470,8 @@ describe('collaborative paint app flow', () => {
     await user.click(screen.getByRole('button', { name: 'Join paint' }));
 
     expect(paint.join).toHaveBeenCalledWith('session-1');
-    expect(screen.queryByLabelText('Collaborative paint')).toBeNull();
-    expect(composer).toHaveValue('draft survives');
-
-    await user.click(await screen.findByRole('button', { name: 'Open paint' }));
-
     expect(await screen.findByLabelText('Collaborative paint')).toBeInTheDocument();
+    expect(composer).toHaveValue('draft survives');
     expect(screen.getByPlaceholderText('Message #Paint')).toBe(composer);
     expect(composer).toHaveValue('draft survives');
 
