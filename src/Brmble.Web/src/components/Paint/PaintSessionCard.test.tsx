@@ -86,6 +86,37 @@ describe('PaintSessionCard', () => {
     expect(screen.queryByRole('button', { name: 'Join paint' })).toBeNull();
   });
 
+  it('rechecks an unavailable session after the local user joins its voice channel', async () => {
+    const getSummary = vi.fn()
+      .mockRejectedValueOnce(new Error('not in voice channel'))
+      .mockResolvedValueOnce(summary());
+
+    const { rerender } = render(
+      <PaintSessionCard
+        session={activeSession}
+        getSummary={getSummary}
+        onJoin={vi.fn()}
+        onOpen={vi.fn()}
+        currentVoiceChannelId={2}
+      />,
+    );
+
+    expect(await screen.findByText('Session is unavailable')).toBeInTheDocument();
+
+    rerender(
+      <PaintSessionCard
+        session={activeSession}
+        getSummary={getSummary}
+        onJoin={vi.fn()}
+        onOpen={vi.fn()}
+        currentVoiceChannelId={5}
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Join paint' })).toBeEnabled();
+    expect(getSummary).toHaveBeenCalledTimes(2);
+  });
+
   it('removes Join paint and shows unavailable copy for unavailable live status', async () => {
     const getSummary = vi.fn(() => new Promise<PaintSessionSummary>(() => {}));
 

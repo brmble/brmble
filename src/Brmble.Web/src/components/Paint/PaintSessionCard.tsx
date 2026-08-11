@@ -16,12 +16,14 @@ export function PaintSessionCard({
   onOpen,
   getSummary = paintApi.getSummary,
   liveStatus,
+  currentVoiceChannelId,
 }: {
   session: PaintInvitation;
   onJoin: (sessionId: string) => Promise<void> | void;
   onOpen: (sessionId: string) => void;
   getSummary?: (sessionId: string) => Promise<PaintSessionSummary>;
   liveStatus?: PaintSessionStatus;
+  currentVoiceChannelId?: number;
 }) {
   const [summary, setSummary] = useState<PaintSessionSummary | null>(null);
   const [status, setStatus] = useState<PaintSessionStatus | null>(null);
@@ -50,7 +52,7 @@ export function PaintSessionCard({
         setStatus('unavailable');
       });
     return () => { disposed = true; };
-  }, [getSummary, session.sessionId]);
+  }, [currentVoiceChannelId, getSummary, session.sessionId]);
 
   const handleJoin = async () => {
     setJoining(true);
