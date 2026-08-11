@@ -4,7 +4,7 @@
 
 **Goal:** Add independent, expanded-by-default collapse controls to Neon-D Production and hired-dealer Distribution cards.
 
-**Architecture:** `ProductionPanel` owns a local set of collapsed product IDs and `DistributionPanel` owns a local set of collapsed dealer IDs. Existing card headers become accessible disclosure headers; expanded bodies remain unchanged, while collapsed dealer cards render the required earnings summary.
+**Architecture:** `ProductionPanel` owns a local set of collapsed product IDs and `DistributionPanel` owns a local set of collapsed dealer IDs. Existing card headers become accessible disclosure headers; expanded bodies remain unchanged, while collapsed dealer cards render the existing `ProductSelect` and the required earnings summary.
 
 **Tech Stack:** React 19, TypeScript 5.9, CSS Modules, Vitest 4, Testing Library, Vite 7.
 
@@ -13,7 +13,7 @@
 - Collapse state is local and non-persisted; cards start expanded on mount.
 - Each product and dealer card toggles independently by stable ID.
 - Collapsed Production shows the card border/header and product name.
-- Collapsed hired Distribution shows the card border/header, dealer name, selected product, and Earnings.
+- Collapsed hired Distribution shows the card border/header, dealer name, interactive product selection, and Earnings.
 - Arrested dealer Earnings are `$0/s`.
 - Empty slots, candidates, and captain cards are unchanged.
 - Preserve all economy calculations, callbacks, disabled conditions, and save structures.
@@ -71,3 +71,21 @@
 - [ ] Run `npm.cmd run lint`; require no new errors in scoped files and record unrelated baseline failures if any.
 - [ ] Run `npm.cmd run build` and require a successful Vite bundle.
 - [ ] Review the scoped diff and confirm there are no engine, economy, save, candidate, captain, or unrelated changes.
+
+### Task 4: Keep product selection available while collapsed
+
+**Files:**
+- Test: `src/Brmble.Web/src/components/NeonD/__tests__/NeonDGame.test.tsx`
+- Modify: `src/Brmble.Web/src/components/NeonD/DistributionPanel.tsx`
+
+**Interfaces:**
+- Consumes: the existing `ProductSelect`, `props.state.unlockedProducts`, and `props.setSellerProduct(sellerId, productId, 'dealer')` callback.
+- Produces: an interactive collapsed-state combobox labelled `Product for <dealer name>` above the compact Earnings row.
+
+- [ ] Extend the hired Distribution collapse test to require the dealer's Product combobox after collapse. Open it, choose `Magic Mushrooms`, and assert `setSellerProduct` receives `('dealer-ui', 'mushrooms', 'dealer')`.
+- [ ] Extend the arrested compact-summary test to require its Product combobox after collapse.
+- [ ] Run `npm.cmd run test -- src/components/NeonD/__tests__/NeonDGame.test.tsx` and confirm the new assertions fail because the collapsed summary currently renders Earnings only.
+- [ ] Render a compact `.collapsedDealerBody` when collapsed. Reuse `ProductSelect` with the same value, state, accessible label, and dealer callback as the expanded body, followed by the existing `.collapsedDealerSummary` Earnings row.
+- [ ] Run the focused Neon-D UI test and require all tests to pass.
+- [ ] Run the complete Neon-D suite, type-check, scoped lint for the changed files, and the production build.
+- [ ] Commit the follow-up as `feat: keep collapsed dealer product selectable`.
