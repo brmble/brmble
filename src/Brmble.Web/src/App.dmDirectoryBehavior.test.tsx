@@ -374,9 +374,6 @@ describe('DM route Matrix isolation', () => {
     await renderAppWithActivePaint();
     act(() => {
       const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
-      emitter.__emit('voice.userJoined', {
-        session: 7, name: 'Me', self: true, channelId: 2,
-      });
       emitter.__emit('voice.channelChanged', {
         previousChannelId: 1, channelId: 2, name: 'Gaming',
       });
@@ -388,9 +385,6 @@ describe('DM route Matrix isolation', () => {
     await renderAppWithActivePaint();
     act(() => {
       const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
-      emitter.__emit('voice.userJoined', {
-        session: 7, name: 'Me', self: true, channelId: 0,
-      });
       emitter.__emit('voice.channelChanged', {
         previousChannelId: 1, channelId: 0, name: 'Root',
       });

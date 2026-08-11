@@ -2656,6 +2656,15 @@ function App() {
       clearPendingJoinAttempt();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
+        if (
+          activePaintSessionIdRef.current !== null
+          && activePaintChannelIdRef.current !== d.channelId
+        ) {
+          activePaintSessionIdRef.current = null;
+          activePaintChannelIdRef.current = null;
+          setActivePaintSessionId(null);
+        }
+
         const computedWasSharing = shouldTreatMoveAsSharingRelated({
           isSharing: isSharingRef.current || wasLocalShareRecentlyActiveRef.current,
           isLocalShareStartPending: isLocalShareStartPendingRef.current,
