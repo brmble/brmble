@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   AUTO_BULK_RETAIN_STOCK,
   AUTO_BULK_TRIGGER_STOCK,
@@ -14,6 +15,7 @@ import {
 } from './economy';
 import { getProductSalesRates } from './simulation';
 import type { GameState, ProductId } from './types';
+import { Icon } from '../Icon/Icon';
 import styles from './NeonD.module.css';
 
 type ProductionPanelProps = {
@@ -29,9 +31,19 @@ type ProductionPanelProps = {
 const formatMoney = (value: number) => `$${Math.round(value).toLocaleString()}`;
 
 export function ProductionPanel(props: ProductionPanelProps) {
+  const [collapsedProductIds, setCollapsedProductIds] = useState<Set<ProductId>>(() => new Set());
   const visibleIds = getVisibleProductIds(props.state);
   const salesRates = getProductSalesRates(props.state);
   const renderNow = props.state.lastTickAt;
+
+  const toggleProductCard = (productId: ProductId) => {
+    setCollapsedProductIds((current) => {
+      const next = new Set(current);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  };
 
   return (
     <section className={styles.panel} aria-labelledby="neond-production-heading">
@@ -71,15 +83,32 @@ export function ProductionPanel(props: ProductionPanelProps) {
           const hasMarketSpike =
             props.state.activeMarketEvent?.productId === productId &&
             props.state.activeMarketEvent.endsAt > renderNow;
+          const isCollapsed = collapsedProductIds.has(productId);
+          const bodyId = `production-body-${productId}`;
 
           return (
             <article key={productId} className={styles.productionCard} aria-label={definition.name}>
               <div className={styles.productionHeader}>
                 <h4 className={styles.productTitle}>{definition.name}</h4>
-                <span className={styles.price}>Street {formatMoney(effectiveStreetValue)}/g</span>
+                <div className={styles.cardHeaderActions}>
+                  <span className={styles.price}>Street {formatMoney(effectiveStreetValue)}/g</span>
+                  <button
+                    type="button"
+                    className={styles.cardCollapseButton}
+                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${definition.name} production`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={bodyId}
+                    onClick={() => toggleProductCard(productId)}
+                  >
+                    <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+                  </button>
+                </div>
               </div>
 
-              <div className={styles.productionBody}>
+              {isCollapsed ? (
+                <div id={bodyId} hidden />
+              ) : (
+              <div id={bodyId} className={styles.productionBody}>
                 {unlocked ? (
                 <>
                   <div className={styles.productionMetrics}>
@@ -162,6 +191,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
                 </button>
                 )}
               </div>
+              )}
             </article>
           );
         })}
