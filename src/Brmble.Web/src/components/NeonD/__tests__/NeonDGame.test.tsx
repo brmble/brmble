@@ -152,6 +152,7 @@ const mockState = (overrides: Partial<GameState>) => {
 };
 
 beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   mockNeonD.setState(createState());
   mockNeonD.resetMocks();
   confirmMock.mockReset();
@@ -380,7 +381,7 @@ it('starts Production cards expanded and collapses them independently', async ()
   expect(document.getElementById(expandWeed.getAttribute('aria-controls') ?? '')).toBeInTheDocument();
   expect(within(weedCard).getByText('Weed')).toBeInTheDocument();
   expect(within(weedCard).queryByText('Stock')).not.toBeInTheDocument();
-  expect(within(weedCard).queryByRole('button', { name: /buy 5 cannabis plants/i })).not.toBeInTheDocument();
+  expect(within(weedCard).queryByRole('button', { name: /buy one cannabis plant/i })).not.toBeInTheDocument();
   expect(within(mushroomCard).getByRole('button', { name: 'Collapse Magic Mushrooms production' })).toHaveAttribute(
     'aria-expanded',
     'true',
@@ -390,7 +391,7 @@ it('starts Production cards expanded and collapses them independently', async ()
   await user.click(within(weedCard).getByRole('button', { name: 'Expand Weed production' }));
 
   expect(within(weedCard).getByText('Stock')).toBeInTheDocument();
-  expect(within(weedCard).getByRole('button', { name: /buy 5 cannabis plants/i })).toBeInTheDocument();
+  expect(within(weedCard).getByRole('button', { name: /buy one cannabis plant/i })).toBeInTheDocument();
 });
 
 it('keeps a locked Production product name visible while hiding its Research action', async () => {
@@ -433,6 +434,7 @@ it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment
 it('starts hired Distribution cards expanded and collapses them independently', async () => {
   const user = userEvent.setup();
   mockState({
+    unlockedProducts: ['weed', 'mushrooms'],
     activeDealers: [
       makeReferenceDealer({ id: 'dealer-ui', name: 'Test Dealer', isProtected: true }),
       makeReferenceDealer({ id: 'dealer-two', name: 'Second Dealer', isProtected: false }),
@@ -462,7 +464,10 @@ it('starts hired Distribution cards expanded and collapses them independently', 
   expect(within(firstCard).getByText('$9/s')).toBeInTheDocument();
   const expandFirst = within(firstCard).getByRole('button', { name: 'Expand Test Dealer distribution' });
   expect(document.getElementById(expandFirst.getAttribute('aria-controls') ?? '')).toBeInTheDocument();
-  expect(within(firstCard).queryByRole('combobox', { name: 'Product for Test Dealer' })).not.toBeInTheDocument();
+  const compactProductSelect = within(firstCard).getByRole('combobox', { name: 'Product for Test Dealer' });
+  await user.click(compactProductSelect);
+  await user.click(screen.getByRole('option', { name: 'Magic Mushrooms' }));
+  expect(mockNeonD.setSellerProductMock).toHaveBeenCalledWith('dealer-ui', 'mushrooms', 'dealer');
   expect(within(firstCard).queryByRole('img', { name: /volume/i })).not.toBeInTheDocument();
   expect(within(firstCard).queryByRole('button', { name: /protection/i })).not.toBeInTheDocument();
   expect(within(firstCard).queryByRole('button', { name: /equipment/i })).not.toBeInTheDocument();
@@ -650,6 +655,7 @@ it('shows bail and fire actions for arrested dealers and keeps their compact sum
   expect(within(arrestedCard).getByText('Arrested Dealer (Weed)')).toBeInTheDocument();
   expect(within(arrestedCard).getByText('Earnings')).toBeInTheDocument();
   expect(within(arrestedCard).getByText('$0/s')).toBeInTheDocument();
+  expect(within(arrestedCard).getByRole('combobox', { name: 'Product for Arrested Dealer' })).toBeInTheDocument();
   expect(within(arrestedCard).queryByText('Status')).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /pay bail/i })).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /fire dealer/i })).not.toBeInTheDocument();

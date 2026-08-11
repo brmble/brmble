@@ -181,13 +181,21 @@ export function DistributionPanel(props: DistributionPanelProps) {
                   </button>
                 </div>
                 {isCollapsed ? (
-                  <div id={bodyId} className={styles.collapsedDealerSummary}>
-                    <span>Earnings</span>
-                    <strong>
-                      {dealer.isArrested
-                        ? '$0/s'
-                        : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}
-                    </strong>
+                  <div id={bodyId} className={styles.collapsedDealerBody}>
+                    <ProductSelect
+                      value={dealer.selling}
+                      label={`Product for ${dealer.name}`}
+                      state={props.state}
+                      onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
+                    />
+                    <div className={styles.collapsedDealerSummary}>
+                      <span>Earnings</span>
+                      <strong>
+                        {dealer.isArrested
+                          ? '$0/s'
+                          : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}
+                      </strong>
+                    </div>
                   </div>
                 ) : (
                 <div id={bodyId} className={styles.dealerBody}>

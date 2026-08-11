@@ -592,12 +592,17 @@
   text-align: center;
 }
 
+.collapsedDealerBody {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
 .collapsedDealerSummary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: 8px 12px;
 }
 
 @media (max-width: 900px) {
