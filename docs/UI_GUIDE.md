@@ -49,7 +49,7 @@ All visual properties must come from CSS custom properties. Two layers exist:
 |---|---|---|
 | Spacing | `--space-2xs` through `--space-3xl` | 4px - 64px (8 tokens) |
 | Font sizes | `--text-2xs` through `--text-4xl` | 10px - 40px (9 tokens) |
-| Layout | `--sidebar-width`, `--header-height` | 280px, 60px (2 tokens) |
+| Layout | `--sidebar-width`, `--header-height`, component layout tokens | Shared layout dimensions and component-specific widths |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
 | Continuous animations | `--animation-blink` through `--animation-heartbeat` | 0.5s - 4s (9 tokens) |

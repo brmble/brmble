@@ -17,8 +17,7 @@
   flex-shrink: 0;
 }
 
-.headerTop,
-.sectionHeader {
+.headerTop {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -34,51 +33,509 @@
 
 .statsBar {
   display: flex;
+  align-items: stretch;
   gap: var(--space-lg);
-  align-items: center;
-  padding: var(--space-xs) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
 }
 
-.money {
-  font-size: var(--text-lg);
-  font-weight: bold;
-  color: var(--accent-success);
-}
-
-.gridLayout {
+.statsGrid {
   display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: var(--space-xl);
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: var(--space-lg);
+  flex: 1;
+  min-width: 0;
+}
+
+.metric {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.metricLabel {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-style: italic;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.primaryMetricValue {
+  color: var(--accent-success);
+  font-size: var(--text-2xl);
+}
+
+.secondaryMetricValue {
+  color: var(--accent-primary);
+  font-size: var(--text-xl);
+}
+
+.cashMetricValue {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.primaryMetricValue,
+.secondaryMetricValue,
+.cashMetricValue {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prestigeMetrics {
+  display: flex;
+  gap: var(--space-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.prestigeMetrics > span {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.headerActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-left: auto;
+  padding-left: var(--space-lg);
+  border-left: var(--glass-border);
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.importError {
+  color: var(--accent-danger);
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  text-align: right;
+}
+
+.gameplayGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--neond-grid-gap);
+  align-items: start;
   flex: 1;
   min-height: 0;
+  width: 100%;
+  max-width: var(--neond-grid-max-width);
+  margin: 0 auto;
   overflow: hidden;
 }
 
-.gridLayout > section {
+.leftWorkspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md);
+  align-content: start;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.rightWorkspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.leftWorkspace > .panel,
+.rightWorkspace > .panel {
+  width: 100%;
+  max-width: var(--neond-panel-max-width);
+  height: 100%;
+  justify-self: center;
+}
+
+.captainMilestone {
+  display: grid;
+  gap: var(--space-xs);
+  width: 100%;
+  max-width: var(--neond-panel-max-width);
+  justify-self: center;
+  padding: var(--space-sm);
+  border-left: var(--space-2xs) solid var(--accent-primary);
+}
+
+.captainMilestone:has(> .captainMilestoneCopy) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.captainMilestoneHeader,
+.captainMilestoneCopy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.captainMilestoneCopy {
+  display: grid;
+  justify-content: start;
+  gap: var(--space-2xs);
+}
+
+.captainProgressTrack {
+  height: var(--space-xs);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+}
+
+.captainProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-primary-glow);
+}
+
+.panelTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  max-width: var(--neond-tabs-max-width);
+  margin: 0 auto;
+  padding: var(--space-2xs);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.panelTab {
+  min-height: var(--neond-control-min-height);
+  border: var(--border-width-thin) solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panelTab[aria-selected='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
+  box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
+}
+
+.panelTab:hover,
+.panelTab:focus-visible {
+  color: var(--text-primary);
+}
+
+.panelTab:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-xs);
+  align-content: start;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
-  min-height: 0;
+}
+
+.cardStack {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.panelHeader,
+.metricRow,
+.prestigeSummary,
+.offlineSummaryGrid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.metricRow {
+  margin-bottom: var(--space-2xs);
+}
+
+.equipmentList {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.equipmentOwned {
+  opacity: 0.65;
+}
+
+.captainCard,
+.marketBanner {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.muscleActionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2xs);
+  margin-top: var(--space-xs);
+}
+
+.muscleWorkerList {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.muscleWorkerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs);
+  background: var(--bg-surface);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-primary);
+  border-radius: var(--radius-md);
+}
+
+.muscleWorkerDetails {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2xs);
+}
+
+.muscleWorkerHeading,
+.muscleWorkerMetrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.muscleWorkerHeading span,
+.muscleWorkerMetrics {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.muscleWorkerHeading span,
+.muscleWorkerMetrics strong {
+  text-align: right;
+}
+
+.muscleWorkerMetrics strong {
+  color: var(--text-primary);
+}
+
+.muscleBuyButton {
+  width: auto;
+  white-space: nowrap;
+}
+
+.muscleRevealButton {
+  width: 100%;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.muscleRevealButton:hover,
+.muscleRevealButton:focus-visible {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.muscleRevealButton:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
+}
+
+.bottleneckPositive {
+  font-weight: 700;
+  color: var(--accent-success);
+}
+
+.bottleneckNegative {
+  font-weight: 700;
+  color: var(--accent-secondary);
+}
+
+.kingpinBadge {
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--text-xs);
+}
+
+.toggleButtonText {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: var(--border-width-thin) solid var(--glass-border);
+  background: var(--bg-hover-light);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.toggleButtonText[aria-pressed='true'] {
+  border-color: var(--accent-success);
+  color: var(--accent-success);
 }
 
 .productionCard {
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
-  border-left: 4px solid var(--accent-success);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-success);
   border-radius: var(--radius-md);
-  padding: var(--space-lg);
   box-shadow: var(--shadow-elevated);
+  overflow: hidden;
   transition: all var(--transition-normal);
-  margin-bottom: var(--space-md);
+  margin-bottom: 0;
 }
 
 .productionCard:hover {
-  transform: translateY(-5px);
+  transform: translateY(calc(-1 * var(--space-2xs)));
   border-color: var(--accent-success);
   box-shadow: 0 0 var(--glow-lg) var(--accent-success-glow);
 }
 
 .distributionCard {
-  border-left: 4px solid var(--accent-secondary);
+  background: var(--bg-surface);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.productionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  background: var(--accent-success);
+  color: var(--bg-deep);
+  padding: var(--space-2xs) var(--space-xs);
+  font-weight: 700;
+}
+
+.productionHeader .productTitle,
+.productionHeader .price {
+  color: inherit;
+}
+
+.productionHeader .price {
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.cardHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.cardCollapseButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cardCollapseButton:hover,
+.cardCollapseButton:focus-visible {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.productionBody {
+  padding: var(--space-sm);
+}
+
+.productionMetrics {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.productionFlow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.productionSide {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2xs);
+}
+
+.productionSideSales {
+  justify-content: flex-end;
+}
+
+.productionUpIndicator,
+.productionDownIndicator {
+  width: 0;
+  height: 0;
+  border-left: var(--neond-arrow-width) solid transparent;
+  border-right: var(--neond-arrow-width) solid transparent;
+}
+
+.productionUpIndicator {
+  border-bottom: var(--neond-arrow-height) solid var(--accent-success);
+}
+
+.productionDownIndicator {
+  border-top: var(--neond-arrow-height) solid var(--accent-danger);
+}
+
+.productionDelta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .columnHeader {
@@ -94,17 +551,6 @@
   color: var(--accent-secondary);
 }
 
-.productionColumnHeader {
-  composes: columnHeader;
-}
-
-.statRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-xs);
-}
-
 .label {
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -115,53 +561,6 @@
 .price {
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-
-.productionRate {
-  color: var(--accent-success);
-  font-size: var(--text-xs);
-}
-
-.salesRate {
-  color: var(--accent-secondary);
-  font-size: var(--text-xs);
-}
-
-.flowIndicator {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2xs);
-  font-size: var(--text-2xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.flowUp {
-  color: var(--accent-success);
-}
-
-.flowDown {
-  color: var(--accent-secondary);
-}
-
-.flowArrow {
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-}
-
-.ratingButton {
-  cursor: help;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-}
-
-.ratingValue {
-  color: var(--accent-secondary);
 }
 
 .closeButton {
@@ -185,20 +584,6 @@
   margin-bottom: var(--space-sm);
 }
 
-.bonusText {
-  color: var(--accent-primary);
-  font-size: var(--text-sm);
-}
-
-.equipmentSlots {
-  color: var(--accent-primary);
-  font-size: var(--text-lg);
-}
-
-.equipmentSlotEmpty {
-  opacity: 0.3;
-}
-
 .equipmentModalOverlay {
   position: fixed;
   inset: 0;
@@ -209,182 +594,64 @@
   z-index: 1000;
 }
 
-.equipmentModal {
-  padding: var(--space-xl);
-  max-width: 500px;
-}
-
 .offlineSummaryModal {
   padding: var(--space-xl);
-  max-width: 420px;
+  max-width: var(--neond-modal-max-width);
   display: grid;
   gap: var(--space-md);
 }
 
-.offlineSummaryText {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.equipmentOptions {
-  display: grid;
-  gap: var(--space-xs);
-  margin-top: var(--space-lg);
-}
-
-.sideHustleOption {
-  border: 2px solid var(--accent-secondary);
-  box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
-}
-
-.equipmentOptionLabel {
-  font-weight: bold;
-}
-
-.equipmentOptionDescription {
-  font-size: var(--text-2xs);
-  opacity: 0.8;
-}
-
-.flowArrowUp {
-  border-bottom: 8px solid var(--accent-success);
-}
-
-.flowArrowDown {
-  border-top: 8px solid var(--accent-secondary);
-}
-
-.upgradeButton {
-  flex: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-weight: 600;
-  transition: all var(--transition-fast);
-}
-
-.resetButton {
-  margin-left: auto;
-  flex: 0;
-  background-color: var(--accent-secondary);
-  color: var(--text-primary);
-}
-
-.stockValue,
-.sideVolumeValue {
-  color: var(--accent-success);
-}
-
-.spacedRow {
-  margin-bottom: var(--space-sm);
-}
-
-.buttonSpacing {
-  margin-top: var(--space-sm);
-}
-
-.refreshButton {
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: var(--accent-primary);
-}
-
-.refreshButton:disabled {
-  cursor: not-allowed;
-  color: var(--text-muted);
-}
-
-.slotCard {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
-}
-
-.slotCardLocked {
-  opacity: 0.6;
-}
-
-.slotCardCompact {
-  margin-bottom: var(--space-md);
-  padding: var(--space-sm);
-}
-
-.fullWidthButton {
-  width: 100%;
-  margin-top: var(--space-sm);
-}
-
 .dealerCard {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
+  margin-bottom: var(--space-xs);
+  padding: var(--space-xs);
 }
 
-.primaryHireButton {
-  background: var(--accent-primary);
-  margin-top: var(--space-sm);
+.equipmentToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-2xs) 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
 }
 
-.distributionPanel {
-  padding: 0;
-  overflow: hidden;
-  margin-bottom: var(--space-md);
+.equipmentToggle:hover,
+.equipmentToggle:focus-visible {
+  color: var(--text-primary);
+}
+
+.equipmentToggle:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .dealerBody {
-  padding: var(--space-md);
+  padding: var(--space-xs);
 }
 
 .actionStack {
   display: grid;
-  gap: var(--space-xs);
-  margin-top: var(--space-md);
-}
-
-.dangerText {
-  color: var(--accent-secondary);
-}
-
-.successText {
-  color: var(--accent-success);
-}
-
-.incomeRow {
+  gap: var(--space-2xs);
   margin-top: var(--space-xs);
-  border-top: 1px solid var(--glass-border);
-  padding-top: var(--space-xs);
-}
-
-.boldValue {
-  font-weight: 700;
-}
-
-.equipmentRow {
-  margin-top: var(--space-md);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--glass-border);
-}
-
-.upgradeButton:active {
-  transform: scale(0.95);
 }
 
 .buyButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   border: none;
   background: var(--accent-success);
   color: var(--bg-deep);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   box-shadow: 0 0 var(--glow-md) var(--accent-success-glow);
@@ -392,7 +659,7 @@
 }
 
 .buyButton:hover:not(:disabled) {
-  transform: translateY(-2px);
+  transform: translateY(calc(-1 * var(--space-2xs)));
   box-shadow: 0 0 var(--glow-lg) var(--accent-success-glow);
 }
 
@@ -408,14 +675,14 @@
 
 .unlockButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
-  border: 2px solid var(--accent-primary);
+  border: var(--border-width-strong) solid var(--accent-primary);
   background: transparent;
   color: var(--accent-primary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -434,14 +701,14 @@
 
 .dangerButton {
   width: 100%;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
-  border: 2px solid var(--accent-secondary);
+  border: var(--border-width-strong) solid var(--accent-secondary);
   background: transparent;
   color: var(--accent-secondary);
   cursor: pointer;
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   transition: all var(--transition-fast);
@@ -453,97 +720,117 @@
   box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
 }
 
-.level {
-  background: var(--bg-hover-light);
-  padding: var(--space-2xs) var(--space-xs);
-  border-radius: var(--radius-xs);
-}
-
-.upgradeCost {
-  color: var(--accent-success);
-}
-
 .select {
   background: var(--bg-deep);
   color: var(--text-primary);
-  border: 1px solid var(--glass-border);
+  border: var(--border-width-thin) solid var(--glass-border);
   border-radius: var(--radius-xs);
   padding: var(--space-2xs) var(--space-xs);
 }
 
 .dealerHeader {
   background: var(--accent-secondary);
-  padding: var(--space-xs);
+  padding: var(--space-2xs) var(--space-xs);
   text-align: center;
   font-weight: bold;
+  font-size: var(--text-xs);
 }
 
-.toggleRow {
+.collapsibleDealerHeader {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
   gap: var(--space-sm);
-  margin-top: var(--space-sm);
 }
 
-.toggleLabel {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
+.dealerHeaderTitle {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
 }
 
-.toggleHint {
-  font-size: var(--text-2xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+.collapsedDealerBody {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
 }
 
-.toggleButton {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  display: inline-flex;
+.collapsedDealerSummary {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
-.toggleTrack {
-  width: 34px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--bg-hover-light);
-  border: 1px solid var(--glass-border);
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+@media (max-width: 1200px) {
+  .statsBar {
+    flex-wrap: wrap;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: var(--space-sm);
+    padding-left: 0;
+    border-top: var(--glass-border);
+    border-left: 0;
+  }
 }
 
-.toggleTrack[data-active='true'] {
-  background: var(--accent-success-subtle);
-  border-color: var(--accent-success-border);
-}
+@media (max-width: 900px) {
 
-.toggleThumb {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: transform var(--transition-fast), background var(--transition-fast);
-}
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
 
-.toggleThumb[data-active='true'] {
-  transform: translateX(16px);
-  background: var(--accent-success);
-}
+  .prestigeMetrics {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
 
-.toggleButton:hover .toggleTrack {
-  border-color: var(--accent-success);
-}
+  .captainMilestone:has(> .captainMilestoneCopy) {
+    grid-template-columns: 1fr;
+  }
 
-.toggleButton:focus-visible {
-  outline: 2px solid var(--accent-success);
-  outline-offset: 4px;
-  border-radius: 999px;
+  .captainMilestone > button {
+    width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .gameplayGrid {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .leftWorkspace {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .rightWorkspace {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .panel {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .leftWorkspace > .panel,
+  .rightWorkspace > .panel,
+  .captainMilestone {
+    max-width: none;
+  }
+
+  .muscleActionGrid,
+  .muscleWorkerRow {
+    grid-template-columns: 1fr;
+  }
+
+  .muscleBuyButton {
+    width: 100%;
+  }
 }

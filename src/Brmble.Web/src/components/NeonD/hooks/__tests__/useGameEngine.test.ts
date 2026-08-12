@@ -1,811 +1,558 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { createElement, StrictMode, type PropsWithChildren } from 'react';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
+import {
+  getCaptainCost,
+  getProducerCost,
+  getProductProductionRate,
+  getRecruitmentRefreshMs,
+  getRespectMultiplier,
+} from '../../economy';
+import type { Captain, GameState } from '../../types';
+import { makeReferenceDealer } from '../../__tests__/testFixtures';
+import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
-import type { Dealer } from '../../types';
-type GameEngineState = ReturnType<typeof useGameEngine>;
 
-const makeDealer = (overrides: Partial<Dealer> = {}): Dealer => ({
-  id: 'test-dealer',
-  name: 'Test',
-  selling: 'weed',
-  volume: 10,
-  margin: 1,
-  volumeBonus: 0,
-  marginBonus: 0,
-  sideVolume: 0.10,
-  equipmentCount: 0,
-  baseVolumeGps: 10,
-  baseMarginMult: 1,
-  volumeStars: 3,
-  marginStars: 3,
-  isProtected: false,
-  isArrested: false,
-  nextArrestCheckAt: Date.now() + 300000,
-  hasPendingUpgrade: false,
-  pendingUpgradeOptions: [],
-  ...overrides,
-});
-
-/**
- * Set up a game with enough money for at least one equipment upgrade ($500).
- * Uses a high-margin dealer (margin=100) + 50 ticks of production to earn ~$500.
- * Initial money: $250 - $50 (unlock weed) - $17 (upgrade weed) = $183
- * Earnings: 50 ticks * 0.1g * $100/g = $500 → total ~$683
- */
-const setupWithMoney = () => {
-  const hook = renderHook(() => useGameEngine());
-  act(() => {
-    hook.result.current.upgrade('weed');
-    hook.result.current.hireDealer(makeDealer({ margin: 100 }), 0);
-  });
-  act(() => { vi.advanceTimersByTime(50000); });
-  return hook;
-};
-
-const mockDealerUpgradeRolls = (values: number[]) => {
-  const sequence = [...values];
-  return vi.spyOn(Math, 'random').mockImplementation(() => {
-    const next = sequence.shift();
-    if (next === undefined) {
-      throw new Error('Unexpected Math.random call while generating dealer upgrades');
-    }
-    return next;
-  });
-};
-
-const startPendingDealerUpgrade = (
-  result: { current: GameEngineState },
-  rolls: number[],
-  dealerId = 'test-dealer'
-) => {
-  const randomSpy = mockDealerUpgradeRolls(rolls);
-  act(() => {
-    result.current.startDealerUpgrade(dealerId);
-  });
-  randomSpy.mockRestore();
-  return result.current.state.activeDealers[0];
+const renderSeededGame = (overrides: Partial<GameState>) => {
+  const now = Date.now();
+  const state: GameState = {
+    ...createBaseGameState(now),
+    ...overrides,
+    lastTickAt: overrides.lastTickAt ?? now,
+  };
+  localStorage.setItem(NEON_D_SAVE_KEY, JSON.stringify(state));
+  return renderHook(() => useGameEngine());
 };
 
 describe('useGameEngine', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(1_000);
     localStorage.clear();
   });
 
   afterEach(() => {
     localStorage.clear();
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
-  it('newly hired dealers start unprotected, unarrested, and with a scheduled risk check', () => {
+  it('starts with $100, Weed only, zero producers, and the first producer priced at $15', () => {
     const { result } = renderHook(() => useGameEngine());
-
-    act(() => {
-      result.current.hireDealer(makeDealer({ id: 'dealer-state' }), 0);
-    });
-
-    const dealer = result.current.state.activeDealers[0];
-    expect(dealer?.isProtected).toBe(false);
-    expect(dealer?.isArrested).toBe(false);
-    expect(typeof dealer?.nextArrestCheckAt).toBe('number');
-    expect((dealer?.nextArrestCheckAt ?? 0)).toBeGreaterThan(Date.now());
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.production.weed.producersOwned).toBe(0);
+    expect(getProducerCost('weed', 0, result.current.state.discountLevel)).toBe(15);
   });
 
-  it('resetGame stamps a fresh lastTickAt so a new run does not trigger fake offline catch-up', () => {
+  it('completes the fresh-run Production -> Distribution and Cash -> Muscle -> Respect loops', () => {
     const { result } = renderHook(() => useGameEngine());
 
-    act(() => {
-      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
-      result.current.resetGame();
-    });
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.activeDealers).toEqual([null]);
+    expect(result.current.state.respect).toBe(0);
 
-    expect(result.current.state.money).toBe(250);
-    expect(result.current.state.totalEarned).toBe(0);
-    expect(result.current.state.offlineEarningsSummary).toBeNull();
-    expect(result.current.state.lastTickAt).toBe(Date.now());
-  });
+    act(() => {
+      result.current.buyProducer('weed');
+      result.current.buyMuscleWorker('hoodRat');
+    });
+    expect(result.current.state.cash).toBeCloseTo(5);
 
-  it('should update production without dealer', async () => {
-    const { result } = renderHook(() => useGameEngine());
-    
-    act(() => {
-      result.current.unlockProduction('weed');
-      result.current.upgrade('weed');
-    });
-    
-    const initialStock = result.current.state.production.weed.stock;
-    
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
-    
-    expect(result.current.state.production.weed.stock).toBeGreaterThan(initialStock);
-  });
-  
-  it('should earn money when dealer sells', async () => {
-    const { result } = renderHook(() => useGameEngine());
-    
-    act(() => {
-      result.current.unlockProduction('weed');
-      result.current.upgrade('weed');
-      result.current.hireDealer(makeDealer(), 0);
-    });
-    
-    const initialMoney = result.current.state.money;
-    
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    
-    expect(result.current.state.money).toBeGreaterThan(initialMoney);
-  });
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(result.current.state.production.weed.stock).toBeCloseTo(2);
+    expect(result.current.state.respect).toBeCloseTo(10);
 
-  it('should upgrade production item', async () => {
-    const { result } = renderHook(() => useGameEngine());
-    
-    act(() => {
-      result.current.unlockProduction('weed');
-      result.current.upgrade('weed');
-    });
-    
-    expect(result.current.state.production.weed.level).toBe(1);
-  });
+    const candidate = result.current.state.availableDealers[0];
+    expect(candidate.volumeMultiplier).toBeGreaterThanOrEqual(0.5);
+    expect(candidate.volumeMultiplier).toBeLessThanOrEqual(1.5);
+    expect(candidate.marginMultiplier).toBeGreaterThanOrEqual(0.5);
+    expect(candidate.marginMultiplier).toBeLessThanOrEqual(1.5);
 
-  it('should not allow stock to go below zero', async () => {
-    const { result } = renderHook(() => useGameEngine());
-    
-    act(() => {
-      vi.advanceTimersByTime(100000);
-    });
-    
+    act(() => result.current.hireDealer(candidate.id, 0));
+    const cashBeforeSales = result.current.state.cash;
+    act(() => vi.advanceTimersByTime(20_000));
+
+    expect(result.current.state.cash).toBeGreaterThan(cashBeforeSales);
+    expect(result.current.state.runEarnings).toBeGreaterThan(0);
     expect(result.current.state.production.weed.stock).toBeGreaterThanOrEqual(0);
   });
 
-  describe('multi-dealer stock sharing', () => {
-    it('stock never goes below zero with a high-volume dealer', async () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.hireDealer(makeDealer({ volume: 1000 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(10000); });
-      expect(result.current.state.production.weed.stock).toBeGreaterThanOrEqual(0);
-    });
-
-    it('hireDealer into locked slot is a no-op', () => {
-      const { result } = renderHook(() => useGameEngine());
-      const initialDealers = [...result.current.state.activeDealers];
-      act(() => {
-        // Slot 1 is locked (unlockedSlots starts at 1, so only slot 0 is open)
-        result.current.hireDealer(makeDealer({ id: 'dealer-locked' }), 1);
-      });
-      expect(result.current.state.activeDealers).toEqual(initialDealers);
-    });
-
-    it('second dealer cannot consume stock already consumed by the first', async () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        // Hire dealer 1 in slot 0
-        result.current.hireDealer(makeDealer({ id: 'dealer-1', volume: 1000 }), 0);
-      });
-      // Advance to accumulate some stock, then check that stock stays >= 0 even with greedy dealer
-      act(() => { vi.advanceTimersByTime(5000); });
-      expect(result.current.state.production.weed.stock).toBeGreaterThanOrEqual(0);
-    });
+  it('does not read the legacy v1 save key', () => {
+    localStorage.setItem('brmble_neon_d_save', JSON.stringify({ cash: 999_999 }));
+    const { result } = renderHook(() => useGameEngine());
+    expect(result.current.state.cash).toBe(100);
   });
 
-  describe('slot unlocking', () => {
-    it('unlockSlot is blocked when player has insufficient funds', () => {
-      const { result } = renderHook(() => useGameEngine());
-      // Default initial money ($250) is below slot-1 cost ($1000)
-      expect(result.current.state.money).toBeLessThan(1000);
-      act(() => { result.current.unlockSlot(); });
-      expect(result.current.state.unlockedSlots).toBe(1);
-    });
-
-    it('unlockSlot deducts cost and increments unlockedSlots when funded', () => {
-      const { result } = renderHook(() => useGameEngine());
-      // Earn enough money ($1000) to unlock slot 1
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.hireDealer(makeDealer({ margin: 100 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(100000); }); // ~$1000 earned
-      const moneyBefore = result.current.state.money;
-      act(() => { result.current.unlockSlot(); });
-      expect(result.current.state.unlockedSlots).toBe(2);
-      expect(result.current.state.money).toBeCloseTo(moneyBefore - 1000, 0);
-    });
-  });
-
-  describe('equipment upgrades', () => {
-    it('starting a dealer upgrade charges once and stores 3 pending options', () => {
-      const { result } = setupWithMoney();
-      const moneyBefore = result.current.state.money;
-
-      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
-
-      expect(result.current.state.money).toBeCloseTo(moneyBefore - 500, 1);
-      expect(dealer?.hasPendingUpgrade).toBe(true);
-      expect(dealer?.pendingUpgradeOptions).toHaveLength(3);
-    });
-
-    it('calling startDealerUpgrade again with an existing pending roll does not charge twice and keeps same options', () => {
-      const { result } = setupWithMoney();
-
-      const firstDealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
-      const moneyAfterFirstRoll = result.current.state.money;
-      const firstOptions = firstDealer?.pendingUpgradeOptions ?? [];
-
-      const secondDealer = startPendingDealerUpgrade(result, [0.5, 1 / 3, 0.5, 1 / 3, 0.5, 1 / 3]);
-
-      expect(result.current.state.money).toBeCloseTo(moneyAfterFirstRoll, 1);
-      expect(secondDealer?.pendingUpgradeOptions).toEqual(firstOptions);
-    });
-
-    it('buyEquipment applies a chosen pending option and clears pending state', () => {
-      const { result } = setupWithMoney();
-      const dealerBefore = result.current.state.activeDealers[0]!;
-      const volumeBefore = dealerBefore.volumeBonus;
-
-      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 1 / 3, 0.5, 2 / 3])!;
-      const chosenUpgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'VOLUME') ?? dealer.pendingUpgradeOptions[0];
-
-      act(() => {
-        result.current.buyEquipment('test-dealer', chosenUpgrade);
-      });
-
-      const updatedDealer = result.current.state.activeDealers[0];
-      expect(updatedDealer?.volumeBonus).toBeCloseTo(volumeBefore + chosenUpgrade.value, 5);
-      expect(updatedDealer?.equipmentCount).toBe(dealerBefore.equipmentCount + 1);
-      expect(updatedDealer?.hasPendingUpgrade).toBe(false);
-      expect(updatedDealer?.pendingUpgradeOptions).toEqual([]);
-    });
-
-    it('fireDealer after a pending roll leaves the slot null', () => {
-      const { result } = setupWithMoney();
-
-      startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0]);
-
-      act(() => {
-        result.current.fireDealer('test-dealer');
-      });
-
-      expect(result.current.state.activeDealers[0]).toBeNull();
-    });
-
-    it('startDealerUpgrade deducts the correct cost and buyEquipment does not charge again', () => {
-      const { result } = setupWithMoney();
-      const moneyBefore = result.current.state.money;
-
-      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0])!;
-      expect(result.current.state.money).toBeCloseTo(moneyBefore - 500, 1);
-
-      const moneyAfterRoll = result.current.state.money;
-      act(() => {
-        result.current.buyEquipment('test-dealer', dealer.pendingUpgradeOptions[0]);
-      });
-
-      expect(result.current.state.money).toBeCloseTo(moneyAfterRoll, 1);
-    });
-
-    it('equipment slots are capped at 3', () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.hireDealer(makeDealer({ margin: 100, equipmentCount: 3 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(50000); });
-      act(() => {
-        result.current.startDealerUpgrade('test-dealer');
-      });
-      // equipmentCount must remain 3 (maxed)
-      expect(result.current.state.activeDealers[0]?.equipmentCount).toBe(3);
-    });
-
-    it('VOLUME upgrade increases volumeBonus', () => {
-      const { result } = setupWithMoney();
-      const dealer = startPendingDealerUpgrade(result, [0.5, 0, 0.5, 0, 0.5, 0])!;
-      const before = result.current.state.activeDealers[0]!.volumeBonus;
-      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'VOLUME')!;
-      act(() => {
-        result.current.buyEquipment('test-dealer', upgrade);
-      });
-      expect(result.current.state.activeDealers[0]?.volumeBonus).toBeCloseTo(before + 0.15, 5);
-    });
-
-    it('MARGIN upgrade increases marginBonus', () => {
-      const { result } = setupWithMoney();
-      const dealer = startPendingDealerUpgrade(result, [0.5, 1 / 3, 0.5, 1 / 3, 0.5, 1 / 3])!;
-      const before = result.current.state.activeDealers[0]!.marginBonus;
-      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'MARGIN')!;
-      act(() => {
-        result.current.buyEquipment('test-dealer', upgrade);
-      });
-      expect(result.current.state.activeDealers[0]?.marginBonus).toBeCloseTo(before + 0.15, 5);
-    });
-
-    it('BULK upgrade increases volumeBonus and reduces marginBonus', () => {
-      const { result } = setupWithMoney();
-      const dealer = startPendingDealerUpgrade(result, [0.2, 0, 0.5, 0, 0.5, 0])!;
-      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
-      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
-      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'BULK')!;
-      act(() => {
-        result.current.buyEquipment('test-dealer', upgrade);
-      });
-      const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.35, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore - 0.1, 5);
-    });
-
-    it('ALL_AROUNDER upgrade increases both volumeBonus and marginBonus', () => {
-      const { result } = setupWithMoney();
-      const dealer = startPendingDealerUpgrade(result, [0.5, 2 / 3, 0.5, 2 / 3, 0.5, 2 / 3])!;
-      const volBefore = result.current.state.activeDealers[0]!.volumeBonus;
-      const margBefore = result.current.state.activeDealers[0]!.marginBonus;
-      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'ALL_AROUNDER')!;
-      act(() => {
-        result.current.buyEquipment('test-dealer', upgrade);
-      });
-      const d = result.current.state.activeDealers[0];
-      expect(d?.volumeBonus).toBeCloseTo(volBefore + 0.05, 5);
-      expect(d?.marginBonus).toBeCloseTo(margBefore + 0.05, 5);
-    });
-
-    it('SIDE_HUSTLE upgrade adds sideVolume', () => {
-      const { result } = setupWithMoney();
-      act(() => {
-        result.current.unlockProduction('mushrooms');
-      });
-      const dealer = startPendingDealerUpgrade(result, [0.05, 0.5, 0, 0.5, 0, 0.5, 0])!;
-      const upgrade = dealer.pendingUpgradeOptions.find(option => option.type === 'SIDE_HUSTLE')!;
-      act(() => {
-        result.current.buyEquipment('test-dealer', upgrade);
-      });
-      expect(result.current.state.activeDealers[0]?.sideVolume).toBeCloseTo(0.2, 5);
-    });
-  });
-
-  describe('side hustle mechanics', () => {
-    it('side hustle stock never goes below zero', async () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.unlockProduction('mushrooms');
-        // Dealer with extreme volume and side hustle
-        result.current.hireDealer(makeDealer({ volume: 1000, sideVolume: 0.5 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(5000); });
-      expect(result.current.state.production.mushrooms.stock).toBeGreaterThanOrEqual(0);
-    });
-
-    it('side hustle ratio capped at 0.9 so primary sales still occur', async () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        // sideVolume is parallel, primary sales still occur
-        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideVolume: 0.95 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(5000); });
-      const moneyBefore = result.current.state.money;
-      act(() => { vi.advanceTimersByTime(1000); });
-      // At least some money from primary sales (even with huge side ratio, primary still sells 10% of vol)
-      expect(result.current.state.money).toBeGreaterThanOrEqual(moneyBefore);
-    });
-
-    it('Side hustle bleeds to other unlocked products', async () => {
-      const { result } = renderHook(() => useGameEngine());
-      act(() => {
-        result.current.unlockProduction('weed');
-        result.current.upgrade('weed');
-        result.current.unlockProduction('mushrooms');
-        result.current.upgrade('mushrooms');
-        // dealer with side hustle
-        result.current.hireDealer(makeDealer({ volume: 5, margin: 10, sideVolume: 0.1 }), 0);
-      });
-      act(() => { vi.advanceTimersByTime(2000); });
-      // Mushrooms is sold as side hustle; stock should not go below zero
-      expect(result.current.state.production.mushrooms.stock).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  it('protected dealers earn 15 percent less than unprotected dealers', () => {
+  it('buyProducer buys exactly one producer and charges the exponential current price', () => {
     const { result } = renderHook(() => useGameEngine());
 
-    act(() => {
-      result.current.upgrade('weed');
-      result.current.hireDealer(makeDealer({ id: 'protected-check', margin: 10, volume: 1, sideVolume: 0 }), 0);
-    });
+    act(() => result.current.buyProducer('weed'));
+    expect(result.current.state.cash).toBeCloseTo(85);
+    expect(result.current.state.production.weed.producersOwned).toBe(1);
 
-    act(() => {
-      vi.advanceTimersByTime(1_000);
-    });
-    const baseline = result.current.state.lastEarningsPerDealer['protected-check'];
-
-    act(() => {
-      result.current.toggleDealerProtection('protected-check');
-      vi.advanceTimersByTime(1_000);
-    });
-
-    const protectedIncome = result.current.state.lastEarningsPerDealer['protected-check'];
-    expect(protectedIncome).toBeCloseTo(baseline * 0.85, 5);
+    act(() => result.current.buyProducer('weed'));
+    expect(result.current.state.cash).toBeCloseTo(85 - 16.8);
+    expect(result.current.state.production.weed.producersOwned).toBe(2);
   });
 
-  it('arrested dealers generate zero earnings per tick', () => {
+  it('cannot research a hidden or non-sequential product', () => {
     const { result } = renderHook(() => useGameEngine());
-
-    act(() => {
-      result.current.upgrade('weed');
-      result.current.hireDealer(makeDealer({ id: 'arrested-check', isArrested: true, nextArrestCheckAt: Date.now() + 999999 }), 0);
-    });
-
-    act(() => {
-      vi.advanceTimersByTime(1_000);
-    });
-
-    expect(result.current.state.lastEarningsPerDealer['arrested-check']).toBe(0);
+    act(() => result.current.researchProduct('meth'));
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
   });
 
-  it('unprotected dealers use current product risk when the arrest timer expires', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-
-    const { result } = renderHook(() => useGameEngine());
-    act(() => {
-      result.current.hireDealer(makeDealer({
-        id: 'risk-check',
-        selling: 'meth',
-        isProtected: false,
-        isArrested: false,
-        nextArrestCheckAt: Date.now() - 1,
-      }), 0);
-    });
-
-    act(() => {
-      vi.advanceTimersByTime(1_000);
-    });
-
-    expect(result.current.state.activeDealers[0]?.isArrested).toBe(true);
+  it('researches the next visible product at its exact research cost', () => {
+    const { result } = renderSeededGame({ cash: 2_000, runEarnings: 1_600 });
+    act(() => result.current.researchProduct('mushrooms'));
+    expect(result.current.state.cash).toBe(0);
+    expect(result.current.state.unlockedProducts).toEqual(['weed', 'mushrooms']);
   });
 
-  it('protected dealers never get arrested when the timer expires', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
+  it('keeps Bulk Selling hidden before $212,388 and buys it for exactly $141,592', () => {
+    const { result } = renderSeededGame({
+      cash: 200_000,
+      runEarnings: 212_388,
+    });
 
+    act(() => result.current.unlockBulkSelling());
+
+    expect(result.current.state.bulkUnlocked).toBe(true);
+    expect(result.current.state.cash).toBeCloseTo(58_408);
+  });
+
+  it('only changes auto bulk after Bulk Selling is unlocked', () => {
     const { result } = renderHook(() => useGameEngine());
-    act(() => {
-      result.current.hireDealer(makeDealer({
-        id: 'safe-check',
-        selling: 'meth',
-        isProtected: true,
-        isArrested: false,
-        nextArrestCheckAt: Date.now() - 1,
-      }), 0);
+
+    act(() => result.current.setAutoBulkEnabled(true));
+    expect(result.current.state.autoBulkEnabled).toBe(false);
+  });
+
+  it('does not simulate or show a summary for less than 30 seconds away on mount', () => {
+    const now = Date.now();
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      lastTickAt: now - 29_999,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, stock: 100 },
+      },
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 100_000 },
+      nextMarketCheckAt: now - 30_000,
     });
 
-    act(() => {
-      vi.advanceTimersByTime(1_000);
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.production.weed.stock).toBe(100);
+    expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.lastTickAt).toBe(now);
+  });
+
+  it('applies offline progress once on mount with capped summary and no random clocks', () => {
+    const now = Date.now();
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      lastTickAt: now - 7 * 24 * 60 * 60 * 1000,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, producersOwned: 100 },
+      },
+      muscleOwned: {
+        ...base.muscleOwned,
+        hoodRat: 1,
+      },
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 100_000 },
+      nextMarketCheckAt: now - 30_000,
+      nextRiskCheckAt: now - 30_000,
+      runEarnings: 1_000_000,
     });
 
+    expect(result.current.state.cash).toBeGreaterThan(100);
+    expect(result.current.state.respect).toBeCloseTo(24 * 60 * 60);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 7 * 24 * 60 * 60 * 1000,
+      simulatedMs: 24 * 60 * 60 * 1000,
+    });
+    expect(result.current.state.activeMarketEvent).toBeNull();
     expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+    expect(result.current.state.nextMarketCheckAt).toBe(now + 30_000);
+    expect(result.current.state.nextRiskCheckAt).toBe(now + 30_000);
   });
 
-  it('payBail uses current total income per second with a minimum floor', () => {
-    const { result } = setupWithMoney();
-    act(() => {
-      result.current.upgrade('weed');
-      result.current.hireDealer(makeDealer({ id: 'earner', margin: 1, volume: 1, sideVolume: 0 }), 0);
-      vi.advanceTimersByTime(1_000);
+  it('applies a market multiplier only until it expires during a delayed tick', () => {
+    const now = Date.now();
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(1);
+    const base = createBaseGameState(now);
+    const { result } = renderSeededGame({
+      cash: 100,
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, stock: 1_000 },
+      },
+      activeDealers: [makeReferenceDealer({ id: 'delayed-tick-dealer' })],
+      activeMarketEvent: { productId: 'weed', multiplier: 4, endsAt: now + 30_000 },
+      nextMarketCheckAt: now + 120_000,
+      nextRiskCheckAt: now + 120_000,
     });
 
-    const dealerIncome = result.current.state.lastEarningsPerDealer['earner'];
-    const expectedCost = Math.max(500, dealerIncome * 45);
+    act(() => vi.advanceTimersByTime(60_000));
+    randomSpy.mockRestore();
 
-    act(() => {
-      result.current.forceArrestDealer('earner');
+    expect(result.current.state.cash).toBeCloseTo(1_990);
+    expect(result.current.state.activeMarketEvent).toBeNull();
+  });
+
+  it('dismisses only the offline earnings summary', () => {
+    const now = Date.now();
+    const { result } = renderSeededGame({
+      cash: 4321,
+      respect: 123,
+      offlineEarningsSummary: {
+        actualAwayMs: 60_000,
+        simulatedMs: 60_000,
+        cashEarned: 400,
+        respectEarned: 60,
+      },
+      lastTickAt: now,
     });
 
-    const moneyBefore = result.current.state.money;
-    act(() => {
-      result.current.payDealerBail('earner');
-    });
-
-    expect(result.current.state.money).toBeCloseTo(moneyBefore - expectedCost, 5);
-    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
-    expect(result.current.state.activeDealers[0]?.isProtected).toBe(false);
-  });
-
-  it('restores older saves by filling in missing dealer risk fields', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      activeDealers: [{
-        id: 'legacy',
-        name: 'Legacy Dealer',
-        selling: 'weed',
-        volume: 1,
-        margin: 1,
-        volumeBonus: 0,
-        marginBonus: 0,
-        sideVolume: 0,
-        equipmentCount: 0,
-        baseVolumeGps: 1,
-        baseMarginMult: 1,
-        volumeStars: 1,
-        marginStars: 1,
-      }],
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-    const dealer = result.current.state.activeDealers[0];
-
-    expect(dealer?.isProtected).toBe(false);
-    expect(dealer?.isArrested).toBe(false);
-    expect(typeof dealer?.nextArrestCheckAt).toBe('number');
-  });
-
-  it('restores older saves by filling in missing pending dealer upgrade fields', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      activeDealers: [{
-        id: 'legacy',
-        name: 'Legacy Dealer',
-        selling: 'weed',
-        volume: 1,
-        margin: 1,
-        volumeBonus: 0,
-        marginBonus: 0,
-        sideVolume: 0,
-        equipmentCount: 0,
-        baseVolumeGps: 1,
-        baseMarginMult: 1,
-        volumeStars: 1,
-        marginStars: 1,
-        isProtected: false,
-        isArrested: false,
-        nextArrestCheckAt: Date.now() + 10_000,
-      }],
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-    const dealer = result.current.state.activeDealers[0];
-
-    expect(dealer?.hasPendingUpgrade).toBe(false);
-    expect(dealer?.pendingUpgradeOptions).toEqual([]);
-  });
-
-  it('restores older saves by filling in missing pending upgrade fields on available dealers', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      availableDealers: [{
-        id: 'available-legacy',
-        name: 'Available Legacy Dealer',
-        selling: 'weed',
-        volume: 1,
-        margin: 1,
-        volumeBonus: 0,
-        marginBonus: 0,
-        sideVolume: 0,
-        equipmentCount: 0,
-        baseVolumeGps: 1,
-        baseMarginMult: 1,
-        volumeStars: 1,
-        marginStars: 1,
-        isProtected: false,
-        isArrested: false,
-        nextArrestCheckAt: Date.now() + 10_000,
-      }],
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-    const dealer = result.current.state.availableDealers[0];
-
-    expect(dealer?.hasPendingUpgrade).toBe(false);
-    expect(dealer?.pendingUpgradeOptions).toEqual([]);
-  });
-
-  it('catches up production and earnings after the game was closed for a few seconds', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      money: 100,
-      totalEarned: 0,
-      researchSpeed: 1,
-      production: {
-        weed: {
-          id: 'weed',
-          name: 'Weed',
-          stock: 0,
-          rate: 2,
-          yieldPerLevel: 0.2,
-          costMultiplier: 1.12,
-          level: 1,
-          upgradeCost: 16,
-        },
-      },
-      unlockedProduction: ['weed'],
-      activeDealers: [makeDealer({
-        id: 'offline-earner',
-        volume: 1,
-        margin: 1,
-        sideVolume: 0,
-      }), null, null],
-      availableDealers: [],
-      unlockedSlots: 1,
-      lastRefreshTime: 0,
-      lastEarningsPerDealer: {},
-      lastTickAt: Date.now() - 5_000,
-      offlineEarningsSummary: null,
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-
-    expect(result.current.state.money).toBeCloseTo(121, 5);
-    expect(result.current.state.totalEarned).toBeCloseTo(21, 5);
-    expect(result.current.state.production.weed.stock).toBeCloseTo(5, 5);
-    expect(result.current.state.lastEarningsPerDealer['offline-earner']).toBeCloseTo(4.2, 5);
-  });
-
-  it('stores an offline earnings summary after 10 minutes away', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      money: 100,
-      totalEarned: 0,
-      researchSpeed: 1,
-      production: {
-        weed: {
-          id: 'weed',
-          name: 'Weed',
-          stock: 0,
-          rate: 2,
-          yieldPerLevel: 0.2,
-          costMultiplier: 1.12,
-          level: 1,
-          upgradeCost: 16,
-        },
-      },
-      unlockedProduction: ['weed'],
-      activeDealers: [makeDealer({
-        id: 'offline-summary',
-        volume: 1,
-        margin: 1,
-        sideVolume: 0,
-      }), null, null],
-      availableDealers: [],
-      unlockedSlots: 1,
-      lastRefreshTime: 0,
-      lastEarningsPerDealer: {},
-      lastTickAt: Date.now() - 10 * 60 * 1000,
-      offlineEarningsSummary: null,
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-
-    expect(result.current.state.offlineEarningsSummary?.awayMs).toBe(10 * 60 * 1000);
-    expect(result.current.state.offlineEarningsSummary?.earned).toBeCloseTo(2520, 5);
-  });
-
-  it('bulk-catches up a week of offline earnings without replaying every second', { timeout: 750 }, () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      money: 100,
-      totalEarned: 0,
-      researchSpeed: 1,
-      production: {
-        weed: {
-          id: 'weed',
-          name: 'Weed',
-          stock: 0,
-          rate: 2,
-          yieldPerLevel: 0.2,
-          costMultiplier: 1.12,
-          level: 1,
-          upgradeCost: 16,
-        },
-      },
-      unlockedProduction: ['weed'],
-      activeDealers: [makeDealer({
-        id: 'offline-week',
-        volume: 1,
-        margin: 1,
-        sideVolume: 0,
-        nextArrestCheckAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
-      }), null, null],
-      availableDealers: [],
-      unlockedSlots: 1,
-      lastRefreshTime: 0,
-      lastEarningsPerDealer: {},
-      lastTickAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-      offlineEarningsSummary: null,
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-
-    expect(result.current.state.money).toBeCloseTo(2_540_260, 5);
-    expect(result.current.state.totalEarned).toBeCloseTo(2_540_160, 5);
-    expect(result.current.state.production.weed.stock).toBeCloseTo(604_800, 5);
-    expect(result.current.state.lastEarningsPerDealer['offline-week']).toBeCloseTo(4.2, 5);
-    expect(result.current.state.offlineEarningsSummary?.earned).toBeCloseTo(2_540_160, 5);
-  });
-
-  it('processes offline arrest checks at their scheduled moment during bulk catch-up', () => {
-    const arrestSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
-
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      money: 100,
-      totalEarned: 0,
-      researchSpeed: 1,
-      production: {
-        weed: {
-          id: 'weed',
-          name: 'Weed',
-          stock: 0,
-          rate: 2,
-          yieldPerLevel: 0.2,
-          costMultiplier: 1.12,
-          level: 1,
-          upgradeCost: 16,
-        },
-      },
-      unlockedProduction: ['weed'],
-      activeDealers: [makeDealer({
-        id: 'offline-arrest',
-        volume: 1,
-        margin: 1,
-        sideVolume: 0,
-        nextArrestCheckAt: Date.now() - 3_000,
-      }), null, null],
-      availableDealers: [],
-      unlockedSlots: 1,
-      lastRefreshTime: 0,
-      lastEarningsPerDealer: {},
-      lastTickAt: Date.now() - 5_000,
-      offlineEarningsSummary: null,
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
-
-    expect(result.current.state.money).toBeCloseTo(108.4, 5);
-    expect(result.current.state.totalEarned).toBeCloseTo(8.4, 5);
-    expect(result.current.state.production.weed.stock).toBeCloseTo(8, 5);
-    expect(result.current.state.activeDealers[0]?.isArrested).toBe(true);
-    expect(result.current.state.lastEarningsPerDealer['offline-arrest']).toBe(0);
-    expect(arrestSpy).toHaveBeenCalled();
-  });
-
-  it('does not store an offline earnings summary before 10 minutes away', () => {
-    localStorage.setItem('brmble_neon_d_save', JSON.stringify({
-      money: 100,
-      totalEarned: 0,
-      researchSpeed: 1,
-      production: {
-        weed: {
-          id: 'weed',
-          name: 'Weed',
-          stock: 0,
-          rate: 2,
-          yieldPerLevel: 0.2,
-          costMultiplier: 1.12,
-          level: 1,
-          upgradeCost: 16,
-        },
-      },
-      unlockedProduction: ['weed'],
-      activeDealers: [makeDealer({
-        id: 'offline-short',
-        volume: 1,
-        margin: 1,
-        sideVolume: 0,
-      }), null, null],
-      availableDealers: [],
-      unlockedSlots: 1,
-      lastRefreshTime: 0,
-      lastEarningsPerDealer: {},
-      lastTickAt: Date.now() - (9 * 60 * 1000 + 59 * 1000),
-      offlineEarningsSummary: null,
-    }));
-
-    const { result } = renderHook(() => useGameEngine());
+    act(() => result.current.dismissOfflineEarningsSummary());
 
     expect(result.current.state.offlineEarningsSummary).toBeNull();
+    expect(result.current.state.cash).toBe(4321);
+    expect(result.current.state.respect).toBe(123);
+  });
+
+  it('applies offline progress when importing an aged save', () => {
+    vi.setSystemTime(60_000);
+    const { result } = renderHook(() => useGameEngine());
+
+    const imported = createBaseGameState(0);
+    imported.production.weed.producersOwned = 100;
+    imported.muscleOwned.hoodRat = 1;
+    imported.activeDealers = [makeReferenceDealer({ id: 'imported-dealer' })];
+
+    act(() => result.current.importGame(imported));
+
+    expect(result.current.state.cash).toBeGreaterThan(imported.cash);
+    expect(result.current.state.respect).toBeCloseTo(60);
+    expect(result.current.state.lastTickAt).toBe(60_000);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 60_000,
+      simulatedMs: 60_000,
+    });
+  });
+
+  it('keeps the offline summary on the first StrictMode mount pass', () => {
+    vi.setSystemTime(60_000);
+    const seeded = createBaseGameState(0);
+    seeded.production.weed.producersOwned = 100;
+    seeded.muscleOwned.hoodRat = 1;
+    seeded.activeDealers = [makeReferenceDealer({ id: 'strict-mode-dealer' })];
+    localStorage.setItem(NEON_D_SAVE_KEY, JSON.stringify(seeded));
+
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(StrictMode, null, children);
+
+    const { result } = renderHook(() => useGameEngine(), { wrapper });
+
+    expect(result.current.state.cash).toBeGreaterThan(seeded.cash);
+    expect(result.current.state.respect).toBeCloseTo(60);
+    expect(result.current.state.offlineEarningsSummary).toMatchObject({
+      actualAwayMs: 60_000,
+      simulatedMs: 60_000,
+    });
+  });
+
+  it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
+    const { result } = renderSeededGame({
+      cash: 5_000_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(1);
+    expect(result.current.state.captains[0]).toMatchObject({
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 0,
+    });
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.runEarnings).toBe(0);
+    expect(result.current.state.respect).toBe(0);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.territoryLevel).toBe(0);
+    expect(result.current.state.discountLevel).toBe(0);
+    expect(result.current.state.activeDealers).toEqual([null]);
+  });
+
+  it('preserves existing Captains and Kingpins across a later Captain reset', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 1_000_000,
+    };
+
+    const { result } = renderSeededGame({
+      cash: 7_000_000,
+      runEarnings: 7_500_000,
+      captains: [existingCaptain],
+      kingpins: 1,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(2);
+    expect(result.current.state.captains[0]).toEqual(existingCaptain);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('round-trips a later Captain reset when an existing Captain sells a non-Weed product', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'mushrooms',
+      equipmentIds: [],
+      personalEarnings: 1_000_000,
+    };
+
+    const { result } = renderSeededGame({
+      cash: 7_000_000,
+      runEarnings: 7_500_000,
+      unlockedProducts: ['weed', 'mushrooms'],
+      captains: [existingCaptain],
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(parseNeonDSave(serializeNeonDSave(result.current.state))).toEqual(result.current.state);
+    expect(result.current.state.captains.every((captain) =>
+      result.current.state.unlockedProducts.includes(captain.selling),
+    )).toBe(true);
+  });
+
+  it('charges the next Captain at base * 1.18^(captains + kingpins) before discount', () => {
+    const existingCaptain: Captain = {
+      id: 'captain-existing',
+      name: 'Captain Existing',
+      selling: 'weed',
+      equipmentIds: [],
+      personalEarnings: 0,
+    };
+    const expectedCost = 5_000_000 * Math.pow(1.18, 2) * 0.9;
+
+    const { result } = renderSeededGame({
+      cash: expectedCost,
+      runEarnings: 7_500_000,
+      captains: [existingCaptain],
+      kingpins: 1,
+      discountLevel: 1,
+    });
+
+    expect(getCaptainCost(result.current.state)).toBeCloseTo(expectedCost);
+    act(() => result.current.buyCaptain());
+    expect(result.current.state.captains).toHaveLength(2);
+    expect(result.current.state.cash).toBe(100);
+  });
+
+  it('promotes a level-10 Captain into one Kingpin', () => {
+    const { result } = renderSeededGame({
+      captains: [{
+        id: 'captain-10',
+        name: 'Captain Ten',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 161_340_000,
+      }],
+    });
+
+    act(() => result.current.promoteCaptain('captain-10'));
+
+    expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('keeps Kingpin bonuses permanent through the next Captain reset', () => {
+    const { result } = renderSeededGame({
+      cash: 20_000_000,
+      runEarnings: 20_000_000,
+      captains: [{
+        id: 'captain-10',
+        name: 'Captain Ten',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 161_340_000,
+      }],
+    });
+
+    act(() => result.current.promoteCaptain('captain-10'));
+    expect(result.current.state.kingpins).toBe(1);
+
+    const withKingpin: GameState = {
+      ...result.current.state,
+      production: {
+        ...result.current.state.production,
+        weed: { ...result.current.state.production.weed, producersOwned: 1 },
+      },
+    };
+    const zeroKingpin: GameState = {
+      ...withKingpin,
+      kingpins: 0,
+      production: {
+        ...withKingpin.production,
+        weed: { ...withKingpin.production.weed },
+      },
+    };
+
+    expect(getProductProductionRate(withKingpin, 'weed')).toBeCloseTo(
+      getProductProductionRate(zeroKingpin, 'weed') * 2,
+    );
+    expect(getRespectMultiplier(withKingpin)).toBeCloseTo(2);
+    expect(getRecruitmentRefreshMs(withKingpin.kingpins)).toBe(59_000);
+
+    act(() => result.current.buyCaptain());
+    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.territoryLevel).toBe(0);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
+  it('charges Captains four times equipment base price and prevents duplicate purchases', () => {
+    const { result } = renderSeededGame({
+      cash: 2_000,
+      captains: [{
+        id: 'captain-equipment',
+        name: 'Captain Equipment',
+        selling: 'weed',
+        equipmentIds: [],
+        personalEarnings: 0,
+      }],
+    });
+
+    act(() => result.current.buySellerEquipment(
+      'captain-equipment',
+      'baseballBat',
+      'captain',
+    ));
+    expect(result.current.state.cash).toBeCloseTo(1_400);
+    expect(result.current.state.captains[0].equipmentIds).toEqual(['baseballBat']);
+
+    act(() => result.current.buySellerEquipment(
+      'captain-equipment',
+      'baseballBat',
+      'captain',
+    ));
+    expect(result.current.state.cash).toBeCloseTo(1_400);
+    expect(result.current.state.captains[0].equipmentIds).toEqual(['baseballBat']);
+  });
+
+  it('buys product upgrades sequentially and applies their listed cost', () => {
+    const { result } = renderSeededGame({ cash: 1_000 });
+    act(() => result.current.buyProductUpgrade('weed', 'fertilizer'));
+    expect(result.current.state.cash).toBe(500);
+    expect(result.current.state.production.weed.purchasedUpgradeIds).toEqual(['fertilizer']);
+
+    act(() => result.current.buyProductUpgrade('weed', 'fertilizer'));
+    expect(result.current.state.production.weed.purchasedUpgradeIds).toEqual(['fertilizer']);
+  });
+
+  it('buys the first Hood Rat for $80 and generates 1 Respect per second', () => {
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => result.current.buyMuscleWorker('hoodRat'));
+    expect(result.current.state.cash).toBeCloseTo(20);
+    expect(result.current.state.muscleOwned.hoodRat).toBe(1);
+
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(result.current.state.respect).toBeCloseTo(5);
+  });
+
+  it('buys Territory with Respect and adds exactly one normal dealer slot', () => {
+    const { result } = renderSeededGame({ respect: 500 });
+
+    act(() => result.current.buyTerritory());
+    expect(result.current.state.respect).toBeCloseTo(0);
+    expect(result.current.state.territoryLevel).toBe(1);
+    expect(result.current.state.activeDealers).toHaveLength(2);
+  });
+
+  it('buys Discount with Respect and lowers the next eligible producer price by 10 percent', () => {
+    const { result } = renderSeededGame({ respect: 1_000 });
+
+    act(() => result.current.buyDiscount());
+    expect(result.current.state.discountLevel).toBe(1);
+    expect(getProducerCost('weed', 0, 1)).toBeCloseTo(13.5);
+  });
+
+  it('hires a candidate for free into an open Territory slot', () => {
+    const { result } = renderHook(() => useGameEngine());
+    const candidate = result.current.state.availableDealers[0];
+    const cashBefore = result.current.state.cash;
+
+    act(() => result.current.hireDealer(candidate.id, 0));
+
+    expect(result.current.state.cash).toBe(cashBefore);
+    expect(result.current.state.activeDealers[0]?.id).toBe(candidate.id);
+  });
+
+  it('automatically refreshes a pool of three after 60 seconds with no Kingpins', () => {
+    const { result } = renderHook(() => useGameEngine());
+    const beforeIds = result.current.state.availableDealers.map((d) => d.id);
+
+    act(() => vi.advanceTimersByTime(59_000));
+    expect(result.current.state.availableDealers.map((d) => d.id)).toEqual(beforeIds);
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(result.current.state.availableDealers).toHaveLength(3);
+    expect(result.current.state.availableDealers.map((d) => d.id)).not.toEqual(beforeIds);
+  });
+
+  it('buys a fixed equipment item once and charges its listed discounted price', () => {
+    const { result } = renderSeededGame({
+      cash: 1_000,
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+    });
+
+    act(() => result.current.buySellerEquipment('d1', 'baseballBat', 'dealer'));
+    expect(result.current.state.activeDealers[0]?.equipmentIds).toContain('baseballBat');
+
+    const cashAfterFirstPurchase = result.current.state.cash;
+    act(() => result.current.buySellerEquipment('d1', 'baseballBat', 'dealer'));
+    expect(result.current.state.cash).toBe(cashAfterFirstPurchase);
+  });
+
+  it('toggles dealer protection without changing the dealer risk schedule', () => {
+    const { result } = renderSeededGame({
+      activeDealers: [makeReferenceDealer({ id: 'd1' })],
+      nextRiskCheckAt: 30_000,
+    });
+
+    act(() => result.current.toggleDealerProtection('d1'));
+
+    expect(result.current.state.activeDealers[0]?.isProtected).toBe(true);
+    expect(result.current.state.nextRiskCheckAt).toBe(30_000);
+  });
+
+  it('bail charges 95 seconds of that dealer earnings snapshot', () => {
+    const { result } = renderSeededGame({
+      cash: 10_000,
+      activeDealers: [
+        makeReferenceDealer({
+          id: 'arrested',
+          isArrested: true,
+          earningsPerSecondAtArrest: 20,
+        }),
+      ],
+    });
+
+    act(() => result.current.payDealerBail('arrested'));
+    expect(result.current.state.cash).toBeCloseTo(10_000 - 1_900);
+    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
   });
 });

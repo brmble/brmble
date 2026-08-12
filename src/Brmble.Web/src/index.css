@@ -23,6 +23,16 @@
   /* Layout */
   --sidebar-width: 340px;
   --header-height: 60px;
+  --border-width-thin: 1px;
+  --border-width-strong: 2px;
+  --neond-grid-gap: var(--space-md);
+  --neond-grid-max-width: 80rem;
+  --neond-panel-max-width: 35rem;
+  --neond-tabs-max-width: 32.5rem;
+  --neond-control-min-height: 2.125rem;
+  --neond-arrow-width: var(--space-xs);
+  --neond-arrow-height: var(--space-sm);
+  --neond-modal-max-width: 26.25rem;
 
   /* Transitions */
   --transition-fast: 150ms ease;

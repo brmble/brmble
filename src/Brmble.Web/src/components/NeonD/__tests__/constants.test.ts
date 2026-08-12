@@ -1,105 +1,60 @@
-import { describe, it, expect } from 'vitest';
-import { INITIAL_GAME_STATE, TIER_DATA, PRODUCT_TIERS, UNLOCK_COSTS } from '../constants';
+import { describe, expect, it } from 'vitest';
+import {
+  AUTO_BULK_RETAIN_STOCK,
+  AUTO_BULK_TRIGGER_STOCK,
+  BULK_UNLOCK_COST,
+  BULK_VISIBLE_EARNINGS,
+  CAPTAIN_BASE_COST,
+  CAPTAIN_VISIBLE_EARNINGS,
+  createBaseGameState,
+  NEON_D_SAVE_KEY,
+  PRODUCT_CATALOG,
+  STARTING_CASH,
+} from '../constants';
 
-describe('Constants', () => {
-  it('should use English display names', () => {
-    expect(INITIAL_GAME_STATE.production.weed.name).toBe('Weed');
-  });
-});
+describe('Neon-D v2 constants', () => {
+  it('uses the v2 save key and aligned fresh-run state', () => {
+    const state = createBaseGameState(1_234);
 
-describe('NeonD Tier Parameters — Weed (Tier 1)', () => {
-  it('has correct initial cost', () => {
-    expect(INITIAL_GAME_STATE.production.weed.upgradeCost).toBe(15);
-  });
-
-  it('has correct yieldPerLevel', () => {
-    expect(INITIAL_GAME_STATE.production.weed.yieldPerLevel).toBe(0.20);
-  });
-
-  it('has correct costMultiplier', () => {
-    expect(INITIAL_GAME_STATE.production.weed.costMultiplier).toBe(1.12);
-  });
-
-  it('has correct unlock cost', () => {
-    expect(UNLOCK_COSTS.weed).toBe(0);
-  });
-
-  it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.weed).toBe(4.20);
-  });
-});
-
-describe('NeonD Tier Parameters — Mushrooms (Tier 2)', () => {
-  it('has correct initial cost', () => {
-    expect(INITIAL_GAME_STATE.production.mushrooms.upgradeCost).toBe(150);
+    expect(NEON_D_SAVE_KEY).toBe('brmble_neon_d_save_v2');
+    expect(STARTING_CASH).toBe(100);
+    expect(state.cash).toBe(100);
+    expect(state.unlockedProducts).toEqual(['weed']);
+    expect(state.activeDealers).toEqual([null]);
+    expect(state.respect).toBe(0);
+    expect(state.lastTickAt).toBe(1_234);
   });
 
-  it('has correct yieldPerLevel', () => {
-    expect(INITIAL_GAME_STATE.production.mushrooms.yieldPerLevel).toBe(0.30);
+  it('locks the aligned 16-product catalog and excludes removed v1 tiers', () => {
+    expect(PRODUCT_CATALOG.map((product) => product.id)).toEqual([
+      'weed',
+      'mushrooms',
+      'meth',
+      'speed',
+      'acid',
+      'crack',
+      'pcp',
+      'heroin',
+      'mdma',
+      'cocaine',
+      'nuke',
+      'cyberCrank',
+      'ephemerol',
+      'sloMo',
+      'drencrom',
+      'melange',
+    ]);
+    expect(PRODUCT_CATALOG).toHaveLength(16);
+    expect(PRODUCT_CATALOG.map((product) => product.id)).not.toContain('galacticCore');
+    expect(PRODUCT_CATALOG.map((product) => product.id)).not.toContain('blueLotus');
   });
 
-  it('has correct costMultiplier', () => {
-    expect(INITIAL_GAME_STATE.production.mushrooms.costMultiplier).toBe(1.15);
-  });
-
-  it('has correct unlock cost', () => {
-    expect(UNLOCK_COSTS.mushrooms).toBe(2000);
-  });
-
-  it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.mushrooms).toBe(6.00);
-  });
-});
-
-describe('NeonD Tier Parameters — Galactic Core (Tier 18)', () => {
-  it('has correct initial cost', () => {
-    expect(INITIAL_GAME_STATE.production.galacticCore.upgradeCost).toBe(1500000000000000000);
-  });
-
-  it('has correct yieldPerLevel', () => {
-    expect(INITIAL_GAME_STATE.production.galacticCore.yieldPerLevel).toBe(216.2438965);
-  });
-
-  it('has correct costMultiplier', () => {
-    expect(INITIAL_GAME_STATE.production.galacticCore.costMultiplier).toBe(1.61);
-  });
-
-  it('has correct unlock cost', () => {
-    expect(UNLOCK_COSTS.galacticCore).toBe(25000000000000000000);
-  });
-
-  it('has correct sell price', () => {
-    expect(PRODUCT_TIERS.galacticCore).toBe(841.56);
-  });
-});
-
-describe('Upgrade Mechanics', () => {
-  it('upgrade calculates next cost using costMultiplier', () => {
-    const weedItem = INITIAL_GAME_STATE.production.weed;
-    const initialCost = weedItem.upgradeCost;
-    const nextCost = Math.floor(initialCost * weedItem.costMultiplier);
-    expect(nextCost).toBe(Math.floor(15 * 1.12)); // 16
-  });
-
-  it('upgrade calculates rate increase using yieldPerLevel', () => {
-    const weedItem = INITIAL_GAME_STATE.production.weed;
-    const rateIncrease = weedItem.yieldPerLevel;
-    expect(rateIncrease).toBe(0.20);
-  });
-
-  it('all 18 tiers exist in INITIAL_GAME_STATE', () => {
-    const expectedIds = [
-      'weed', 'mushrooms', 'blueLotus', 'frostBite', 'electricLace',
-      'meth', 'pharmGrade', 'khole', 'lunarRegolith', 'martianSpores',
-      'nebulaMist', 'voidCrystals', 'chronoSalt', 'stardustResin',
-      'darkMatterInk', 'singularityShards', 'neutronFlakes', 'galacticCore'
-    ];
-    expect(Object.keys(INITIAL_GAME_STATE.production)).toEqual(expectedIds);
-  });
-
-  it('TIER_DATA, PRODUCT_TIERS, and UNLOCK_COSTS all have 18 entries', () => {
-    expect(Object.keys(TIER_DATA).length).toBe(18);
-    expect(Object.keys(PRODUCT_TIERS).length).toBe(18);
-    expect(Object.keys(UNLOCK_COSTS).length).toBe(18);
+  it('locks the Bulk and Captain progression thresholds', () => {
+    expect(BULK_UNLOCK_COST).toBe(141_592);
+    expect(BULK_VISIBLE_EARNINGS).toBe(212_388);
+    expect(AUTO_BULK_TRIGGER_STOCK).toBe(1_500);
+    expect(AUTO_BULK_RETAIN_STOCK).toBe(500);
+    expect(CAPTAIN_BASE_COST).toBe(5_000_000);
+    expect(CAPTAIN_VISIBLE_EARNINGS).toBe(7_500_000);
   });
 });

@@ -1,457 +1,189 @@
-import type { GameState } from './types';
+import type {
+  EquipmentDefinition,
+  GameState,
+  MuscleWorkerDefinition,
+  ProductDefinition,
+} from './types';
 
-// Complete 18-tier pricing data from DST economic model
-// Pricing Model: T1-T5 represents 5 progression tiers with base prices increasing by 10x per tier (4.20, 6.00, 10.00, 15.00, 20.00).
-// Each tier has 3-4 products that scale proportionally. Higher tiers maintain exponential growth through both cost multiplier increases
-// (T1: 1.12, T5: 1.61) and yieldPerLevel bonuses. This creates a balanced progression where player upgrades feel impactful
-// while maintaining consistent economic scaling across the 18-product hierarchy.
-export const TIER_DATA = {
-  weed: {
-    name: "Weed",
-    c0: 15,
-    costMultiplier: 1.12,
-    yieldPerLevel: 0.20,
-    unlockCost: 0,
-    sellPrice: 4.20
-  },
-  mushrooms: {
-    name: "Mushrooms",
-    c0: 150,
-    costMultiplier: 1.15,
-    yieldPerLevel: 0.30,
-    unlockCost: 2000,
-    sellPrice: 6.00
-  },
-  blueLotus: {
-    name: "Blue Lotus",
-    c0: 1500,
-    costMultiplier: 1.18,
-    yieldPerLevel: 0.45,
-    unlockCost: 25000,
-    sellPrice: 10.00
-  },
-  frostBite: {
-    name: "Frostbite",
-    c0: 15000,
-    costMultiplier: 1.20,
-    yieldPerLevel: 0.65,
-    unlockCost: 250000,
-    sellPrice: 15.00
-  },
-  electricLace: {
-    name: "Electric Lace",
-    c0: 150000,
-    costMultiplier: 1.22,
-    yieldPerLevel: 1.00,
-    unlockCost: 2500000,
-    sellPrice: 20.00
-  },
-  meth: {
-    name: "Meth",
-    c0: 1500000,
-    costMultiplier: 1.25,
-    yieldPerLevel: 1.50,
-    unlockCost: 25000000,
-    sellPrice: 26.67
-  },
-  pharmGrade: {
-    name: "Pharm Grade",
-    c0: 15000000,
-    costMultiplier: 1.28,
-    yieldPerLevel: 2.50,
-    unlockCost: 250000000,
-    sellPrice: 35.56
-  },
-  khole: {
-    name: "K-Hole",
-    c0: 150000000,
-    costMultiplier: 1.31,
-    yieldPerLevel: 3.75,
-    unlockCost: 2500000000,
-    sellPrice: 47.41
-  },
-  lunarRegolith: {
-    name: "Lunar Regolith",
-    c0: 1500000000,
-    costMultiplier: 1.34,
-    yieldPerLevel: 5.625,
-    unlockCost: 25000000000,
-    sellPrice: 63.21
-  },
-  martianSpores: {
-    name: "Martian Spores",
-    c0: 15000000000,
-    costMultiplier: 1.37,
-    yieldPerLevel: 8.4375,
-    unlockCost: 250000000000,
-    sellPrice: 84.28
-  },
-  nebulaMist: {
-    name: "Nebula Mist",
-    c0: 150000000000,
-    costMultiplier: 1.40,
-    yieldPerLevel: 12.65625,
-    unlockCost: 2500000000000,
-    sellPrice: 112.37
-  },
-  voidCrystals: {
-    name: "Void Crystals",
-    c0: 1500000000000,
-    costMultiplier: 1.43,
-    yieldPerLevel: 18.984375,
-    unlockCost: 25000000000000,
-    sellPrice: 149.82
-  },
-  chronoSalt: {
-    name: "Chrono Salt",
-    c0: 15000000000000,
-    costMultiplier: 1.46,
-    yieldPerLevel: 28.4765625,
-    unlockCost: 250000000000000,
-    sellPrice: 199.75
-  },
-  stardustResin: {
-    name: "Stardust Resin",
-    c0: 150000000000000,
-    costMultiplier: 1.49,
-    yieldPerLevel: 42.71484375,
-    unlockCost: 2500000000000000,
-    sellPrice: 266.32
-  },
-  darkMatterInk: {
-    name: "Dark Matter Ink",
-    c0: 1500000000000000,
-    costMultiplier: 1.52,
-    yieldPerLevel: 64.07226563,
-    unlockCost: 25000000000000000,
-    sellPrice: 355.08
-  },
-  singularityShards: {
-    name: "Singularity Shards",
-    c0: 15000000000000000,
-    costMultiplier: 1.55,
-    yieldPerLevel: 96.10839844,
-    unlockCost: 250000000000000000,
-    sellPrice: 473.42
-  },
-  neutronFlakes: {
-    name: "Neutron Flakes",
-    c0: 150000000000000000,
-    costMultiplier: 1.58,
-    yieldPerLevel: 144.1625977,
-    unlockCost: 2500000000000000000,
-    sellPrice: 631.20
-  },
-  galacticCore: {
-    name: "Galactic Core",
-    c0: 1500000000000000000,
-    costMultiplier: 1.61,
-    yieldPerLevel: 216.2438965,
-    unlockCost: 25000000000000000000,
-    sellPrice: 841.56
-  }
+export const NEON_D_SAVE_KEY = 'brmble_neon_d_save_v2';
+export const STARTING_CASH = 100;
+export const RESEARCH_REVEAL_RATIO = 0.80;
+export const NORMAL_DEALER_MIN_MULTIPLIER = 0.5;
+export const NORMAL_DEALER_MAX_MULTIPLIER = 1.5;
+export const MAIN_SALE_UNITS_PER_VOLUME = 3;
+export const RECRUITMENT_BASE_REFRESH_MS = 60_000;
+export const RECRUITMENT_KINGPIN_REDUCTION_MS = 1_000;
+export const RECRUITMENT_MIN_REFRESH_MS = 1_000;
+export const PROTECTION_INCOME_MULTIPLIER = 0.90;
+export const RISK_LIFETIME_EARNINGS_THRESHOLD = 30_000;
+export const RISK_CHECK_INTERVAL_MS = 30_000;
+export const RISK_ATTEMPT_CHANCE = 0.04;
+export const BAIL_EARNINGS_SECONDS = 95;
+export const TERRITORY_BASE_COST = 500;
+export const TERRITORY_GROWTH = 5.2;
+export const DISCOUNT_BASE_COST = 1_000;
+export const DISCOUNT_GROWTH = 3.8;
+export const DISCOUNT_PRICE_MULTIPLIER = 0.9;
+export const BULK_UNLOCK_COST = 141_592;
+export const BULK_VISIBLE_EARNINGS = 212_388;
+export const BULK_VALUE_MULTIPLIER = 0.90;
+export const AUTO_BULK_TRIGGER_STOCK = 1_500;
+export const AUTO_BULK_RETAIN_STOCK = 500;
+export const MARKET_CHECK_INTERVAL_MS = 30_000;
+export const MARKET_EVENT_CHANCE = 0.10;
+export const MARKET_MULTIPLIER_MIN = 2;
+export const MARKET_MULTIPLIER_MAX = 5;
+export const MARKET_DURATION_MIN_MS = 60_000;
+export const MARKET_DURATION_MAX_MS = 160_000;
+export const CAPTAIN_VISIBLE_EARNINGS = 7_500_000;
+export const CAPTAIN_BASE_COST = 5_000_000;
+export const CAPTAIN_COST_GROWTH = 1.18;
+export const CAPTAIN_BASE_VOLUME_MULTIPLIER = 1.5;
+export const CAPTAIN_BASE_MARGIN_MULTIPLIER = 1.5;
+export const CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER = 4;
+export const OFFLINE_MIN_AWAY_MS = 30_000;
+export const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
+
+const toRecord = <K extends string, V>(entries: readonly (readonly [K, V])[]) =>
+  Object.fromEntries(entries) as Record<K, V>;
+
+const upgrades = {
+  weed: [
+    { id: 'fertilizer', name: 'Fertilizer', baseCost: 500, productionBonus: 0.30 },
+    { id: 'hydroponics', name: 'Hydroponics', baseCost: 6_500, productionBonus: 0.50 },
+  ],
+  mushrooms: [
+    { id: 'autoHygrometer', name: 'Auto Hygrometer', baseCost: 5_000, productionBonus: 0.50 },
+    { id: 'irrigationSystem', name: 'Irrigation System', baseCost: 25_000, productionBonus: 0.50 },
+  ],
+  meth: [
+    { id: 'recreationalVehicle', name: 'Recreational Vehicle', baseCost: 40_000, productionBonus: 0.50 },
+    { id: 'undergroundLab', name: 'Underground Lab', baseCost: 130_000, productionBonus: 0.50 },
+  ],
+  speed: [
+    { id: 'corruptChemist', name: 'Corrupt Chemist', baseCost: 75_000, productionBonus: 0.60 },
+    { id: 'criminalPharmacy', name: 'Criminal Pharmacy', baseCost: 190_000, productionBonus: 0.50 },
+  ],
+  acid: [
+    { id: 'collegeEducation', name: 'College Education', baseCost: 80_000, productionBonus: 0.50 },
+    { id: 'digitalDistillation', name: 'Digital Distillation', baseCost: 120_000, productionBonus: 0.50 },
+  ],
+  crack: [
+    { id: 'gangProtection', name: 'Gang Protection', baseCost: 145_000, productionBonus: 0.50 },
+    { id: 'policePayoff', name: 'Police Payoff', baseCost: 280_000, productionBonus: 0.45 },
+  ],
+  pcp: [
+    { id: 'haberProcessResearch', name: 'Haber Process Research', baseCost: 190_000, productionBonus: 0.50 },
+    { id: 'massSpectrometer', name: 'Mass Spectrometer', baseCost: 550_000, productionBonus: 0.70 },
+  ],
+  heroin: [
+    { id: 'polytunnelComplex', name: 'Polytunnel Complex', baseCost: 210_000, productionBonus: 0.50 },
+    { id: 'cropdusting', name: 'Cropdusting', baseCost: 750_000, productionBonus: 0.50 },
+  ],
+  mdma: [
+    { id: 'phdStudents', name: 'PhD Students', baseCost: 250_000, productionBonus: 0.60 },
+    { id: 'researchFacility', name: 'Research Facility', baseCost: 1_000_000, productionBonus: 0.40 },
+  ],
+  cocaine: [
+    { id: 'plasticSurgeryDisguise', name: 'Plastic Surgery Disguise', baseCost: 350_000, productionBonus: 0.30 },
+    { id: 'cartelDeal', name: 'Cartel Deal', baseCost: 1_500_000, productionBonus: 0.80 },
+    { id: 'deaMole', name: 'DEA Mole', baseCost: 2_500_000, productionBonus: 0.50 },
+  ],
+  nuke: [
+    { id: 'cultLeaderCain', name: 'Cult Leader Cain', baseCost: 14_500_000, productionBonus: 0.60 },
+    { id: 'deprogrammedRobocop', name: 'Deprogrammed Robocop', baseCost: 28_000_000, productionBonus: 0.50 },
+  ],
+  cyberCrank: [
+    { id: 'neuralNetResearch', name: 'Neural Net Research', baseCost: 45_000_000, productionBonus: 0.50 },
+    { id: 'globalBotnet', name: 'Global Botnet', baseCost: 75_000_000, productionBonus: 0.45 },
+  ],
+  ephemerol: [
+    { id: 'humanTestSubjects', name: 'Human Test Subjects', baseCost: 120_000_000, productionBonus: 0.60 },
+    { id: 'conSecScanner', name: 'ConSec Scanner', baseCost: 275_000_000, productionBonus: 0.75 },
+  ],
+  sloMo: [{ id: 'peachtreeBlock', name: 'Peachtree Block', baseCost: 575_000_000, productionBonus: 1.00 }],
+  drencrom: [{ id: 'ludovicoTechnique', name: 'The Ludovico Technique', baseCost: 575_000_000, productionBonus: 1.00 }],
+  melange: [
+    { id: 'guildNavigator', name: 'Guild Navigator', baseCost: 2_575_000_000, productionBonus: 0.30 },
+    { id: 'muadDib', name: "Muad'Dib", baseCost: 7_900_000_000, productionBonus: 0.50 },
+  ],
 } as const;
 
-export const PRODUCT_TIERS: Record<string, number> = {
-  weed: TIER_DATA.weed.sellPrice,
-  mushrooms: TIER_DATA.mushrooms.sellPrice,
-  blueLotus: TIER_DATA.blueLotus.sellPrice,
-  frostBite: TIER_DATA.frostBite.sellPrice,
-  electricLace: TIER_DATA.electricLace.sellPrice,
-  meth: TIER_DATA.meth.sellPrice,
-  pharmGrade: TIER_DATA.pharmGrade.sellPrice,
-  khole: TIER_DATA.khole.sellPrice,
-  lunarRegolith: TIER_DATA.lunarRegolith.sellPrice,
-  martianSpores: TIER_DATA.martianSpores.sellPrice,
-  nebulaMist: TIER_DATA.nebulaMist.sellPrice,
-  voidCrystals: TIER_DATA.voidCrystals.sellPrice,
-  chronoSalt: TIER_DATA.chronoSalt.sellPrice,
-  stardustResin: TIER_DATA.stardustResin.sellPrice,
-  darkMatterInk: TIER_DATA.darkMatterInk.sellPrice,
-  singularityShards: TIER_DATA.singularityShards.sellPrice,
-  neutronFlakes: TIER_DATA.neutronFlakes.sellPrice,
-  galacticCore: TIER_DATA.galacticCore.sellPrice,
-};
+export const PRODUCT_CATALOG = [
+  { id: 'weed', name: 'Weed', researchCost: 0, streetValue: 4.2, producer: { name: 'Cannabis Plant', baseCost: 15, growth: 1.12, baseRate: 0.20 }, upgrades: upgrades.weed },
+  { id: 'mushrooms', name: 'Magic Mushrooms', researchCost: 2_000, streetValue: 6, producer: { name: 'Mushroom Farm', baseCost: 150, growth: 1.15, baseRate: 0.30 }, upgrades: upgrades.mushrooms },
+  { id: 'meth', name: 'Meth', researchCost: 7_000, streetValue: 10, producer: { name: 'Meth Cook', baseCost: 1_000, growth: 1.20, baseRate: 0.50 }, upgrades: upgrades.meth },
+  { id: 'speed', name: 'Speed', researchCost: 20_000, streetValue: 15, producer: { name: 'Base Chef', baseCost: 2_500, growth: 1.21, baseRate: 0.40 }, upgrades: upgrades.speed },
+  { id: 'acid', name: 'Acid', researchCost: 40_000, streetValue: 20, producer: { name: 'Lab Technician', baseCost: 5_000, growth: 1.22, baseRate: 0.50 }, upgrades: upgrades.acid },
+  { id: 'crack', name: 'Crack', researchCost: 75_000, streetValue: 30, producer: { name: 'Crack Den', baseCost: 10_000, growth: 1.23, baseRate: 0.50 }, upgrades: upgrades.crack },
+  { id: 'pcp', name: 'PCP', researchCost: 90_000, streetValue: 40, producer: { name: 'Chemical Lab', baseCost: 20_000, growth: 1.24, baseRate: 0.40 }, upgrades: upgrades.pcp },
+  { id: 'heroin', name: 'Heroin', researchCost: 120_000, streetValue: 50, producer: { name: 'Opium Farm', baseCost: 30_000, growth: 1.25, baseRate: 0.50 }, upgrades: upgrades.heroin },
+  { id: 'mdma', name: 'MDMA', researchCost: 180_000, streetValue: 60, producer: { name: 'Chemistry Professor', baseCost: 40_000, growth: 1.26, baseRate: 0.40 }, upgrades: upgrades.mdma },
+  { id: 'cocaine', name: 'Cocaine', researchCost: 250_000, streetValue: 70, producer: { name: 'Drug Mule', baseCost: 50_000, growth: 1.27, baseRate: 0.25 }, upgrades: upgrades.cocaine },
+  { id: 'nuke', name: 'Nuke', researchCost: 5_500_000, streetValue: 240, producer: { name: 'Robot Criminal', baseCost: 700_000, growth: 1.28, baseRate: 0.16 }, upgrades: upgrades.nuke },
+  { id: 'cyberCrank', name: 'Cyber Crank', researchCost: 15_000_000, streetValue: 666.67, producer: { name: 'Blackhat Hivemind', baseCost: 2_500_000, growth: 1.29, baseRate: 0.08 }, upgrades: upgrades.cyberCrank },
+  { id: 'ephemerol', name: 'Ephemerol', researchCost: 95_000_000, streetValue: 3_400, producer: { name: 'Secret Facility', baseCost: 5_000_000, growth: 1.30, baseRate: 0.04 }, upgrades: upgrades.ephemerol },
+  { id: 'sloMo', name: 'Slo-mo', researchCost: 465_000_000, streetValue: 11_250, producer: { name: 'Chem-tech', baseCost: 12_000_000, growth: 1.31, baseRate: 0.02 }, upgrades: upgrades.sloMo },
+  { id: 'drencrom', name: 'Drencrom', researchCost: 1_200_000_000, streetValue: 63_250, producer: { name: 'Droog Squad', baseCost: 35_000_000, growth: 1.31, baseRate: 0.015 }, upgrades: upgrades.drencrom },
+  { id: 'melange', name: 'Melange', researchCost: 4_840_000_000, streetValue: 270_000, producer: { name: 'Sandworm', baseCost: 75_000_000, growth: 1.32, baseRate: 0.01 }, upgrades: upgrades.melange },
+] as const satisfies readonly ProductDefinition[];
 
-export const UNLOCK_COSTS: Record<string, number> = {
-  weed: TIER_DATA.weed.unlockCost,
-  mushrooms: TIER_DATA.mushrooms.unlockCost,
-  blueLotus: TIER_DATA.blueLotus.unlockCost,
-  frostBite: TIER_DATA.frostBite.unlockCost,
-  electricLace: TIER_DATA.electricLace.unlockCost,
-  meth: TIER_DATA.meth.unlockCost,
-  pharmGrade: TIER_DATA.pharmGrade.unlockCost,
-  khole: TIER_DATA.khole.unlockCost,
-  lunarRegolith: TIER_DATA.lunarRegolith.unlockCost,
-  martianSpores: TIER_DATA.martianSpores.unlockCost,
-  nebulaMist: TIER_DATA.nebulaMist.unlockCost,
-  voidCrystals: TIER_DATA.voidCrystals.unlockCost,
-  chronoSalt: TIER_DATA.chronoSalt.unlockCost,
-  stardustResin: TIER_DATA.stardustResin.unlockCost,
-  darkMatterInk: TIER_DATA.darkMatterInk.unlockCost,
-  singularityShards: TIER_DATA.singularityShards.unlockCost,
-  neutronFlakes: TIER_DATA.neutronFlakes.unlockCost,
-  galacticCore: TIER_DATA.galacticCore.unlockCost,
-};
+export const EQUIPMENT_CATALOG = [
+  { id: 'baseballBat', name: 'Baseball Bat', baseCost: 150, effect: { marginBonus: 0.10 } },
+  { id: 'bicycle', name: 'Bicycle', baseCost: 600, effect: { volumeBonus: 0.10 } },
+  { id: 'iphone6Plus', name: 'iPhone 6 Plus', baseCost: 900, effect: { secondarySalesBonus: 0.10 } },
+  { id: 'glock17', name: 'Glock 17', baseCost: 5_000, effect: { marginBonus: 0.20 } },
+  { id: 'superbike', name: 'Superbike', baseCost: 25_000, effect: { volumeBonus: 0.20 } },
+  { id: 'personalAssistant', name: 'Personal Assistant', baseCost: 85_000, effect: { secondarySalesBonus: 0.20 } },
+  { id: 'armedGang', name: 'Armed Gang', baseCost: 150_000, effect: { marginBonus: 0.20 } },
+  { id: 'ferrari458', name: 'Ferrari 458 Italia', baseCost: 575_000, effect: { volumeBonus: 0.30 } },
+  { id: 'personalHelicopter', name: 'Personal Helicopter', baseCost: 1_890_000, effect: { volumeBonus: 0.60 } },
+  { id: 'luxurySpeedboat', name: 'Luxury Speedboat', baseCost: 5_460_000, effect: { volumeBonus: 0.80 } },
+  { id: 'personalArmy', name: 'Personal Army', baseCost: 21_630_000, effect: { marginBonus: 0.30 } },
+] as const satisfies readonly EquipmentDefinition[];
 
-export const INITIAL_GAME_STATE: GameState = {
-  money: 250.00,
-  totalEarned: 0,
-  researchSpeed: 1.0,
-  production: {
-    weed: {
-      id: "weed",
-      name: TIER_DATA.weed.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.weed.yieldPerLevel,
-      costMultiplier: TIER_DATA.weed.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.weed.c0
-    },
-    mushrooms: {
-      id: "mushrooms",
-      name: TIER_DATA.mushrooms.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.mushrooms.yieldPerLevel,
-      costMultiplier: TIER_DATA.mushrooms.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.mushrooms.c0
-    },
-    blueLotus: {
-      id: "blueLotus",
-      name: TIER_DATA.blueLotus.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.blueLotus.yieldPerLevel,
-      costMultiplier: TIER_DATA.blueLotus.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.blueLotus.c0
-    },
-    frostBite: {
-      id: "frostBite",
-      name: TIER_DATA.frostBite.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.frostBite.yieldPerLevel,
-      costMultiplier: TIER_DATA.frostBite.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.frostBite.c0
-    },
-    electricLace: {
-      id: "electricLace",
-      name: TIER_DATA.electricLace.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.electricLace.yieldPerLevel,
-      costMultiplier: TIER_DATA.electricLace.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.electricLace.c0
-    },
-    meth: {
-      id: "meth",
-      name: TIER_DATA.meth.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.meth.yieldPerLevel,
-      costMultiplier: TIER_DATA.meth.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.meth.c0
-    },
-    pharmGrade: {
-      id: "pharmGrade",
-      name: TIER_DATA.pharmGrade.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.pharmGrade.yieldPerLevel,
-      costMultiplier: TIER_DATA.pharmGrade.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.pharmGrade.c0
-    },
-    khole: {
-      id: "khole",
-      name: TIER_DATA.khole.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.khole.yieldPerLevel,
-      costMultiplier: TIER_DATA.khole.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.khole.c0
-    },
-    lunarRegolith: {
-      id: "lunarRegolith",
-      name: TIER_DATA.lunarRegolith.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.lunarRegolith.yieldPerLevel,
-      costMultiplier: TIER_DATA.lunarRegolith.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.lunarRegolith.c0
-    },
-    martianSpores: {
-      id: "martianSpores",
-      name: TIER_DATA.martianSpores.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.martianSpores.yieldPerLevel,
-      costMultiplier: TIER_DATA.martianSpores.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.martianSpores.c0
-    },
-    nebulaMist: {
-      id: "nebulaMist",
-      name: TIER_DATA.nebulaMist.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.nebulaMist.yieldPerLevel,
-      costMultiplier: TIER_DATA.nebulaMist.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.nebulaMist.c0
-    },
-    voidCrystals: {
-      id: "voidCrystals",
-      name: TIER_DATA.voidCrystals.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.voidCrystals.yieldPerLevel,
-      costMultiplier: TIER_DATA.voidCrystals.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.voidCrystals.c0
-    },
-    chronoSalt: {
-      id: "chronoSalt",
-      name: TIER_DATA.chronoSalt.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.chronoSalt.yieldPerLevel,
-      costMultiplier: TIER_DATA.chronoSalt.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.chronoSalt.c0
-    },
-    stardustResin: {
-      id: "stardustResin",
-      name: TIER_DATA.stardustResin.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.stardustResin.yieldPerLevel,
-      costMultiplier: TIER_DATA.stardustResin.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.stardustResin.c0
-    },
-    darkMatterInk: {
-      id: "darkMatterInk",
-      name: TIER_DATA.darkMatterInk.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.darkMatterInk.yieldPerLevel,
-      costMultiplier: TIER_DATA.darkMatterInk.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.darkMatterInk.c0
-    },
-    singularityShards: {
-      id: "singularityShards",
-      name: TIER_DATA.singularityShards.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.singularityShards.yieldPerLevel,
-      costMultiplier: TIER_DATA.singularityShards.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.singularityShards.c0
-    },
-    neutronFlakes: {
-      id: "neutronFlakes",
-      name: TIER_DATA.neutronFlakes.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.neutronFlakes.yieldPerLevel,
-      costMultiplier: TIER_DATA.neutronFlakes.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.neutronFlakes.c0
-    },
-    galacticCore: {
-      id: "galacticCore",
-      name: TIER_DATA.galacticCore.name,
-      stock: 0,
-      rate: 0,
-      yieldPerLevel: TIER_DATA.galacticCore.yieldPerLevel,
-      costMultiplier: TIER_DATA.galacticCore.costMultiplier,
-      level: 0,
-      upgradeCost: TIER_DATA.galacticCore.c0
-    }
-  },
-  unlockedProduction: ["weed"],
-  activeDealers: [null, null, null],
+export const MUSCLE_CATALOG = [
+  { id: 'hoodRat', name: 'Hood Rat', baseCost: 80, respectPerSecond: 1, growth: 1.20 },
+  { id: 'youngThug', name: 'Young Thug', baseCost: 1_000, respectPerSecond: 5, growth: 1.25 },
+  { id: 'hiredGoon', name: 'Hired Goon', baseCost: 12_000, respectPerSecond: 75, growth: 1.27 },
+  { id: 'crookedCop', name: 'Crooked Cop', baseCost: 130_000, respectPerSecond: 500, growth: 1.28 },
+  { id: 'boughtJudge', name: 'Bought Judge', baseCost: 1_500_000, respectPerSecond: 2_000, growth: 1.30 },
+  { id: 'corruptSenator', name: 'Corrupt Senator', baseCost: 4_500_000, respectPerSecond: 7_500, growth: 1.31 },
+  { id: 'puppetWorldLeader', name: 'Puppet World Leader', baseCost: 33_700_000, respectPerSecond: 45_000, growth: 1.32 },
+  { id: 'hunterKillerSubmarine', name: 'Hunter Killer Submarine', baseCost: 7_500_100_800, respectPerSecond: 150_000, growth: 1.33 },
+  { id: 'nimitzCarrier', name: 'Nimitz-class Aircraft Carrier', baseCost: 45_500_700_000, respectPerSecond: 350_000, growth: 1.34 },
+  { id: 'orbitalIonCannon', name: 'Orbital Ion Cannon', baseCost: 9_345_500_700_000, respectPerSecond: 7_490_000, growth: 1.35 },
+] as const satisfies readonly MuscleWorkerDefinition[];
+
+export const CAPTAIN_LEVEL_THRESHOLDS = [
+  500_000, 950_000, 1_810_000, 3_430_000, 6_520_000,
+  12_380_000, 23_520_000, 44_690_000, 84_920_000, 161_340_000,
+] as const;
+
+export const createBaseGameState = (now: number): GameState => ({
+  schemaVersion: 2,
+  cash: STARTING_CASH,
+  runEarnings: 0,
+  respect: 0,
+  production: toRecord(PRODUCT_CATALOG.map((product) => [
+    product.id,
+    { stock: 0, producersOwned: 0, purchasedUpgradeIds: [] },
+  ] as const)),
+  unlockedProducts: ['weed'],
+  muscleOwned: toRecord(MUSCLE_CATALOG.map((worker) => [worker.id, 0] as const)),
+  territoryLevel: 0,
+  discountLevel: 0,
+  activeDealers: [null],
   availableDealers: [],
-  unlockedSlots: 1,
-  lastRefreshTime: 0,
-  lastEarningsPerDealer: {},
-  lastTickAt: 0,
+  lastDealerRefreshAt: now,
+  captains: [],
+  kingpins: 0,
+  bulkUnlocked: false,
+  autoBulkEnabled: false,
+  activeMarketEvent: null,
+  nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
+  nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,
+  lastEarningsPerSeller: {},
+  lastTickAt: now,
   offlineEarningsSummary: null,
-};
-
-// Star-based dealer stat ranges (rolled once at generation)
-export const VOLUME_RANGES: Record<number, [number, number]> = {
-  1: [1.0, 1.5],
-  2: [1.5, 2.5],
-  3: [2.5, 3.5],
-  4: [3.5, 4.5],
-  5: [4.5, 5.5],
-};
-
-export const MARGIN_RANGES: Record<number, [number, number]> = {
-  1: [0.42, 0.50],
-  2: [0.51, 0.78],
-  3: [0.90, 1.10],
-  4: [1.20, 1.40],
-  5: [1.50, 1.70],
-};
-
-// Min values for upgrade calculations
-export const VOLUME_BY_STARS: Record<number, number> = { 1: 1.0, 2: 1.5, 3: 2.5, 4: 3.5, 5: 4.5 };
-export const MARGIN_BY_STARS: Record<number, number> = { 1: 0.42, 2: 0.51, 3: 0.90, 4: 1.20, 5: 1.50 };
-
-// Upgrade type constants
-export const UPGRADE_TYPES = {
-  VOLUME: 'VOLUME',
-  MARGIN: 'MARGIN',
-  ALL_AROUNDER: 'ALL_AROUNDER',
-  BULK: 'BULK',
-  SIDE_HUSTLE: 'SIDE_HUSTLE',
-} as const;
-
-export const SLOT_UNLOCK_COSTS = [0, 1000, 100000]; // Slot 0 is free, 1 is $1k, 2 is $100k
-
-export const DEALER_FIRST_NAMES = ['Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake', 'Mick', 'Jack', 'Dave', 'Miller', 'Bob', 'Ghost'];
-export const DEALER_LAST_NAMES = ['Palmer', 'Dave', 'Bob', 'Carlos', 'Snake', 'Miller', 'The Fixer', 'The Ghost', 'Slick'];
-
-export const DEALER_PROTECTION_INCOME_MULTIPLIER = 0.85;
-
-export const ARREST_CHECK_INTERVAL_MS = {
-  min: 300_000,
-  max: 600_000,
-} as const;
-
-export const BAIL_BASE_FLOOR = 500;
-export const BAIL_INCOME_MULTIPLIER = 45;
-
-export const PRODUCT_ARREST_RISK: Record<string, { chance: number; label: 'LOW' | 'MEDIUM' | 'HIGH' }> = {
-  weed: { chance: 0.10, label: 'LOW' },
-  mushrooms: { chance: 0.12, label: 'LOW' },
-  blueLotus: { chance: 0.15, label: 'MEDIUM' },
-  frostBite: { chance: 0.17, label: 'MEDIUM' },
-  electricLace: { chance: 0.20, label: 'MEDIUM' },
-  meth: { chance: 0.25, label: 'HIGH' },
-  pharmGrade: { chance: 0.28, label: 'HIGH' },
-  khole: { chance: 0.30, label: 'HIGH' },
-  lunarRegolith: { chance: 0.33, label: 'HIGH' },
-  martianSpores: { chance: 0.36, label: 'HIGH' },
-  nebulaMist: { chance: 0.40, label: 'HIGH' },
-  voidCrystals: { chance: 0.45, label: 'HIGH' },
-  chronoSalt: { chance: 0.50, label: 'HIGH' },
-  stardustResin: { chance: 0.55, label: 'HIGH' },
-  darkMatterInk: { chance: 0.60, label: 'HIGH' },
-  singularityShards: { chance: 0.65, label: 'HIGH' },
-  neutronFlakes: { chance: 0.70, label: 'HIGH' },
-  galacticCore: { chance: 0.75, label: 'HIGH' },
-};
+});

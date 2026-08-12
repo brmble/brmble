@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     isVisible: vi.fn((id: string) => ids.has(id)), visibleCount: 0, totalCount: 0,
   };
   const sidebarProps = { current: null as null | Record<string, unknown> };
+  const headerProps = { current: null as null | Record<string, unknown> };
   const matrixClient = {
     lastMessages: new Map(), activeMessages: [], setActiveChannel: vi.fn(), sendMessage: vi.fn(), sendImageMessage: vi.fn(),
     uploadContent: vi.fn(), fetchHistory: vi.fn(), sendReaction: vi.fn(), removeReaction: vi.fn(), dmLastMessages: new Map(),
@@ -50,7 +51,7 @@ const mocks = vi.hoisted(() => {
     remoteVideoEls: new Map(), roomQuality: undefined, shareQualities: new Map(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
     disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
-  return { ids, gameState, duelQueue, notificationQueue, sidebarProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
+  return { ids, gameState, duelQueue, notificationQueue, sidebarProps, headerProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
 });
 
 vi.mock('./bridge', () => {
@@ -80,7 +81,10 @@ vi.mock('./components/Games/useGameState', async (importOriginal) => {
 });
 vi.mock('./components/Games/useDuelQueueState', () => ({ useDuelQueueState: () => mocks.duelQueue }));
 vi.mock('./hooks/useNotificationQueue', () => ({ useNotificationQueue: () => mocks.notificationQueue }));
-vi.mock('./components/Header/Header', () => ({ Header: () => null }));
+vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => {
+  mocks.headerProps.current = props;
+  return null;
+} }));
 vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: (props: Record<string, unknown>) => {
   mocks.sidebarProps.current = props;
   const open = props.onOpenDuelQueue as ((id: number) => void) | undefined;
@@ -90,7 +94,7 @@ vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => <section d
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => null }));
 vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => null }));
 vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
-vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
+vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => <div data-testid="neon-d-game" /> }));
 vi.mock('./components/SettingsModal/SettingsModal', () => ({
   DEFAULT_SCREEN_SHARE: { captureAudio: false, resolution: '1080p', fps: 30, systemAudio: false, viewerMode: 'in-app' },
   SettingsModal: () => null,
@@ -212,8 +216,30 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.incomingRematch = null;
     mocks.duelQueue.outgoingRematch = null;
     mocks.duelQueue.commandError = null;
+    mocks.headerProps.current = null;
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
+  });
+
+  it('keeps Neon-D closed across disconnect and reconnect until it is opened again', () => {
+    const toggleGame = () => {
+      (mocks.headerProps.current?.onToggleGame as (() => void) | undefined)?.();
+    };
+
+    renderApp();
+    emitBridge('voice.connected', { channelId: 0, users: [] });
+
+    act(toggleGame);
+    expect(screen.getByTestId('neon-d-game')).toBeInTheDocument();
+
+    emitBridge('voice.disconnected');
+    expect(screen.queryByTestId('neon-d-game')).not.toBeInTheDocument();
+
+    emitBridge('voice.connected', { channelId: 0, users: [] });
+    expect(screen.queryByTestId('neon-d-game')).not.toBeInTheDocument();
+
+    act(toggleGame);
+    expect(screen.getByTestId('neon-d-game')).toBeInTheDocument();
   });
 
   it('derives the badge, opens the selected snapshot, and leaves screen share UI untouched', () => {
