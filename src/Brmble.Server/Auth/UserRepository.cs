@@ -7,7 +7,13 @@ using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
 
-public record User(long Id, string CertHash, string DisplayName, string MatrixUserId, string? MatrixAccessToken);
+public partial record User(long Id, string CertHash, string DisplayName, string MatrixUserId);
+
+public partial record User
+{
+    public User(long id, string certHash, string displayName, string matrixUserId, string? _)
+        : this(id, certHash, displayName, matrixUserId) { }
+}
 
 public class UserRepository
 {
@@ -30,7 +36,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId
             FROM users
             WHERE cert_hash = @CertHash
             """,
@@ -58,7 +64,7 @@ public class UserRepository
             tx);
 
         tx.Commit();
-        return new User(id, certHash, finalDisplayName, matrixUserId, null);
+        return new User(id, certHash, finalDisplayName, matrixUserId);
     }
 
     public async Task UpdateDisplayName(long id, string displayName)
@@ -69,20 +75,12 @@ public class UserRepository
             new { DisplayName = displayName, Id = id });
     }
 
-    public async Task UpdateMatrixToken(long id, string token)
-    {
-        using var conn = _db.CreateConnection();
-        await conn.ExecuteAsync(
-            "UPDATE users SET matrix_access_token = @Token WHERE id = @Id",
-            new { Token = token, Id = id });
-    }
-
     public async Task<List<User>> GetAllAsync()
     {
         using var conn = _db.CreateConnection();
         var users = await conn.QueryAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId
             FROM users
             """);
         return users.ToList();
@@ -200,7 +198,7 @@ public class UserRepository
         using var conn = _db.CreateConnection();
         return await conn.QuerySingleOrDefaultAsync<User>(
             """
-            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId, matrix_access_token AS MatrixAccessToken
+            SELECT id AS Id, cert_hash AS CertHash, display_name AS DisplayName, matrix_user_id AS MatrixUserId
             FROM users
             WHERE matrix_user_id = @MatrixUserId
             """,

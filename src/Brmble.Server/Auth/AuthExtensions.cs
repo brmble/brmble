@@ -12,6 +12,7 @@ public static class AuthExtensions
         // Legacy Matrix token migration is activated in Program.cs only after the
         // live AuthService/UserRepository token path is switched to MatrixTokenStore.
         services.AddSingleton<MatrixTokenStore>();
+        services.AddHostedService<MatrixTokenRevocationService>();
         return services;
     }
 }

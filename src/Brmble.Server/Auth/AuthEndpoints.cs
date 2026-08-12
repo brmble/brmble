@@ -213,6 +213,8 @@ public static class AuthEndpoints
             {
                 ["homeserverUrl"] = publicHomeserverUrl,
                 ["accessToken"] = result.MatrixAccessToken,
+                ["accessTokenExpiresAt"] = result.MatrixAccessTokenExpiresAt,
+                ["accessTokenRefreshAt"] = result.MatrixAccessTokenRefreshAt,
                 ["userId"] = result.MatrixUserId,
                 ["roomMap"] = roomMap,
                 ["dmRoomMap"] = dmRoomMap

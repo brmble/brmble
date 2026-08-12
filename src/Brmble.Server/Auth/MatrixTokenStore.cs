@@ -9,9 +9,11 @@ internal sealed record MatrixTokenLease(
     long UserId,
     string AccessToken,
     long ExpiresAtUnixMs,
-    string StoredValue);
+    string StoredValue,
+    int RevocationAttemptCount = 0,
+    long? RevocationNextAttemptAtUnixMs = null);
 
-internal sealed class MatrixTokenStore
+public sealed class MatrixTokenStore
 {
     internal const string StoragePrefix = "dp:v1:";
     private const string ProtectorPurpose = "Brmble.Server.Auth.MatrixAccessToken.v1";
@@ -19,7 +21,7 @@ internal sealed class MatrixTokenStore
     private readonly Database _db;
     private readonly IDataProtector _protector;
 
-    internal MatrixTokenStore(Database db, IDataProtectionProvider dataProtectionProvider)
+    public MatrixTokenStore(Database db, IDataProtectionProvider dataProtectionProvider)
     {
         _db = db;
         _protector = dataProtectionProvider.CreateProtector(ProtectorPurpose);
@@ -31,7 +33,9 @@ internal sealed class MatrixTokenStore
         var row = await conn.QuerySingleOrDefaultAsync<TokenRow>("""
             SELECT id AS UserId,
                    matrix_access_token AS StoredValue,
-                   token_expires_at AS ExpiresAtUnixMs
+                   token_expires_at AS ExpiresAtUnixMs,
+                   token_revocation_attempt_count AS RevocationAttemptCount,
+                   token_revocation_next_attempt_at AS RevocationNextAttemptAtUnixMs
             FROM users
             WHERE id = @UserId
             """, new { UserId = userId });
@@ -49,7 +53,9 @@ internal sealed class MatrixTokenStore
         var changed = await conn.ExecuteAsync("""
             UPDATE users
             SET matrix_access_token = @StoredValue,
-                token_expires_at = @ExpiresAtUnixMs
+                token_expires_at = @ExpiresAtUnixMs,
+                token_revocation_attempt_count = 0,
+                token_revocation_next_attempt_at = NULL
             WHERE id = @UserId
             """, new { UserId = userId, StoredValue = storedValue, ExpiresAtUnixMs = expiresAtUnixMs });
 
@@ -65,7 +71,9 @@ internal sealed class MatrixTokenStore
         var changed = await conn.ExecuteAsync("""
             UPDATE users
             SET matrix_access_token = NULL,
-                token_expires_at = NULL
+                token_expires_at = NULL,
+                token_revocation_attempt_count = 0,
+                token_revocation_next_attempt_at = NULL
             WHERE id = @UserId
               AND matrix_access_token = @ExpectedStoredValue
             """, new { UserId = userId, ExpectedStoredValue = expectedStoredValue });
@@ -77,25 +85,30 @@ internal sealed class MatrixTokenStore
         using var conn = _db.CreateConnection();
         var changed = await conn.ExecuteAsync("""
             UPDATE users
-            SET token_expires_at = @ExpiresAtUnixMs
+            SET token_expires_at = @ExpiresAtUnixMs,
+                token_revocation_next_attempt_at = COALESCE(token_revocation_next_attempt_at, @ExpiresAtUnixMs)
             WHERE id = @UserId
               AND matrix_access_token = @ExpectedStoredValue
             """, new { UserId = userId, ExpectedStoredValue = expectedStoredValue, ExpiresAtUnixMs = expiresAtUnixMs });
         return changed == 1;
     }
 
-    internal async Task<IReadOnlyList<MatrixTokenLease>> GetExpiredAsync(long nowUnixMs, int limit = 100)
+    internal async Task<IReadOnlyList<MatrixTokenLease>> GetRevocationDueAsync(long nowUnixMs, int limit = 100)
     {
         using var conn = _db.CreateConnection();
         var rows = (await conn.QueryAsync<TokenRow>("""
             SELECT id AS UserId,
                    matrix_access_token AS StoredValue,
-                   token_expires_at AS ExpiresAtUnixMs
+                   token_expires_at AS ExpiresAtUnixMs,
+                   token_revocation_attempt_count AS RevocationAttemptCount,
+                   token_revocation_next_attempt_at AS RevocationNextAttemptAtUnixMs
             FROM users
             WHERE matrix_access_token IS NOT NULL
               AND token_expires_at IS NOT NULL
               AND token_expires_at <= @NowUnixMs
-            ORDER BY token_expires_at, id
+              AND (token_revocation_next_attempt_at IS NULL OR token_revocation_next_attempt_at <= @NowUnixMs)
+            ORDER BY CASE WHEN token_revocation_attempt_count = 0 THEN 0 ELSE 1 END,
+                     COALESCE(token_revocation_next_attempt_at, token_expires_at), token_expires_at, id
             LIMIT @Limit
             """, new { NowUnixMs = nowUnixMs, Limit = limit })).ToList();
 
@@ -105,13 +118,18 @@ internal sealed class MatrixTokenStore
             .ToList();
     }
 
+    internal Task<IReadOnlyList<MatrixTokenLease>> GetExpiredAsync(long nowUnixMs, int limit = 100) =>
+        GetRevocationDueAsync(nowUnixMs, limit);
+
     internal async Task<int> ProtectLegacyTokensAsync(long nowUnixMs)
     {
         using var conn = _db.CreateConnection();
         var rows = (await conn.QueryAsync<TokenRow>("""
             SELECT id AS UserId,
                    matrix_access_token AS StoredValue,
-                   token_expires_at AS ExpiresAtUnixMs
+                   token_expires_at AS ExpiresAtUnixMs,
+                   token_revocation_attempt_count AS RevocationAttemptCount,
+                   token_revocation_next_attempt_at AS RevocationNextAttemptAtUnixMs
             FROM users
             WHERE matrix_access_token IS NOT NULL
             """)).ToList();
@@ -133,12 +151,24 @@ internal sealed class MatrixTokenStore
             await conn.ExecuteAsync("""
                 UPDATE users
                 SET matrix_access_token = @StoredValue,
-                    token_expires_at = @ExpiresAtUnixMs
+                    token_expires_at = @ExpiresAtUnixMs,
+                    token_revocation_next_attempt_at = CASE WHEN token_revocation_next_attempt_at IS NULL AND @ExpiresAtUnixMs <= @NowUnixMs THEN @NowUnixMs ELSE token_revocation_next_attempt_at END
                 WHERE id = @UserId
-                """, new { row.UserId, StoredValue = storedValue, ExpiresAtUnixMs = expiresAt });
+                """, new { row.UserId, StoredValue = storedValue, ExpiresAtUnixMs = expiresAt, NowUnixMs = nowUnixMs });
         }
 
         return migrated;
+    }
+
+    internal async Task<bool> ScheduleRevocationRetryIfCurrentAsync(long userId, string expectedStoredValue, long nextAttemptUnixMs)
+    {
+        using var conn = _db.CreateConnection();
+        var changed = await conn.ExecuteAsync("""
+            UPDATE users SET token_revocation_attempt_count = token_revocation_attempt_count + 1,
+                token_revocation_next_attempt_at = @NextAttemptUnixMs
+            WHERE id = @UserId AND matrix_access_token = @ExpectedStoredValue
+            """, new { UserId = userId, ExpectedStoredValue = expectedStoredValue, NextAttemptUnixMs = nextAttemptUnixMs });
+        return changed == 1;
     }
 
     private MatrixTokenLease ToLease(TokenRow row)
@@ -146,7 +176,8 @@ internal sealed class MatrixTokenStore
         if (row.StoredValue is null || row.ExpiresAtUnixMs is null)
             throw new InvalidOperationException("Incomplete Matrix token row.");
 
-        return new MatrixTokenLease(row.UserId, Unprotect(row.StoredValue), row.ExpiresAtUnixMs.Value, row.StoredValue);
+        return new MatrixTokenLease(row.UserId, Unprotect(row.StoredValue), row.ExpiresAtUnixMs.Value, row.StoredValue,
+            row.RevocationAttemptCount, row.RevocationNextAttemptAtUnixMs);
     }
 
     private string Protect(string accessToken) => StoragePrefix + _protector.Protect(accessToken);
@@ -164,5 +195,7 @@ internal sealed class MatrixTokenStore
         public long UserId { get; set; }
         public string? StoredValue { get; set; }
         public long? ExpiresAtUnixMs { get; set; }
+        public int RevocationAttemptCount { get; set; }
+        public long? RevocationNextAttemptAtUnixMs { get; set; }
     }
 }

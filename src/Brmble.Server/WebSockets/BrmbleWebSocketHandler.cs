@@ -128,7 +128,7 @@ public static class BrmbleWebSocketHandler
         {
             eventBus.RemoveClient(ws);
             if (!eventBus.HasConnectedClient(user.Id))
-                activeSessions.Deactivate(hash);
+                await activeSessions.DeactivateAsync(hash);
         }
     }
 

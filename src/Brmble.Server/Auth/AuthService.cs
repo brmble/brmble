@@ -1,13 +1,16 @@
 // src/Brmble.Server/Auth/AuthService.cs
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using System.Net;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Auth;
 
-public record AuthResult(long UserId, string MatrixUserId, string MatrixAccessToken, string DisplayName, bool IsRegistered = false)
+public record AuthResult(long UserId, string MatrixUserId, string MatrixAccessToken, string DisplayName,
+    DateTimeOffset MatrixAccessTokenExpiresAt, DateTimeOffset MatrixAccessTokenRefreshAt, bool IsRegistered = false)
 {
     /// <summary>Extracts the localpart (e.g. "1") from a full Matrix user ID (e.g. "@1:server").</summary>
     public string Localpart => MatrixUserIdHelper.GetLocalpart(MatrixUserId);
@@ -25,7 +28,7 @@ public interface IActiveBrmbleSessions
     bool IsBrmbleClientByName(string mumbleName);
     void TrackMumbleName(string mumbleName, string? certHash = null, bool active = false);
     void UntrackMumbleName(string mumbleName);
-    void Deactivate(string certHash);
+    Task DeactivateAsync(string certHash);
 }
 
 public class AuthService : IActiveBrmbleSessions
@@ -39,6 +42,10 @@ public class AuthService : IActiveBrmbleSessions
     private readonly IMumbleRegistrationService _mumbleRegistration;
     private readonly ISessionMappingService _sessionMapping;
     private readonly IMappingEventPublisher _publisher;
+    private readonly MatrixTokenStore _matrixTokenStore;
+    private readonly MatrixSettings _matrixSettings;
+    private readonly TimeProvider _timeProvider;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _authGates = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeSessions = [];
     private readonly HashSet<string> _activeNames = [];
     private readonly Dictionary<string, string> _certToName = [];
@@ -53,7 +60,10 @@ public class AuthService : IActiveBrmbleSessions
         ILogger<AuthService> logger,
         IMumbleRegistrationService mumbleRegistration,
         ISessionMappingService sessionMapping,
-        IMappingEventPublisher publisher)
+        IMappingEventPublisher publisher,
+        MatrixTokenStore matrixTokenStore,
+        IOptions<MatrixSettings> matrixSettings,
+        TimeProvider timeProvider)
     {
         _userRepository = userRepository;
         _matrixAppService = matrixAppService;
@@ -61,7 +71,15 @@ public class AuthService : IActiveBrmbleSessions
         _mumbleRegistration = mumbleRegistration;
         _sessionMapping = sessionMapping;
         _publisher = publisher;
+        _matrixTokenStore = matrixTokenStore;
+        _matrixSettings = matrixSettings.Value;
+        _timeProvider = timeProvider;
     }
+
+    public AuthService(UserRepository userRepository, IMatrixAppService matrixAppService, ILogger<AuthService> logger,
+        IMumbleRegistrationService mumbleRegistration, ISessionMappingService sessionMapping, IMappingEventPublisher publisher)
+        : this(userRepository, matrixAppService, logger, mumbleRegistration, sessionMapping, publisher,
+            null!, Options.Create(new MatrixSettings()), TimeProvider.System) { }
 
     public bool IsBrmbleClient(string certHash)
     {
@@ -151,8 +169,16 @@ public class AuthService : IActiveBrmbleSessions
 
     public async Task<AuthResult> Authenticate(string certHash, string? mumbleUsername = null)
     {
-        var user = await _userRepository.GetByCertHash(certHash);
         bool isRegistered = false;
+        var gate = _authGates.GetOrAdd(certHash, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        User user;
+        MatrixTokenLease lease;
+        try
+        {
+            var existingUser = await _userRepository.GetByCertHash(certHash);
+            var isNewUser = existingUser is null;
+            user = existingUser!;
 
         if (user is null)
         {
@@ -178,23 +204,18 @@ public class AuthService : IActiveBrmbleSessions
             }
 
             user = await _userRepository.Insert(certHash, displayName);
-            string token;
             try
             {
-                token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName);
             }
             catch (Exception ex)
             {
                 // User may already exist on the homeserver (e.g. after local DB reset) — fall back to login
                 _logger.LogDebug(ex, "Registration failed for user {UserId}, falling back to login", user.MatrixUserId);
-                token = await _matrixAppService.LoginUser(user.Id.ToString());
             }
-            await _userRepository.UpdateMatrixToken(user.Id, token);
-            user = user with { MatrixAccessToken = token };
         }
-        else if (user.MatrixAccessToken is null)
+        else if (false)
         {
-            string token;
+            string token = string.Empty;
             try
             {
                 token = await _matrixAppService.LoginUser(user.Id.ToString());
@@ -205,8 +226,14 @@ public class AuthService : IActiveBrmbleSessions
                 _logger.LogDebug(ex, "Login failed for user {UserId}, falling back to registration", user.MatrixUserId);
                 token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName);
             }
-            await _userRepository.UpdateMatrixToken(user.Id, token);
-            user = user with { MatrixAccessToken = token };
+            user = user;
+        }
+
+        lease = await EnsureMatrixTokenAsync(user, existingUser is null);
+        }
+        finally
+        {
+            gate.Release();
         }
 
         // Reconcile name with Mumble registration for existing users
@@ -270,10 +297,50 @@ public class AuthService : IActiveBrmbleSessions
                 sessionId = activatedSessionId
             });
 
-        return new AuthResult(user!.Id, user.MatrixUserId, user.MatrixAccessToken!, user.DisplayName, isRegistered);
+        var expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(lease.ExpiresAtUnixMs);
+        return new AuthResult(user.Id, user.MatrixUserId, lease.AccessToken, user.DisplayName, expiresAt,
+            expiresAt.AddMinutes(-_matrixSettings.AccessTokenRefreshSkewMinutes), isRegistered);
     }
 
-    public void Deactivate(string certHash)
+    private async Task<MatrixTokenLease> EnsureMatrixTokenAsync(User user, bool isNewUser)
+    {
+        var now = _timeProvider.GetUtcNow();
+        var cutoff = now.AddMinutes(_matrixSettings.AccessTokenRefreshSkewMinutes).ToUnixTimeMilliseconds();
+        var current = await _matrixTokenStore.GetAsync(user.Id);
+        if (current is not null && current.ExpiresAtUnixMs > cutoff)
+            return current;
+        if (current is not null)
+        {
+            await _matrixAppService.RevokeAccessToken(current.AccessToken);
+            await _matrixTokenStore.ClearIfCurrentAsync(user.Id, current.StoredValue);
+        }
+
+        string token;
+        if (isNewUser)
+        {
+            try { token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Matrix registration failed for user {UserId}; falling back to login. FailureType={FailureType} Status={Status}",
+                    user.MatrixUserId, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
+                token = await _matrixAppService.LoginUser(user.Id.ToString());
+            }
+        }
+        else
+        {
+            try { token = await _matrixAppService.LoginUser(user.Id.ToString()); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Matrix login failed for user {UserId}; falling back to registration. FailureType={FailureType} Status={Status}",
+                    user.MatrixUserId, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
+                token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName);
+            }
+        }
+        return await _matrixTokenStore.SaveAsync(user.Id, token,
+            now.AddMinutes(_matrixSettings.AccessTokenLifetimeMinutes).ToUnixTimeMilliseconds());
+    }
+
+    public async Task DeactivateAsync(string certHash)
     {
         lock (_lock)
         {
@@ -297,6 +364,31 @@ public class AuthService : IActiveBrmbleSessions
                     });
             }
         }
+
+        var gate = _authGates.GetOrAdd(certHash, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            var user = await _userRepository.GetByCertHash(certHash);
+            if (user is null) return;
+            var lease = await _matrixTokenStore.GetAsync(user.Id);
+            if (lease is null) return;
+            var now = _timeProvider.GetUtcNow();
+            await _matrixTokenStore.ExpireIfCurrentAsync(user.Id, lease.StoredValue, now.ToUnixTimeMilliseconds());
+            try
+            {
+                await _matrixAppService.RevokeAccessToken(lease.AccessToken);
+                await _matrixTokenStore.ClearIfCurrentAsync(user.Id, lease.StoredValue);
+            }
+            catch (Exception ex)
+            {
+                await _matrixTokenStore.ScheduleRevocationRetryIfCurrentAsync(user.Id, lease.StoredValue,
+                    now.AddSeconds(_matrixSettings.AccessTokenRevocationRetryBaseSeconds).ToUnixTimeMilliseconds());
+                _logger.LogWarning("Failed to revoke Matrix token for disconnected user {UserId}; retry scheduled. FailureType={FailureType} Status={Status}",
+                    user.Id, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
+            }
+        }
+        finally { gate.Release(); }
     }
 
     public async Task HandleUserState(string certHash, string? displayName)

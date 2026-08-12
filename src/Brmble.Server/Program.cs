@@ -120,6 +120,10 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+var matrixTokenStore = app.Services.GetRequiredService<MatrixTokenStore>();
+var timeProvider = app.Services.GetRequiredService<TimeProvider>();
+await matrixTokenStore.ProtectLegacyTokensAsync(timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
+
 app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
 app.UseRateLimiter();
