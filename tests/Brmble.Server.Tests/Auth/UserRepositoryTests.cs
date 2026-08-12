@@ -73,7 +73,7 @@ public class UserRepositoryTests
         Assert.IsTrue(user.Id > 0);
         Assert.AreEqual("deadbeef", user.CertHash);
         Assert.AreEqual("Alice", user.DisplayName);
-        Assert.AreEqual($"@{user.Id}:test.local", user.MatrixUserId);
+        Assert.AreEqual("@deadbeef:test.local", user.MatrixUserId);
     }
 
     [TestMethod]

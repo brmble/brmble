@@ -204,14 +204,6 @@ public class AuthService : IActiveBrmbleSessions
             }
 
             user = await _userRepository.Insert(certHash, displayName);
-            try
-            {
-            }
-            catch (Exception ex)
-            {
-                // User may already exist on the homeserver (e.g. after local DB reset) — fall back to login
-                _logger.LogDebug(ex, "Registration failed for user {UserId}, falling back to login", user.MatrixUserId);
-            }
         }
         else if (false)
         {
@@ -326,24 +318,19 @@ public class AuthService : IActiveBrmbleSessions
         }
 
         string token;
+        var localpart = MatrixUserIdHelper.GetLocalpart(user.MatrixUserId);
         if (isNewUser)
         {
-            try { token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName); }
-            catch (Exception ex)
-            {
-                _logger.LogDebug("Matrix registration failed for user {UserId}; falling back to login. FailureType={FailureType} Status={Status}",
-                    user.MatrixUserId, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
-                token = await _matrixAppService.LoginUser(user.Id.ToString());
-            }
+            token = await _matrixAppService.RegisterUser(localpart, user.DisplayName);
         }
         else
         {
-            try { token = await _matrixAppService.LoginUser(user.Id.ToString()); }
+            try { token = await _matrixAppService.LoginUser(localpart); }
             catch (Exception ex)
             {
                 _logger.LogDebug("Matrix login failed for user {UserId}; falling back to registration. FailureType={FailureType} Status={Status}",
                     user.MatrixUserId, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
-                token = await _matrixAppService.RegisterUser(user.Id.ToString(), user.DisplayName);
+                token = await _matrixAppService.RegisterUser(localpart, user.DisplayName);
             }
         }
         return await _matrixTokenStore.SaveAsync(user.Id, token,

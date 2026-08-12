@@ -179,6 +179,18 @@ public class AuthServiceTests
     }
 
     [TestMethod]
+    public async Task Authenticate_NewUser_RegistrationFailureDoesNotFallBackToLogin()
+    {
+        _mockMatrix!.Setup(m => m.RegisterUser(It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(new HttpRequestException("registration failed"));
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            () => _svc!.Authenticate("newhash_registration_failure"));
+
+        _mockMatrix.Verify(m => m.LoginUser(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task Authenticate_ExistingUserWithToken_ReturnsStoredToken()
     {
         // First call provisions and stores token
@@ -340,7 +352,7 @@ public class AuthServiceTests
         }
 
         await _matrixTokenStore!.ProtectLegacyTokensAsync(_clock!.GetUtcNow().ToUnixTimeMilliseconds());
-        _mockMatrix!.Setup(m => m.LoginUser(user.Id.ToString())).ReturnsAsync("syt_after_migration");
+        _mockMatrix!.Setup(m => m.LoginUser("legacy-cert")).ReturnsAsync("syt_after_migration");
 
         var result = await _svc!.Authenticate("legacy-cert");
 

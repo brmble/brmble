@@ -55,7 +55,7 @@ public class UserRepository
             tx);
 
         var id = await conn.QuerySingleAsync<long>("SELECT last_insert_rowid()", transaction: tx);
-        var matrixUserId = $"@{id}:{_serverDomain}";
+        var matrixUserId = $"@{certHash}:{_serverDomain}";
         var finalDisplayName = string.IsNullOrEmpty(displayName) ? $"user_{id}" : displayName;
 
         await conn.ExecuteAsync(
