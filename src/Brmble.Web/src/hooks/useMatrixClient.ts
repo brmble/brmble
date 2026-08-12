@@ -846,13 +846,21 @@ export function useMatrixClient(
                 setActiveMessages(messages);
               }
 
-              const knownRoom = client.getRoom(roomId);
-              const roomPromise = knownRoom
-                ? Promise.resolve(knownRoom)
-                : waitForRoomRef.current?.(roomId);
-              roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
-                console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
-              });
+              // waitForRoom resolves immediately when the SDK already has the room,
+              // so it covers both the known and the still-syncing case.
+              waitForRoomRef.current?.(roomId)
+                .then(room => client.scrollback(room, 50))
+                .then(() => {
+                  // Rebuild rather than rely on the timeline events scrollback emits:
+                  // a backfill batch delivers reactions before the messages they
+                  // target, and onTimeline drops a reaction whose target it has not
+                  // seen. loadMessagesFromTimeline collects them order-independently.
+                  if (activeRoomVersionRef.current !== myVersion) return;
+                  setActiveMessages(loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                })
+                .catch(error => {
+                  console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
+                });
             }
           }
           if (activeDmContactIdRef.current) {
@@ -866,13 +874,15 @@ export function useMatrixClient(
                 setActiveDmMessages(messages);
               }
 
-              const knownDmRoom = client.getRoom(dmRoomId);
-              const roomPromise = knownDmRoom
-                ? Promise.resolve(knownDmRoom)
-                : waitForRoomRef.current?.(dmRoomId);
-              roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
-                console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
-              });
+              waitForRoomRef.current?.(dmRoomId)
+                .then(room => client.scrollback(room, 50))
+                .then(() => {
+                  if (activeDmVersionRef.current !== myVersion) return;
+                  setActiveDmMessages(loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                })
+                .catch(error => {
+                  console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
+                });
             }
           }
         }

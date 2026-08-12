@@ -767,9 +767,13 @@ export function isMatrixChannelChatActive(
   if (!channelId || channelId === 'server-root') return false;
   if (!getPermittedMatrixChannelId(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
-  // Older Brmble servers do not send the projection's Brmble-client marker.
-  // Successful Matrix credentials already prove this client is Brmble-capable;
-  // only an explicit false marker should keep it on the legacy Mumble path.
+  // Older Brmble servers do not send the projection's Brmble-client marker, and
+  // the projection itself sends null while the identity is unresolved. Successful
+  // Matrix credentials already prove this client is Brmble-capable, so only an
+  // explicit false marker — a confirmed plain Mumble user — keeps it on the legacy
+  // path. An absent selfUser is treated the same way: the row has not arrived yet,
+  // which is not evidence against the credentials we already hold, and refusing it
+  // would flip the panel Matrix -> Mumble -> Matrix during connect.
   if (selfUser?.isBrmbleClient === false) return false;
   return credentials?.roomMap[channelId] !== undefined;
 }

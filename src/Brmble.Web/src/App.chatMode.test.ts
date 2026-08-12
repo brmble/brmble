@@ -135,6 +135,14 @@ describe('isMatrixChannelChatActive', () => {
   it('uses Matrix credentials when a legacy server omits the Brmble identity marker', () => {
     expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true }, matrixChannels)).toBe(true);
   });
+
+  it('uses Matrix credentials while the projection reports an unresolved identity', () => {
+    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: null }, matrixChannels)).toBe(true);
+  });
+
+  it('uses Matrix credentials before the self row has arrived', () => {
+    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, undefined, matrixChannels)).toBe(true);
+  });
 });
 
 describe('channel chat access helpers', () => {
