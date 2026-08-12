@@ -313,6 +313,8 @@ export interface MatrixCredentials {
   customCompanions?: CustomCompanionCapability;
   homeserverUrl: string;
   accessToken: string;
+  accessTokenExpiresAt?: string;
+  accessTokenRefreshAt?: string;
   userId: string;
   roomMap: Record<string, string>; // mumbleChannelId → matrixRoomId
   dmRoomMap?: Record<string, string>; // matrixUserId → matrixRoomId (from server)

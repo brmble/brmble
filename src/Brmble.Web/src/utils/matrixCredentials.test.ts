@@ -5,6 +5,8 @@ import type { MatrixCredentials } from '../hooks/useMatrixClient';
 const base: MatrixCredentials = {
   homeserverUrl: 'https://matrix.example.com',
   accessToken: 'tok_1',
+  accessTokenExpiresAt: '2026-08-12T10:00:00Z',
+  accessTokenRefreshAt: '2026-08-12T09:55:00Z',
   userId: '@me:example.com',
   roomMap: { '1': '!one:example.com' },
   dmRoomMap: { '@alice:example.com': '!dm:example.com' },
@@ -27,6 +29,15 @@ describe('areMatrixCredentialsEqual', () => {
 
   it('returns false when access token changes', () => {
     expect(areMatrixCredentialsEqual(base, { ...base, accessToken: 'tok_2' })).toBe(false);
+  });
+
+  it('returns false when a rotated access token arrives', () => {
+    expect(areMatrixCredentialsEqual(base, {
+      ...base,
+      accessToken: 'tok_2',
+      accessTokenExpiresAt: '2026-08-12T11:00:00Z',
+      accessTokenRefreshAt: '2026-08-12T10:55:00Z',
+    })).toBe(false);
   });
 
   it('returns false when DM map changes', () => {
