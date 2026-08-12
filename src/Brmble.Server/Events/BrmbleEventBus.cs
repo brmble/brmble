@@ -10,6 +10,9 @@ public class BrmbleEventBus : IBrmbleEventBus
 {
     private readonly ConcurrentDictionary<WebSocket, long> _clients = new();
     private readonly ConcurrentDictionary<WebSocket, SocketDelivery> _deliveries = new();
+    private readonly object _membershipGate = new();
+    private readonly Dictionary<long, int> _connectionCounts = [];
+    private readonly Dictionary<long, long> _connectionGenerations = [];
     private readonly ILogger<BrmbleEventBus> _logger;
     private readonly IChannelMembershipService _channelMembership;
     private readonly ISessionMappingService _sessionMapping;
@@ -67,14 +70,35 @@ public class BrmbleEventBus : IBrmbleEventBus
 
     public void RemoveClient(WebSocket ws)
     {
-        _clients.TryRemove(ws, out _);
+        RemoveClientAndGetDisconnect(ws);
+    }
+
+    public DisconnectSnapshot? RemoveClientAndGetDisconnect(WebSocket ws)
+    {
+        DisconnectSnapshot? snapshot = null;
+        lock (_membershipGate)
+        {
+            if (_clients.TryRemove(ws, out var userId))
+            {
+                var generation = NextGenerationLocked(userId);
+                var count = --_connectionCounts[userId];
+                if (count == 0)
+                {
+                    _connectionCounts.Remove(userId);
+                    snapshot = new DisconnectSnapshot(userId, generation);
+                }
+            }
+        }
+
         if (!_deliveries.TryRemove(ws, out var delivery))
-            return;
+            return snapshot;
 
         lock (delivery.Gate)
         {
             FailDeliveryLocked(delivery, new WebSocketException("WebSocket client is no longer connected."));
         }
+
+        return snapshot;
     }
 
     /// <summary>
@@ -166,7 +190,12 @@ public class BrmbleEventBus : IBrmbleEventBus
         }
 
         _deliveries[ws] = delivery;
-        _clients[ws] = userId;
+        lock (_membershipGate)
+        {
+            _clients[ws] = userId;
+            _connectionCounts[userId] = _connectionCounts.GetValueOrDefault(userId) + 1;
+            NextGenerationLocked(userId);
+        }
 
         if (initialMessages is null)
             return;
@@ -213,7 +242,27 @@ public class BrmbleEventBus : IBrmbleEventBus
         await Task.WhenAll(queued.Select(message => message.Completion.Task));
     }
 
-    public bool HasConnectedClient(long userId) => _clients.Values.Any(id => id == userId);
+    public bool HasConnectedClient(long userId)
+    {
+        lock (_membershipGate)
+            return _connectionCounts.ContainsKey(userId);
+    }
+
+    public bool IsCurrentEmptyDisconnect(DisconnectSnapshot snapshot)
+    {
+        lock (_membershipGate)
+        {
+            return !_connectionCounts.ContainsKey(snapshot.UserId)
+                && _connectionGenerations.GetValueOrDefault(snapshot.UserId) == snapshot.Generation;
+        }
+    }
+
+    private long NextGenerationLocked(long userId)
+    {
+        var generation = _connectionGenerations.GetValueOrDefault(userId) + 1;
+        _connectionGenerations[userId] = generation;
+        return generation;
+    }
 
     public Task BroadcastAsync(object message) => BroadcastCoreAsync(null, message);
 

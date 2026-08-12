@@ -158,6 +158,8 @@ public class MappingEventPublisherTests
         public Task BroadcastExceptAsync(System.Net.WebSockets.WebSocket excluded, object message) => BroadcastAsync(message);
         public Task AddClientAsync(System.Net.WebSockets.WebSocket ws, long userId, Func<Task<IReadOnlyList<object>>>? initialMessages = null) => Task.CompletedTask;
         public void RemoveClient(System.Net.WebSockets.WebSocket ws) { }
+        public DisconnectSnapshot? RemoveClientAndGetDisconnect(System.Net.WebSockets.WebSocket ws) => null;
+        public bool IsCurrentEmptyDisconnect(DisconnectSnapshot snapshot) => false;
         public bool HasConnectedClient(long userId) => false;
         public Task<IReadOnlySet<long>> GetConnectedUserIdsAsync() =>
             Task.FromResult<IReadOnlySet<long>>(new HashSet<long>());
@@ -233,4 +235,3 @@ public class MappingEventPublisherTests
             "a snapshot delivered after a newer event rolls the client back and is never replayed");
     }
 }
-
