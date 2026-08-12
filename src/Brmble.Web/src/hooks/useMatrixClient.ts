@@ -845,6 +845,22 @@ export function useMatrixClient(
               if (activeRoomVersionRef.current === myVersion) {
                 setActiveMessages(messages);
               }
+
+              // waitForRoom resolves immediately when the SDK already has the room,
+              // so it covers both the known and the still-syncing case.
+              waitForRoomRef.current?.(roomId)
+                .then(room => client.scrollback(room, 50))
+                .then(() => {
+                  // Rebuild rather than rely on the timeline events scrollback emits:
+                  // a backfill batch delivers reactions before the messages they
+                  // target, and onTimeline drops a reaction whose target it has not
+                  // seen. loadMessagesFromTimeline collects them order-independently.
+                  if (activeRoomVersionRef.current !== myVersion) return;
+                  setActiveMessages(loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                })
+                .catch(error => {
+                  console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
+                });
             }
           }
           if (activeDmContactIdRef.current) {
@@ -857,6 +873,16 @@ export function useMatrixClient(
               if (activeDmVersionRef.current === myVersion) {
                 setActiveDmMessages(messages);
               }
+
+              waitForRoomRef.current?.(dmRoomId)
+                .then(room => client.scrollback(room, 50))
+                .then(() => {
+                  if (activeDmVersionRef.current !== myVersion) return;
+                  setActiveDmMessages(loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                })
+                .catch(error => {
+                  console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
+                });
             }
           }
         }
