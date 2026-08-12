@@ -846,8 +846,9 @@ export function useMatrixClient(
                 setActiveMessages(messages);
               }
 
-              const roomPromise = client.getRoom(roomId)
-                ? Promise.resolve(client.getRoom(roomId)!)
+              const knownRoom = client.getRoom(roomId);
+              const roomPromise = knownRoom
+                ? Promise.resolve(knownRoom)
                 : waitForRoomRef.current?.(roomId);
               roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
                 console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
@@ -865,8 +866,9 @@ export function useMatrixClient(
                 setActiveDmMessages(messages);
               }
 
-              const roomPromise = client.getRoom(dmRoomId)
-                ? Promise.resolve(client.getRoom(dmRoomId)!)
+              const knownDmRoom = client.getRoom(dmRoomId);
+              const roomPromise = knownDmRoom
+                ? Promise.resolve(knownDmRoom)
                 : waitForRoomRef.current?.(dmRoomId);
               roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
                 console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
