@@ -138,6 +138,31 @@ public class AuthServiceTests
     }
 
     [TestMethod]
+    public async Task Authenticate_WhenTokenPersistenceFails_RevokesNewTokenAndPropagatesStorageError()
+    {
+        using (var command = _keepAlive!.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TRIGGER reject_matrix_token_save
+                BEFORE UPDATE OF matrix_access_token ON users
+                WHEN NEW.matrix_access_token IS NOT NULL
+                BEGIN
+                    SELECT RAISE(ABORT, 'synthetic token persistence failure');
+                END;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var exception = await Assert.ThrowsExceptionAsync<SqliteException>(
+            () => _svc!.Authenticate("token-save-fails"));
+
+        StringAssert.Contains(exception.Message, "synthetic token persistence failure");
+        _mockMatrix!.Verify(
+            m => m.RevokeAccessToken("syt_new_token", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestMethod]
     public async Task HandleUserState_UnknownCert_DoesNotThrow()
     {
         // No user in DB, no auth call — should just queue silently

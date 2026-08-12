@@ -333,8 +333,27 @@ public class AuthService : IActiveBrmbleSessions
                 token = await _matrixAppService.RegisterUser(localpart, user.DisplayName);
             }
         }
-        return await _matrixTokenStore.SaveAsync(user.Id, token,
-            now.AddMinutes(_matrixSettings.AccessTokenLifetimeMinutes).ToUnixTimeMilliseconds());
+        try
+        {
+            return await _matrixTokenStore.SaveAsync(user.Id, token,
+                now.AddMinutes(_matrixSettings.AccessTokenLifetimeMinutes).ToUnixTimeMilliseconds());
+        }
+        catch (Exception)
+        {
+            try
+            {
+                await _matrixAppService.RevokeAccessToken(token);
+            }
+            catch (Exception cleanupException)
+            {
+                _logger.LogWarning(
+                    cleanupException,
+                    "Failed to revoke newly issued Matrix token after persistence failure for user {UserId}; cleanup must be retried manually. FailureType={FailureType} Status={Status}",
+                    user.Id, cleanupException.GetType().Name, (cleanupException as HttpRequestException)?.StatusCode);
+            }
+
+            throw;
+        }
     }
 
     public async Task DeactivateAsync(string certHash, Func<bool>? canRevoke = null)
