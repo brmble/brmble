@@ -218,9 +218,25 @@ When a user needs a Matrix access token:
 2. C# host self-registers via UserState (user_id = 0)
 3. C# host calls the ASP.NET backend API via mutual TLS, presenting its Mumble certificate
 4. Backend extracts cert hash from the TLS handshake and looks up or creates the user record
-5. Backend uses the Continuwuity admin API to issue an access token for the corresponding Matrix account (@id:server_domain)
-6. Returns the token to the C# host
-7. C# host passes the token to the React frontend for use with the Matrix JS SDK
+5. Backend obtains the user's current encrypted Matrix token lease.
+6. If absent, expired, or inside the 5-minute refresh window, backend revokes the old token when present and obtains a fresh access token using application-service login/registration.
+7. Backend encrypts the token and stores its 60-minute `token_expires_at` lease.
+8. Backend returns the token plus `accessTokenExpiresAt` and `accessTokenRefreshAt` to the C# host.
+9. The C# host schedules a new mTLS `/auth/token` request at `accessTokenRefreshAt`.
+10. When a rotated token arrives, the frontend replaces its Matrix SDK client.
+
+### Matrix access-token lifecycle
+
+- Matrix access tokens are encrypted in SQLite with ASP.NET Core Data Protection.
+- `users.token_expires_at` stores the backend lease deadline as UTC Unix milliseconds.
+- Default lease lifetime is 60 minutes; `/auth/token` returns expiry plus a refresh time 5 minutes earlier.
+- Legacy plaintext migration activates only after the live server token path uses `MatrixTokenStore`; missing legacy expiry becomes immediately expired and must be revoked/rotated before successful auth returns credentials.
+- The native client re-authenticates to `/auth/token` over mTLS at refresh time. The backend logs out the old Matrix token, issues a replacement through application-service login, stores it encrypted, and returns it.
+- A worker discovers expired leases every 30 seconds. Failed revocations persist exponential retry scheduling from 60 seconds up to 15 minutes, with never-attempted work prioritized over retries.
+- Final Brmble WebSocket disconnect expires and attempts to revoke the current Matrix token.
+- A new client certificate is a new identity and never inherits the old token.
+- Brmble supports one server process/container per SQLite `/data`; multiple replicas sharing one SQLite database are unsupported.
+- Data Protection keys remain in `/data/dataprotection-keys`; this protects disclosure of the SQLite file by itself, not the whole data volume.
 
 First-time provisioning:
 

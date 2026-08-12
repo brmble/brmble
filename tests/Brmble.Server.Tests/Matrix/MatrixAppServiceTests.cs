@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Brmble.Server.Matrix;
+using Brmble.Server.Tests.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,11 +16,13 @@ public class MatrixAppServiceTests
     private Mock<HttpMessageHandler> _mockHandler = null!;
     private MatrixAppService _svc = null!;
     private List<HttpRequestMessage> _capturedRequests = null!;
+    private CapturingLogger<MatrixAppService> _logger = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _capturedRequests = [];
+        _logger = new CapturingLogger<MatrixAppService>();
         _mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
 
         var factory = new Mock<IHttpClientFactory>();
@@ -33,7 +36,7 @@ public class MatrixAppServiceTests
             AdminAccessToken = "test-admin-token"
         });
 
-        _svc = new MatrixAppService(factory.Object, settings, NullLogger<MatrixAppService>.Instance);
+        _svc = new MatrixAppService(factory.Object, settings, _logger);
     }
 
     private void SetupHttpResponse(HttpStatusCode status, string body = "{}")
@@ -222,6 +225,22 @@ public class MatrixAppServiceTests
 
         await Assert.ThrowsExceptionAsync<HttpRequestException>(
             () => _svc.RevokeAccessToken("syt_still_unknown"));
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_ServerError_DoesNotLogBearerToken()
+    {
+        const string PlaintextToken = "matrix-plaintext-SENTINEL-347";
+        SetupHttpResponse(HttpStatusCode.InternalServerError,
+            $"{{\"error\":\"synthetic failure {PlaintextToken}\"}}");
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            () => _svc.RevokeAccessToken(PlaintextToken));
+
+        var logText = string.Join("\n", _logger.Entries);
+        Assert.IsFalse(logText.Contains(PlaintextToken, StringComparison.Ordinal));
+        Assert.IsFalse(logText.Contains("synthetic failure", StringComparison.Ordinal));
+        StringAssert.Contains(logText, "500");
     }
 
     [TestMethod]

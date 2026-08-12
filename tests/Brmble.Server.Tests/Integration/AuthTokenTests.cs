@@ -3,8 +3,11 @@ using System.Text;
 using System.Text.Json;
 using Brmble.Server.Events;
 using Brmble.Server.Mumble;
+using Brmble.Server.Data;
+using Dapper;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Moq;
 
 namespace Brmble.Server.Tests.Integration;
 
@@ -46,6 +49,8 @@ public class AuthTokenTests : IDisposable
         Assert.IsTrue(json.Contains("matrix"));
         Assert.IsTrue(json.Contains("homeserverUrl"));
         Assert.IsTrue(json.Contains("accessToken"));
+        Assert.IsTrue(json.Contains("accessTokenExpiresAt"));
+        Assert.IsTrue(json.Contains("accessTokenRefreshAt"));
         Assert.IsTrue(json.Contains("userId"));
         Assert.IsTrue(json.Contains("roomMap"));
     }
@@ -58,6 +63,39 @@ public class AuthTokenTests : IDisposable
 
         var json = await response.Content.ReadAsStringAsync();
         Assert.IsTrue(json.Contains("userMappings"), "Response should contain userMappings field");
+    }
+
+    [TestMethod]
+    public async Task PostAuthToken_StartupMigratesLegacyTokenBeforeRotatingIt()
+    {
+        using var factory = new BrmbleServerFactory(seedLegacyToken: true);
+        using var client = factory.CreateClient();
+
+        using (var conn = factory.Services.GetRequiredService<Database>().CreateConnection())
+        {
+            var row = await conn.QuerySingleAsync<(string Token, long ExpiresAt)>("""
+                SELECT matrix_access_token AS Token, token_expires_at AS ExpiresAt
+                FROM users WHERE id = @UserId
+                """, new { UserId = factory.AliceUserId });
+            StringAssert.StartsWith(row.Token, "dp:v1:");
+            Assert.AreNotEqual("matrix-legacy-startup-SENTINEL-347", row.Token);
+            Assert.IsTrue(row.ExpiresAt <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        }
+
+        var response = await client.PostAsync("/auth/token", null);
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync();
+        StringAssert.Contains(json, "stub_matrix_token");
+        Assert.IsFalse(json.Contains("dp:v1:", StringComparison.Ordinal));
+
+        var invocations = factory.Matrix.Mock.Invocations
+            .Select(invocation => invocation.Method.Name)
+            .ToArray();
+        CollectionAssert.AreEqual(new[] { "RevokeAccessToken", "LoginUser" }, invocations.Take(2).ToArray());
+        factory.Matrix.Mock.Verify(
+            matrix => matrix.RevokeAccessToken(
+                "matrix-legacy-startup-SENTINEL-347", It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [TestMethod]

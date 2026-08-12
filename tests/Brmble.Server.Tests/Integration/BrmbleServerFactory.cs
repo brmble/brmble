@@ -23,6 +23,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
     private readonly SqliteConnection _keepAlive;
     private readonly string _cs;
     private readonly string? _certHash;
+    private readonly bool _seedLegacyToken;
     public Mock<IAclAuthorizationService> AclAuthorizationMock { get; } = new();
     public Mock<IAclSyncCoordinator> AclCoordinatorMock { get; } = new();
     public Mock<IMumbleAclService> MumbleAclMock { get; } = new();
@@ -36,9 +37,10 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
         Services.GetRequiredService<CustomCompanionRepository>();
     public long AliceUserId { get; private set; }
 
-    public BrmbleServerFactory(string? certHash = "testcerthash123")
+    public BrmbleServerFactory(string? certHash = "testcerthash123", bool seedLegacyToken = false)
     {
         _certHash = certHash;
+        _seedLegacyToken = seedLegacyToken;
         var dbName = "brmble_server_" + Guid.NewGuid().ToString("N");
         _cs = $"Data Source={dbName};Mode=Memory;Cache=Shared";
         _keepAlive = new SqliteConnection(_cs);
@@ -127,6 +129,15 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                     VALUES (@CertHash, 'Alice', '@alice:test');
                     SELECT last_insert_rowid();
                     """, new { CertHash = _certHash });
+                if (_seedLegacyToken)
+                {
+                    connection.Execute("""
+                        UPDATE users
+                        SET matrix_access_token = 'matrix-legacy-startup-SENTINEL-347',
+                            token_expires_at = NULL
+                        WHERE id = @UserId
+                        """, new { UserId = AliceUserId });
+                }
             }
             services.AddSingleton(db);
 

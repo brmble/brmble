@@ -71,10 +71,12 @@ public static class AuthEndpoints
             }
             catch (Exception ex)
             {
-                logger.LogError(ex,
-                    "Auth failed: CertHash={CertHash}, RemoteIp={RemoteIp}",
+                logger.LogError(
+                    "Auth failed: CertHash={CertHash}, RemoteIp={RemoteIp}, FailureType={FailureType}, Status={Status}",
                     certHash,
-                    httpContext.Connection.RemoteIpAddress);
+                    httpContext.Connection.RemoteIpAddress,
+                    ex.GetType().Name,
+                    (ex as HttpRequestException)?.StatusCode);
                 return Results.StatusCode(500);
             }
 

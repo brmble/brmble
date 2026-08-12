@@ -311,7 +311,17 @@ public class AuthService : IActiveBrmbleSessions
             return current;
         if (current is not null)
         {
-            await _matrixAppService.RevokeAccessToken(current.AccessToken);
+            try
+            {
+                await _matrixAppService.RevokeAccessToken(current.AccessToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    "Matrix token rotation revoke failed for user {UserId}; replacement not issued. FailureType={FailureType} Status={Status}",
+                    user.Id, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
+                throw;
+            }
             await _matrixTokenStore.ClearIfCurrentAsync(user.Id, current.StoredValue);
         }
 

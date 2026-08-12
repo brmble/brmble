@@ -215,9 +215,17 @@ When a user needs a Matrix access token:
 1. C# host establishes the Mumble connection (cert verified by Mumble server)
 2. C# host calls the ASP.NET backend API: "I am cert hash X, give me a Matrix token"
 3. Backend verifies the cert hash corresponds to an active Mumble session (either via mutual TLS or by checking against the live UserState data from MumbleSharp)
-4. Backend uses the Continuwuity admin API to issue an access token for the corresponding Matrix account (@id:server_domain)
-5. Returns the token to the C# host
-6. C# host passes the token to the React frontend for use with the Matrix JS SDK
+4. Backend obtains the user's current encrypted Matrix token lease.
+5. If absent, expired, or inside the 5-minute refresh window, backend revokes the old token when present and obtains a fresh access token using application-service login/registration.
+6. Backend encrypts the token and stores its 60-minute `token_expires_at` lease.
+7. Backend returns the token plus `accessTokenExpiresAt` and `accessTokenRefreshAt` to the C# host.
+8. The C# host schedules a new mTLS `/auth/token` request at `accessTokenRefreshAt`.
+9. When a rotated token arrives, the frontend replaces its Matrix SDK client.
+10. Final Brmble WebSocket disconnect expires/revokes the current Matrix token; failed revocation remains stored with durable retry scheduling.
+
+Matrix access tokens are encrypted in SQLite with ASP.NET Core Data Protection, using UTC Unix milliseconds for `users.token_expires_at`. Legacy plaintext migration runs only after the live `MatrixTokenStore` path is active; a missing legacy expiry is immediately expired and must be revoked/rotated before successful authentication returns credentials.
+
+A new certificate always creates a new backend and Matrix identity and never inherits the previous certificate's token. Brmble supports one server process/container owning the SQLite `/data` database; multiple replicas sharing one SQLite database are unsupported. Data Protection keys remain in `/data/dataprotection-keys`, so this protects disclosure of the SQLite file by itself, not compromise of the complete data volume.
 
 First-time provisioning:
 

@@ -4,6 +4,7 @@ using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
+using Brmble.Server.Tests.TestSupport;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,6 +27,7 @@ public class AuthServiceTests
     private Mock<ISessionMappingService>? _mockSessionMapping;
     private MatrixTokenStore? _matrixTokenStore;
     private TestTimeProvider? _clock;
+    private CapturingLogger<AuthService>? _logger;
 
     private sealed class TestTimeProvider : TimeProvider
     {
@@ -66,9 +68,10 @@ public class AuthServiceTests
                    .Returns(Task.CompletedTask);
         _mockMumbleReg = new Mock<IMumbleRegistrationService>();
         _mockSessionMapping = new Mock<ISessionMappingService>();
+        _logger = new CapturingLogger<AuthService>();
         var mockEventBus = new Mock<IBrmbleEventBus>();
         mockEventBus.Setup(b => b.BroadcastAsync(It.IsAny<object>())).Returns(Task.CompletedTask);
-        _svc = new AuthService(repo, _mockMatrix.Object, NullLogger<AuthService>.Instance,
+        _svc = new AuthService(repo, _mockMatrix.Object, _logger,
             _mockMumbleReg.Object, _mockSessionMapping.Object,
             new MappingEventPublisher(_mockSessionMapping.Object, mockEventBus.Object),
             _matrixTokenStore, settings, _clock);
@@ -308,14 +311,21 @@ public class AuthServiceTests
     public async Task Authenticate_RevokeFailure_DoesNotIssueReplacement()
     {
         var first = await _svc!.Authenticate("lease-revoke-fail");
+        var user = await _repo!.GetByCertHash("lease-revoke-fail");
+        var lease = await _matrixTokenStore!.GetAsync(user!.Id);
         _clock!.UtcNow = first.MatrixAccessTokenRefreshAt.AddSeconds(1);
         _mockMatrix!.Invocations.Clear();
         _mockMatrix.Setup(m => m.RevokeAccessToken(first.MatrixAccessToken, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new HttpRequestException("Matrix unavailable"));
+            .ThrowsAsync(new HttpRequestException($"synthetic failure {first.MatrixAccessToken} {lease!.StoredValue}"));
 
         await Assert.ThrowsExceptionAsync<HttpRequestException>(() => _svc.Authenticate("lease-revoke-fail"));
 
         _mockMatrix.Verify(m => m.LoginUser(It.IsAny<string>()), Times.Never);
+        var logText = string.Join("\n", _logger!.Entries);
+        Assert.IsFalse(logText.Contains(first.MatrixAccessToken, StringComparison.Ordinal));
+        Assert.IsFalse(logText.Contains(lease!.StoredValue, StringComparison.Ordinal));
+        Assert.IsFalse(logText.Contains("synthetic failure", StringComparison.Ordinal));
+        StringAssert.Contains(logText, nameof(HttpRequestException));
     }
 
     [TestMethod]
