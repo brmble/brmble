@@ -804,6 +804,28 @@ describe('useMatrixClient', () => {
     expect(result.current.activeMessages[0].content).toBe('sync-delivered');
   });
 
+  it('loads channel history after PREPARED when the room becomes available during sync', async () => {
+    mockClient.getRoom.mockReturnValue(null);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    const room = withNoTypingMembers({
+      roomId: '!room:example.com',
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice' }),
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    });
+    mockClient.getRoom.mockReturnValue(room);
+    mockClient.getRooms.mockReturnValue([room]);
+
+    const onSync = mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      | ((state: string) => void)
+      | undefined;
+    await act(async () => onSync!('PREPARED'));
+
+    expect(mockClient.scrollback).toHaveBeenCalledWith(room, 50);
+  });
+
   // ── DM activeDmMessages + setActiveDmContact ──
 
   it('setActiveDmContact rebuilds activeDmMessages from SDK timeline', () => {

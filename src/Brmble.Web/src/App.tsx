@@ -767,7 +767,10 @@ export function isMatrixChannelChatActive(
   if (!channelId || channelId === 'server-root') return false;
   if (!getPermittedMatrixChannelId(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
-  if (!selfUser?.isBrmbleClient) return false;
+  // Older Brmble servers do not send the projection's Brmble-client marker.
+  // Successful Matrix credentials already prove this client is Brmble-capable;
+  // only an explicit false marker should keep it on the legacy Mumble path.
+  if (selfUser?.isBrmbleClient === false) return false;
   return credentials?.roomMap[channelId] !== undefined;
 }
 

@@ -845,6 +845,13 @@ export function useMatrixClient(
               if (activeRoomVersionRef.current === myVersion) {
                 setActiveMessages(messages);
               }
+
+              const roomPromise = client.getRoom(roomId)
+                ? Promise.resolve(client.getRoom(roomId)!)
+                : waitForRoomRef.current?.(roomId);
+              roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
+                console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
+              });
             }
           }
           if (activeDmContactIdRef.current) {
@@ -857,6 +864,13 @@ export function useMatrixClient(
               if (activeDmVersionRef.current === myVersion) {
                 setActiveDmMessages(messages);
               }
+
+              const roomPromise = client.getRoom(dmRoomId)
+                ? Promise.resolve(client.getRoom(dmRoomId)!)
+                : waitForRoomRef.current?.(dmRoomId);
+              roomPromise?.then(room => client.scrollback(room, 50)).catch(error => {
+                console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
+              });
             }
           }
         }
