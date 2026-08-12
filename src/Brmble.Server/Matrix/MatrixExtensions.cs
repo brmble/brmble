@@ -16,6 +16,10 @@ public static class MatrixExtensions
                     settings.ServerDomain = Environment.GetEnvironmentVariable("MATRIX_SERVER_NAME") ?? settings.ServerDomain;
             })
             .ValidateDataAnnotations()
+            .Validate(settings => settings.AccessTokenRefreshSkewMinutes < settings.AccessTokenLifetimeMinutes,
+                "Matrix:AccessTokenRefreshSkewMinutes must be less than Matrix:AccessTokenLifetimeMinutes")
+            .Validate(settings => settings.AccessTokenRevocationRetryBaseSeconds <= settings.AccessTokenRevocationRetryMaxSeconds,
+                "Matrix:AccessTokenRevocationRetryBaseSeconds must be <= Matrix:AccessTokenRevocationRetryMaxSeconds")
             .ValidateOnStart();
 
         services.AddHttpClient();

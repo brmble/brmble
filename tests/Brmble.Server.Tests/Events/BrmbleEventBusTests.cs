@@ -132,6 +132,34 @@ public class BrmbleEventBusTests
     }
 
     [TestMethod]
+    public async Task RemoveClientAndGetDisconnect_ReturnsSnapshotOnlyForLastSocket()
+    {
+        var first = CreateMockWebSocket(WebSocketState.Open);
+        var second = CreateMockWebSocket(WebSocketState.Open);
+        await _bus.AddClientAsync(first.Object, 42L);
+        await _bus.AddClientAsync(second.Object, 42L);
+
+        Assert.IsNull(_bus.RemoveClientAndGetDisconnect(first.Object));
+        var snapshot = _bus.RemoveClientAndGetDisconnect(second.Object);
+
+        Assert.IsNotNull(snapshot);
+        Assert.AreEqual(42L, snapshot.Value.UserId);
+        Assert.IsTrue(snapshot.Value.Generation > 0);
+    }
+
+    [TestMethod]
+    public async Task DisconnectSnapshot_IsInvalidatedWhenReplacementSocketRegisters()
+    {
+        var socket = CreateMockWebSocket(WebSocketState.Open);
+        await _bus.AddClientAsync(socket.Object, 42L);
+        var snapshot = _bus.RemoveClientAndGetDisconnect(socket.Object);
+        var replacement = CreateMockWebSocket(WebSocketState.Open);
+        await _bus.AddClientAsync(replacement.Object, 42L);
+
+        Assert.IsFalse(_bus.IsCurrentEmptyDisconnect(snapshot!.Value));
+    }
+
+    [TestMethod]
     public async Task BroadcastToChannelAsync_SendsOnlyToUsersInChannel()
     {
         // Set up channel membership: channel 5 has sessions 10 and 20

@@ -126,9 +126,10 @@ public static class BrmbleWebSocketHandler
         catch (OperationCanceledException) { /* server shutting down */ }
         finally
         {
-            eventBus.RemoveClient(ws);
-            if (!eventBus.HasConnectedClient(user.Id))
-                activeSessions.Deactivate(hash);
+            var disconnect = eventBus.RemoveClientAndGetDisconnect(ws);
+            if (disconnect is not null)
+                await activeSessions.DeactivateAsync(hash,
+                    () => eventBus.IsCurrentEmptyDisconnect(disconnect.Value));
         }
     }
 

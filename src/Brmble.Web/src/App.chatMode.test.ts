@@ -131,6 +131,10 @@ describe('isMatrixChannelChatActive', () => {
   it('falls back to Mumble until self is restored as a Brmble client', () => {
     expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true, isBrmbleClient: false }, matrixChannels)).toBe(false);
   });
+
+  it('uses Matrix credentials when a legacy server omits the Brmble identity marker', () => {
+    expect(isMatrixChannelChatActive('1', credentials, connectedStatuses, { session: 1, name: 'Me', self: true }, matrixChannels)).toBe(true);
+  });
 });
 
 describe('channel chat access helpers', () => {

@@ -27,6 +27,9 @@ public class Database
                 display_name    TEXT NOT NULL,
                 matrix_user_id  TEXT NOT NULL UNIQUE,
                 matrix_access_token TEXT,
+                token_expires_at INTEGER,
+                token_revocation_attempt_count INTEGER NOT NULL DEFAULT 0,
+                token_revocation_next_attempt_at INTEGER,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS channel_room_map (
@@ -214,6 +217,22 @@ public class Database
             "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='matrix_access_token'");
         if (hasMatrixToken == 0)
             conn.Execute("ALTER TABLE users ADD COLUMN matrix_access_token TEXT");
+
+        // Migrate existing deployments: add Matrix token expiry metadata.
+        var hasTokenExpiresAt = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='token_expires_at'");
+        if (hasTokenExpiresAt == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN token_expires_at INTEGER");
+
+        var hasRevocationAttempts = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='token_revocation_attempt_count'");
+        if (hasRevocationAttempts == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN token_revocation_attempt_count INTEGER NOT NULL DEFAULT 0");
+
+        var hasRevocationNextAttempt = conn.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='token_revocation_next_attempt_at'");
+        if (hasRevocationNextAttempt == 0)
+            conn.Execute("ALTER TABLE users ADD COLUMN token_revocation_next_attempt_at INTEGER");
 
         // Migrate: add avatar_source column
         var hasAvatarSource = conn.ExecuteScalar<int>(

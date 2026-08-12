@@ -107,6 +107,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private const int LOCAL_TRANSMIT_NOTIFY_THROTTLE_MS = 5_000;
     private System.Threading.Timer? _healthTimer;
     private long _healthGeneration;
+    private CancellationTokenSource? _credentialRefreshCts;
+    private const int CREDENTIAL_REFRESH_RETRY_MS = 30_000;
     private volatile bool _serverHealthWasConnected;
     private volatile bool _credentialsAlreadyFetched;
     private volatile bool _sawServerHealthFailureSinceCredentials;
@@ -524,6 +526,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _wsStream = null;
         Interlocked.Increment(ref _wsGeneration);
         StopHealthCheck();
+        StopCredentialRefresh();
         _serverHealthWasConnected = false;
         _credentialsAlreadyFetched = false;
         _sawServerHealthFailureSinceCredentials = false;
@@ -1920,7 +1923,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return doc.RootElement.Clone();
     }
 
-    private async Task FetchAndSendCredentials(string apiUrl)
+    private async Task<bool> FetchAndSendCredentials(string apiUrl)
     {
         // Load with Exportable so BouncyCastle can extract private key parameters for signing
         using var cert = _certService?.GetExportableCertificate();
@@ -1928,7 +1931,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         {
             _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
             _bridge?.NotifyUiThread();
-            return;
+            return false;
         }
 
         try
@@ -1981,7 +1984,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     });
                     _bridge?.NotifyUiThread();
                 }
-                return;
+                return false;
             }
 
             // The credential body carries the same envelope as a WebSocket snapshot, so it
@@ -2028,6 +2031,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             // Start periodic health checks (runs from C# to avoid CORS issues)
             StartHealthCheck(apiUrl);
+            ScheduleCredentialRefresh(rewritten, apiUrl);
+            return true;
         }
         catch (Exception ex)
         {
@@ -2036,7 +2041,90 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             SendBrmbleServiceStatus("server", "reconnecting", reason: "credentials-unavailable");
             _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
             _bridge?.NotifyUiThread();
+            return false;
         }
+    }
+
+    internal static TimeSpan? GetCredentialRefreshDelay(
+        System.Text.Json.JsonElement credentials,
+        DateTimeOffset now)
+    {
+        if (!credentials.TryGetProperty("matrix", out var matrix) ||
+            matrix.ValueKind != System.Text.Json.JsonValueKind.Object ||
+            !matrix.TryGetProperty("accessTokenRefreshAt", out var refreshAtElement) ||
+            refreshAtElement.ValueKind != System.Text.Json.JsonValueKind.String ||
+            !DateTimeOffset.TryParse(
+                refreshAtElement.GetString(),
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var refreshAt))
+        {
+            return null;
+        }
+
+        var delay = refreshAt - now;
+        return delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+    }
+
+    private void ScheduleCredentialRefresh(
+        System.Text.Json.JsonElement credentials,
+        string apiUrl)
+    {
+        StopCredentialRefresh();
+
+        var delay = GetCredentialRefreshDelay(
+            credentials,
+            DateTimeOffset.UtcNow);
+        if (delay is null)
+            return;
+
+        var cts = new CancellationTokenSource();
+        _credentialRefreshCts = cts;
+        _ = RunScheduledCredentialRefresh(apiUrl, delay.Value, cts);
+    }
+
+    private async Task RunScheduledCredentialRefresh(
+        string apiUrl,
+        TimeSpan delay,
+        CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(delay, cts.Token);
+            if (cts.IsCancellationRequested)
+                return;
+
+            var refreshed = await FetchAndSendCredentials(apiUrl);
+            if (!refreshed && !cts.IsCancellationRequested)
+            {
+                ScheduleCredentialRefreshRetry(apiUrl);
+            }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void ScheduleCredentialRefreshRetry(string apiUrl)
+    {
+        StopCredentialRefresh();
+
+        var cts = new CancellationTokenSource();
+        _credentialRefreshCts = cts;
+        _ = RunScheduledCredentialRefresh(
+            apiUrl,
+            TimeSpan.FromMilliseconds(CREDENTIAL_REFRESH_RETRY_MS),
+            cts);
+    }
+
+    private void StopCredentialRefresh()
+    {
+        var cts = Interlocked.Exchange(ref _credentialRefreshCts, null);
+        if (cts is null)
+            return;
+
+        cts.Cancel();
+        cts.Dispose();
     }
 
     private async Task GetRegisteredUsersAsync()

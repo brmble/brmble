@@ -28,7 +28,17 @@ internal sealed class FakeHttpMessageHandler : HttpMessageHandler
 public class MumbleAdapterCredentialsTests
 {
     private static readonly string ValidJson = """
-        {"matrix":{"homeserverUrl":"https://matrix.example.com","accessToken":"tok_abc","userId":"@1:example.com","roomMap":{"42":"!room:example.com"}},"livekit":null}
+        {
+          "matrix": {
+            "homeserverUrl": "https://matrix.example.com",
+            "accessToken": "tok_abc",
+            "userId": "@1:example.com",
+            "accessTokenExpiresAt": "2026-08-12T10:00:00+00:00",
+            "accessTokenRefreshAt": "2026-08-12T09:55:00+00:00",
+            "roomMap": { "42": "!room:example.com" }
+          },
+          "livekit": null
+        }
         """;
 
     [TestMethod]
@@ -74,6 +84,43 @@ public class MumbleAdapterCredentialsTests
         Assert.IsNotNull(captured);
         Assert.AreEqual(HttpMethod.Post, captured!.Method);
         Assert.IsNull(captured.Content); // empty body — identity comes from TLS handshake
+    }
+
+    [TestMethod]
+    public void GetCredentialRefreshDelay_UsesServerRefreshTimestamp()
+    {
+        using var doc = JsonDocument.Parse(ValidJson);
+        var now = DateTimeOffset.Parse("2026-08-12T09:50:00Z");
+
+        var delay = MumbleAdapter.GetCredentialRefreshDelay(
+            doc.RootElement,
+            now);
+
+        Assert.AreEqual(TimeSpan.FromMinutes(5), delay);
+    }
+
+    [TestMethod]
+    public void GetCredentialRefreshDelay_OverdueRefresh_ReturnsZero()
+    {
+        using var doc = JsonDocument.Parse(ValidJson);
+        var now = DateTimeOffset.Parse("2026-08-12T09:56:00Z");
+
+        var delay = MumbleAdapter.GetCredentialRefreshDelay(
+            doc.RootElement,
+            now);
+
+        Assert.AreEqual(TimeSpan.Zero, delay);
+    }
+
+    [TestMethod]
+    public void GetCredentialRefreshDelay_MissingRefreshTimestamp_ReturnsNull()
+    {
+        using var doc = JsonDocument.Parse(
+            """{"matrix":{"accessToken":"tok"}}""");
+
+        Assert.IsNull(MumbleAdapter.GetCredentialRefreshDelay(
+            doc.RootElement,
+            DateTimeOffset.UtcNow));
     }
 
     [TestMethod]

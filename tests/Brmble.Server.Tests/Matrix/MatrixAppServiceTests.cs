@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Brmble.Server.Matrix;
+using Brmble.Server.Tests.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,11 +16,13 @@ public class MatrixAppServiceTests
     private Mock<HttpMessageHandler> _mockHandler = null!;
     private MatrixAppService _svc = null!;
     private List<HttpRequestMessage> _capturedRequests = null!;
+    private CapturingLogger<MatrixAppService> _logger = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _capturedRequests = [];
+        _logger = new CapturingLogger<MatrixAppService>();
         _mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
 
         var factory = new Mock<IHttpClientFactory>();
@@ -33,7 +36,7 @@ public class MatrixAppServiceTests
             AdminAccessToken = "test-admin-token"
         });
 
-        _svc = new MatrixAppService(factory.Object, settings, NullLogger<MatrixAppService>.Instance);
+        _svc = new MatrixAppService(factory.Object, settings, _logger);
     }
 
     private void SetupHttpResponse(HttpStatusCode status, string body = "{}")
@@ -189,6 +192,55 @@ public class MatrixAppServiceTests
         var req = _capturedRequests.Single();
         Assert.AreEqual(HttpMethod.Post, req.Method);
         StringAssert.Contains(req.RequestUri!.AbsoluteUri, "login");
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_PostsLogoutWithUserBearerToken()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.RevokeAccessToken("syt_user_token");
+
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Post, req.Method);
+        Assert.AreEqual("/_matrix/client/v3/logout", req.RequestUri!.AbsolutePath);
+        Assert.AreEqual(string.Empty, req.RequestUri.Query);
+        Assert.AreEqual("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.AreEqual("syt_user_token", req.Headers.Authorization.Parameter);
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_Unauthorized_IsAlreadyRevoked()
+    {
+        SetupHttpResponse(HttpStatusCode.Unauthorized,
+            """{"errcode":"M_UNKNOWN_TOKEN","error":"Unknown access token"}""");
+
+        await _svc.RevokeAccessToken("syt_already_gone");
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_ServerError_Throws()
+    {
+        SetupHttpResponse(HttpStatusCode.InternalServerError);
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            () => _svc.RevokeAccessToken("syt_still_unknown"));
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_ServerError_DoesNotLogBearerToken()
+    {
+        const string PlaintextToken = "matrix-plaintext-SENTINEL-347";
+        SetupHttpResponse(HttpStatusCode.InternalServerError,
+            $"{{\"error\":\"synthetic failure {PlaintextToken}\"}}");
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            () => _svc.RevokeAccessToken(PlaintextToken));
+
+        var logText = string.Join("\n", _logger.Entries);
+        Assert.IsFalse(logText.Contains(PlaintextToken, StringComparison.Ordinal));
+        Assert.IsFalse(logText.Contains("synthetic failure", StringComparison.Ordinal));
+        StringAssert.Contains(logText, "500");
     }
 
     [TestMethod]

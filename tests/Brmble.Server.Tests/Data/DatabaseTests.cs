@@ -83,6 +83,44 @@ public class DatabaseTests
     }
 
     [TestMethod]
+    public void Initialize_CreatesUsersTableWithTokenExpiresAtColumn()
+    {
+        _db!.Initialize();
+
+        using var conn = _db.CreateConnection();
+        var columns = conn.Query<string>(
+            "SELECT name FROM pragma_table_info('users')").ToList();
+
+        CollectionAssert.Contains(columns, "token_expires_at");
+    }
+
+    [TestMethod]
+    public void Initialize_AddsTokenExpiresAtToLegacyUsersTable()
+    {
+        using (var conn = _db!.CreateConnection())
+        {
+            conn.Open();
+            conn.Execute("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cert_hash TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    matrix_user_id TEXT NOT NULL UNIQUE,
+                    matrix_access_token TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+        }
+
+        _db.Initialize();
+
+        using var verify = _db.CreateConnection();
+        var columns = verify.Query<string>(
+            "SELECT name FROM pragma_table_info('users')").ToList();
+        CollectionAssert.Contains(columns, "token_expires_at");
+    }
+
+    [TestMethod]
     public void Initialize_CreatesChannelRequestsTable()
     {
         _db!.Initialize();

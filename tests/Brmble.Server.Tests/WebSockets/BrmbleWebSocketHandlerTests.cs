@@ -23,6 +23,8 @@ public class BrmbleWebSocketHandlerTests
         public Task AddClientAsync(WebSocket ws, long userId, Func<Task<IReadOnlyList<object>>>? initialMessages = null) =>
             inner.AddClientAsync(ws, userId, initialMessages);
         public void RemoveClient(WebSocket ws) => inner.RemoveClient(ws);
+        public DisconnectSnapshot? RemoveClientAndGetDisconnect(WebSocket ws) => inner.RemoveClientAndGetDisconnect(ws);
+        public bool IsCurrentEmptyDisconnect(DisconnectSnapshot snapshot) => inner.IsCurrentEmptyDisconnect(snapshot);
         public bool HasConnectedClient(long userId) => inner.HasConnectedClient(userId);
         public Task BroadcastAsync(object message) => inner.BroadcastAsync(message);
         public Task SendToClientAsync(WebSocket socket, object message) => inner.SendToClientAsync(socket, message);
@@ -433,4 +435,3 @@ public class BrmbleWebSocketHandlerTests
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":\"\"}", out _));
     }
 }
-

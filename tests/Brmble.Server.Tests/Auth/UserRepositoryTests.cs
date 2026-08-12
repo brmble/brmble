@@ -73,7 +73,7 @@ public class UserRepositoryTests
         Assert.IsTrue(user.Id > 0);
         Assert.AreEqual("deadbeef", user.CertHash);
         Assert.AreEqual("Alice", user.DisplayName);
-        Assert.AreEqual($"@{user.Id}:test.local", user.MatrixUserId);
+        Assert.AreEqual("@deadbeef:test.local", user.MatrixUserId);
     }
 
     [TestMethod]
@@ -84,19 +84,24 @@ public class UserRepositoryTests
     }
 
     [TestMethod]
-    public async Task UpdateMatrixToken_StoresToken()
+    public async Task GetByCertHash_ReturnsIdentityWhenTokenColumnsArePopulated()
     {
-        var user = await _repo!.Insert("hash_token_test", "Alice");
-        await _repo.UpdateMatrixToken(user.Id, "syt_abc123");
-        var updated = await _repo.GetByCertHash("hash_token_test");
-        Assert.AreEqual("syt_abc123", updated!.MatrixAccessToken);
-    }
+        var user = await _repo!.Insert("hash_identity_only", "Alice");
+        using (var conn = _db!.CreateConnection())
+        {
+            await conn.ExecuteAsync("""
+                UPDATE users
+                SET matrix_access_token = 'opaque-storage-value',
+                    token_expires_at = 1234
+                WHERE id = @Id
+                """, new { user.Id });
+        }
 
-    [TestMethod]
-    public async Task Insert_NewUser_MatrixAccessTokenIsNull()
-    {
-        var user = await _repo!.Insert("hash_null_token", "Bob");
-        Assert.IsNull(user.MatrixAccessToken);
+        var found = await _repo.GetByCertHash("hash_identity_only");
+
+        Assert.IsNotNull(found);
+        Assert.AreEqual(user.Id, found.Id);
+        Assert.AreEqual(user.MatrixUserId, found.MatrixUserId);
     }
 
     [TestMethod]

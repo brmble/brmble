@@ -17,6 +17,7 @@ public interface IMatrixAppService
     Task SetRoomName(string roomId, string name);
     Task<string> RegisterUser(string localpart, string displayName);
     Task<string> LoginUser(string localpart);
+    Task RevokeAccessToken(string accessToken, CancellationToken cancellationToken = default);
     Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds);
     Task<bool> EnsureUserInRoom(string localpart, string roomId);
     Task SetDisplayName(string localpart, string displayName);
@@ -189,6 +190,28 @@ public class MatrixAppService : IMatrixAppService
         var json = JsonSerializer.Deserialize<JsonElement>(response);
         return json.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Matrix did not return an access_token");
+    }
+
+    public async Task RevokeAccessToken(
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{_homeserverUrl}/_matrix/client/v3/logout");
+        request.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.Unauthorized)
+            return;
+
+        _logger.LogWarning(
+            "Matrix access-token revocation failed with status {Status}",
+            (int)response.StatusCode);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task EnsureUserInRooms(string localpart, IEnumerable<string> roomIds)
