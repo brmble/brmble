@@ -192,6 +192,39 @@ public class MatrixAppServiceTests
     }
 
     [TestMethod]
+    public async Task RevokeAccessToken_PostsLogoutWithUserBearerToken()
+    {
+        SetupHttpResponse(HttpStatusCode.OK);
+
+        await _svc.RevokeAccessToken("syt_user_token");
+
+        var req = _capturedRequests.Single();
+        Assert.AreEqual(HttpMethod.Post, req.Method);
+        Assert.AreEqual("/_matrix/client/v3/logout", req.RequestUri!.AbsolutePath);
+        Assert.AreEqual(string.Empty, req.RequestUri.Query);
+        Assert.AreEqual("Bearer", req.Headers.Authorization!.Scheme);
+        Assert.AreEqual("syt_user_token", req.Headers.Authorization.Parameter);
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_Unauthorized_IsAlreadyRevoked()
+    {
+        SetupHttpResponse(HttpStatusCode.Unauthorized,
+            """{"errcode":"M_UNKNOWN_TOKEN","error":"Unknown access token"}""");
+
+        await _svc.RevokeAccessToken("syt_already_gone");
+    }
+
+    [TestMethod]
+    public async Task RevokeAccessToken_ServerError_Throws()
+    {
+        SetupHttpResponse(HttpStatusCode.InternalServerError);
+
+        await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            () => _svc.RevokeAccessToken("syt_still_unknown"));
+    }
+
+    [TestMethod]
     public async Task UploadMedia_PostsToMediaEndpointWithContentType()
     {
         SetupHttpResponse(HttpStatusCode.OK,
