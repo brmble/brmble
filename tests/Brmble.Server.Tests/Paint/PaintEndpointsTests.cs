@@ -281,6 +281,7 @@ public sealed class PaintEndpointsTests
             var users = app.Services.GetRequiredService<UserRepository>();
             var host = await users.Insert("bob-cert", "bob");
             var invitee = await users.Insert("alice-cert", "alice");
+            matrix.SourceSender = host.MatrixUserId;
             presence.Participants[host.Id] = new(host.Id, 9, 101, host.MatrixUserId);
             presence.Participants[invitee.Id] = new(invitee.Id, 9, 102, invitee.MatrixUserId);
             fixture.SessionId = (await app.Services.GetRequiredService<PaintSessionManager>().CreateAsync(host.Id, [102])).SessionId;
@@ -350,10 +351,11 @@ public sealed class PaintEndpointsTests
     {
         private static readonly byte[] ValidPng = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        public string? SourceSender { get; set; }
         public Dictionary<string, string?> Memberships { get; } = [];
         public Task<string> CreatePaintRoomAsync(string name, IReadOnlyList<string> ids, CancellationToken token) => Task.FromResult("!paint:test");
         public Task InvitePaintUserAsync(string roomId, string id, CancellationToken token) => Task.CompletedTask;
-        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken token) => Task.FromResult(JsonDocument.Parse($"{{\"room_id\":\"!paint:test\",\"sender\":\"@1:test\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://test/image\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{ValidPng.Length}}}}}}}").RootElement.Clone());
+        public Task<JsonElement> GetRoomEventAsync(string roomId, string eventId, CancellationToken token) => Task.FromResult(JsonDocument.Parse($"{{\"room_id\":\"!paint:test\",\"sender\":\"{SourceSender}\",\"type\":\"m.room.message\",\"content\":{{\"msgtype\":\"m.image\",\"url\":\"mxc://test/image\",\"info\":{{\"mimetype\":\"image/png\",\"size\":{ValidPng.Length}}}}}}}").RootElement.Clone());
         public Task<string?> GetMembershipAsync(string roomId, string id, CancellationToken token) => Task.FromResult(Memberships.GetValueOrDefault(id));
         public Task<byte[]> DownloadMediaAsync(string mxcUrl, CancellationToken token) => Task.FromResult(ValidPng);
         public Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken token) => Task.FromResult(new MatrixPaintRoomCleanupResult(true, "delete", null));
