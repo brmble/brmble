@@ -28,7 +28,7 @@ public interface IActiveBrmbleSessions
     bool IsBrmbleClientByName(string mumbleName);
     void TrackMumbleName(string mumbleName, string? certHash = null, bool active = false);
     void UntrackMumbleName(string mumbleName);
-    Task DeactivateAsync(string certHash);
+    Task DeactivateAsync(string certHash, Func<bool>? canRevoke = null);
 }
 
 public class AuthService : IActiveBrmbleSessions
@@ -337,7 +337,7 @@ public class AuthService : IActiveBrmbleSessions
             now.AddMinutes(_matrixSettings.AccessTokenLifetimeMinutes).ToUnixTimeMilliseconds());
     }
 
-    public async Task DeactivateAsync(string certHash)
+    public async Task DeactivateAsync(string certHash, Func<bool>? canRevoke = null)
     {
         lock (_lock)
         {
@@ -370,6 +370,7 @@ public class AuthService : IActiveBrmbleSessions
             if (user is null) return;
             var lease = await _matrixTokenStore.GetAsync(user.Id);
             if (lease is null) return;
+            if (canRevoke is not null && !canRevoke()) return;
             var now = _timeProvider.GetUtcNow();
             await _matrixTokenStore.ExpireIfCurrentAsync(user.Id, lease.StoredValue, now.ToUnixTimeMilliseconds());
             try

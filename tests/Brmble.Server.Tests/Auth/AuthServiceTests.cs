@@ -123,6 +123,21 @@ public class AuthServiceTests
     }
 
     [TestMethod]
+    public async Task Deactivate_WhenConnectionSnapshotIsStale_LeavesLeaseActive()
+    {
+        var authenticated = await _svc!.Authenticate("stale-disconnect");
+        var user = await _repo!.GetByCertHash("stale-disconnect");
+
+        await _svc.DeactivateAsync("stale-disconnect", () => false);
+
+        var lease = await _matrixTokenStore!.GetAsync(user!.Id);
+        Assert.IsNotNull(lease);
+        Assert.AreEqual(authenticated.MatrixAccessToken, lease.AccessToken);
+        _mockMatrix!.Verify(m => m.RevokeAccessToken(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.IsFalse(_svc.IsBrmbleClient("stale-disconnect"));
+    }
+
+    [TestMethod]
     public async Task HandleUserState_UnknownCert_DoesNotThrow()
     {
         // No user in DB, no auth call — should just queue silently
