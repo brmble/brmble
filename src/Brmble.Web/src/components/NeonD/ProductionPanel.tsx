@@ -11,7 +11,7 @@ import {
   getProductProductionRate,
   getProductUpgradeCost,
   getVisibleProductIds,
-  isBulkSellingVisible,
+  isProductFullyUpgraded,
 } from './economy';
 import { getProductSalesRates } from './simulation';
 import type { GameState, ProductId } from './types';
@@ -23,7 +23,7 @@ type ProductionPanelProps = {
   buyProducer: (productId: ProductId) => void;
   researchProduct: (productId: ProductId) => void;
   buyProductUpgrade: (productId: ProductId, upgradeId: string) => void;
-  unlockBulkSelling: () => void;
+  unlockBulkSelling: (productId: ProductId) => void;
   bulkSellProduct: (productId: ProductId) => void;
 };
 
@@ -55,15 +55,6 @@ export function ProductionPanel(props: ProductionPanelProps) {
   return (
     <section className={styles.panel} aria-labelledby="neond-production-heading">
       <h3 id="neond-production-heading" className={styles.columnHeader}>Production</h3>
-      {isBulkSellingVisible(props.state) && !props.state.bulkUnlocked && (
-        <button
-          className={styles.unlockButton}
-          onClick={props.unlockBulkSelling}
-          disabled={props.state.cash < BULK_UNLOCK_COST}
-        >
-          Unlock Bulk Selling - {formatMoney(BULK_UNLOCK_COST)}
-        </button>
-      )}
       <div className={styles.cardStack}>
         {visibleIds.map((productId) => {
           const definition = getProductDefinition(productId);
@@ -166,7 +157,16 @@ export function ProductionPanel(props: ProductionPanelProps) {
                       <span>{Math.ceil((props.state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
                     </div>
                   )}
-                  {props.state.bulkUnlocked && (
+                  {isProductFullyUpgraded(props.state, productId) && !props.state.bulkUnlockedProductIds.includes(productId) && (
+                    <button
+                      className={styles.unlockButton}
+                      onClick={() => props.unlockBulkSelling(productId)}
+                      disabled={props.state.cash < BULK_UNLOCK_COST}
+                    >
+                      Unlock Bulk Selling - {formatMoney(BULK_UNLOCK_COST)}
+                    </button>
+                  )}
+                  {props.state.bulkUnlockedProductIds.includes(productId) && (
                     <div className={styles.actionStack}>
                       <button
                         className={styles.buyButton}

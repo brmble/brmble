@@ -61,6 +61,15 @@ export const getProductProductionRate = (state: GameState, productId: ProductId)
   return productState.producersOwned * definition.producer.baseRate * upgradeMultiplier * (1 + state.kingpins);
 };
 
+export const isProductFullyUpgraded = (
+  state: Pick<GameState, 'production'>,
+  productId: ProductId,
+) => {
+  const product = getProductDefinition(productId);
+  const purchased = state.production[productId].purchasedUpgradeIds;
+  return product.upgrades.every((upgrade) => purchased.includes(upgrade.id));
+};
+
 export const getVisibleProductIds = (state: GameState): ProductId[] => {
   const next = PRODUCT_CATALOG[state.unlockedProducts.length];
   if (!next) return [...state.unlockedProducts];

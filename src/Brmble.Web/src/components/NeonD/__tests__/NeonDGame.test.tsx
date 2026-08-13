@@ -760,24 +760,38 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
 });
 
-it('shows Bulk and Captain progression controls at their visible thresholds', () => {
+it('does not show a global Bulk control while still showing Captain progression', () => {
   mockState({
     cash: 10_000_000,
     runEarnings: 7_500_000,
-    bulkUnlocked: false,
   });
 
   render(<NeonDGame />);
 
-  expect(screen.getByRole('button', { name: /bulk.*141[.,]592/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /bulk.*141[.,]592/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /captain/i })).toBeInTheDocument();
+});
+
+it('shows the per-product Bulk purchase only after all product upgrades are owned', () => {
+  mockState({
+    cash: 10_000_000,
+    production: {
+      ...createBaseGameState(Date.now()).production,
+      weed: { stock: 100, producersOwned: 5, purchasedUpgradeIds: ['fertilizer', 'hydroponics'] },
+    },
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByRole('button', { name: /unlock bulk selling.*141[.,]592/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /bulk sell overflow/i })).not.toBeInTheDocument();
 });
 
 it('renders manual bulk controls once and labels each producer purchase as one producer', () => {
   mockState({
     cash: 10_000_000,
     runEarnings: 7_500_000,
-    bulkUnlocked: true,
+    bulkUnlockedProductIds: ['weed'],
     unlockedProducts: ['weed', 'mushrooms'],
   });
 
@@ -790,7 +804,7 @@ it('renders manual bulk controls once and labels each producer purchase as one p
 it('disables manual bulk selling and shows the remaining cooldown', () => {
   const now = Date.now();
   mockState({
-    bulkUnlocked: true,
+    bulkUnlockedProductIds: ['weed'],
     lastTickAt: now,
     lastBulkSellAt: now - 1_000,
     production: {

@@ -161,7 +161,7 @@ export const CAPTAIN_LEVEL_THRESHOLDS = [
 ] as const;
 
 export const createBaseGameState = (now: number): GameState => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,
@@ -178,7 +178,7 @@ export const createBaseGameState = (now: number): GameState => ({
   lastDealerRefreshAt: now,
   captains: [],
   kingpins: 0,
-  bulkUnlocked: false,
+  bulkUnlockedProductIds: [],
   lastBulkSellAt: now,
   activeMarketEvent: null,
   nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,

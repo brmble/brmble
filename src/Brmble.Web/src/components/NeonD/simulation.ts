@@ -45,7 +45,7 @@ export const sellBulkOverflow = (
   productId: ProductId,
   now: number,
 ): GameState => {
-  if (!state.bulkUnlocked || !state.unlockedProducts.includes(productId)) return state;
+  if (!state.bulkUnlockedProductIds.includes(productId) || !state.unlockedProducts.includes(productId)) return state;
   const hasPreviousBulkSale = state.lastBulkSellAt !== state.lastTickAt;
   if (hasPreviousBulkSale && now - state.lastBulkSellAt < BULK_SELL_COOLDOWN_MS) return state;
 

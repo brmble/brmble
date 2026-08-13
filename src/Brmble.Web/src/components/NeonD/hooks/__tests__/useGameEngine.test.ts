@@ -109,21 +109,35 @@ describe('useGameEngine', () => {
     expect(result.current.state.unlockedProducts).toEqual(['weed', 'mushrooms']);
   });
 
-  it('keeps Bulk Selling hidden before $212,388 and buys it for exactly $141,592', () => {
+  it('does not unlock bulk selling before every product upgrade is owned', () => {
     const { result } = renderSeededGame({
       cash: 200_000,
-      runEarnings: 212_388,
     });
 
-    act(() => result.current.unlockBulkSelling());
+    act(() => result.current.unlockBulkSelling('weed'));
 
-    expect(result.current.state.bulkUnlocked).toBe(true);
+    expect(result.current.state.bulkUnlockedProductIds).toEqual([]);
+    expect(result.current.state.cash).toBe(200_000);
+  });
+
+  it('purchases bulk selling for only a fully upgraded product', () => {
+    const { result } = renderSeededGame({
+      cash: 200_000,
+      production: {
+        ...createBaseGameState(0).production,
+        weed: { stock: 0, producersOwned: 0, purchasedUpgradeIds: ['fertilizer', 'hydroponics'] },
+      },
+    });
+
+    act(() => result.current.unlockBulkSelling('weed'));
+
+    expect(result.current.state.bulkUnlockedProductIds).toEqual(['weed']);
     expect(result.current.state.cash).toBeCloseTo(58_408);
   });
 
   it('blocks a second manual bulk sale during the cooldown', () => {
     const { result } = renderSeededGame({
-      bulkUnlocked: true,
+      bulkUnlockedProductIds: ['weed'],
       lastBulkSellAt: 1_000,
       production: {
         ...createBaseGameState(1_000).production,

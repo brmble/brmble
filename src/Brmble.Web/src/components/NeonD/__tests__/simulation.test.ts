@@ -91,7 +91,7 @@ describe('deterministic production', () => {
 
   it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {
     const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 1_500;
 
     const next = sellBulkOverflow(state, 'weed', 10_000);
@@ -104,7 +104,7 @@ describe('deterministic production', () => {
 
   it('blocks another manual bulk sale until the 20-minute cooldown expires', () => {
     const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 1_500;
 
     const sold = sellBulkOverflow(state, 'weed', 10_000);
@@ -120,7 +120,7 @@ describe('deterministic production', () => {
 
   it('does not start a cooldown when there is no overflow to sell', () => {
     const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 500;
 
     const next = sellBulkOverflow(state, 'weed', 10_000);
@@ -131,7 +131,7 @@ describe('deterministic production', () => {
 
   it('does not automatically bulk sell stock above 1500g', () => {
     const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 1_500;
     state.production.weed.producersOwned = 1;
 

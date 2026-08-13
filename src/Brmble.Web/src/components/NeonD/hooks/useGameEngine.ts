@@ -22,7 +22,7 @@ import {
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
-  isBulkSellingVisible,
+  isProductFullyUpgraded,
   isCaptainVisible,
 } from '../economy';
 import {
@@ -338,16 +338,17 @@ export const useGameEngine = () => {
     });
   };
 
-  const unlockBulkSelling = () => {
+  const unlockBulkSelling = (productId: ProductId) => {
     setState((prev) => {
-      if (prev.bulkUnlocked) return prev;
-      if (!isBulkSellingVisible(prev)) return prev;
+      if (!prev.unlockedProducts.includes(productId)) return prev;
+      if (prev.bulkUnlockedProductIds.includes(productId)) return prev;
+      if (!isProductFullyUpgraded(prev, productId)) return prev;
       if (prev.cash < BULK_UNLOCK_COST) return prev;
 
       return {
         ...prev,
         cash: prev.cash - BULK_UNLOCK_COST,
-        bulkUnlocked: true,
+        bulkUnlockedProductIds: [...prev.bulkUnlockedProductIds, productId],
       };
     });
   };

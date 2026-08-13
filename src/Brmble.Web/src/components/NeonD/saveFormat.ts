@@ -201,7 +201,7 @@ function isGameState(value: unknown): value is GameState {
   if (!hasExactKeys(value, [
     'schemaVersion', 'cash', 'runEarnings', 'respect', 'production', 'unlockedProducts',
     'muscleOwned', 'territoryLevel', 'discountLevel', 'activeDealers', 'availableDealers',
-    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlocked', 'lastBulkSellAt',
+    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlockedProductIds', 'lastBulkSellAt',
     'activeMarketEvent', 'nextMarketCheckAt', 'nextRiskCheckAt', 'lastEarningsPerSeller',
     'lastTickAt', 'offlineEarningsSummary',
   ])) return false;
@@ -226,7 +226,9 @@ function isGameState(value: unknown): value is GameState {
 
   const activeDealerRecords = activeDealers.filter((dealer): dealer is Dealer => dealer !== null);
 
-  return value.schemaVersion === 3
+  const bulkUnlockedProductIds = value.bulkUnlockedProductIds;
+
+  return value.schemaVersion === 4
     && isNonNegativeFiniteNumber(value.cash)
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
@@ -236,7 +238,9 @@ function isGameState(value: unknown): value is GameState {
     && hasUniqueSellerIds([...activeDealerRecords, ...availableDealers, ...captains])
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
-    && typeof value.bulkUnlocked === 'boolean'
+    && Array.isArray(bulkUnlockedProductIds)
+    && bulkUnlockedProductIds.every(isProductId)
+    && hasUniqueValues(bulkUnlockedProductIds)
     && isNonNegativeFiniteNumber(value.lastBulkSellAt)
     && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent, unlockedProducts))
     && isNonNegativeFiniteNumber(value.nextMarketCheckAt)
@@ -281,6 +285,14 @@ export function parseNeonDSave(text: string): GameState {
       ...legacyState,
       schemaVersion: 3,
       lastBulkSellAt: 0,
+    };
+  }
+  if (isObject(state) && state.schemaVersion === 3) {
+    const { bulkUnlocked: _legacyBulkUnlocked, ...v3State } = state;
+    state = {
+      ...v3State,
+      schemaVersion: 4,
+      bulkUnlockedProductIds: [],
     };
   }
   if (!isGameState(state)) {

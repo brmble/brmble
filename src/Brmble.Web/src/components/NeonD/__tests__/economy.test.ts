@@ -17,6 +17,7 @@ import {
   getVisibleProductIds,
   isBulkSellingVisible,
   isCaptainVisible,
+  isProductFullyUpgraded,
   isRiskActive,
 } from '../economy';
 
@@ -33,6 +34,18 @@ describe('Neon-D economy formulas', () => {
     state.production.weed.purchasedUpgradeIds = ['fertilizer', 'hydroponics'];
     state.kingpins = 1;
     expect(getProductProductionRate(state, 'weed')).toBeCloseTo(2 * 0.20 * 1.30 * 1.50 * 2);
+  });
+
+  it('recognizes when every upgrade for a product has been purchased', () => {
+    const state = createBaseGameState(0);
+
+    expect(isProductFullyUpgraded(state, 'weed')).toBe(false);
+
+    state.production.weed.purchasedUpgradeIds = ['fertilizer'];
+    expect(isProductFullyUpgraded(state, 'weed')).toBe(false);
+
+    state.production.weed.purchasedUpgradeIds = ['fertilizer', 'hydroponics'];
+    expect(isProductFullyUpgraded(state, 'weed')).toBe(true);
   });
 
   it('reveals only the next product after 80 percent of its research cost', () => {

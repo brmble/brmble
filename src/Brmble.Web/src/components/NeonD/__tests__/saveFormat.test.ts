@@ -53,7 +53,7 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(json)).toEqual(state);
   });
 
-  it('serializes the v3 schema without restoring v1-only fields', () => {
+  it('serializes the v4 schema without restoring v1-only fields', () => {
     const state = createState({
       offlineEarningsSummary: {
         actualAwayMs: 60_000,
@@ -67,14 +67,14 @@ describe('Neon-D save format', () => {
     const parsed = JSON.parse(json);
     const legacyResearchField = ['research', 'Speed'].join('');
 
-    expect(parsed.state.schemaVersion).toBe(3);
+    expect(parsed.state.schemaVersion).toBe(4);
     expect(parsed.state).not.toHaveProperty('money');
     expect(parsed.state).not.toHaveProperty(legacyResearchField);
     expect(parsed.state).not.toHaveProperty('unlockedProduction');
     expect(parsed.state.offlineEarningsSummary).toEqual(state.offlineEarningsSummary);
   });
 
-  it('round-trips valid v3 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
+  it('round-trips valid v4 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
     const state = createState({
       cash: 1234.56,
       runEarnings: 7890.12,
@@ -125,7 +125,7 @@ describe('Neon-D save format', () => {
         }),
       ],
       kingpins: 1,
-      bulkUnlocked: true,
+      bulkUnlockedProductIds: ['weed', 'mushrooms'],
       lastBulkSellAt: 1_000,
       activeMarketEvent: {
         productId: 'mushrooms',
@@ -150,7 +150,7 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
   });
 
-  it('migrates a v2 save to manual bulk selling with no active cooldown', () => {
+  it('migrates an older save to per-product bulk selling with no active cooldown', () => {
     const v3State = { ...createState() };
     delete (v3State as Partial<GameState>).lastBulkSellAt;
     const legacyState = {
@@ -164,9 +164,16 @@ describe('Neon-D save format', () => {
       state: legacyState,
     }));
 
-    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.schemaVersion).toBe(4);
     expect(parsed.lastBulkSellAt).toBe(0);
+    expect(parsed.bulkUnlockedProductIds).toEqual([]);
     expect(parsed).not.toHaveProperty('autoBulkEnabled');
+  });
+
+  it('preserves only explicitly purchased product IDs during a v4 round trip', () => {
+    const state = createState({ bulkUnlockedProductIds: ['weed'] });
+
+    expect(parseNeonDSave(serializeNeonDSave(state)).bulkUnlockedProductIds).toEqual(['weed']);
   });
 
   it.each([
@@ -185,6 +192,15 @@ describe('Neon-D save format', () => {
     ['wrong schema version in state', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION, state: { ...createState(), schemaVersion: 1 } })],
     ['legacy offline summary shape', createCorruptEnvelope((state) => {
       state.offlineEarningsSummary = { awayMs: 60_000, earned: 250 } as unknown as GameState['offlineEarningsSummary'];
+    })],
+    ['unknown bulk product ID', createCorruptEnvelope((state) => {
+      state.bulkUnlockedProductIds = ['not-a-product' as GameState['bulkUnlockedProductIds'][number]];
+    })],
+    ['duplicate bulk product ID', createCorruptEnvelope((state) => {
+      state.bulkUnlockedProductIds = ['weed', 'weed'];
+    })],
+    ['non-array bulk product IDs', createCorruptEnvelope((state) => {
+      (state as unknown as { bulkUnlockedProductIds: unknown }).bulkUnlockedProductIds = 'weed';
     })],
     ['negative cash', createCorruptEnvelope((state) => {
       state.cash = -0.01;
