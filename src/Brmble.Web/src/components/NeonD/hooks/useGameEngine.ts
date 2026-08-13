@@ -353,11 +353,7 @@ export const useGameEngine = () => {
   };
 
   const bulkSellProduct = (productId: ProductId) => {
-    setState((prev) => sellBulkOverflow(prev, productId));
-  };
-
-  const setAutoBulkEnabled = (enabled: boolean) => {
-    setState((prev) => prev.bulkUnlocked ? { ...prev, autoBulkEnabled: enabled } : prev);
+    setState((prev) => sellBulkOverflow(prev, productId, Date.now()));
   };
 
   const dismissOfflineEarningsSummary = () => {
@@ -423,7 +419,6 @@ export const useGameEngine = () => {
     payDealerBail,
     unlockBulkSelling,
     bulkSellProduct,
-    setAutoBulkEnabled,
     dismissOfflineEarningsSummary,
     buyCaptain,
     promoteCaptain,

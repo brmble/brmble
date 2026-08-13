@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   AUTO_BULK_RETAIN_STOCK,
-  AUTO_BULK_TRIGGER_STOCK,
+  BULK_SELL_COOLDOWN_MS,
   BULK_UNLOCK_COST,
 } from './constants';
 import {
@@ -25,7 +25,6 @@ type ProductionPanelProps = {
   buyProductUpgrade: (productId: ProductId, upgradeId: string) => void;
   unlockBulkSelling: () => void;
   bulkSellProduct: (productId: ProductId) => void;
-  setAutoBulkEnabled: (enabled: boolean) => void;
 };
 
 const formatMoney = (value: number) => `$${Math.round(value).toLocaleString()}`;
@@ -35,6 +34,14 @@ export function ProductionPanel(props: ProductionPanelProps) {
   const visibleIds = getVisibleProductIds(props.state);
   const salesRates = getProductSalesRates(props.state);
   const renderNow = props.state.lastTickAt;
+  const hasPreviousBulkSale = props.state.lastBulkSellAt !== renderNow;
+  const bulkCooldownRemainingMs = hasPreviousBulkSale
+    ? Math.max(0, props.state.lastBulkSellAt + BULK_SELL_COOLDOWN_MS - renderNow)
+    : 0;
+  const bulkCooldownSeconds = Math.ceil(bulkCooldownRemainingMs / 1_000);
+  const bulkCooldownLabel = bulkCooldownSeconds >= 60
+    ? `${Math.ceil(bulkCooldownSeconds / 60)}m`
+    : `${bulkCooldownSeconds}s`;
 
   const toggleProductCard = (productId: ProductId) => {
     setCollapsedProductIds((current) => {
@@ -55,16 +62,6 @@ export function ProductionPanel(props: ProductionPanelProps) {
           disabled={props.state.cash < BULK_UNLOCK_COST}
         >
           Unlock Bulk Selling - {formatMoney(BULK_UNLOCK_COST)}
-        </button>
-      )}
-      {props.state.bulkUnlocked && (
-        <button
-          type="button"
-          className={styles.toggleButtonText}
-          aria-pressed={props.state.autoBulkEnabled}
-          onClick={() => props.setAutoBulkEnabled(!props.state.autoBulkEnabled)}
-        >
-          Auto Bulk {props.state.autoBulkEnabled ? 'On' : 'Off'} ({AUTO_BULK_TRIGGER_STOCK.toLocaleString()}g → {AUTO_BULK_RETAIN_STOCK.toLocaleString()}g)
         </button>
       )}
       <div className={styles.cardStack}>
@@ -174,9 +171,9 @@ export function ProductionPanel(props: ProductionPanelProps) {
                       <button
                         className={styles.buyButton}
                         onClick={() => props.bulkSellProduct(productId)}
-                        disabled={product.stock <= AUTO_BULK_RETAIN_STOCK}
+                        disabled={product.stock <= AUTO_BULK_RETAIN_STOCK || bulkCooldownRemainingMs > 0}
                       >
-                        Bulk sell overflow
+                        Bulk sell overflow{bulkCooldownRemainingMs > 0 ? ` (${bulkCooldownLabel})` : ''}
                       </button>
                     </div>
                   )}

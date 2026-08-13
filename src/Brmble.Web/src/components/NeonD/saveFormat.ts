@@ -18,7 +18,7 @@ import type {
 } from './types';
 
 export const NEON_D_SAVE_FORMAT = NEON_D_SAVE_KEY;
-export const NEON_D_SAVE_VERSION = 2;
+export const NEON_D_SAVE_VERSION = 3;
 
 type SaveEnvelope = {
   format: typeof NEON_D_SAVE_FORMAT;
@@ -201,7 +201,7 @@ function isGameState(value: unknown): value is GameState {
   if (!hasExactKeys(value, [
     'schemaVersion', 'cash', 'runEarnings', 'respect', 'production', 'unlockedProducts',
     'muscleOwned', 'territoryLevel', 'discountLevel', 'activeDealers', 'availableDealers',
-    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlocked', 'autoBulkEnabled',
+    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlocked', 'lastBulkSellAt',
     'activeMarketEvent', 'nextMarketCheckAt', 'nextRiskCheckAt', 'lastEarningsPerSeller',
     'lastTickAt', 'offlineEarningsSummary',
   ])) return false;
@@ -226,7 +226,7 @@ function isGameState(value: unknown): value is GameState {
 
   const activeDealerRecords = activeDealers.filter((dealer): dealer is Dealer => dealer !== null);
 
-  return value.schemaVersion === 2
+  return value.schemaVersion === 3
     && isNonNegativeFiniteNumber(value.cash)
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
@@ -237,8 +237,7 @@ function isGameState(value: unknown): value is GameState {
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
     && typeof value.bulkUnlocked === 'boolean'
-    && typeof value.autoBulkEnabled === 'boolean'
-    && (!value.autoBulkEnabled || value.bulkUnlocked)
+    && isNonNegativeFiniteNumber(value.lastBulkSellAt)
     && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent, unlockedProducts))
     && isNonNegativeFiniteNumber(value.nextMarketCheckAt)
     && isNonNegativeFiniteNumber(value.nextRiskCheckAt)
@@ -268,12 +267,25 @@ export function parseNeonDSave(text: string): GameState {
   if (!isObject(parsed) || !hasExactKeys(parsed, ['format', 'version', 'state']) || parsed.format !== NEON_D_SAVE_FORMAT) {
     throw new Error('This file is not a Neon-D save.');
   }
-  if (parsed.version !== NEON_D_SAVE_VERSION) {
+  if (parsed.version !== 2 && parsed.version !== NEON_D_SAVE_VERSION) {
     throw new Error('This Neon-D save version is not supported.');
   }
-  if (!isGameState(parsed.state)) {
+  let state = parsed.state;
+  if (parsed.version === 2) {
+    if (!isObject(state) || state.schemaVersion !== 2) {
+      throw new Error('This Neon-D save is incomplete or corrupted.');
+    }
+    const legacyState = { ...state };
+    delete legacyState.autoBulkEnabled;
+    state = {
+      ...legacyState,
+      schemaVersion: 3,
+      lastBulkSellAt: 0,
+    };
+  }
+  if (!isGameState(state)) {
     throw new Error('This Neon-D save is incomplete or corrupted.');
   }
 
-  return parsed.state;
+  return state;
 }

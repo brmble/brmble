@@ -28,7 +28,6 @@ const mockNeonD = vi.hoisted(() => {
   const payDealerBailMock = vi.fn();
   const unlockBulkSellingMock = vi.fn();
   const bulkSellProductMock = vi.fn();
-  const setAutoBulkEnabledMock = vi.fn();
   const dismissOfflineEarningsSummaryMock = vi.fn();
   const buyCaptainMock = vi.fn();
   const promoteCaptainMock = vi.fn();
@@ -51,7 +50,6 @@ const mockNeonD = vi.hoisted(() => {
     payDealerBailMock,
     unlockBulkSellingMock,
     bulkSellProductMock,
-    setAutoBulkEnabledMock,
     dismissOfflineEarningsSummaryMock,
     buyCaptainMock,
     promoteCaptainMock,
@@ -77,7 +75,6 @@ const mockNeonD = vi.hoisted(() => {
         payDealerBailMock,
         unlockBulkSellingMock,
         bulkSellProductMock,
-        setAutoBulkEnabledMock,
         dismissOfflineEarningsSummaryMock,
         buyCaptainMock,
         promoteCaptainMock,
@@ -101,7 +98,6 @@ const mockNeonD = vi.hoisted(() => {
       payDealerBail: payDealerBailMock,
       unlockBulkSelling: unlockBulkSellingMock,
       bulkSellProduct: bulkSellProductMock,
-      setAutoBulkEnabled: setAutoBulkEnabledMock,
       dismissOfflineEarningsSummary: dismissOfflineEarningsSummaryMock,
       buyCaptain: buyCaptainMock,
       promoteCaptain: promoteCaptainMock,
@@ -777,7 +773,7 @@ it('shows Bulk and Captain progression controls at their visible thresholds', ()
   expect(screen.getByRole('button', { name: /captain/i })).toBeInTheDocument();
 });
 
-it('renders global bulk controls once and labels each producer purchase as one producer', () => {
+it('renders manual bulk controls once and labels each producer purchase as one producer', () => {
   mockState({
     cash: 10_000_000,
     runEarnings: 7_500_000,
@@ -788,8 +784,26 @@ it('renders global bulk controls once and labels each producer purchase as one p
   render(<NeonDGame />);
 
   expect(screen.getAllByRole('button', { name: /buy one cannabis plant/i })).toHaveLength(1);
-  expect(screen.getByRole('button', { name: /auto bulk off/i })).toBeInTheDocument();
-  expect(screen.getAllByRole('button', { name: /auto bulk off/i })).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: /auto bulk/i })).not.toBeInTheDocument();
+});
+
+it('disables manual bulk selling and shows the remaining cooldown', () => {
+  const now = Date.now();
+  mockState({
+    bulkUnlocked: true,
+    lastTickAt: now,
+    lastBulkSellAt: now - 1_000,
+    production: {
+      ...createBaseGameState(now).production,
+      weed: { stock: 1_500, producersOwned: 0, purchasedUpgradeIds: [] },
+    },
+  });
+
+  render(<NeonDGame />);
+
+  const bulkButton = screen.getByRole('button', { name: /bulk sell overflow/i });
+  expect(bulkButton).toBeDisabled();
+  expect(bulkButton).toHaveTextContent(/20m/);
 });
 
 it('shows the offline summary with cash, Respect, and simulated duration', () => {

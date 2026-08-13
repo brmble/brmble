@@ -121,11 +121,23 @@ describe('useGameEngine', () => {
     expect(result.current.state.cash).toBeCloseTo(58_408);
   });
 
-  it('only changes auto bulk after Bulk Selling is unlocked', () => {
-    const { result } = renderHook(() => useGameEngine());
+  it('blocks a second manual bulk sale during the cooldown', () => {
+    const { result } = renderSeededGame({
+      bulkUnlocked: true,
+      lastBulkSellAt: 1_000,
+      production: {
+        ...createBaseGameState(1_000).production,
+        weed: { stock: 1_500, producersOwned: 0, purchasedUpgradeIds: [] },
+      },
+    });
 
-    act(() => result.current.setAutoBulkEnabled(true));
-    expect(result.current.state.autoBulkEnabled).toBe(false);
+    act(() => result.current.bulkSellProduct('weed'));
+    const cashAfterFirstSale = result.current.state.cash;
+
+    act(() => result.current.bulkSellProduct('weed'));
+
+    expect(result.current.state.cash).toBe(cashAfterFirstSale);
+    expect(result.current.state.production.weed.stock).toBe(500);
   });
 
   it('does not simulate or show a summary for less than 30 seconds away on mount', () => {

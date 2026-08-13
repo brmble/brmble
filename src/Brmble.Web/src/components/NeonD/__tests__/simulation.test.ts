@@ -4,7 +4,6 @@ import { getCaptainLevel } from '../economy';
 import {
   advanceDeterministicState,
   applyOfflineProgress,
-  applyAutoBulk,
   applyDueRiskCheck,
   applyMarketClock,
   getProductSalesRates,
@@ -95,22 +94,48 @@ describe('deterministic production', () => {
     state.bulkUnlocked = true;
     state.production.weed.stock = 1_500;
 
-    const next = sellBulkOverflow(state, 'weed');
+    const next = sellBulkOverflow(state, 'weed', 10_000);
 
     expect(next.production.weed.stock).toBeCloseTo(500);
     expect(next.cash - state.cash).toBeCloseTo(1_000 * 4.2 * 0.90);
     expect(next.runEarnings - state.runEarnings).toBeCloseTo(1_000 * 4.2 * 0.90);
+    expect(next.lastBulkSellAt).toBe(10_000);
   });
 
-  it('auto bulk triggers only above 1500g and sells down to 500g', () => {
+  it('blocks another manual bulk sale until the 20-minute cooldown expires', () => {
     const state = createBaseGameState(0);
     state.bulkUnlocked = true;
-    state.autoBulkEnabled = true;
     state.production.weed.stock = 1_500;
-    expect(applyAutoBulk(state).production.weed.stock).toBe(1_500);
 
-    state.production.weed.stock = 1_500.01;
-    expect(applyAutoBulk(state).production.weed.stock).toBeCloseTo(500);
+    const sold = sellBulkOverflow(state, 'weed', 10_000);
+    sold.production.weed.stock = 1_500;
+    const blocked = sellBulkOverflow(sold, 'weed', 10_000 + 1_199_999);
+
+    expect(blocked).toBe(sold);
+
+    const allowed = sellBulkOverflow(sold, 'weed', 10_000 + 1_200_000);
+    expect(allowed.production.weed.stock).toBe(500);
+    expect(allowed.lastBulkSellAt).toBe(1_210_000);
+  });
+
+  it('does not start a cooldown when there is no overflow to sell', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlocked = true;
+    state.production.weed.stock = 500;
+
+    const next = sellBulkOverflow(state, 'weed', 10_000);
+
+    expect(next).toBe(state);
+    expect(next.lastBulkSellAt).toBe(0);
+  });
+
+  it('does not automatically bulk sell stock above 1500g', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlocked = true;
+    state.production.weed.stock = 1_500;
+    state.production.weed.producersOwned = 1;
+
+    expect(advanceDeterministicState(state, 1, 1_000).production.weed.stock).toBeGreaterThan(1_500);
   });
 
   it('produces 0.20 units per second for one Cannabis Plant', () => {

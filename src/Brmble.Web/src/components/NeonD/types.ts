@@ -92,7 +92,7 @@ export interface OfflineEarningsSummary {
 }
 
 export interface GameState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   cash: number;
   runEarnings: number;
   respect: number;
@@ -107,7 +107,7 @@ export interface GameState {
   captains: Captain[];
   kingpins: number;
   bulkUnlocked: boolean;
-  autoBulkEnabled: boolean;
+  lastBulkSellAt: number;
   activeMarketEvent: MarketEvent | null;
   nextMarketCheckAt: number;
   nextRiskCheckAt: number;

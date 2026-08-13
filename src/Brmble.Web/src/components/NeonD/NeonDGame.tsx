@@ -55,7 +55,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     payDealerBail,
     unlockBulkSelling,
     bulkSellProduct,
-    setAutoBulkEnabled,
     dismissOfflineEarningsSummary,
     buyCaptain,
     promoteCaptain,
@@ -228,7 +227,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
               buyProductUpgrade={buyProductUpgrade}
               unlockBulkSelling={unlockBulkSelling}
               bulkSellProduct={bulkSellProduct}
-              setAutoBulkEnabled={setAutoBulkEnabled}
             />
           ) : (
             <MusclePanel

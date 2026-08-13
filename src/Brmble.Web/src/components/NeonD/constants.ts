@@ -26,8 +26,8 @@ export const DISCOUNT_GROWTH = 3.8;
 export const DISCOUNT_PRICE_MULTIPLIER = 0.9;
 export const BULK_UNLOCK_COST = 141_592;
 export const BULK_VISIBLE_EARNINGS = 212_388;
+export const BULK_SELL_COOLDOWN_MS = 20 * 60 * 1000;
 export const BULK_VALUE_MULTIPLIER = 0.90;
-export const AUTO_BULK_TRIGGER_STOCK = 1_500;
 export const AUTO_BULK_RETAIN_STOCK = 500;
 export const MARKET_CHECK_INTERVAL_MS = 30_000;
 export const MARKET_EVENT_CHANCE = 0.10;
@@ -161,7 +161,7 @@ export const CAPTAIN_LEVEL_THRESHOLDS = [
 ] as const;
 
 export const createBaseGameState = (now: number): GameState => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,
@@ -179,7 +179,7 @@ export const createBaseGameState = (now: number): GameState => ({
   captains: [],
   kingpins: 0,
   bulkUnlocked: false,
-  autoBulkEnabled: false,
+  lastBulkSellAt: now,
   activeMarketEvent: null,
   nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
   nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,

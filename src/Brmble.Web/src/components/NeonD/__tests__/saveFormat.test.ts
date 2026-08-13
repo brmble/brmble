@@ -53,9 +53,8 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(json)).toEqual(state);
   });
 
-  it('serializes the v2 schema without restoring v1-only fields', () => {
+  it('serializes the v3 schema without restoring v1-only fields', () => {
     const state = createState({
-      schemaVersion: 2,
       offlineEarningsSummary: {
         actualAwayMs: 60_000,
         simulatedMs: 30_000,
@@ -68,14 +67,14 @@ describe('Neon-D save format', () => {
     const parsed = JSON.parse(json);
     const legacyResearchField = ['research', 'Speed'].join('');
 
-    expect(parsed.state.schemaVersion).toBe(2);
+    expect(parsed.state.schemaVersion).toBe(3);
     expect(parsed.state).not.toHaveProperty('money');
     expect(parsed.state).not.toHaveProperty(legacyResearchField);
     expect(parsed.state).not.toHaveProperty('unlockedProduction');
     expect(parsed.state.offlineEarningsSummary).toEqual(state.offlineEarningsSummary);
   });
 
-  it('round-trips valid v2 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
+  it('round-trips valid v3 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
     const state = createState({
       cash: 1234.56,
       runEarnings: 7890.12,
@@ -127,7 +126,7 @@ describe('Neon-D save format', () => {
       ],
       kingpins: 1,
       bulkUnlocked: true,
-      autoBulkEnabled: true,
+      lastBulkSellAt: 1_000,
       activeMarketEvent: {
         productId: 'mushrooms',
         multiplier: 3.25,
@@ -149,6 +148,25 @@ describe('Neon-D save format', () => {
     });
 
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
+  });
+
+  it('migrates a v2 save to manual bulk selling with no active cooldown', () => {
+    const v3State = { ...createState() };
+    delete (v3State as Partial<GameState>).lastBulkSellAt;
+    const legacyState = {
+      ...v3State,
+      schemaVersion: 2,
+      autoBulkEnabled: true,
+    } as unknown as GameState & { autoBulkEnabled: boolean };
+    const parsed = parseNeonDSave(JSON.stringify({
+      format: NEON_D_SAVE_FORMAT,
+      version: 2,
+      state: legacyState,
+    }));
+
+    expect(parsed.schemaVersion).toBe(3);
+    expect(parsed.lastBulkSellAt).toBe(0);
+    expect(parsed).not.toHaveProperty('autoBulkEnabled');
   });
 
   it.each([
@@ -273,9 +291,8 @@ describe('Neon-D save format', () => {
     ['dealer margin above maximum', createCorruptEnvelope((state) => {
       state.activeDealers = [makeReferenceDealer({ id: 'dealer-high-margin', marginMultiplier: 1.51 })];
     })],
-    ['auto bulk enabled without the unlock', createCorruptEnvelope((state) => {
-      state.autoBulkEnabled = true;
-      state.bulkUnlocked = false;
+    ['negative last bulk sale timestamp', createCorruptEnvelope((state) => {
+      state.lastBulkSellAt = -1;
     })],
     ['negative last earnings per seller', createCorruptEnvelope((state) => {
       state.lastEarningsPerSeller = { dealer: -0.01 };
