@@ -102,6 +102,18 @@ describe('deterministic production', () => {
     expect(next.lastBulkSellAt).toBe(10_000);
   });
 
+  it('allows the first bulk sale after the game advances from a fresh state', () => {
+    const state = createBaseGameState(1_000);
+    state.lastTickAt = 2_000;
+    state.bulkUnlockedProductIds = ['weed'];
+    state.production.weed.stock = 1_500;
+
+    const next = sellBulkOverflow(state, 'weed', 3_000);
+
+    expect(next.production.weed.stock).toBe(500);
+    expect(next.lastBulkSellAt).toBe(3_000);
+  });
+
   it('blocks another manual bulk sale until the 20-minute cooldown expires', () => {
     const state = createBaseGameState(0);
     state.bulkUnlockedProductIds = ['weed'];

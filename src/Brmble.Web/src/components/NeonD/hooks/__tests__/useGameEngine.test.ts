@@ -138,7 +138,7 @@ describe('useGameEngine', () => {
   it('blocks a second manual bulk sale during the cooldown', () => {
     const { result } = renderSeededGame({
       bulkUnlockedProductIds: ['weed'],
-      lastBulkSellAt: 1_000,
+      lastBulkSellAt: 0,
       production: {
         ...createBaseGameState(1_000).production,
         weed: { stock: 1_500, producersOwned: 0, purchasedUpgradeIds: [] },

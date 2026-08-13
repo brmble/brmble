@@ -65,7 +65,7 @@ describe('Neon-D reference catalog', () => {
     expect(state.production.weed.stock).toBe(0);
     expect(state.lastTickAt).toBe(1234);
     expect(state.schemaVersion).toBe(4);
-    expect(state.lastBulkSellAt).toBe(1234);
+    expect(state.lastBulkSellAt).toBe(0);
     expect(state.bulkUnlockedProductIds).toEqual([]);
   });
 

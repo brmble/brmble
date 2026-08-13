@@ -179,7 +179,7 @@ export const createBaseGameState = (now: number): GameState => ({
   captains: [],
   kingpins: 0,
   bulkUnlockedProductIds: [],
-  lastBulkSellAt: now,
+  lastBulkSellAt: 0,
   activeMarketEvent: null,
   nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
   nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,

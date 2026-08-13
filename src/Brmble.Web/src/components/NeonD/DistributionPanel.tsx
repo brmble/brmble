@@ -348,7 +348,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     onClick={() => toggleEquipment(captain.id)}
                   >
                     <span>Fixed equipment</span>
-                    <span aria-hidden="true">{expandedEquipmentIds.has(captain.id) ? 'â–´' : 'â–¾'}</span>
+                    <span aria-hidden="true">{expandedEquipmentIds.has(captain.id) ? '▴' : '▾'}</span>
                   </button>
                   {expandedEquipmentIds.has(captain.id) ? (
                     <EquipmentList

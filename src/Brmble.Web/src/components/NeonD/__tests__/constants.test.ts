@@ -24,7 +24,7 @@ describe('Neon-D constants', () => {
     expect(state.respect).toBe(0);
     expect(state.lastTickAt).toBe(1_234);
     expect(state.schemaVersion).toBe(4);
-    expect(state.lastBulkSellAt).toBe(1_234);
+    expect(state.lastBulkSellAt).toBe(0);
     expect(state.bulkUnlockedProductIds).toEqual([]);
   });
 

@@ -764,12 +764,13 @@ it('shows effective Captain star ratings and keeps equipment compact until expan
   const captainCard = screen.getByRole('article', { name: 'Captain UI distribution' });
   expect(within(captainCard).getByRole('img', { name: 'Volume: 1.65x' })).toBeInTheDocument();
   expect(within(captainCard).getByRole('img', { name: 'Margin: 1.50x' })).toBeInTheDocument();
-  expect(within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' })).toBeInTheDocument();
+  const expandEquipment = within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' });
+  expect(expandEquipment).toHaveTextContent('Fixed equipment▾');
   expect(within(captainCard).queryByRole('button', { name: /Baseball Bat/ })).not.toBeInTheDocument();
 
   await user.click(within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' }));
   expect(within(captainCard).getByRole('button', { name: /Baseball Bat/ })).toBeInTheDocument();
-  expect(within(captainCard).getByRole('button', { name: /Collapse equipment for Captain UI/ })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('button', { name: /Collapse equipment for Captain UI/ })).toHaveTextContent('Fixed equipment▴');
 
   await user.click(within(captainCard).getByRole('button', { name: /Baseball Bat/ }));
   expect(mockNeonD.buySellerEquipmentMock).toHaveBeenCalledWith('captain-ui', 'baseballBat', 'captain');
@@ -881,7 +882,7 @@ it('disables manual bulk selling and shows the remaining cooldown', () => {
 
   const bulkButton = screen.getByRole('button', { name: /bulk sell overflow/i });
   expect(bulkButton).toBeDisabled();
-  expect(bulkButton).toHaveTextContent(/20m/);
+  expect(bulkButton).toHaveTextContent('Bulk sell overflow — 20m cooldown');
 });
 
 it('shows the offline summary with cash, Respect, and simulated duration', () => {

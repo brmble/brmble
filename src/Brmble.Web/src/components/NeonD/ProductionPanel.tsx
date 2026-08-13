@@ -34,7 +34,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
   const visibleIds = getVisibleProductIds(props.state);
   const salesRates = getProductSalesRates(props.state);
   const renderNow = props.state.lastTickAt;
-  const hasPreviousBulkSale = props.state.lastBulkSellAt !== renderNow;
+  const hasPreviousBulkSale = props.state.lastBulkSellAt > 0;
   const bulkCooldownRemainingMs = hasPreviousBulkSale
     ? Math.max(0, props.state.lastBulkSellAt + BULK_SELL_COOLDOWN_MS - renderNow)
     : 0;
@@ -173,7 +173,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
                         onClick={() => props.bulkSellProduct(productId)}
                         disabled={product.stock <= AUTO_BULK_RETAIN_STOCK || bulkCooldownRemainingMs > 0}
                       >
-                        Bulk sell overflow{bulkCooldownRemainingMs > 0 ? ` (${bulkCooldownLabel})` : ''}
+                        Bulk sell overflow{bulkCooldownRemainingMs > 0 ? ` — ${bulkCooldownLabel} cooldown` : ''}
                       </button>
                     </div>
                   )}
