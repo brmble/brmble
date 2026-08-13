@@ -273,8 +273,8 @@ export const advanceDeterministicState = (
   let cash = state.cash;
   let runEarnings = state.runEarnings;
   const demands = [
-    ...buildNormalDealerDemands(state),
     ...buildCaptainDemands(state),
+    ...buildNormalDealerDemands(state),
   ];
 
   state.unlockedProducts.forEach((productId) => {

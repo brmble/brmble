@@ -246,7 +246,7 @@ describe('deterministic production', () => {
     expect(next.captains[0].personalEarnings).toBeCloseTo(expectedEarnings);
   });
 
-  it('allocates normal dealer demand before Captain demand when stock is scarce', () => {
+  it('allocates Captain demand before normal dealer demand when stock is scarce', () => {
     const state = createBaseGameState(0);
     state.production.weed.stock = 3;
     state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
@@ -254,8 +254,8 @@ describe('deterministic production', () => {
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
-    expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(12.6);
-    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(0);
+    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(3 * 4.2 * 1.5);
+    expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(0);
     expect(next.production.weed.stock).toBeCloseTo(0);
   });
 
