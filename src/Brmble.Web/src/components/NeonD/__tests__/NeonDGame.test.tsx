@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
 import {
-  CAPTAIN_BASE_COST,
+  CAPTAIN_COSTS,
   CAPTAIN_VISIBLE_EARNINGS,
   createBaseGameState,
 } from '../constants';
@@ -380,7 +380,7 @@ it('shows the Hire Captain action above Distribution after unlock', async () => 
 
 it('shows the exact Captain price and disables hiring when unlocked but unaffordable', () => {
   mockState({
-    cash: CAPTAIN_BASE_COST - 1,
+    cash: CAPTAIN_COSTS[0] - 1,
     runEarnings: CAPTAIN_VISIBLE_EARNINGS,
     captains: [],
     kingpins: 0,
@@ -391,7 +391,7 @@ it('shows the exact Captain price and disables hiring when unlocked but unafford
 
   const workspace = screen.getByTestId('distribution-workspace');
   const hireButton = within(workspace).getByRole('button', {
-    name: `Hire Captain - ${formatExpectedMoney(CAPTAIN_BASE_COST)}`,
+    name: `Hire Captain - ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
   });
 
   expect(hireButton).toBeDisabled();

@@ -107,13 +107,36 @@ describe('Neon-D economy formulas', () => {
     expect(getEquipmentCost('baseballBat', 'captain', 1)).toBeCloseTo(540);
   });
 
-  it('uses exact Captain thresholds and cost growth', () => {
+  it('prices Captains from owned count using the escalating recruitment schedule', () => {
     const state = createBaseGameState(0);
-    expect(getCaptainCost(state)).toBe(5_000_000);
-    state.captains.push({ id: 'captain-1', name: 'Captain One', selling: 'weed', equipmentIds: [], personalEarnings: 500_000 });
+    const captain = (id: string) => ({
+      id,
+      name: id,
+      selling: 'weed' as const,
+      equipmentIds: [],
+      personalEarnings: 0,
+    });
+
+    expect(getCaptainCost(state)).toBe(7_500_000);
+    state.captains.push(captain('captain-1'));
     expect(getCaptainLevel(499_999)).toBe(0);
     expect(getCaptainLevel(500_000)).toBe(1);
-    expect(getCaptainCost(state)).toBeCloseTo(5_000_000 * 1.18);
+    expect(getCaptainCost(state)).toBe(10_000_000);
+    state.captains.push(captain('captain-2'));
+    expect(getCaptainCost(state)).toBe(15_000_000);
+    state.captains.push(captain('captain-3'));
+    expect(getCaptainCost(state)).toBe(20_000_000);
+    state.captains.push(captain('captain-4'));
+    expect(getCaptainCost(state)).toBe(25_000_000);
+  });
+
+  it('ignores Kingpins and preserves Captain price discounts', () => {
+    const state = createBaseGameState(0);
+    state.captains.push({ id: 'captain-1', name: 'Captain One', selling: 'weed', equipmentIds: [], personalEarnings: 0 });
+    state.kingpins = 3;
+    state.discountLevel = 1;
+
+    expect(getCaptainCost(state)).toBe(10_000_000 * 0.9);
   });
 
   it('reduces recruitment refresh by one second per Kingpin to a one-second floor', () => {

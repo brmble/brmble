@@ -1,8 +1,8 @@
 import {
   BAIL_EARNINGS_SECONDS,
   BULK_VISIBLE_EARNINGS,
-  CAPTAIN_BASE_COST,
-  CAPTAIN_COST_GROWTH,
+  CAPTAIN_COST_INCREMENT,
+  CAPTAIN_COSTS,
   CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER,
   CAPTAIN_LEVEL_THRESHOLDS,
   CAPTAIN_VISIBLE_EARNINGS,
@@ -110,8 +110,14 @@ export const getEquipmentCost = (equipmentId: EquipmentId, sellerKind: 'dealer' 
   return getEquipmentDefinition(equipmentId).baseCost * sellerMultiplier * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainCost = (state: Pick<GameState, 'captains' | 'kingpins' | 'discountLevel'>) =>
-  CAPTAIN_BASE_COST * Math.pow(CAPTAIN_COST_GROWTH, state.captains.length + state.kingpins) * getDiscountMultiplier(state.discountLevel);
+export const getCaptainCost = (state: Pick<GameState, 'captains' | 'discountLevel'>) => {
+  const captainCount = state.captains.length;
+  const baseCost = captainCount < CAPTAIN_COSTS.length
+    ? CAPTAIN_COSTS[captainCount]
+    : CAPTAIN_COSTS[CAPTAIN_COSTS.length - 1]
+      + (captainCount - CAPTAIN_COSTS.length + 1) * CAPTAIN_COST_INCREMENT;
+  return baseCost * getDiscountMultiplier(state.discountLevel);
+};
 
 export const getRecruitmentRefreshMs = (kingpins: number) => Math.max(
   RECRUITMENT_MIN_REFRESH_MS,

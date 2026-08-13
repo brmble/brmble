@@ -293,9 +293,9 @@ describe('useGameEngine', () => {
     });
   });
 
-  it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
+  it('shows the first Captain progression at $7.5M and buys at a $7.5M price', () => {
     const { result } = renderSeededGame({
-      cash: 5_000_000,
+      cash: 7_500_000,
       runEarnings: 7_500_000,
     });
 
@@ -326,7 +326,7 @@ describe('useGameEngine', () => {
     };
 
     const { result } = renderSeededGame({
-      cash: 7_000_000,
+      cash: 10_000_000,
       runEarnings: 7_500_000,
       captains: [existingCaptain],
       kingpins: 1,
@@ -349,7 +349,7 @@ describe('useGameEngine', () => {
     };
 
     const { result } = renderSeededGame({
-      cash: 7_000_000,
+      cash: 10_000_000,
       runEarnings: 7_500_000,
       unlockedProducts: ['weed', 'mushrooms'],
       captains: [existingCaptain],
@@ -363,7 +363,7 @@ describe('useGameEngine', () => {
     )).toBe(true);
   });
 
-  it('charges the next Captain at base * 1.18^(captains + kingpins) before discount', () => {
+  it('charges the next Captain from the owned-count schedule before discount', () => {
     const existingCaptain: Captain = {
       id: 'captain-existing',
       name: 'Captain Existing',
@@ -371,7 +371,7 @@ describe('useGameEngine', () => {
       equipmentIds: [],
       personalEarnings: 0,
     };
-    const expectedCost = 5_000_000 * Math.pow(1.18, 2) * 0.9;
+    const expectedCost = 10_000_000 * 0.9;
 
     const { result } = renderSeededGame({
       cash: expectedCost,

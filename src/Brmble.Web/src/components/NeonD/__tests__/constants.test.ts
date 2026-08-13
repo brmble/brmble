@@ -4,7 +4,7 @@ import {
   BULK_UNLOCK_COST,
   BULK_SELL_COOLDOWN_MS,
   BULK_VISIBLE_EARNINGS,
-  CAPTAIN_BASE_COST,
+  CAPTAIN_COSTS,
   CAPTAIN_VISIBLE_EARNINGS,
   createBaseGameState,
   NEON_D_SAVE_KEY,
@@ -57,7 +57,7 @@ describe('Neon-D constants', () => {
     expect(BULK_VISIBLE_EARNINGS).toBe(212_388);
     expect(BULK_SELL_COOLDOWN_MS).toBe(20 * 60 * 1000);
     expect(AUTO_BULK_RETAIN_STOCK).toBe(500);
-    expect(CAPTAIN_BASE_COST).toBe(5_000_000);
+    expect(CAPTAIN_COSTS).toEqual([7_500_000, 10_000_000, 15_000_000]);
     expect(CAPTAIN_VISIBLE_EARNINGS).toBe(7_500_000);
   });
 });
