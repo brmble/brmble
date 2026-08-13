@@ -12,7 +12,7 @@ import {
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
 } from './economy';
-import { getNormalDealerMainSaleRate } from './dealers';
+import { getNormalDealerMainSaleRate, getSellerEquipmentBonuses } from './dealers';
 import { DealerRating } from './DealerRating';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
 import { Icon } from '../Icon/Icon';
@@ -122,22 +122,22 @@ const CandidateCard = ({
 
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
-  const [collapsedDealerIds, setCollapsedDealerIds] = useState<Set<string>>(() => new Set());
+  const [collapsedSellerIds, setCollapsedSellerIds] = useState<Set<string>>(() => new Set());
 
-  const toggleEquipment = (dealerId: string) => {
+  const toggleEquipment = (sellerId: string) => {
     setExpandedEquipmentIds((current) => {
       const next = new Set(current);
-      if (next.has(dealerId)) next.delete(dealerId);
-      else next.add(dealerId);
+      if (next.has(sellerId)) next.delete(sellerId);
+      else next.add(sellerId);
       return next;
     });
   };
 
-  const toggleDealerCard = (dealerId: string) => {
-    setCollapsedDealerIds((current) => {
+  const toggleSellerCard = (sellerId: string) => {
+    setCollapsedSellerIds((current) => {
       const next = new Set(current);
-      if (next.has(dealerId)) next.delete(dealerId);
-      else next.add(dealerId);
+      if (next.has(sellerId)) next.delete(sellerId);
+      else next.add(sellerId);
       return next;
     });
   };
@@ -154,7 +154,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
       <div className={styles.cardStack}>
         {props.state.activeDealers.map((dealer, slotIndex) => {
-          const isCollapsed = dealer ? collapsedDealerIds.has(dealer.id) : false;
+          const isCollapsed = dealer ? collapsedSellerIds.has(dealer.id) : false;
           const bodyId = dealer ? `distribution-body-${dealer.id}` : undefined;
 
           return (
@@ -175,7 +175,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dealer.name} distribution`}
                     aria-expanded={!isCollapsed}
                     aria-controls={bodyId}
-                    onClick={() => toggleDealerCard(dealer.id)}
+                    onClick={() => toggleSellerCard(dealer.id)}
                   >
                     <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
                   </button>
@@ -283,38 +283,88 @@ export function DistributionPanel(props: DistributionPanelProps) {
         {props.state.captains.map((captain) => {
           const level = getCaptainLevel(captain.personalEarnings);
           const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
+          const bonuses = getSellerEquipmentBonuses(captain.equipmentIds);
+          const volumeMultiplier = CAPTAIN_BASE_VOLUME_MULTIPLIER * (1 + bonuses.volumeBonus);
+          const marginMultiplier = CAPTAIN_BASE_MARGIN_MULTIPLIER * (1 + bonuses.marginBonus);
+          const isCollapsed = collapsedSellerIds.has(captain.id);
+          const bodyId = `distribution-body-${captain.id}`;
           return (
-            <article key={captain.id} className={`${styles.distributionCard} ${styles.captainCard}`}>
-              <div className={styles.dealerHeader}>{captain.name}</div>
-              <div className={styles.dealerBody}>
-                <ProductSelect
-                  value={captain.selling}
-                  label={`Product for ${captain.name}`}
-                  state={props.state}
-                  onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
-                />
-                <div className={styles.metricRow}><span>Volume</span><strong>{CAPTAIN_BASE_VOLUME_MULTIPLIER.toFixed(2)}x base</strong></div>
-                <div className={styles.metricRow}><span>Margin</span><strong>{CAPTAIN_BASE_MARGIN_MULTIPLIER.toFixed(2)}x base</strong></div>
-                <div className={styles.metricRow}><span>Level</span><strong>Level {level}</strong></div>
-                <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
-                {nextThreshold ? (
-                  <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(nextThreshold)}</strong></div>
-                ) : (
-                  <div className={styles.kingpinBadge}>Ready for Kingpin promotion</div>
-                )}
-                <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + level * 0.5) * 100)}%</strong></div>
-                <EquipmentList
-                  seller={captain}
-                  sellerKind="captain"
-                  state={props.state}
-                  onBuy={(equipmentId) => props.buySellerEquipment(captain.id, equipmentId, 'captain')}
-                />
-                {level >= 10 && (
-                  <button className={styles.buyButton} onClick={() => props.promoteCaptain(captain.id)}>
-                    Promote to Kingpin
-                  </button>
-                )}
+            <article
+              key={captain.id}
+              className={`${styles.distributionCard} ${styles.captainCard}`}
+              aria-label={`${captain.name} distribution`}
+            >
+              <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
+                <span className={styles.dealerHeaderTitle}>
+                  {captain.name} ({getProductDefinition(captain.selling).name})
+                </span>
+                <button
+                  type="button"
+                  className={styles.cardCollapseButton}
+                  aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${captain.name} distribution`}
+                  aria-expanded={!isCollapsed}
+                  aria-controls={bodyId}
+                  onClick={() => toggleSellerCard(captain.id)}
+                >
+                  <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+                </button>
               </div>
+              {isCollapsed ? (
+                <div id={bodyId} className={styles.collapsedDealerBody}>
+                  <ProductSelect
+                    value={captain.selling}
+                    label={`Product for ${captain.name}`}
+                    state={props.state}
+                    onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
+                  />
+                  <div className={styles.collapsedDealerSummary}>
+                    <span>Earnings</span>
+                    <strong>{formatMoney(props.state.lastEarningsPerSeller[captain.id] ?? 0)}/s</strong>
+                  </div>
+                </div>
+              ) : (
+                <div id={bodyId} className={styles.dealerBody}>
+                  <ProductSelect
+                    value={captain.selling}
+                    label={`Product for ${captain.name}`}
+                    state={props.state}
+                    onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
+                  />
+                  <DealerRating label="Volume" multiplier={volumeMultiplier} />
+                  <DealerRating label="Margin" multiplier={marginMultiplier} />
+                  <div className={styles.metricRow}><span>Level</span><strong>Level {level}</strong></div>
+                  <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
+                  {nextThreshold ? (
+                    <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(nextThreshold)}</strong></div>
+                  ) : (
+                    <div className={styles.kingpinBadge}>Ready for Kingpin promotion</div>
+                  )}
+                  <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + level * 0.5) * 100)}%</strong></div>
+                  <button
+                    type="button"
+                    className={styles.equipmentToggle}
+                    aria-expanded={expandedEquipmentIds.has(captain.id)}
+                    aria-label={`${expandedEquipmentIds.has(captain.id) ? 'Collapse' : 'Expand'} equipment for ${captain.name}`}
+                    onClick={() => toggleEquipment(captain.id)}
+                  >
+                    <span>Fixed equipment</span>
+                    <span aria-hidden="true">{expandedEquipmentIds.has(captain.id) ? 'â–´' : 'â–¾'}</span>
+                  </button>
+                  {expandedEquipmentIds.has(captain.id) ? (
+                    <EquipmentList
+                      seller={captain}
+                      sellerKind="captain"
+                      state={props.state}
+                      onBuy={(equipmentId) => props.buySellerEquipment(captain.id, equipmentId, 'captain')}
+                    />
+                  ) : null}
+                  {level >= 10 && (
+                    <button className={styles.buyButton} onClick={() => props.promoteCaptain(captain.id)}>
+                      Promote to Kingpin
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           );
         })}

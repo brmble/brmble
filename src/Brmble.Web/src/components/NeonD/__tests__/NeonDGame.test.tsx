@@ -748,6 +748,70 @@ it('keeps owned dealer equipment compact while leaving dealer details visible', 
   expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
 });
 
+it('shows effective Captain star ratings and keeps equipment compact until expanded', async () => {
+  const user = userEvent.setup();
+  mockState({
+    cash: 10_000_000,
+    captains: [makeReferenceCaptain({
+      id: 'captain-ui',
+      name: 'Captain UI',
+      equipmentIds: ['bicycle'],
+    })],
+  });
+
+  render(<NeonDGame />);
+
+  const captainCard = screen.getByRole('article', { name: 'Captain UI distribution' });
+  expect(within(captainCard).getByRole('img', { name: 'Volume: 1.65x' })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('img', { name: 'Margin: 1.50x' })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' })).toBeInTheDocument();
+  expect(within(captainCard).queryByRole('button', { name: /Baseball Bat/ })).not.toBeInTheDocument();
+
+  await user.click(within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' }));
+  expect(within(captainCard).getByRole('button', { name: /Baseball Bat/ })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('button', { name: /Collapse equipment for Captain UI/ })).toBeInTheDocument();
+
+  await user.click(within(captainCard).getByRole('button', { name: /Baseball Bat/ }));
+  expect(mockNeonD.buySellerEquipmentMock).toHaveBeenCalledWith('captain-ui', 'baseballBat', 'captain');
+});
+
+it('collapses Captain cards independently while retaining product and earnings controls', async () => {
+  const user = userEvent.setup();
+  mockState({
+    unlockedProducts: ['weed', 'mushrooms'],
+    captains: [
+      makeReferenceCaptain({ id: 'captain-one', name: 'Captain One' }),
+      makeReferenceCaptain({ id: 'captain-two', name: 'Captain Two' }),
+    ],
+    lastEarningsPerSeller: { 'captain-one': 12.5, 'captain-two': 7.25 },
+  });
+
+  render(<NeonDGame />);
+
+  const firstCard = screen.getByRole('article', { name: 'Captain One distribution' });
+  const secondCard = screen.getByRole('article', { name: 'Captain Two distribution' });
+  const collapseFirst = within(firstCard).getByRole('button', { name: 'Collapse Captain One distribution' });
+  expect(collapseFirst).toHaveAttribute('aria-expanded', 'true');
+  expect(document.getElementById(collapseFirst.getAttribute('aria-controls') ?? '')).toBeInTheDocument();
+  expect(within(firstCard).getByRole('img', { name: /Volume:/ })).toBeInTheDocument();
+
+  await user.click(collapseFirst);
+
+  expect(within(firstCard).getByRole('button', { name: 'Expand Captain One distribution' })).toHaveAttribute('aria-expanded', 'false');
+  expect(within(firstCard).getByText('Captain One (Weed)')).toBeInTheDocument();
+  expect(within(firstCard).getByText('$13/s')).toBeInTheDocument();
+  expect(within(firstCard).getByRole('combobox', { name: 'Product for Captain One' })).toBeInTheDocument();
+  expect(within(firstCard).queryByRole('img', { name: /Volume:/ })).not.toBeInTheDocument();
+  expect(within(secondCard).getByRole('button', { name: 'Collapse Captain Two distribution' })).toHaveAttribute('aria-expanded', 'true');
+
+  await user.click(within(firstCard).getByRole('combobox', { name: 'Product for Captain One' }));
+  await user.click(screen.getByRole('option', { name: 'Magic Mushrooms' }));
+  expect(mockNeonD.setSellerProductMock).toHaveBeenCalledWith('captain-one', 'mushrooms', 'captain');
+
+  await user.click(within(firstCard).getByRole('button', { name: 'Expand Captain One distribution' }));
+  expect(within(firstCard).getByRole('img', { name: /Volume:/ })).toBeInTheDocument();
+});
+
 it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   const user = userEvent.setup();
   mockState({ cash: 10_000_000 });
@@ -769,7 +833,7 @@ it('does not show a global Bulk control while still showing Captain progression'
   render(<NeonDGame />);
 
   expect(screen.queryByRole('button', { name: /bulk.*141[.,]592/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /captain/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /hire captain/i })).toBeInTheDocument();
 });
 
 it('shows the per-product Bulk purchase only after all product upgrades are owned', () => {
