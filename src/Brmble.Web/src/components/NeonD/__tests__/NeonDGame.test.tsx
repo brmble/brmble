@@ -764,6 +764,37 @@ it('shows all three auto-refreshed candidates without a manual refresh button', 
   expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
 });
 
+it('toggles favorite stars for hired and candidate dealers without changing dealer actions', async () => {
+  const user = userEvent.setup();
+  mockState({
+    activeDealers: [makeReferenceDealer({ id: 'dealer-favorite', name: 'Favorite Dealer' }), null],
+    availableDealers: [makeReferenceDealer({ id: 'candidate-favorite', name: 'Candidate Dealer' })],
+  });
+
+  render(<NeonDGame />);
+
+  const hiredCard = screen.getByRole('article', { name: 'Favorite Dealer distribution' });
+  const candidateCard = screen.getByText('Candidate Dealer').closest('article') as HTMLElement;
+  const hiredStar = within(hiredCard).getByRole('button', { name: 'Favorite Favorite Dealer' });
+  const candidateStar = within(candidateCard).getByRole('button', { name: 'Favorite Candidate Dealer' });
+
+  expect(hiredStar).toHaveAttribute('aria-pressed', 'false');
+  expect(candidateStar).toHaveAttribute('aria-pressed', 'false');
+
+  await user.click(hiredStar);
+
+  expect(within(hiredCard).getByRole('button', { name: 'Unfavorite Favorite Dealer' }))
+    .toHaveAttribute('aria-pressed', 'true');
+  expect(within(candidateCard).getByRole('button', { name: 'Favorite Candidate Dealer' }))
+    .toHaveAttribute('aria-pressed', 'false');
+  expect(mockNeonD.hireDealerMock).not.toHaveBeenCalled();
+
+  await user.click(within(hiredCard).getByRole('button', { name: 'Unfavorite Favorite Dealer' }));
+
+  expect(within(hiredCard).getByRole('button', { name: 'Favorite Favorite Dealer' }))
+    .toHaveAttribute('aria-pressed', 'false');
+});
+
 it('keeps owned dealer equipment compact while leaving dealer details visible', async () => {
   const user = userEvent.setup();
   mockState({

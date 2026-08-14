@@ -686,6 +686,9 @@
 }
 
 .dealerName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
   color: var(--accent-primary);
   margin-bottom: var(--space-sm);
 }
@@ -853,6 +856,46 @@
   flex: 1;
   min-width: 0;
   text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+}
+
+.dealerHeaderTitleWithFavorite {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.dealerFavoriteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dealerFavoriteButtonActive {
+  color: var(--accent-primary);
+}
+
+.dealerFavoriteButtonActive svg {
+  fill: currentColor;
+}
+
+.dealerFavoriteButton:hover,
+.dealerFavoriteButton:focus-visible {
+  color: var(--text-primary);
+}
+
+.dealerFavoriteButton:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .collapsedDealerBody {

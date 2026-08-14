@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   CAPTAIN_BASE_MARGIN_MULTIPLIER,
   CAPTAIN_BASE_VOLUME_MULTIPLIER,
@@ -105,13 +105,24 @@ const CandidateCard = ({
   candidate,
   slotIndex,
   onHire,
+  isFavorite,
+  onToggleFavorite,
 }: {
   candidate: Dealer;
   slotIndex: number;
   onHire: (dealerId: string, slotIndex: number) => void;
+  isFavorite: boolean;
+  onToggleFavorite: (dealerId: string) => void;
 }) => (
   <article className={styles.dealerCard}>
-    <h5 className={styles.dealerName}>{candidate.name}</h5>
+    <h5 className={styles.dealerName}>
+      <DealerFavoriteButton
+        dealer={candidate}
+        isFavorite={isFavorite}
+        onToggle={onToggleFavorite}
+      />
+      <span>{candidate.name}</span>
+    </h5>
     <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} />
     <DealerRating label="Margin" multiplier={candidate.marginMultiplier} />
     <div className={styles.metricRow}><span>Main sales</span><strong>{getNormalDealerMainSaleRate(candidate).toFixed(2)} units/s</strong></div>
@@ -121,8 +132,29 @@ const CandidateCard = ({
   </article>
 );
 
+const DealerFavoriteButton = ({
+  dealer,
+  isFavorite,
+  onToggle,
+}: {
+  dealer: Dealer;
+  isFavorite: boolean;
+  onToggle: (dealerId: string) => void;
+}) => (
+  <button
+    type="button"
+    className={`${styles.dealerFavoriteButton} ${isFavorite ? styles.dealerFavoriteButtonActive : ''}`}
+    aria-label={`${isFavorite ? 'Unfavorite' : 'Favorite'} ${dealer.name}`}
+    aria-pressed={isFavorite}
+    onClick={() => onToggle(dealer.id)}
+  >
+    <Icon name="star" size={14} />
+  </button>
+);
+
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
+  const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
   const knownSellerIds = useMemo(
     () => [
       ...props.state.activeDealers
@@ -133,6 +165,15 @@ export function DistributionPanel(props: DistributionPanelProps) {
     [props.state.activeDealers, props.state.captains],
   );
   const [collapsedSellerIds, toggleSellerCard] = usePersistedCardPreferences(knownSellerIds);
+
+  const toggleDealerFavorite = useCallback((dealerId: string) => {
+    setFavoriteDealerIds((current) => {
+      const next = new Set(current);
+      if (next.has(dealerId)) next.delete(dealerId);
+      else next.add(dealerId);
+      return next;
+    });
+  }, []);
 
   const toggleEquipment = (sellerId: string) => {
     setExpandedEquipmentIds((current) => {
@@ -167,8 +208,13 @@ export function DistributionPanel(props: DistributionPanelProps) {
             {dealer ? (
               <>
                 <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
-                  <span className={styles.dealerHeaderTitle}>
-                    {dealer.name} ({getProductDefinition(dealer.selling).name})
+                  <span className={`${styles.dealerHeaderTitle} ${styles.dealerHeaderTitleWithFavorite}`}>
+                    <DealerFavoriteButton
+                      dealer={dealer}
+                      isFavorite={favoriteDealerIds.has(dealer.id)}
+                      onToggle={toggleDealerFavorite}
+                    />
+                    <span>{dealer.name} ({getProductDefinition(dealer.selling).name})</span>
                   </span>
                   <button
                     type="button"
@@ -273,6 +319,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     candidate={candidate}
                     slotIndex={slotIndex}
                     onHire={props.hireDealer}
+                    isFavorite={favoriteDealerIds.has(candidate.id)}
+                    onToggleFavorite={toggleDealerFavorite}
                   />
                 ))}
               </div>
