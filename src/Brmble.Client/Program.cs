@@ -201,7 +201,25 @@ static class Program
     {
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync();
+            var webViewUserDataPath = WebViewUserDataPath.GetStablePath();
+            try
+            {
+                var migrated = WebViewLegacyProfileMigration.TryMigrate(
+                    webViewUserDataPath,
+                    WebViewUserDataPath.GetKnownLegacyPaths());
+                if (!migrated)
+                {
+                    Debug.WriteLine("[WARN] WebView2 legacy profile migration did not complete.");
+                }
+            }
+            catch (Exception migrationException)
+            {
+                Debug.WriteLine($"[WARN] WebView2 legacy profile migration failed: {migrationException}");
+            }
+
+            var env = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: webViewUserDataPath);
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
 
             Win32Window.GetClientRect(hwnd, out var rect);
