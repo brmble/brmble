@@ -664,6 +664,12 @@ it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment
   expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
 });
 
+it('hides main sales from hired and candidate dealer cards', () => {
+  render(<NeonDGame />);
+
+  expect(screen.queryByText('Main sales')).not.toBeInTheDocument();
+});
+
 it('starts hired Distribution cards expanded and collapses them independently', async () => {
   const user = userEvent.setup();
   mockState({

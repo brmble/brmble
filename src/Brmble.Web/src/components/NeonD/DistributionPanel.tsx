@@ -12,7 +12,7 @@ import {
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
 } from './economy';
-import { getNormalDealerMainSaleRate, getSellerEquipmentBonuses } from './dealers';
+import { getSellerEquipmentBonuses } from './dealers';
 import { DealerRating } from './DealerRating';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
 import { Icon } from '../Icon/Icon';
@@ -125,7 +125,6 @@ const CandidateCard = ({
     </h5>
     <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} />
     <DealerRating label="Margin" multiplier={candidate.marginMultiplier} />
-    <div className={styles.metricRow}><span>Main sales</span><strong>{getNormalDealerMainSaleRate(candidate).toFixed(2)} units/s</strong></div>
     <button className={styles.buyButton} onClick={() => onHire(candidate.id, slotIndex)}>
       Hire to Slot {slotIndex + 1}
     </button>
@@ -255,7 +254,6 @@ export function DistributionPanel(props: DistributionPanelProps) {
                   />
                   <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} />
                   <DealerRating label="Margin" multiplier={dealer.marginMultiplier} />
-                  <div className={styles.metricRow}><span>Main sales</span><strong>{dealer.isArrested ? '0.00' : getNormalDealerMainSaleRate(dealer).toFixed(2)} units/s</strong></div>
                   <div className={styles.metricRow}><span>Earnings</span><strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong></div>
                   <div className={styles.metricRow}>
                     <span>Status</span>
