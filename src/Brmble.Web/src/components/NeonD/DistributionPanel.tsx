@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   CAPTAIN_BASE_MARGIN_MULTIPLIER,
   CAPTAIN_BASE_VOLUME_MULTIPLIER,
@@ -18,6 +18,7 @@ import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, Prod
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
+import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences';
 
 type DistributionPanelProps = {
   state: GameState;
@@ -122,19 +123,19 @@ const CandidateCard = ({
 
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
-  const [collapsedSellerIds, setCollapsedSellerIds] = useState<Set<string>>(() => new Set());
+  const knownSellerIds = useMemo(
+    () => [
+      ...props.state.activeDealers
+        .filter((dealer): dealer is Dealer => dealer !== null)
+        .map((dealer) => dealer.id),
+      ...props.state.captains.map((captain) => captain.id),
+    ],
+    [props.state.activeDealers, props.state.captains],
+  );
+  const [collapsedSellerIds, toggleSellerCard] = usePersistedCardPreferences(knownSellerIds);
 
   const toggleEquipment = (sellerId: string) => {
     setExpandedEquipmentIds((current) => {
-      const next = new Set(current);
-      if (next.has(sellerId)) next.delete(sellerId);
-      else next.add(sellerId);
-      return next;
-    });
-  };
-
-  const toggleSellerCard = (sellerId: string) => {
-    setCollapsedSellerIds((current) => {
       const next = new Set(current);
       if (next.has(sellerId)) next.delete(sellerId);
       else next.add(sellerId);

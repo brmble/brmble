@@ -10,6 +10,7 @@ import {
   createBaseGameState,
 } from '../constants';
 import { serializeNeonDSave } from '../saveFormat';
+import { NEON_D_CARD_PREFERENCES_KEY } from '../hooks/usePersistedCardPreferences';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 import type { GameState } from '../types';
 
@@ -155,6 +156,7 @@ const formatExpectedMoney = (value: number) =>
   `$${Math.round(value).toLocaleString()}`;
 
 beforeEach(() => {
+  localStorage.clear();
   HTMLElement.prototype.scrollIntoView = vi.fn();
   mockNeonD.setState(createState());
   mockNeonD.resetMocks();
@@ -695,6 +697,27 @@ it('starts hired Distribution cards expanded and collapses them independently', 
 
   expect(within(firstCard).getByRole('combobox', { name: 'Product for Test Dealer' })).toBeInTheDocument();
   expect(within(firstCard).getByRole('button', { name: /fire dealer/i })).toBeInTheDocument();
+});
+
+it('restores a collapsed distribution card after the panel remounts', async () => {
+  const user = userEvent.setup();
+  mockState({
+    activeDealers: [makeReferenceDealer({ id: 'dealer-ui', name: 'Test Dealer' })],
+  });
+
+  const firstRender = render(<NeonDGame />);
+  const firstCard = screen.getByRole('article', { name: 'Test Dealer distribution' });
+  await user.click(within(firstCard).getByRole('button', { name: 'Collapse Test Dealer distribution' }));
+  expect(localStorage.getItem(NEON_D_CARD_PREFERENCES_KEY)).toContain('dealer-ui');
+
+  firstRender.unmount();
+  render(<NeonDGame />);
+
+  const remountedCard = screen.getByRole('article', { name: 'Test Dealer distribution' });
+  expect(within(remountedCard).getByRole('button', { name: 'Expand Test Dealer distribution' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
 });
 
 it('keeps captain headers centered while hired dealer headers support collapse controls', () => {

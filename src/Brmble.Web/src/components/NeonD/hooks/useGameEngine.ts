@@ -39,6 +39,7 @@ import {
   sellBulkOverflow,
 } from '../simulation';
 import { applyDueRiskCheck } from '../simulation';
+import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
   const now = Date.now();
@@ -395,6 +396,11 @@ export const useGameEngine = () => {
 
   const resetGame = useCallback(() => {
     clearStorage();
+    try {
+      localStorage.removeItem(NEON_D_CARD_PREFERENCES_KEY);
+    } catch {
+      // Preferences are best effort and must not affect resetting the game.
+    }
     setState(createInitialGameState());
   }, [clearStorage, setState]);
 

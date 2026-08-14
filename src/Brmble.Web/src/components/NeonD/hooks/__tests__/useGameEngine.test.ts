@@ -13,6 +13,7 @@ import type { Captain, GameState } from '../../types';
 import { makeReferenceDealer } from '../../__tests__/testFixtures';
 import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
+import { NEON_D_CARD_PREFERENCES_KEY } from '../usePersistedCardPreferences';
 
 const renderSeededGame = (overrides: Partial<GameState>) => {
   const now = Date.now();
@@ -82,6 +83,18 @@ describe('useGameEngine', () => {
     localStorage.setItem('brmble_neon_d_save', JSON.stringify({ cash: 999_999 }));
     const { result } = renderHook(() => useGameEngine());
     expect(result.current.state.cash).toBe(100);
+  });
+
+  it('clears persisted card preferences when the Neon-D empire is reset', () => {
+    localStorage.setItem(
+      NEON_D_CARD_PREFERENCES_KEY,
+      JSON.stringify({ collapsedSellerIds: ['dealer-1'] }),
+    );
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => result.current.resetGame());
+
+    expect(localStorage.getItem(NEON_D_CARD_PREFERENCES_KEY)).toBeNull();
   });
 
   it('buyProducer buys exactly one producer and charges the exponential current price', () => {
