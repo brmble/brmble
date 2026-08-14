@@ -191,6 +191,26 @@ it('does not reset the Neon-D empire when confirmation is canceled', async () =>
   expect(mockNeonD.resetGameMock).not.toHaveBeenCalled();
 });
 
+it('presents an active market event as a single live market card', () => {
+  const now = Date.now();
+  mockState({
+    lastTickAt: now,
+    activeMarketEvent: {
+      productId: 'weed',
+      multiplier: 4.2,
+      endsAt: now + 30_000,
+    },
+  });
+
+  render(<NeonDGame />);
+
+  expect(screen.getByRole('heading', { name: 'Weed market spike' })).toBeInTheDocument();
+  expect(screen.getByText('LIVE MARKET')).toBeInTheDocument();
+  expect(screen.getByText('4.20x')).toBeInTheDocument();
+  expect(screen.getByText('30s remaining')).toBeInTheDocument();
+  expect(screen.getAllByText(/market spike/i)).toHaveLength(1);
+});
+
 it('exports the current Neon-D v2 state as a JSON download', async () => {
   const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:neon-d');
   const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});

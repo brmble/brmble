@@ -283,10 +283,116 @@
   opacity: 0.65;
 }
 
-.captainCard,
-.marketBanner {
+.captainCard {
   display: grid;
   gap: var(--space-2xs);
+}
+
+.marketEventCard {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--accent-secondary) 12%, transparent), transparent 42%),
+    var(--bg-surface);
+  border: var(--border-width-thin) solid color-mix(in srgb, var(--accent-secondary) 48%, var(--glass-border));
+  border-left: var(--space-2xs) solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
+}
+
+.marketEventAccent {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 12% 20%, var(--accent-secondary-glow), transparent 34%);
+  opacity: 0.55;
+}
+
+.marketEventContent,
+.marketEventStatus,
+.marketEventProgressTrack {
+  position: relative;
+  z-index: 1;
+}
+
+.marketEventContent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-sm);
+  row-gap: var(--space-2xs);
+}
+
+.marketEventBadge {
+  grid-column: 1 / -1;
+  width: fit-content;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid var(--accent-secondary);
+  border-radius: var(--radius-full);
+  color: var(--accent-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.marketEventHeading {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.marketEventLabel {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-style: italic;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.marketEventMultiplier {
+  color: var(--accent-secondary);
+  font-size: clamp(var(--text-2xl), 4vw, var(--text-4xl));
+  line-height: 1;
+  text-shadow: 0 0 var(--glow-sm) var(--accent-secondary-glow);
+}
+
+.marketEventStatus {
+  display: grid;
+  gap: var(--space-2xs);
+  justify-items: end;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.marketEventStatus strong {
+  font-size: var(--text-lg);
+}
+
+.marketEventProgressTrack {
+  grid-column: 1 / -1;
+  height: var(--space-2xs);
+  overflow: hidden;
+  background: var(--bg-deep);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-full);
+}
+
+.marketEventProgress {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--accent-secondary);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-secondary-glow);
+  transition: transform var(--transition-normal);
 }
 
 .muscleActionGrid {
@@ -802,6 +908,16 @@
   .gameplayGrid {
     grid-template-columns: 1fr;
     overflow: auto;
+  }
+
+  .marketEventCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-bottom: var(--space-md);
+    padding-inline: var(--space-md);
+  }
+
+  .marketEventHeading {
+    font-size: var(--text-md);
   }
 
   .leftWorkspace {

@@ -76,6 +76,14 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   );
   const captainProgress = captainProgressValue / CAPTAIN_VISIBLE_EARNINGS;
   const renderNow = state.lastTickAt;
+  const activeMarketEvent = state.activeMarketEvent;
+  const activeMarketProduct = activeMarketEvent
+    ? getProductDefinition(activeMarketEvent.productId)
+    : null;
+  const marketRemainingMs = activeMarketEvent
+    ? Math.max(0, activeMarketEvent.endsAt - renderNow)
+    : 0;
+  const marketRemainingSeconds = Math.ceil(marketRemainingMs / 1_000);
 
   const handleReset = async () => {
     const confirmed = await confirm({
@@ -189,12 +197,27 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         {importError && <p className={styles.importError} role="alert">{importError}</p>}
       </header>
 
-      {state.activeMarketEvent && state.activeMarketEvent.endsAt > renderNow && (
-        <div className={`glass-panel ${styles.marketBanner}`}>
-          <strong>Market spike: {getProductDefinition(state.activeMarketEvent.productId).name}</strong>
-          <span>{state.activeMarketEvent.multiplier.toFixed(2)}x street value</span>
-          <span>{Math.ceil((state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
-        </div>
+      {activeMarketEvent && activeMarketProduct && activeMarketEvent.endsAt > renderNow && (
+        <section className={styles.marketEventCard} aria-labelledby="market-event-title">
+          <div className={styles.marketEventAccent} aria-hidden="true" />
+          <div className={styles.marketEventContent}>
+            <span className={styles.marketEventBadge}>LIVE MARKET</span>
+            <h3 id="market-event-title" className={styles.marketEventHeading}>
+              {activeMarketProduct.name} market spike
+            </h3>
+            <span className={styles.marketEventLabel}>Street value boost</span>
+            <strong className={styles.marketEventMultiplier}>
+              {activeMarketEvent.multiplier.toFixed(2)}x
+            </strong>
+          </div>
+          <div className={styles.marketEventStatus}>
+            <span className={styles.marketEventLabel}>Time remaining</span>
+            <strong>{marketRemainingSeconds}s remaining</strong>
+          </div>
+          <div className={styles.marketEventProgressTrack} aria-hidden="true">
+            <span className={styles.marketEventProgress} />
+          </div>
+        </section>
       )}
 
       <div className={styles.gameplayGrid}>

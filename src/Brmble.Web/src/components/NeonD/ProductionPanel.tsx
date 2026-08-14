@@ -66,11 +66,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
           const nextUpgrade = definition.upgrades.find(
             (upgrade) => !product.purchasedUpgradeIds.includes(upgrade.id),
           );
-          const baseStreetValue = definition.streetValue;
           const effectiveStreetValue = getEffectiveStreetValue(props.state, productId);
-          const hasMarketSpike =
-            props.state.activeMarketEvent?.productId === productId &&
-            props.state.activeMarketEvent.endsAt > renderNow;
           const isCollapsed = collapsedProductIds.has(productId);
           const bodyId = `production-body-${productId}`;
 
@@ -150,12 +146,6 @@ export function ProductionPanel(props: ProductionPanelProps) {
                     </button>
                   ) : (
                     <div className={styles.label}>All production upgrades owned</div>
-                  )}
-                  {hasMarketSpike && props.state.activeMarketEvent && (
-                    <div className={styles.marketBanner}>
-                      <span>Market spike: {formatMoney(baseStreetValue)}/g → {formatMoney(effectiveStreetValue)}/g</span>
-                      <span>{Math.ceil((props.state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
-                    </div>
                   )}
                   {isProductFullyUpgraded(props.state, productId) && !props.state.bulkUnlockedProductIds.includes(productId) && (
                     <button
