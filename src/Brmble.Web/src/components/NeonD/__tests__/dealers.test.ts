@@ -50,8 +50,8 @@ describe('reference dealer behavior', () => {
       volumeBonus: 0,
       secondarySalesBonus: 0,
     });
-    expect(getCaptainMainSaleRate(captain)).toBeCloseTo(1.5 * 3);
-    expect(getCaptainMarginMultiplier(captain)).toBeCloseTo(1.5 * 1.4);
+    expect(getCaptainMainSaleRate(captain)).toBeCloseTo(1.75 * 3);
+    expect(getCaptainMarginMultiplier(captain)).toBeCloseTo(1.75 * 1.4);
   });
 
   it('generates exactly three candidates with independent 0.5-1.5 multipliers', () => {
