@@ -12,6 +12,25 @@ export type MuscleWorkerId =
   | 'corruptSenator' | 'puppetWorldLeader' | 'hunterKillerSubmarine'
   | 'nimitzCarrier' | 'orbitalIonCannon';
 
+export type TalentPathId = 'red' | 'yellow' | 'blue';
+export type TalentStat = 'margin' | 'volume' | 'secondarySales';
+export type TalentRanks = Record<TalentPathId, [number, number, number]>;
+
+export interface SellerBonuses {
+  marginBonus: number;
+  volumeBonus: number;
+  secondarySalesBonus: number;
+}
+
+export interface TalentNodeDefinition {
+  path: TalentPathId;
+  row: 0 | 1 | 2;
+  stat: TalentStat;
+  maxRanks: 2 | 3 | 4;
+  rankBonuses: readonly number[];
+  label: string;
+}
+
 export interface ProductUpgradeDefinition {
   id: string;
   name: string;
@@ -76,6 +95,11 @@ export interface Captain {
   selling: ProductId;
   equipmentIds: EquipmentId[];
   personalEarnings: number;
+  level: number;
+  talentPoints: number;
+  talentRanks: TalentRanks;
+  ledgerUnlocked: boolean;
+  kingpinAvailable: boolean;
 }
 
 export interface MarketEvent {
