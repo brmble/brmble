@@ -920,7 +920,7 @@ it('shows manual Captain level claims and opens the Talent Ledger in place', asy
   render(<NeonDGame />);
 
   const card = screen.getByRole('article', { name: 'Captain Ledger distribution' });
-  await user.click(within(card).getByRole('button', { name: /level up/i }));
+  await user.click(within(card).getByRole('button', { name: 'Level Up' }));
   expect(mockNeonD.claimCaptainLevelMock).toHaveBeenCalledWith('captain-ledger');
 
   await user.click(within(card).getByRole('button', { name: 'Open talents for Captain Ledger' }));

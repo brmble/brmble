@@ -411,7 +411,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                   <div className={styles.actionStack}>
                     {levelUpAvailable ? (
                       <button type="button" className={styles.buyButton} onClick={() => props.claimCaptainLevel(captain.id)}>
-                        Level Up - {formatMoney(nextThreshold ?? 0)}
+                        Level Up
                       </button>
                     ) : null}
                     {pendingLevelUps > 1 ? <span className={styles.label}>{pendingLevelUps - 1} more level-ups waiting</span> : null}

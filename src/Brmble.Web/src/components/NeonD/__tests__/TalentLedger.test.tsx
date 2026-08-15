@@ -41,6 +41,20 @@ describe('TalentLedger', () => {
     expect(blueText.indexOf('Secondary sales')).toBeLessThan(blueText.indexOf('Margin'));
   });
 
+  it('labels the level-up action without exposing the money threshold', () => {
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({ level: 1, personalEarnings: 950_000, ledgerUnlocked: true })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
+  });
+
   it('shows rank counters and disables only locked or unaffordable nodes', async () => {
     const user = userEvent.setup();
     const onPurchaseTalent = vi.fn();

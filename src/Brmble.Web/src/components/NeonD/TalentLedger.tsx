@@ -113,7 +113,7 @@ export function TalentLedger({
           <span>Talent points: <strong>{captain.talentPoints}</strong></span>
           {levelUpAvailable ? (
             <button type="button" className={styles.buyButton} onClick={onClaimLevel}>
-              Level Up ({formatMoney(nextThreshold ?? 0)})
+              Level Up
             </button>
           ) : (
             <span className={styles.talentLedgerStatus}>
