@@ -190,7 +190,7 @@ export const TALENT_RANK_SPLITS: Record<TalentStat, Record<2 | 3 | 4, readonly n
 };
 
 export const createBaseGameState = (now: number): GameState => ({
-  schemaVersion: 4,
+  schemaVersion: 5,
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,

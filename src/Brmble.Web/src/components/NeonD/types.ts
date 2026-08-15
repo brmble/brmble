@@ -116,7 +116,7 @@ export interface OfflineEarningsSummary {
 }
 
 export interface GameState {
-  schemaVersion: 4;
+  schemaVersion: 5;
   cash: number;
   runEarnings: number;
   respect: number;

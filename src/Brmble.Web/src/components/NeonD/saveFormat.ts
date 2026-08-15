@@ -16,6 +16,7 @@ import type {
   ProductId,
   ProductState,
 } from './types';
+import { isTalentStateValid } from './talents';
 
 export const NEON_D_SAVE_FORMAT = NEON_D_SAVE_KEY;
 export const NEON_D_SAVE_VERSION = 3;
@@ -125,13 +126,17 @@ function isCaptain(
   unlockedProducts: readonly string[],
 ): value is Captain {
   if (!isObject(value)) return false;
-  if (!hasExactKeys(value, ['id', 'name', 'selling', 'equipmentIds', 'personalEarnings'])) return false;
+  if (!hasExactKeys(value, [
+    'id', 'name', 'selling', 'equipmentIds', 'personalEarnings',
+    'level', 'talentPoints', 'talentRanks', 'ledgerUnlocked', 'kingpinAvailable',
+  ])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
     && typeof value.name === 'string'
     && isKnownCanonicalEquipmentPrefix(value.equipmentIds)
-    && isNonNegativeFiniteNumber(value.personalEarnings);
+    && isNonNegativeFiniteNumber(value.personalEarnings)
+    && isTalentStateValid(value as unknown as Captain);
 }
 
 function isMarketEvent(
@@ -228,7 +233,7 @@ function isGameState(value: unknown): value is GameState {
 
   const bulkUnlockedProductIds = value.bulkUnlockedProductIds;
 
-  return value.schemaVersion === 4
+  return value.schemaVersion === 5
     && isNonNegativeFiniteNumber(value.cash)
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
@@ -260,6 +265,12 @@ export function serializeNeonDSave(state: GameState): string {
   return JSON.stringify(envelope, null, 2);
 }
 
+export function migrateNeonDState(value: unknown): unknown {
+  return isObject(value) && value.schemaVersion === 5
+    ? value
+    : { schemaVersion: 5 };
+}
+
 export function parseNeonDSave(text: string): GameState {
   let parsed: unknown;
   try {
@@ -279,21 +290,6 @@ export function parseNeonDSave(text: string): GameState {
     if (!isObject(state) || state.schemaVersion !== 2) {
       throw new Error('This Neon-D save is incomplete or corrupted.');
     }
-    const legacyState = { ...state };
-    delete legacyState.autoBulkEnabled;
-    state = {
-      ...legacyState,
-      schemaVersion: 3,
-      lastBulkSellAt: 0,
-    };
-  }
-  if (isObject(state) && state.schemaVersion === 3) {
-    const { bulkUnlocked: _legacyBulkUnlocked, ...v3State } = state;
-    state = {
-      ...v3State,
-      schemaVersion: 4,
-      bulkUnlockedProductIds: [],
-    };
   }
   if (!isGameState(state)) {
     throw new Error('This Neon-D save is incomplete or corrupted.');
