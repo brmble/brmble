@@ -329,24 +329,50 @@ describe('useGameEngine', () => {
     expect(result.current.state.activeDealers).toEqual([null]);
   });
 
-  it('claims Captain levels one at a time and unlocks the ledger at Level 1', () => {
+  it('requires a claim before earnings can progress the following Captain level', () => {
     const { result } = renderSeededGame({
-      captains: [makeReferenceCaptain({ id: 'captain-levels', personalEarnings: 1_000_000 })],
+      captains: [makeReferenceCaptain({
+        id: 'captain-levels',
+        personalEarnings: 1_000_000,
+        lastLevelUpEarnings: 0,
+      })],
     });
 
     act(() => result.current.claimCaptainLevel('captain-levels'));
     expect(result.current.state.captains[0]).toMatchObject({
       level: 1,
       talentPoints: 1,
+      lastLevelUpEarnings: 1_000_000,
       ledgerUnlocked: true,
     });
 
     act(() => result.current.claimCaptainLevel('captain-levels'));
-    expect(result.current.state.captains[0].level).toBe(2);
-    expect(result.current.state.captains[0].talentPoints).toBe(2);
+    expect(result.current.state.captains[0].level).toBe(1);
+    expect(result.current.state.captains[0].talentPoints).toBe(1);
 
     act(() => result.current.claimCaptainLevel('captain-levels'));
-    expect(result.current.state.captains[0].level).toBe(2);
+    expect(result.current.state.captains[0].level).toBe(1);
+  });
+
+  it('claims Level 2 only after the Level 1 baseline has gained the next increment', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-level-two',
+        level: 1,
+        personalEarnings: 1_200_000,
+        lastLevelUpEarnings: 750_000,
+        talentPoints: 1,
+        ledgerUnlocked: true,
+      })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-level-two'));
+
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 2,
+      talentPoints: 2,
+      lastLevelUpEarnings: 1_200_000,
+    });
   });
 
   it('only purchases a gated talent when one unspent point is available', () => {
@@ -535,6 +561,7 @@ describe('useGameEngine', () => {
         selling: 'weed',
         equipmentIds: [],
         personalEarnings: 0,
+        lastLevelUpEarnings: 0,
         level: 0,
         talentPoints: 0,
         talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },

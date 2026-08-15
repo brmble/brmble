@@ -966,6 +966,39 @@ it('shows zero remaining Captain earnings while keeping Level Up manual', () => 
   expect(within(card).getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
 });
 
+it('does not start the next Captain level until the current claim is pressed', () => {
+  mockState({
+    captains: [makeReferenceCaptain({
+      id: 'captain-boundary',
+      name: 'Captain Boundary',
+      personalEarnings: 750_000,
+      level: 0,
+      lastLevelUpEarnings: 0,
+    })],
+  });
+
+  const { rerender } = render(<NeonDGame />);
+  let card = screen.getByRole('article', { name: 'Captain Boundary distribution' });
+  expect(within(card).getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
+  expect(within(card).getByText('$0 to level')).toBeInTheDocument();
+
+  mockState({
+    captains: [makeReferenceCaptain({
+      id: 'captain-boundary',
+      name: 'Captain Boundary',
+      personalEarnings: 750_000,
+      level: 1,
+      lastLevelUpEarnings: 750_000,
+      talentPoints: 1,
+      ledgerUnlocked: true,
+    })],
+  });
+  rerender(<NeonDGame />);
+  card = screen.getByRole('article', { name: 'Captain Boundary distribution' });
+  expect(within(card).queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
+  expect(within(card).getByText('$450.000 to level')).toBeInTheDocument();
+});
+
 it('keeps the Talent Ledger locked before the first claimed level', () => {
   mockState({ captains: [makeReferenceCaptain({ id: 'captain-locked', name: 'Captain Locked' })] });
   render(<NeonDGame />);

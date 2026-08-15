@@ -105,6 +105,7 @@ export const createCaptain = (index: number): Captain => ({
   selling: 'weed',
   equipmentIds: [],
   personalEarnings: 0,
+  lastLevelUpEarnings: 0,
   level: 0,
   talentPoints: 0,
   talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },

@@ -89,9 +89,45 @@ export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, dis
 export const getCaptainEligibleLevel = (personalEarnings: number) =>
   CAPTAIN_LEVEL_THRESHOLDS.filter((threshold) => personalEarnings >= threshold).length;
 
-export const getCaptainRemainingThreshold = (level: number, personalEarnings: number) => {
+const getCaptainCumulativeThreshold = (level: number) =>
+  level === 0 ? 0 : CAPTAIN_LEVEL_THRESHOLDS[level - 1];
+
+export const getCaptainLevelRequirement = (level: number) => {
   const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
-  return nextThreshold === undefined ? null : Math.max(0, nextThreshold - personalEarnings);
+  const currentThreshold = getCaptainCumulativeThreshold(level);
+  return nextThreshold === undefined || currentThreshold === undefined
+    ? null
+    : nextThreshold - currentThreshold;
+};
+
+export const getCaptainLevelProgress = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  if (requirement === null) return null;
+  return Math.min(requirement, Math.max(0, personalEarnings - lastLevelUpEarnings));
+};
+
+export const isCaptainLevelUpAvailable = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  const progress = getCaptainLevelProgress(level, personalEarnings, lastLevelUpEarnings);
+  return requirement !== null && progress !== null && progress >= requirement;
+};
+
+export const getCaptainRemainingThreshold = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  const progress = getCaptainLevelProgress(level, personalEarnings, lastLevelUpEarnings);
+  return requirement === null || progress === null ? null : requirement - progress;
 };
 
 /** @deprecated Use getCaptainEligibleLevel for earnings-based eligibility. */

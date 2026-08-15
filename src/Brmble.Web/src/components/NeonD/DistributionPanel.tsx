@@ -2,11 +2,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { EQUIPMENT_CATALOG } from './constants';
 import {
   getBailCost,
-  getCaptainEligibleLevel,
   getCaptainRemainingThreshold,
   getEquipmentCost,
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
+  isCaptainLevelUpAvailable,
 } from './economy';
 import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
@@ -343,15 +343,21 @@ export function DistributionPanel(props: DistributionPanelProps) {
         })}
 
         {props.state.captains.map((captain) => {
-          const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
-          const remainingThreshold = getCaptainRemainingThreshold(captain.level, captain.personalEarnings);
+          const remainingThreshold = getCaptainRemainingThreshold(
+            captain.level,
+            captain.personalEarnings,
+            captain.lastLevelUpEarnings,
+          );
           const bonuses = getCaptainBonuses(captain);
           const volumeMultiplier = getCaptainMainSaleRate(captain) / 3;
           const marginMultiplier = getCaptainMarginMultiplier(captain);
           const isCollapsed = collapsedSellerIds.has(captain.id);
           const bodyId = `distribution-body-${captain.id}`;
-          const pendingLevelUps = Math.max(0, eligibleLevel - captain.level);
-          const levelUpAvailable = pendingLevelUps > 0;
+          const levelUpAvailable = isCaptainLevelUpAvailable(
+            captain.level,
+            captain.personalEarnings,
+            captain.lastLevelUpEarnings,
+          );
           const isLedgerOpen = ledgerCaptainId === captain.id;
           return (
             <article
@@ -412,7 +418,6 @@ export function DistributionPanel(props: DistributionPanelProps) {
                         Level Up
                       </button>
                     ) : null}
-                    {pendingLevelUps > 1 ? <span className={styles.label}>{pendingLevelUps - 1} more level-ups waiting</span> : null}
                     <button
                       ref={(element) => { talentButtonRefs.current[captain.id] = element; }}
                       type="button"

@@ -18,12 +18,12 @@ import {
   getEquipmentCost,
   getBailCost,
   getCaptainCost,
-  getCaptainEligibleLevel,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
   isProductFullyUpgraded,
   isCaptainVisible,
+  isCaptainLevelUpAvailable,
 } from '../economy';
 import {
   applyRecruitmentClock,
@@ -389,13 +389,17 @@ export const useGameEngine = () => {
       ...prev,
       captains: prev.captains.map((captain) => {
         if (captain.id !== captainId) return captain;
-        const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
-        if (captain.level >= eligibleLevel || captain.level >= 28) return captain;
+        if (captain.level >= 28 || !isCaptainLevelUpAvailable(
+          captain.level,
+          captain.personalEarnings,
+          captain.lastLevelUpEarnings,
+        )) return captain;
         const level = captain.level + 1;
         const laneComplete = Object.values(captain.talentRanks).some((ranks) => ranks[2] === 4);
         return {
           ...captain,
           level,
+          lastLevelUpEarnings: captain.personalEarnings,
           talentPoints: captain.talentPoints + 1,
           ledgerUnlocked: true,
           kingpinAvailable: captain.kingpinAvailable || (level >= 10 && laneComplete),

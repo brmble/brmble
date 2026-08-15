@@ -70,6 +70,34 @@ describe('TalentLedger', () => {
     expect(screen.getByText('$375.000 to level')).toBeInTheDocument();
   });
 
+  it('does not show next-level progress before the current level claim', () => {
+    const { rerender } = render(
+      <TalentLedger
+        captain={makeReferenceCaptain({ level: 0, personalEarnings: 750_000, lastLevelUpEarnings: 0, ledgerUnlocked: true })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
+    expect(screen.getByText('$0 to level')).toBeInTheDocument();
+
+    rerender(
+      <TalentLedger
+        captain={makeReferenceCaptain({ level: 1, personalEarnings: 750_000, lastLevelUpEarnings: 750_000, talentPoints: 1, ledgerUnlocked: true })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
+    expect(screen.getByText('$450.000 to level')).toBeInTheDocument();
+  });
+
   it('shows rank counters and disables only locked or unaffordable nodes', async () => {
     const user = userEvent.setup();
     const onPurchaseTalent = vi.fn();

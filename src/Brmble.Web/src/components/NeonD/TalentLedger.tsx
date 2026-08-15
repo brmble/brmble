@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { getCaptainEligibleLevel, getCaptainRemainingThreshold } from './economy';
+import { getCaptainRemainingThreshold, isCaptainLevelUpAvailable } from './economy';
 import { canPurchaseTalent, getTalentDefinition } from './talents';
 import type { Captain, TalentPathId } from './types';
 import styles from './NeonD.module.css';
@@ -38,9 +38,16 @@ export function TalentLedger({
 }: TalentLedgerProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [promotionConfirming, setPromotionConfirming] = useState(false);
-  const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
-  const remainingThreshold = getCaptainRemainingThreshold(captain.level, captain.personalEarnings);
-  const levelUpAvailable = eligibleLevel > captain.level;
+  const remainingThreshold = getCaptainRemainingThreshold(
+    captain.level,
+    captain.personalEarnings,
+    captain.lastLevelUpEarnings,
+  );
+  const levelUpAvailable = isCaptainLevelUpAvailable(
+    captain.level,
+    captain.personalEarnings,
+    captain.lastLevelUpEarnings,
+  );
   const promotionAvailable = captain.kingpinAvailable && captain.talentPoints > 0;
 
   useEffect(() => {

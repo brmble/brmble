@@ -4,6 +4,8 @@ import {
   getBailCost,
   getCaptainCost,
   getCaptainEligibleLevel,
+  getCaptainLevelProgress,
+  getCaptainLevelRequirement,
   getCaptainRemainingThreshold,
   getDiscountCost,
   getDiscountMultiplier,
@@ -18,6 +20,7 @@ import {
   getVisibleProductIds,
   isBulkSellingVisible,
   isCaptainVisible,
+  isCaptainLevelUpAvailable,
   isProductFullyUpgraded,
   isRiskActive,
 } from '../economy';
@@ -104,15 +107,33 @@ describe('Neon-D economy formulas', () => {
   });
 
   it('returns the amount still needed for the current Captain next level', () => {
-    expect(getCaptainRemainingThreshold(0, 125_000)).toBe(375_000);
+    expect(getCaptainRemainingThreshold(0, 125_000, 0)).toBe(375_000);
   });
 
   it('clamps the remaining Captain threshold at zero after eligibility', () => {
-    expect(getCaptainRemainingThreshold(0, 500_000)).toBe(0);
+    expect(getCaptainRemainingThreshold(0, 500_000, 0)).toBe(0);
   });
 
   it('returns null after the final Captain level', () => {
-    expect(getCaptainRemainingThreshold(CAPTAIN_LEVEL_THRESHOLDS.length, 999_999_999)).toBeNull();
+    expect(getCaptainRemainingThreshold(CAPTAIN_LEVEL_THRESHOLDS.length, 999_999_999, 0)).toBeNull();
+  });
+
+  it('starts the next level at zero until the current Captain level is claimed', () => {
+    expect(getCaptainLevelRequirement(0)).toBe(500_000);
+    expect(getCaptainLevelRequirement(1)).toBe(450_000);
+    expect(getCaptainLevelProgress(0, 750_000, 0)).toBe(500_000);
+    expect(getCaptainRemainingThreshold(0, 750_000, 0)).toBe(0);
+    expect(isCaptainLevelUpAvailable(0, 750_000, 0)).toBe(true);
+
+    expect(getCaptainLevelProgress(1, 750_000, 750_000)).toBe(0);
+    expect(getCaptainRemainingThreshold(1, 750_000, 750_000)).toBe(450_000);
+    expect(isCaptainLevelUpAvailable(1, 750_000, 750_000)).toBe(false);
+  });
+
+  it('counts only new earnings after a claimed level toward the next level', () => {
+    expect(getCaptainLevelProgress(1, 1_000_000, 750_000)).toBe(250_000);
+    expect(getCaptainRemainingThreshold(1, 1_000_000, 750_000)).toBe(200_000);
+    expect(isCaptainLevelUpAvailable(1, 1_200_000, 750_000)).toBe(true);
   });
 
   it('prices Captain equipment at four times normal base price before discount', () => {

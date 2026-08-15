@@ -26,6 +26,7 @@ const makeCaptain = (overrides: Partial<Captain> = {}): Captain => ({
   ledgerUnlocked: true,
   kingpinAvailable: false,
   ...overrides,
+  lastLevelUpEarnings: overrides.lastLevelUpEarnings ?? 0,
 });
 
 describe('Captain talent rules', () => {

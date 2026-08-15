@@ -19,6 +19,7 @@ export const makeReferenceCaptain = (overrides: Partial<Captain> = {}): Captain 
   selling: 'weed',
   equipmentIds: [],
   personalEarnings: 0,
+  lastLevelUpEarnings: 0,
   level: 0,
   talentPoints: 0,
   talentRanks: {

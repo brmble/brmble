@@ -128,7 +128,7 @@ function isCaptain(
   if (!isObject(value)) return false;
   if (!hasExactKeys(value, [
     'id', 'name', 'selling', 'equipmentIds', 'personalEarnings',
-    'level', 'talentPoints', 'talentRanks', 'ledgerUnlocked', 'kingpinAvailable',
+    'lastLevelUpEarnings', 'level', 'talentPoints', 'talentRanks', 'ledgerUnlocked', 'kingpinAvailable',
   ])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
@@ -136,6 +136,8 @@ function isCaptain(
     && typeof value.name === 'string'
     && isKnownCanonicalEquipmentPrefix(value.equipmentIds)
     && isNonNegativeFiniteNumber(value.personalEarnings)
+    && isNonNegativeFiniteNumber(value.lastLevelUpEarnings)
+    && value.lastLevelUpEarnings <= value.personalEarnings
     && isTalentStateValid(value as unknown as Captain);
 }
 
@@ -266,9 +268,17 @@ export function serializeNeonDSave(state: GameState): string {
 }
 
 export function migrateNeonDState(value: unknown): unknown {
-  return isObject(value) && value.schemaVersion === 5
-    ? value
-    : { schemaVersion: 5 };
+  if (!isObject(value) || value.schemaVersion !== 5) return { schemaVersion: 5 };
+
+  const captains = Array.isArray(value.captains)
+    ? value.captains.map((captain) => (
+      isObject(captain) && !('lastLevelUpEarnings' in captain)
+        ? { ...captain, lastLevelUpEarnings: captain.personalEarnings }
+        : captain
+    ))
+    : value.captains;
+
+  return { ...value, captains };
 }
 
 export function parseNeonDSave(text: string): GameState {
@@ -285,7 +295,7 @@ export function parseNeonDSave(text: string): GameState {
   if (parsed.version !== 2 && parsed.version !== NEON_D_SAVE_VERSION) {
     throw new Error('This Neon-D save version is not supported.');
   }
-  const state = parsed.state;
+  const state = migrateNeonDState(parsed.state);
   if (parsed.version === 2) {
     if (!isObject(state) || state.schemaVersion !== 2) {
       throw new Error('This Neon-D save is incomplete or corrupted.');

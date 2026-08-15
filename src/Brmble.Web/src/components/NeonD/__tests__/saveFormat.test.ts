@@ -193,6 +193,27 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
   });
 
+  it('round-trips the Captain level-up earnings baseline', () => {
+    const captain = {
+      ...makeReferenceCaptain({ personalEarnings: 1_000_000 }),
+      lastLevelUpEarnings: 750_000,
+    };
+    const state = createState({ captains: [captain] });
+
+    expect(parseNeonDSave(serializeNeonDSave(state)).captains[0].lastLevelUpEarnings)
+      .toBe(750_000);
+  });
+
+  it('normalizes a missing Captain baseline when importing a schema-v5 save', () => {
+    const captain = makeReferenceCaptain({ personalEarnings: 750_000 });
+    delete (captain as Partial<GameState['captains'][number]>).lastLevelUpEarnings;
+    const state = createState({ captains: [captain] });
+
+    const imported = parseNeonDSave(createEnvelope(state));
+
+    expect(imported.captains[0].lastLevelUpEarnings).toBe(750_000);
+  });
+
   it('preserves only explicitly purchased product IDs during a v4 round trip', () => {
     const state = createState({ bulkUnlockedProductIds: ['weed'] });
 
@@ -329,6 +350,9 @@ describe('Neon-D save format', () => {
     })],
     ['captain with negative talent points', createCaptainCorruptEnvelope((state) => {
       state.captains[0].talentPoints = -1;
+    })],
+    ['captain with invalid level-up earnings baseline', createCaptainCorruptEnvelope((state) => {
+      (state.captains[0] as unknown as Record<string, unknown>).lastLevelUpEarnings = -1;
     })],
     ['captain with fractional talent points', createCaptainCorruptEnvelope((state) => {
       state.captains[0].talentPoints = 0.5;

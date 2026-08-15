@@ -95,6 +95,7 @@ export interface Captain {
   selling: ProductId;
   equipmentIds: EquipmentId[];
   personalEarnings: number;
+  lastLevelUpEarnings: number;
   level: number;
   talentPoints: number;
   talentRanks: TalentRanks;
