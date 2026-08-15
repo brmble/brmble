@@ -223,7 +223,7 @@ it('presents an active market event as a single live market card', () => {
     .closest('section')
     ?.querySelector('span[style]');
   expect(progress).toBeTruthy();
-  expect(progress).toHaveStyle({ transform: `scaleX(${30_000 / MARKET_DURATION_MAX_MS})` });
+  expect(progress).toHaveStyle({ width: `${(30_000 / MARKET_DURATION_MAX_MS) * 100}%` });
 });
 
 it('exports the current Neon-D v2 state as a JSON download', async () => {

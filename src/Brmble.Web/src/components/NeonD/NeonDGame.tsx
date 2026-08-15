@@ -218,10 +218,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <strong>{marketRemainingSeconds}s remaining</strong>
           </div>
           <div className={styles.marketEventProgressTrack} aria-hidden="true">
-            <span
-              className={styles.marketEventProgress}
-              style={{ transform: `scaleX(${marketProgress})` }}
-            />
+            <span className={styles.marketEventProgress} style={{ width: `${marketProgress * 100}%` }} />
           </div>
         </section>
       )}
