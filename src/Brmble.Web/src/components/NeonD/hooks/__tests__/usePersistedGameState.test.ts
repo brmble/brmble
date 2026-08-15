@@ -18,6 +18,16 @@ afterEach(() => {
 describe('usePersistedGameState', () => {
   const initial = { a: 1, nested: { b: 2, c: 3 } };
 
+  it('removes the retired recruitment fund from migrated saves', () => {
+    const previousState = {
+      ...createBaseGameState(0),
+      captainRecruitmentFund: 1_250_000,
+    } as GameState & { captainRecruitmentFund: number };
+
+    const migrated = migrateNeonDState(previousState) as GameState;
+    expect(migrated).not.toHaveProperty('captainRecruitmentFund');
+  });
+
   it('loads initial state when local storage is empty', () => {
     const { result } = renderHook(() => usePersistedGameState('test_key', initial));
     expect(result.current[0]).toEqual(initial);

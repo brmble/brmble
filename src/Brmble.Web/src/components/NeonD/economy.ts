@@ -182,4 +182,5 @@ export const getEffectiveStreetValue = (state: Pick<GameState, 'activeMarketEven
 
 export const isRiskActive = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= 30_000;
 export const isBulkSellingVisible = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= BULK_VISIBLE_EARNINGS;
-export const isCaptainVisible = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= CAPTAIN_VISIBLE_EARNINGS;
+export const isCaptainVisible = (state: Pick<GameState, 'runEarnings' | 'captains'>) =>
+  state.runEarnings >= CAPTAIN_VISIBLE_EARNINGS || state.captains.length > 0;

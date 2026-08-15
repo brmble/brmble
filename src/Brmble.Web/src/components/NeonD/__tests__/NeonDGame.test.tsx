@@ -335,77 +335,81 @@ it('does not reference undefined priority metric CSS modifiers', () => {
   expect(source).not.toMatch(/styles\.(?:primaryMetric|secondaryMetric|cashMetric)\b/);
 });
 
-it('places locked Captain progress immediately before Distribution', () => {
+it('hides the Captain recruitment panel before the first Captain threshold', () => {
   mockState({ runEarnings: 3_750_000, captains: [] });
 
   render(<NeonDGame />);
 
   const workspace = screen.getByTestId('distribution-workspace');
-  const progress = within(workspace).getByRole('progressbar', {
-    name: 'Captain unlock progress',
-  });
   const distribution = within(workspace).getByRole('region', {
     name: 'Distribution',
   });
 
-  expect(progress).toHaveAttribute('aria-valuemin', '0');
-  expect(progress).toHaveAttribute('aria-valuemax', '7500000');
-  expect(progress).toHaveAttribute('aria-valuenow', '3750000');
-  expect(progress).toHaveAttribute(
-    'aria-valuetext',
-    `${formatExpectedMoney(3_750_000)} of ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
-  );
-  expect(progress.closest('section')?.nextElementSibling).toBe(distribution);
+  expect(within(workspace).queryByRole('progressbar')).not.toBeInTheDocument();
+  expect(distribution.previousElementSibling).toBeNull();
   expect(screen.getByRole('region', { name: 'Empire statistics' }))
     .not.toHaveTextContent(/captain progress/i);
 });
 
-it('keeps fractional locked earnings below the Captain threshold', () => {
-  const runEarnings = CAPTAIN_VISIBLE_EARNINGS - 0.25;
-  const expectedProgressValue = Math.floor(runEarnings);
-  mockState({ runEarnings, captains: [] });
-
-  render(<NeonDGame />);
-
-  const workspace = screen.getByTestId('distribution-workspace');
-  const progress = within(workspace).getByRole('progressbar', {
-    name: 'Captain unlock progress',
-  });
-  const milestone = progress.closest('section') as HTMLElement;
-
-  expect(progress).toHaveAttribute('aria-valuenow', String(expectedProgressValue));
-  expect(progress).toHaveAttribute(
-    'aria-valuetext',
-    `${formatExpectedMoney(expectedProgressValue)} of ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
-  );
-  expect(within(milestone).getByText(
-    `${formatExpectedMoney(expectedProgressValue)} / ${formatExpectedMoney(CAPTAIN_VISIBLE_EARNINGS)}`,
-  )).toBeInTheDocument();
-  expect(progress.firstElementChild).toHaveStyle({
-    width: `${(expectedProgressValue / CAPTAIN_VISIBLE_EARNINGS) * 100}%`,
-  });
-  expect(within(workspace).queryByRole('button', { name: /hire captain/i }))
-    .not.toBeInTheDocument();
-});
-
-it('shows the Hire Captain action above Distribution after unlock', async () => {
-  const user = userEvent.setup();
+it('shows current cash against the first Captain price', () => {
   mockState({
-    cash: 10_000_000,
-    runEarnings: 7_500_000,
+    cash: 1_000_000,
+    runEarnings: CAPTAIN_VISIBLE_EARNINGS,
     captains: [],
   });
 
   render(<NeonDGame />);
 
   const workspace = screen.getByTestId('distribution-workspace');
-  expect(within(workspace).queryByRole('progressbar')).not.toBeInTheDocument();
+  const progress = within(workspace).getByRole('progressbar', {
+    name: 'Captain recruitment fund',
+  });
+  const milestone = progress.closest('section') as HTMLElement;
+
+  expect(progress).toHaveAttribute('aria-valuemax', String(CAPTAIN_COSTS[0]));
+  expect(progress).toHaveAttribute('aria-valuenow', '1000000');
+  expect(progress).toHaveAttribute(
+    'aria-valuetext',
+    `${formatExpectedMoney(1_000_000)} of ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
+  );
+  expect(within(milestone).getByText(
+    `${formatExpectedMoney(1_000_000)} / ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
+  )).toBeInTheDocument();
+  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
+  expect(within(workspace).queryByRole('spinbutton')).not.toBeInTheDocument();
+});
+
+it('shows Hire Captain when cash reaches the next Captain price', async () => {
+  const user = userEvent.setup();
+  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
+  expect(within(workspace).queryByRole('spinbutton')).not.toBeInTheDocument();
   const hireButton = within(workspace).getByRole('button', { name: /hire captain/i });
   expect(hireButton.closest('section')?.nextElementSibling)
     .toBe(within(workspace).getByRole('region', { name: 'Distribution' }));
 
   await user.click(hireButton);
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+});
+
+it('keeps the recruitment panel visible for the next Captain after the first hire', () => {
+  mockState({
+    cash: 0,
+    runEarnings: 0,
+    captains: [makeReferenceCaptain({ id: 'captain-owned' })],
+  });
+
+  render(<NeonDGame />);
+
+  const workspace = screen.getByTestId('distribution-workspace');
+  expect(within(workspace).getByText(
+    `${formatExpectedMoney(0)} / ${formatExpectedMoney(CAPTAIN_COSTS[1])}`,
+  )).toBeInTheDocument();
+  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
 });
 
 it('shows the exact Captain price and disables hiring when unlocked but unaffordable', () => {
@@ -420,12 +424,10 @@ it('shows the exact Captain price and disables hiring when unlocked but unafford
   render(<NeonDGame />);
 
   const workspace = screen.getByTestId('distribution-workspace');
-  const hireButton = within(workspace).getByRole('button', {
-    name: `Hire Captain - ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
-  });
-
-  expect(hireButton).toBeDisabled();
-  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
+  expect(within(workspace).getByText(
+    `${formatExpectedMoney(CAPTAIN_COSTS[0] - 1)} / ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
+  )).toBeInTheDocument();
+  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
 });
 
 it('renders Production as the default left tab and keeps Distribution visible', () => {
@@ -894,7 +896,10 @@ it('collapses Captain cards independently while retaining product and earnings c
 
 it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   const user = userEvent.setup();
-  mockState({ cash: 10_000_000 });
+  mockState({
+    cash: CAPTAIN_COSTS[1],
+    runEarnings: CAPTAIN_VISIBLE_EARNINGS,
+  });
 
   render(<NeonDGame />);
   await user.click(screen.getByRole('button', { name: /hire captain/i }));
@@ -1011,7 +1016,7 @@ it('keeps the Talent Ledger locked before the first claimed level', () => {
 
 it('does not show a global Bulk control while still showing Captain progression', () => {
   mockState({
-    cash: 10_000_000,
+    cash: CAPTAIN_COSTS[1],
     runEarnings: 7_500_000,
   });
 

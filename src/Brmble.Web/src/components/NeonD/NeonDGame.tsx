@@ -1,6 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
-import { CAPTAIN_VISIBLE_EARNINGS } from './constants';
 import {
   getCaptainCost,
   getProductDefinition,
@@ -73,10 +72,10 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
   const captainProgressValue = Math.min(
-    CAPTAIN_VISIBLE_EARNINGS,
-    Math.max(0, Math.floor(state.runEarnings)),
+    captainCost,
+    Math.max(0, Math.floor(state.cash)),
   );
-  const captainProgress = captainProgressValue / CAPTAIN_VISIBLE_EARNINGS;
+  const captainProgress = captainCost > 0 ? captainProgressValue / captainCost : 0;
   const renderNow = state.lastTickAt;
   const activeMarketEvent = state.activeMarketEvent;
   const activeMarketProduct = activeMarketEvent
@@ -263,45 +262,35 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           )}
         </div>
         <div className={styles.rightWorkspace} data-testid="distribution-workspace">
-          <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
-            {captainVisible ? (
-              <>
-                <div className={styles.captainMilestoneCopy}>
-                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain recruitment</span>
-                  <strong>Expand your command</strong>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={buyCaptain}
-                  disabled={state.cash < captainCost}
-                >
-                  Hire Captain - {formatMoney(captainCost)}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className={styles.captainMilestoneHeader}>
-                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain unlock</span>
-                  <strong>{formatMoney(captainProgressValue)} / {formatMoney(CAPTAIN_VISIBLE_EARNINGS)}</strong>
-                </div>
+          {captainVisible && (
+            <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
+              <div className={styles.captainMilestoneCopy}>
+                <span id="captain-milestone-title" className={styles.metricLabel}>Next Captain — Cash saved:</span>
+                <strong>{formatMoney(captainProgressValue)} / {formatMoney(captainCost)}</strong>
+              </div>
+              <div className={styles.captainProgressBlock}>
                 <div
                   className={styles.captainProgressTrack}
                   role="progressbar"
-                  aria-label="Captain unlock progress"
+                  aria-label="Captain recruitment fund"
                   aria-valuemin={0}
-                  aria-valuemax={CAPTAIN_VISIBLE_EARNINGS}
+                  aria-valuemax={captainCost}
                   aria-valuenow={captainProgressValue}
-                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(CAPTAIN_VISIBLE_EARNINGS)}`}
+                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(captainCost)}`}
                 >
                   <span
                     className={styles.captainProgressFill}
                     style={{ width: `${captainProgress * 100}%` }}
                   />
                 </div>
-              </>
-            )}
-          </section>
+              </div>
+              {captainProgressValue >= captainCost && (
+                <button type="button" className="btn btn-primary" onClick={buyCaptain}>
+                  Hire Captain
+                </button>
+              )}
+            </section>
+          )}
           <DistributionPanel
             state={state}
             hireDealer={hireDealer}

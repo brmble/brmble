@@ -329,6 +329,18 @@ describe('useGameEngine', () => {
     expect(result.current.state.activeDealers).toEqual([null]);
   });
 
+  it('uses current cash as Captain progress and keeps the panel unlocked after hiring', () => {
+    const { result } = renderSeededGame({
+      cash: 7_500_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(1);
+    expect(result.current.state.runEarnings).toBe(0);
+  });
+
   it('requires a claim before earnings can progress the following Captain level', () => {
     const { result } = renderSeededGame({
       captains: [makeReferenceCaptain({

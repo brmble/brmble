@@ -278,7 +278,8 @@ export function migrateNeonDState(value: unknown): unknown {
     ))
     : value.captains;
 
-  return { ...value, captains };
+  const { captainRecruitmentFund: _captainRecruitmentFund, ...stateWithoutRecruitmentFund } = value;
+  return { ...stateWithoutRecruitmentFund, captains };
 }
 
 export function parseNeonDSave(text: string): GameState {
