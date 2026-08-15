@@ -1,0 +1,113 @@
+import { render, screen, within, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { TalentLedger } from '../TalentLedger';
+import { makeReferenceCaptain } from './testFixtures';
+
+describe('TalentLedger', () => {
+  it('shows the Captain identity, points, and the exact three lane orders', () => {
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({ name: 'Captain Red' })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('dialog', { name: /Captain Red/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Captain’s Talent Ledger — Captain Red/ })).toBeInTheDocument();
+    expect(screen.getByText(/Talent points:/)).toHaveTextContent('Talent points: 0');
+
+    const redText = screen.getByRole('group', { name: 'Red path' }).textContent ?? '';
+    const yellowText = screen.getByRole('group', { name: 'Yellow path' }).textContent ?? '';
+    const blueText = screen.getByRole('group', { name: 'Blue path' }).textContent ?? '';
+    expect(redText.indexOf('Margin')).toBeLessThan(redText.indexOf('Volume'));
+    expect(redText.indexOf('Volume')).toBeLessThan(redText.indexOf('Secondary sales'));
+    expect(yellowText.indexOf('Secondary sales')).toBeLessThan(yellowText.indexOf('Margin'));
+    expect(yellowText.indexOf('Margin')).toBeLessThan(yellowText.indexOf('Volume'));
+    expect(blueText.indexOf('Volume')).toBeLessThan(blueText.indexOf('Secondary sales'));
+    expect(blueText.indexOf('Secondary sales')).toBeLessThan(blueText.indexOf('Margin'));
+  });
+
+  it('shows rank counters and disables only locked or unaffordable nodes', async () => {
+    const user = userEvent.setup();
+    const onPurchaseTalent = vi.fn();
+    const captain = makeReferenceCaptain({
+      level: 1,
+      talentPoints: 1,
+      ledgerUnlocked: true,
+    });
+    render(
+      <TalentLedger
+        captain={captain}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={onPurchaseTalent}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('0/2')).not.toHaveLength(0);
+    expect(screen.getAllByText('0/3')).not.toHaveLength(0);
+    expect(screen.getAllByText('0/4')).not.toHaveLength(0);
+    const redPath = within(screen.getByRole('group', { name: 'Red path' }));
+    const margin = redPath.getByRole('button', { name: /Margin.*0\/2.*available/i });
+    const volume = redPath.getByRole('button', { name: /Volume.*0\/3.*locked/i });
+    expect(margin).toBeEnabled();
+    expect(volume).toBeDisabled();
+
+    await user.click(margin);
+    expect(onPurchaseTalent).toHaveBeenCalledWith('red', 0);
+  });
+
+  it('closes on Escape or backdrop click and traps focus', () => {
+    const onClose = vi.fn();
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({ level: 1, talentPoints: 1, ledgerUnlocked: true })}
+        onClose={onClose}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(document.activeElement).toBe(dialog);
+    const close = screen.getByRole('button', { name: 'Close Test Captain talent ledger' });
+    close.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).not.toBe(close);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByTestId('talent-ledger-backdrop'));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires confirmation before optional Kingpin promotion', async () => {
+    const user = userEvent.setup();
+    const onPromote = vi.fn();
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({
+          level: 10,
+          talentPoints: 1,
+          talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+          ledgerUnlocked: true,
+          kingpinAvailable: true,
+        })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={onPromote}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Promote to Kingpin/i }));
+    expect(screen.getByRole('alertdialog', { name: /permanent/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Confirm Kingpin promotion' }));
+    expect(onPromote).toHaveBeenCalledOnce();
+  });
+});
