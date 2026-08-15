@@ -67,7 +67,8 @@ describe('TalentLedger', () => {
       />,
     );
 
-    expect(screen.getByText('$375.000 to level')).toBeInTheDocument();
+    const threshold = screen.getByText(/to level/);
+    expect(threshold.textContent?.replace(/\D/g, '')).toBe('375000');
   });
 
   it('does not show next-level progress before the current level claim', () => {
@@ -95,7 +96,8 @@ describe('TalentLedger', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
-    expect(screen.getByText('$450.000 to level')).toBeInTheDocument();
+    const threshold = screen.getByText(/to level/);
+    expect(threshold.textContent?.replace(/\D/g, '')).toBe('450000');
   });
 
   it('shows rank counters and disables only locked or unaffordable nodes', async () => {

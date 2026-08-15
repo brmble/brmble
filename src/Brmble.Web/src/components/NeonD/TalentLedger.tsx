@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Icon } from '../Icon/Icon';
 import { getCaptainRemainingThreshold, isCaptainLevelUpAvailable } from './economy';
 import { canPurchaseTalent, getTalentDefinition } from './talents';
 import type { Captain, TalentPathId } from './types';
@@ -109,7 +110,7 @@ export function TalentLedger({
             aria-label={`Close ${captain.name} talent ledger`}
             onClick={onClose}
           >
-            ×
+            <Icon name="x" size={18} />
           </button>
         </div>
 

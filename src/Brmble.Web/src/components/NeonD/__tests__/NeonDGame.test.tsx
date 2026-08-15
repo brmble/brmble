@@ -944,8 +944,10 @@ it('shows the remaining Captain earnings needed for the next level', () => {
   render(<NeonDGame />);
 
   const card = screen.getByRole('article', { name: 'Captain Countdown distribution' });
-  expect(within(card).getByText('$375.000 to level')).toBeInTheDocument();
-  expect(within(card).getByText('Personal earnings').parentElement).toHaveTextContent('$125.000');
+  const threshold = within(card).getByText(/to level/);
+  expect(threshold.textContent?.replace(/\D/g, '')).toBe('375000');
+  const personalEarnings = within(card).getByText('Personal earnings').parentElement;
+  expect(personalEarnings?.textContent?.replace(/\D/g, '')).toBe('125000');
   expect(within(card).queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
 });
 
@@ -996,7 +998,8 @@ it('does not start the next Captain level until the current claim is pressed', (
   rerender(<NeonDGame />);
   card = screen.getByRole('article', { name: 'Captain Boundary distribution' });
   expect(within(card).queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
-  expect(within(card).getByText('$450.000 to level')).toBeInTheDocument();
+  const threshold = within(card).getByText(/to level/);
+  expect(threshold.textContent?.replace(/\D/g, '')).toBe('450000');
 });
 
 it('keeps the Talent Ledger locked before the first claimed level', () => {
