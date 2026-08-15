@@ -175,7 +175,8 @@ describe('TalentLedger', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /Promote to Kingpin/i }));
-    expect(screen.getByRole('alertdialog', { name: /permanent/i })).toBeInTheDocument();
+    expect(screen.getByText('Promote permanently?')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Test Captain/ })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Confirm Kingpin promotion' }));
     expect(onPromote).toHaveBeenCalledOnce();
   });

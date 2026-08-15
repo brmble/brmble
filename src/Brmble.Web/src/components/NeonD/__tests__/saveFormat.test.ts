@@ -156,19 +156,33 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
   });
 
-  it('rejects a schema-4 save instead of migrating legacy Captain progression', () => {
-    const v3State = { ...createState() };
+  it('migrates a schema-v2 save through the current schema while preserving progression', () => {
+    const v3State = { ...createState({ captains: [makeReferenceCaptain({ personalEarnings: 42_000 })] }) };
     delete (v3State as Partial<GameState>).lastBulkSellAt;
     const legacyState = {
       ...v3State,
       schemaVersion: 2,
       autoBulkEnabled: true,
     } as unknown as GameState & { autoBulkEnabled: boolean };
-    expect(() => parseNeonDSave(JSON.stringify({
+    const migrated = parseNeonDSave(JSON.stringify({
       format: NEON_D_SAVE_FORMAT,
       version: 2,
       state: legacyState,
-    }))).toThrow();
+    }));
+
+    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.cash).toBe(legacyState.cash);
+    expect(migrated.production).toEqual(legacyState.production);
+    expect(migrated.bulkUnlockedProductIds).toEqual([]);
+    expect(migrated.lastBulkSellAt).toBe(0);
+    expect(migrated.captains[0]).toMatchObject({
+      personalEarnings: legacyState.captains[0].personalEarnings,
+      level: 0,
+      talentPoints: 0,
+      talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: false,
+      kingpinAvailable: false,
+    });
   });
 
   it('round-trips partial and fully developed Captain talent state', () => {

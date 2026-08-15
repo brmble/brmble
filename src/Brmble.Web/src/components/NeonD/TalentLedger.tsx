@@ -61,9 +61,14 @@ export function TalentLedger({
     };
   }, []);
 
+  useEffect(() => {
+    if (promotionConfirming) dialogRef.current?.focus();
+  }, [promotionConfirming]);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape' && !promotionConfirming) {
-      onClose();
+    if (event.key === 'Escape') {
+      if (promotionConfirming) setPromotionConfirming(false);
+      else onClose();
       return;
     }
     if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -82,7 +87,7 @@ export function TalentLedger({
 
   return (
     <div
-      className={styles.talentLedgerBackdrop}
+      className="modal-overlay"
       data-testid="talent-ledger-backdrop"
       onClick={(event) => {
         if (!promotionConfirming && event.target === event.currentTarget) onClose();
@@ -90,7 +95,7 @@ export function TalentLedger({
     >
       <div
         ref={dialogRef}
-        className={styles.talentLedgerModal}
+        className={`glass-panel animate-slide-up ${styles.talentLedgerModal}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="talent-ledger-title"
@@ -98,15 +103,15 @@ export function TalentLedger({
         onClick={(event) => event.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div className={styles.talentLedgerHeader}>
+        <div className={`modal-header ${styles.talentLedgerHeader}`}>
           <div>
             <p className={styles.talentLedgerKicker}>Captain’s progression</p>
-            <h2 id="talent-ledger-title" className="heading-title">Captain’s Talent Ledger — {captain.name}</h2>
-            <p className={styles.talentLedgerSubtitle}>Choose a lane. Claim every rank yourself.</p>
+            <h2 id="talent-ledger-title" className="heading-title modal-title">Captain’s Talent Ledger — {captain.name}</h2>
+            <p className="modal-subtitle">Choose a lane. Claim every rank yourself.</p>
           </div>
           <button
             type="button"
-            className={styles.modalCloseButton}
+            className="modal-close"
             aria-label={`Close ${captain.name} talent ledger`}
             onClick={onClose}
           >
@@ -114,6 +119,20 @@ export function TalentLedger({
           </button>
         </div>
 
+        {promotionConfirming ? (
+          <div className={styles.talentPromotionConfirm}>
+            <h3 className="heading-section">Promote permanently?</h3>
+            <p>{captain.name} will leave the Captain roster and cannot return.</p>
+            <div className={styles.actionStack}>
+              <button type="button" className={styles.dangerButton} onClick={() => { setPromotionConfirming(false); onPromote(); }}>
+                Confirm Kingpin promotion
+              </button>
+              <button type="button" className={styles.unlockButton} onClick={() => setPromotionConfirming(false)}>
+                Keep Captain
+              </button>
+            </div>
+          </div>
+        ) : <>
         <div className={styles.talentLedgerSummary}>
           <span>Level <strong>{captain.level}</strong></span>
           <span>Personal earnings <strong>{formatMoney(captain.personalEarnings)}</strong></span>
@@ -142,9 +161,11 @@ export function TalentLedger({
                 const currentRanks = captain.talentRanks[path.id][row];
                 const canPurchase = canPurchaseTalent(captain, path.id, row as 0 | 1 | 2);
                 const isComplete = currentRanks === definition.maxRanks;
-                const requirement = row === 0
+                const requirement = captain.talentPoints === 0
                   ? 'Requires an available talent point'
-                  : `Requires ${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).maxRanks}/${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).maxRanks} ranks in the preceding ${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).label} node`;
+                  : row === 0
+                    ? 'Requires an available talent point'
+                    : `Requires ${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).maxRanks}/${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).maxRanks} ranks in the preceding ${getTalentDefinition(path.id, (row - 1) as 0 | 1 | 2).label} node`;
                 return (
                   <div key={definition.row} className={styles.talentNodeSlot}>
                     <button
@@ -185,20 +206,7 @@ export function TalentLedger({
           </button>
         </div>
 
-        {promotionConfirming ? (
-          <div className={styles.talentPromotionConfirm} role="alertdialog" aria-modal="true" aria-label="Permanent Kingpin promotion">
-            <h3 className="heading-section">Promote permanently?</h3>
-            <p>{captain.name} will leave the Captain roster and cannot return.</p>
-            <div className={styles.actionStack}>
-              <button type="button" className={styles.dangerButton} onClick={() => { setPromotionConfirming(false); onPromote(); }}>
-                Confirm Kingpin promotion
-              </button>
-              <button type="button" className={styles.unlockButton} onClick={() => setPromotionConfirming(false)}>
-                Keep Captain
-              </button>
-            </div>
-          </div>
-        ) : null}
+        </>}
       </div>
     </div>
   );

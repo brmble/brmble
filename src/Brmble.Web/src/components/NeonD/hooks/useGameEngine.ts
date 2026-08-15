@@ -389,7 +389,7 @@ export const useGameEngine = () => {
       ...prev,
       captains: prev.captains.map((captain) => {
         if (captain.id !== captainId) return captain;
-        if (captain.level >= 28 || !isCaptainLevelUpAvailable(
+        if (!isCaptainLevelUpAvailable(
           captain.level,
           captain.personalEarnings,
           captain.lastLevelUpEarnings,

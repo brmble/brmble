@@ -286,18 +286,49 @@ export function serializeNeonDSave(state: GameState): string {
 }
 
 export function migrateNeonDState(value: unknown): unknown {
-  if (!isObject(value) || value.schemaVersion !== 5) return { schemaVersion: 5 };
+  if (!isObject(value)) return { schemaVersion: 5 };
+  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) {
+    return value;
+  }
 
-  const captains = Array.isArray(value.captains)
-    ? value.captains.map((captain) => (
+  let state: Record<string, unknown> = { ...value };
+  if (state.schemaVersion === 2) {
+    delete state.autoBulkEnabled;
+    state = { ...state, schemaVersion: 3, lastBulkSellAt: 0 };
+  }
+  if (state.schemaVersion === 3) {
+    delete state.bulkUnlocked;
+    state = { ...state, schemaVersion: 4, bulkUnlockedProductIds: [] };
+  }
+  if (state.schemaVersion === 4) {
+    const captains = Array.isArray(state.captains)
+      ? state.captains.map((captain) => (
+        isObject(captain)
+          ? {
+              ...captain,
+              lastLevelUpEarnings: captain.personalEarnings,
+              level: 0,
+              talentPoints: 0,
+              talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+              ledgerUnlocked: false,
+              kingpinAvailable: false,
+            }
+          : captain
+      ))
+      : state.captains;
+    state = { ...state, schemaVersion: 5, captains };
+  }
+
+  const captains = Array.isArray(state.captains)
+    ? state.captains.map((captain) => (
       isObject(captain) && !('lastLevelUpEarnings' in captain)
         ? { ...captain, lastLevelUpEarnings: captain.personalEarnings }
         : captain
     ))
-    : value.captains;
+    : state.captains;
 
-  const { captainRecruitmentFund: _captainRecruitmentFund, ...stateWithoutRecruitmentFund } = value;
-  return { ...stateWithoutRecruitmentFund, captains };
+  delete state.captainRecruitmentFund;
+  return { ...state, schemaVersion: 5, captains };
 }
 
 export function parseNeonDSave(text: string): GameState {
@@ -315,11 +346,6 @@ export function parseNeonDSave(text: string): GameState {
     throw new Error('This Neon-D save version is not supported.');
   }
   const state = migrateNeonDState(parsed.state);
-  if (parsed.version === 2) {
-    if (!isObject(state) || state.schemaVersion !== 2) {
-      throw new Error('This Neon-D save is incomplete or corrupted.');
-    }
-  }
   if (!isGameState(state)) {
     throw new Error('This Neon-D save is incomplete or corrupted.');
   }
