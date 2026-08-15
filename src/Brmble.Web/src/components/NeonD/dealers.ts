@@ -1,4 +1,6 @@
 import {
+  CAPTAIN_BASE_MARGIN_MULTIPLIER,
+  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   EQUIPMENT_CATALOG,
   MAIN_SALE_UNITS_PER_VOLUME,
   NORMAL_DEALER_MAX_MULTIPLIER,
@@ -52,10 +54,10 @@ export const getCaptainBonuses = (captain: Captain): SellerBonuses =>
   getTalentBonus(captain.talentRanks);
 
 export const getCaptainMainSaleRate = (captain: Captain) =>
-  1.5 * (1 + getCaptainBonuses(captain).volumeBonus) * MAIN_SALE_UNITS_PER_VOLUME;
+  CAPTAIN_BASE_VOLUME_MULTIPLIER * (1 + getCaptainBonuses(captain).volumeBonus) * MAIN_SALE_UNITS_PER_VOLUME;
 
 export const getCaptainMarginMultiplier = (captain: Captain) =>
-  1.5 * (1 + getCaptainBonuses(captain).marginBonus);
+  CAPTAIN_BASE_MARGIN_MULTIPLIER * (1 + getCaptainBonuses(captain).marginBonus);
 
 export const getNormalDealerMainSaleRate = (dealer: Dealer) => {
   const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);

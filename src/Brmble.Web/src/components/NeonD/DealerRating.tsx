@@ -21,7 +21,7 @@ export const DealerRating = ({
         aria-label={exactValue}
         title={exactValue}
       >
-        {Array.from({ length: 5 }, (_, index) => {
+        {Array.from({ length: 6 }, (_, index) => {
           const starValue = index + 1;
           const state = rating >= starValue ? 'full' : 'empty';
           return (
