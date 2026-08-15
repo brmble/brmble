@@ -100,6 +100,19 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     if (confirmed) resetGame();
   };
 
+  const handleFireDealer = async (dealerId: string) => {
+    const dealer = state.activeDealers.find((candidate) => candidate?.id === dealerId);
+    const confirmed = await confirm({
+      title: 'Fire dealer?',
+      message: `Are you sure you want to fire ${dealer?.name ?? 'this dealer'}?`,
+      confirmLabel: 'Fire Dealer',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+
+    if (confirmed) fireDealer(dealerId);
+  };
+
   const handleExport = () => {
     const blob = new Blob([serializeNeonDSave(state)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -296,7 +309,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           <DistributionPanel
             state={state}
             hireDealer={hireDealer}
-            fireDealer={fireDealer}
+            fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}

@@ -200,6 +200,68 @@ it('does not reset the Neon-D empire when confirmation is canceled', async () =>
   expect(mockNeonD.resetGameMock).not.toHaveBeenCalled();
 });
 
+it('asks for confirmation before firing a regular dealer', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(true);
+  mockState({
+    activeDealers: [makeReferenceDealer({ id: 'dealer-fire', name: 'Dealer Fire' })],
+  });
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: 'Fire Dealer' }));
+
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'Fire dealer?',
+    message: 'Are you sure you want to fire Dealer Fire?',
+    confirmLabel: 'Fire Dealer',
+    cancelLabel: 'Cancel',
+    destructive: true,
+  });
+  expect(mockNeonD.fireDealerMock).toHaveBeenCalledWith('dealer-fire');
+});
+
+it('does not fire a dealer when the confirmation is canceled', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(false);
+  mockState({
+    activeDealers: [makeReferenceDealer({ id: 'dealer-cancel', name: 'Dealer Cancel' })],
+  });
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: 'Fire Dealer' }));
+
+  expect(confirmMock).toHaveBeenCalledOnce();
+  expect(mockNeonD.fireDealerMock).not.toHaveBeenCalled();
+});
+
+it('uses the same confirmation before firing an arrested dealer', async () => {
+  const user = userEvent.setup();
+  confirmMock.mockResolvedValue(true);
+  mockState({
+    activeDealers: [
+      makeReferenceDealer({
+        id: 'dealer-arrested-fire',
+        name: 'Arrested Fire',
+        isArrested: true,
+        isProtected: false,
+        earningsPerSecondAtArrest: 20,
+      }),
+    ],
+  });
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: 'Fire Dealer' }));
+
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'Fire dealer?',
+    message: 'Are you sure you want to fire Arrested Fire?',
+    confirmLabel: 'Fire Dealer',
+    cancelLabel: 'Cancel',
+    destructive: true,
+  });
+  expect(mockNeonD.fireDealerMock).toHaveBeenCalledWith('dealer-arrested-fire');
+});
+
 it('presents an active market event as a single live market card', () => {
   const now = Date.now();
   mockState({
