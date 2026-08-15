@@ -725,7 +725,7 @@
 .talentLedgerModal {
   display: grid;
   gap: var(--space-lg);
-  width: min(100%, var(--neond-modal-max-width));
+  width: min(100%, var(--neond-talent-ledger-max-width));
   max-height: calc(100vh - var(--space-2xl));
   overflow: auto;
   padding: var(--space-xl);
