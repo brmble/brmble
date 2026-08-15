@@ -1,11 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import {
-  CAPTAIN_LEVEL_THRESHOLDS,
-  EQUIPMENT_CATALOG,
-} from './constants';
+import { EQUIPMENT_CATALOG } from './constants';
 import {
   getBailCost,
   getCaptainEligibleLevel,
+  getCaptainRemainingThreshold,
   getEquipmentCost,
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
@@ -346,7 +344,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
         {props.state.captains.map((captain) => {
           const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
-          const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[captain.level];
+          const remainingThreshold = getCaptainRemainingThreshold(captain.level, captain.personalEarnings);
           const bonuses = getCaptainBonuses(captain);
           const volumeMultiplier = getCaptainMainSaleRate(captain) / 3;
           const marginMultiplier = getCaptainMarginMultiplier(captain);
@@ -402,8 +400,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                   <div className={styles.metricRow}><span>Secondary sales</span><strong>+{Math.round(bonuses.secondarySalesBonus * 100)}%</strong></div>
                   <div className={styles.metricRow}><span>Level</span><strong>Level {captain.level}</strong></div>
                   <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
-                  {nextThreshold ? (
-                    <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(nextThreshold)}</strong></div>
+                  {remainingThreshold !== null ? (
+                    <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(remainingThreshold)} to level</strong></div>
                   ) : (
                     <div className={styles.kingpinBadge}>All Captain levels claimed</div>
                   )}

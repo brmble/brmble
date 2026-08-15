@@ -89,6 +89,11 @@ export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, dis
 export const getCaptainEligibleLevel = (personalEarnings: number) =>
   CAPTAIN_LEVEL_THRESHOLDS.filter((threshold) => personalEarnings >= threshold).length;
 
+export const getCaptainRemainingThreshold = (level: number, personalEarnings: number) => {
+  const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
+  return nextThreshold === undefined ? null : Math.max(0, nextThreshold - personalEarnings);
+};
+
 /** @deprecated Use getCaptainEligibleLevel for earnings-based eligibility. */
 export const getCaptainLevel = getCaptainEligibleLevel;
 

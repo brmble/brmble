@@ -931,6 +931,41 @@ it('shows manual Captain level claims and opens the Talent Ledger in place', asy
   expect(mockNeonD.purchaseCaptainTalentMock).toHaveBeenCalledWith('captain-ledger', 'red', 0);
 });
 
+it('shows the remaining Captain earnings needed for the next level', () => {
+  mockState({
+    captains: [makeReferenceCaptain({
+      id: 'captain-countdown',
+      name: 'Captain Countdown',
+      personalEarnings: 125_000,
+      level: 0,
+    })],
+  });
+
+  render(<NeonDGame />);
+
+  const card = screen.getByRole('article', { name: 'Captain Countdown distribution' });
+  expect(within(card).getByText('$375.000 to level')).toBeInTheDocument();
+  expect(within(card).getByText('Personal earnings').parentElement).toHaveTextContent('$125.000');
+  expect(within(card).queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
+});
+
+it('shows zero remaining Captain earnings while keeping Level Up manual', () => {
+  mockState({
+    captains: [makeReferenceCaptain({
+      id: 'captain-ready',
+      name: 'Captain Ready',
+      personalEarnings: 500_000,
+      level: 0,
+    })],
+  });
+
+  render(<NeonDGame />);
+
+  const card = screen.getByRole('article', { name: 'Captain Ready distribution' });
+  expect(within(card).getByText('$0 to level')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
+});
+
 it('keeps the Talent Ledger locked before the first claimed level', () => {
   mockState({ captains: [makeReferenceCaptain({ id: 'captain-locked', name: 'Captain Locked' })] });
   render(<NeonDGame />);

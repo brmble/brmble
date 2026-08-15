@@ -41,10 +41,10 @@ describe('TalentLedger', () => {
     expect(blueText.indexOf('Secondary sales')).toBeLessThan(blueText.indexOf('Margin'));
   });
 
-  it('labels the level-up action without exposing the money threshold', () => {
+  it('shows the level-up action and zero remaining threshold', () => {
     render(
       <TalentLedger
-        captain={makeReferenceCaptain({ level: 1, personalEarnings: 950_000, ledgerUnlocked: true })}
+        captain={makeReferenceCaptain({ level: 0, personalEarnings: 500_000, ledgerUnlocked: true })}
         onClose={vi.fn()}
         onClaimLevel={vi.fn()}
         onPurchaseTalent={vi.fn()}
@@ -53,6 +53,21 @@ describe('TalentLedger', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Level Up' })).toBeInTheDocument();
+    expect(screen.getByText('$0 to level')).toBeInTheDocument();
+  });
+
+  it('shows the remaining Captain earnings needed for the next level', () => {
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({ level: 0, personalEarnings: 125_000, ledgerUnlocked: true })}
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('$375.000 to level')).toBeInTheDocument();
   });
 
   it('shows rank counters and disables only locked or unaffordable nodes', async () => {

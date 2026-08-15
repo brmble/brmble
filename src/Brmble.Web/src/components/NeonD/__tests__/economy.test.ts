@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createBaseGameState } from '../constants';
+import { CAPTAIN_LEVEL_THRESHOLDS, createBaseGameState } from '../constants';
 import {
   getBailCost,
   getCaptainCost,
   getCaptainEligibleLevel,
+  getCaptainRemainingThreshold,
   getDiscountCost,
   getDiscountMultiplier,
   getEquipmentCost,
@@ -100,6 +101,18 @@ describe('Neon-D economy formulas', () => {
     expect(getRespectPerSecond(state)).toBeCloseTo(7);
     state.kingpins = 1;
     expect(getRespectPerSecond(state)).toBeCloseTo(8);
+  });
+
+  it('returns the amount still needed for the current Captain next level', () => {
+    expect(getCaptainRemainingThreshold(0, 125_000)).toBe(375_000);
+  });
+
+  it('clamps the remaining Captain threshold at zero after eligibility', () => {
+    expect(getCaptainRemainingThreshold(0, 500_000)).toBe(0);
+  });
+
+  it('returns null after the final Captain level', () => {
+    expect(getCaptainRemainingThreshold(CAPTAIN_LEVEL_THRESHOLDS.length, 999_999_999)).toBeNull();
   });
 
   it('prices Captain equipment at four times normal base price before discount', () => {

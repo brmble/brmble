@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { CAPTAIN_LEVEL_THRESHOLDS } from './constants';
-import { getCaptainEligibleLevel } from './economy';
+import { getCaptainEligibleLevel, getCaptainRemainingThreshold } from './economy';
 import { canPurchaseTalent, getTalentDefinition } from './talents';
 import type { Captain, TalentPathId } from './types';
 import styles from './NeonD.module.css';
@@ -40,7 +39,7 @@ export function TalentLedger({
   const dialogRef = useRef<HTMLDivElement>(null);
   const [promotionConfirming, setPromotionConfirming] = useState(false);
   const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
-  const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[captain.level];
+  const remainingThreshold = getCaptainRemainingThreshold(captain.level, captain.personalEarnings);
   const levelUpAvailable = eligibleLevel > captain.level;
   const promotionAvailable = captain.kingpinAvailable && captain.talentPoints > 0;
 
@@ -111,15 +110,16 @@ export function TalentLedger({
           <span>Level <strong>{captain.level}</strong></span>
           <span>Personal earnings <strong>{formatMoney(captain.personalEarnings)}</strong></span>
           <span>Talent points: <strong>{captain.talentPoints}</strong></span>
+          {remainingThreshold !== null ? (
+            <span className={styles.talentLedgerStatus}>{formatMoney(remainingThreshold)} to level</span>
+          ) : (
+            <span className={styles.talentLedgerStatus}>Maximum level reached</span>
+          )}
           {levelUpAvailable ? (
             <button type="button" className={styles.buyButton} onClick={onClaimLevel}>
               Level Up
             </button>
-          ) : (
-            <span className={styles.talentLedgerStatus}>
-              {nextThreshold ? `Next threshold ${formatMoney(nextThreshold)}` : 'Maximum level reached'}
-            </span>
-          )}
+          ) : null}
         </div>
 
         <div className={styles.talentLedgerTree}>
