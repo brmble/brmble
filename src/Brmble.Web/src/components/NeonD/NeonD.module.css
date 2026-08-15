@@ -733,7 +733,7 @@
   border-radius: var(--radius-lg);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 38%),
-    var(--bg-surface);
+    var(--bg-deep);
   box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-primary-glow);
 }
 
@@ -847,7 +847,11 @@
 .talentLaneHeader {
   display: grid;
   gap: var(--space-2xs);
+  width: 100%;
+  max-width: 12rem;
+  justify-self: center;
   color: var(--talent-lane-accent);
+  text-align: center;
 }
 
 .talentLaneHeader span {
@@ -858,7 +862,9 @@
 
 .talentNodeSlot {
   display: grid;
-  justify-items: center;
+  grid-template-columns: minmax(0, 12rem);
+  justify-content: center;
+  justify-items: stretch;
   gap: var(--space-2xs);
 }
 

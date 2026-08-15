@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -5,6 +7,14 @@ import { TalentLedger } from '../TalentLedger';
 import { makeReferenceCaptain } from './testFixtures';
 
 describe('TalentLedger', () => {
+  it('keeps the modal opaque and centers each node track within its lane', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css'), 'utf8');
+
+    expect(css).toMatch(/\.talentLedgerModal\s*\{[^}]*background:[^}]*var\(--bg-deep\)/);
+    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*grid-template-columns:\s*minmax\(0, 12rem\)/);
+    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*justify-content:\s*center/);
+  });
+
   it('shows the Captain identity, points, and the exact three lane orders', () => {
     render(
       <TalentLedger
