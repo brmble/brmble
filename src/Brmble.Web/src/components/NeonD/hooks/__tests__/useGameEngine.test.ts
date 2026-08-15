@@ -1,7 +1,7 @@
 import { createElement, StrictMode, type PropsWithChildren } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
+import { createBaseGameState, NEON_D_SAVE_KEY, STARTING_CASH } from '../../constants';
 import {
   getCaptainCost,
   getProducerCost,
@@ -484,24 +484,48 @@ describe('useGameEngine', () => {
     expect(result.current.state.cash).toBe(100);
   });
 
-  it('promotes a level-10 Captain into one Kingpin', () => {
+  it('promotes a Captain by fully resetting the run and retaining the Kingpin prestige', () => {
     const { result } = renderSeededGame({
-      captains: [makeReferenceCaptain({
-        id: 'captain-10',
-        name: 'Captain Ten',
-        personalEarnings: 161_340_000,
-        level: 10,
-        talentPoints: 1,
-        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
-        ledgerUnlocked: true,
-        kingpinAvailable: true,
-      })],
+      cash: 99_999,
+      runEarnings: 88_888,
+      unlockedProducts: ['weed', 'mushrooms'],
+      territoryLevel: 3,
+      discountLevel: 2,
+      activeDealers: [makeReferenceDealer({ id: 'active-before-reset' })],
+      availableDealers: [makeReferenceDealer({ id: 'candidate-before-reset' })],
+      production: {
+        ...createBaseGameState(0).production,
+        weed: { stock: 42, producersOwned: 2, purchasedUpgradeIds: [] },
+      },
+      captains: [
+        makeReferenceCaptain({
+          id: 'captain-10',
+          name: 'Captain Ten',
+          personalEarnings: 161_340_000,
+          level: 10,
+          talentPoints: 1,
+          talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+          ledgerUnlocked: true,
+          kingpinAvailable: true,
+        }),
+        makeReferenceCaptain({ id: 'captain-existing', name: 'Captain Existing' }),
+      ],
+      kingpins: 1,
     });
 
     act(() => result.current.promoteCaptain('captain-10'));
 
     expect(result.current.state.captains).toEqual([]);
-    expect(result.current.state.kingpins).toBe(1);
+    expect(result.current.state.kingpins).toBe(2);
+    expect(result.current.state.cash).toBe(STARTING_CASH);
+    expect(result.current.state.runEarnings).toBe(0);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.activeDealers).toEqual([null]);
+    expect(result.current.state.production.weed.producersOwned).toBe(0);
+    expect(result.current.state.production.weed.stock).toBe(0);
+    expect(result.current.state.territoryLevel).toBe(0);
+    expect(result.current.state.discountLevel).toBe(0);
+    expect(result.current.state.availableDealers).toHaveLength(3);
   });
 
   it('keeps Kingpin bonuses permanent through the next Captain reset', () => {

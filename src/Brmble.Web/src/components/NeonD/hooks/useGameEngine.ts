@@ -435,11 +435,7 @@ export const useGameEngine = () => {
       const captain = prev.captains.find((item) => item.id === captainId);
       if (!captain || !captain.kingpinAvailable || captain.talentPoints < 1) return prev;
 
-      return {
-        ...prev,
-        captains: prev.captains.filter((item) => item.id !== captainId),
-        kingpins: prev.kingpins + 1,
-      };
+      return resetRunPreservingPrestige([], prev.kingpins + 1, Date.now());
     });
   };
 
