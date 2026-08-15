@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { createBaseGameState } from '../constants';
-import { getCaptainLevel } from '../economy';
 import {
   advanceDeterministicState,
   applyOfflineProgress,
@@ -69,24 +68,23 @@ describe('deterministic production', () => {
     expect(next.activeDealers[0]?.isArrested).toBe(false);
   });
 
-  it('updates Captain level during offline stepping after personal earnings cross $500,000', () => {
+  it('accumulates Captain earnings offline without claiming a level', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     state.production.weed.producersOwned = 10_000;
-    state.captains = [{
+    state.captains = [makeReferenceCaptain({
       id: 'captain-threshold',
       name: 'Captain Threshold',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 499_990,
-    }];
+    })];
 
     const next = applyOfflineProgress(state, 31_000);
     const captain = next.captains[0];
 
     expect(captain.personalEarnings).toBeGreaterThanOrEqual(500_000);
-    expect(getCaptainLevel(captain.personalEarnings)).toBe(1);
-    expect(next.offlineEarningsSummary?.respectEarned).toBeGreaterThan(62);
+    expect(captain.level).toBe(0);
+    expect(captain.talentPoints).toBe(0);
+    expect(next.offlineEarningsSummary?.respectEarned).toBeCloseTo(62);
   });
 
   it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {

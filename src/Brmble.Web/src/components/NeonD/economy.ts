@@ -86,12 +86,15 @@ export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, dis
   return worker.baseCost * Math.pow(worker.growth, owned) * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainLevel = (personalEarnings: number) =>
+export const getCaptainEligibleLevel = (personalEarnings: number) =>
   CAPTAIN_LEVEL_THRESHOLDS.filter((threshold) => personalEarnings >= threshold).length;
+
+/** @deprecated Use getCaptainEligibleLevel for earnings-based eligibility. */
+export const getCaptainLevel = getCaptainEligibleLevel;
 
 export const getRespectMultiplier = (state: GameState) => {
   const captainBonus = state.captains.reduce(
-    (sum, captain) => sum + 1 + getCaptainLevel(captain.personalEarnings) * 0.5,
+    (sum, captain) => sum + 1 + captain.level * 0.5,
     0,
   );
   return 1 + captainBonus + state.kingpins;

@@ -3,7 +3,7 @@ import { createBaseGameState } from '../constants';
 import {
   getBailCost,
   getCaptainCost,
-  getCaptainLevel,
+  getCaptainEligibleLevel,
   getDiscountCost,
   getDiscountMultiplier,
   getEquipmentCost,
@@ -20,6 +20,7 @@ import {
   isProductFullyUpgraded,
   isRiskActive,
 } from '../economy';
+import { makeReferenceCaptain } from './testFixtures';
 
 describe('Neon-D economy formulas', () => {
   it('prices producers with exponential ownership growth and global discount', () => {
@@ -93,9 +94,9 @@ describe('Neon-D economy formulas', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     expect(getRespectPerSecond(state)).toBeCloseTo(1);
-    state.captains.push({ id: 'captain-1', name: 'Captain One', selling: 'weed', equipmentIds: [], personalEarnings: 0 });
+    state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
     expect(getRespectPerSecond(state)).toBeCloseTo(2);
-    state.captains[0].personalEarnings = 161_340_000;
+    state.captains[0].level = 10;
     expect(getRespectPerSecond(state)).toBeCloseTo(7);
     state.kingpins = 1;
     expect(getRespectPerSecond(state)).toBeCloseTo(8);
@@ -109,18 +110,12 @@ describe('Neon-D economy formulas', () => {
 
   it('prices Captains from owned count using the escalating recruitment schedule', () => {
     const state = createBaseGameState(0);
-    const captain = (id: string) => ({
-      id,
-      name: id,
-      selling: 'weed' as const,
-      equipmentIds: [],
-      personalEarnings: 0,
-    });
+    const captain = (id: string) => makeReferenceCaptain({ id });
 
     expect(getCaptainCost(state)).toBe(7_500_000);
     state.captains.push(captain('captain-1'));
-    expect(getCaptainLevel(499_999)).toBe(0);
-    expect(getCaptainLevel(500_000)).toBe(1);
+    expect(getCaptainEligibleLevel(499_999)).toBe(0);
+    expect(getCaptainEligibleLevel(500_000)).toBe(1);
     expect(getCaptainCost(state)).toBe(10_000_000);
     state.captains.push(captain('captain-2'));
     expect(getCaptainCost(state)).toBe(15_000_000);
@@ -132,7 +127,7 @@ describe('Neon-D economy formulas', () => {
 
   it('ignores Kingpins and preserves Captain price discounts', () => {
     const state = createBaseGameState(0);
-    state.captains.push({ id: 'captain-1', name: 'Captain One', selling: 'weed', equipmentIds: [], personalEarnings: 0 });
+    state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
     state.kingpins = 3;
     state.discountLevel = 1;
 

@@ -6,6 +6,9 @@ import {
 import {
   buildSecondaryDemands,
   getSellerEquipmentBonuses,
+  getCaptainBonuses,
+  getCaptainMainSaleRate,
+  getCaptainMarginMultiplier,
   getDealerMarginMultiplier,
   getNormalDealerMainSaleRate,
 } from './dealers';
@@ -13,22 +16,18 @@ import {
   AUTO_BULK_RETAIN_STOCK,
   BULK_SELL_COOLDOWN_MS,
   BULK_VALUE_MULTIPLIER,
-  CAPTAIN_BASE_MARGIN_MULTIPLIER,
-  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   MARKET_CHECK_INTERVAL_MS,
   MARKET_EVENT_CHANCE,
   MARKET_DURATION_MAX_MS,
   MARKET_DURATION_MIN_MS,
   MARKET_MULTIPLIER_MAX,
   MARKET_MULTIPLIER_MIN,
-  MAIN_SALE_UNITS_PER_VOLUME,
   OFFLINE_CAP_MS,
   OFFLINE_MIN_AWAY_MS,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
   RISK_LIFETIME_EARNINGS_THRESHOLD,
-  CAPTAIN_LEVEL_THRESHOLDS,
 } from './constants';
 import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
@@ -146,14 +145,9 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
 
 const buildCaptainDemands = (state: GameState): SaleDemand[] =>
   state.captains.flatMap((captain) => {
-    const bonuses = getSellerEquipmentBonuses(captain.equipmentIds);
-    const mainRate =
-      CAPTAIN_BASE_VOLUME_MULTIPLIER *
-      (1 + bonuses.volumeBonus) *
-      MAIN_SALE_UNITS_PER_VOLUME;
-    const marginMultiplier =
-      CAPTAIN_BASE_MARGIN_MULTIPLIER *
-      (1 + bonuses.marginBonus);
+    const bonuses = getCaptainBonuses(captain);
+    const mainRate = getCaptainMainSaleRate(captain);
+    const marginMultiplier = getCaptainMarginMultiplier(captain);
 
     const demands: SaleDemand[] = [{
       sellerId: captain.id,
@@ -341,30 +335,12 @@ export const applyOfflineProgress = (
     offlineEarningsSummary: null,
   };
   const wholeSeconds = Math.floor(simulatedMs / 1000);
-  let remainingSeconds = wholeSeconds;
-
-  while (remainingSeconds > 0) {
-    let span = remainingSeconds;
-    const oneSecondPreview = advanceDeterministicState(
-      advanced,
-      1,
-      advanced.lastTickAt + 1_000,
-    );
-    advanced.captains.forEach((captain, index) => {
-      const earningsPerSecond = oneSecondPreview.captains[index].personalEarnings - captain.personalEarnings;
-      const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS.find((threshold) => threshold > captain.personalEarnings);
-      if (earningsPerSecond > 0 && nextThreshold !== undefined) {
-        span = Math.min(span, (nextThreshold - captain.personalEarnings) / earningsPerSecond);
-      }
-    });
-
-    const step = Math.max(Math.min(span, remainingSeconds), Number.EPSILON);
+  if (wholeSeconds > 0) {
     advanced = advanceDeterministicState(
       advanced,
-      step,
-      advanced.lastTickAt + step * 1_000,
+      wholeSeconds,
+      advanced.lastTickAt + wholeSeconds * 1_000,
     );
-    remainingSeconds -= step;
   }
 
   const fractionalSeconds = (simulatedMs % 1_000) / 1_000;
