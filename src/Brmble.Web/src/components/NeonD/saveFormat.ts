@@ -188,6 +188,26 @@ function isProductionRecord(
     && Object.keys(value).every((key) => PRODUCT_IDS.has(key as (typeof PRODUCT_CATALOG)[number]['id']));
 }
 
+function areBulkUnlockedProductsValid(
+  production: unknown,
+  unlockedProducts: readonly string[],
+  bulkUnlockedProductIds: unknown,
+): boolean {
+  if (!Array.isArray(bulkUnlockedProductIds) || !hasUniqueValues(bulkUnlockedProductIds)) return false;
+
+  return bulkUnlockedProductIds.every((productId) => {
+    if (!isProductId(productId) || !unlockedProducts.includes(productId)) return false;
+
+    const product = PRODUCT_CATALOG.find((candidate) => candidate.id === productId);
+    const productState = isObject(production) ? production[productId] : undefined;
+    if (!product || !isProductState(productState)) return false;
+
+    const upgradeIds = product.upgrades.map((upgrade) => upgrade.id);
+    return matchesCatalogPrefix(productState.purchasedUpgradeIds, upgradeIds)
+      && productState.purchasedUpgradeIds.length === upgradeIds.length;
+  });
+}
+
 function isMuscleOwnedRecord(value: unknown): boolean {
   if (!isObject(value)) return false;
 
@@ -240,14 +260,12 @@ function isGameState(value: unknown): value is GameState {
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
     && isProductionRecord(value.production, unlockedProducts)
+    && areBulkUnlockedProductsValid(value.production, unlockedProducts, bulkUnlockedProductIds)
     && isMuscleOwnedRecord(value.muscleOwned)
     && isNonNegativeInteger(value.discountLevel)
     && hasUniqueSellerIds([...activeDealerRecords, ...availableDealers, ...captains])
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
-    && Array.isArray(bulkUnlockedProductIds)
-    && bulkUnlockedProductIds.every(isProductId)
-    && hasUniqueValues(bulkUnlockedProductIds)
     && isNonNegativeFiniteNumber(value.lastBulkSellAt)
     && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent, unlockedProducts))
     && isNonNegativeFiniteNumber(value.nextMarketCheckAt)

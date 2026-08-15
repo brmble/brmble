@@ -91,12 +91,12 @@ describe('Neon-D save format', () => {
         weed: {
           stock: 12.34,
           producersOwned: 2,
-          purchasedUpgradeIds: ['fertilizer'],
+          purchasedUpgradeIds: ['fertilizer', 'hydroponics'],
         },
         mushrooms: {
           stock: 5.67,
           producersOwned: 1,
-          purchasedUpgradeIds: ['autoHygrometer'],
+          purchasedUpgradeIds: ['autoHygrometer', 'irrigationSystem'],
         },
       },
       muscleOwned: {
@@ -215,9 +215,41 @@ describe('Neon-D save format', () => {
   });
 
   it('preserves only explicitly purchased product IDs during a v4 round trip', () => {
-    const state = createState({ bulkUnlockedProductIds: ['weed'] });
+    const baseState = createState();
+    const state = createState({
+      production: {
+        ...baseState.production,
+        weed: {
+          ...baseState.production.weed,
+          purchasedUpgradeIds: ['fertilizer', 'hydroponics'],
+        },
+      },
+      bulkUnlockedProductIds: ['weed'],
+    });
 
     expect(parseNeonDSave(serializeNeonDSave(state)).bulkUnlockedProductIds).toEqual(['weed']);
+  });
+
+  it('rejects a bulk unlock for an unlocked product that is not fully upgraded', () => {
+    const baseState = createState();
+    const state = createState({
+      bulkUnlockedProductIds: ['weed'],
+      production: {
+        ...baseState.production,
+        weed: {
+          ...baseState.production.weed,
+          purchasedUpgradeIds: ['fertilizer'],
+        },
+      },
+    });
+
+    expect(() => parseNeonDSave(createEnvelope(state))).toThrow();
+  });
+
+  it('rejects a bulk unlock for a product that is still locked', () => {
+    const state = createState({ bulkUnlockedProductIds: ['mushrooms'] });
+
+    expect(() => parseNeonDSave(createEnvelope(state))).toThrow();
   });
 
   it.each([

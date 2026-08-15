@@ -7,6 +7,7 @@ import { NeonDGame } from '../NeonDGame';
 import {
   CAPTAIN_COSTS,
   CAPTAIN_VISIBLE_EARNINGS,
+  MARKET_DURATION_MAX_MS,
   createBaseGameState,
 } from '../constants';
 import { serializeNeonDSave } from '../saveFormat';
@@ -217,6 +218,12 @@ it('presents an active market event as a single live market card', () => {
   expect(screen.getByText('4.20x')).toBeInTheDocument();
   expect(screen.getByText('30s remaining')).toBeInTheDocument();
   expect(screen.getAllByText(/market spike/i)).toHaveLength(1);
+
+  const progress = screen.getByRole('heading', { name: 'Weed market spike' })
+    .closest('section')
+    ?.querySelector('span[style]');
+  expect(progress).toBeTruthy();
+  expect(progress).toHaveStyle({ transform: `scaleX(${30_000 / MARKET_DURATION_MAX_MS})` });
 });
 
 it('exports the current Neon-D v2 state as a JSON download', async () => {

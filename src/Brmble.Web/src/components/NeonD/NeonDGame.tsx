@@ -6,6 +6,7 @@ import {
   getRespectPerSecond,
   isCaptainVisible,
 } from './economy';
+import { MARKET_DURATION_MAX_MS } from './constants';
 import { confirm } from '../../hooks/usePrompt';
 import { Icon } from '../Icon/Icon';
 import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
@@ -85,6 +86,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     ? Math.max(0, activeMarketEvent.endsAt - renderNow)
     : 0;
   const marketRemainingSeconds = Math.ceil(marketRemainingMs / 1_000);
+  const marketProgress = Math.min(1, Math.max(0, marketRemainingMs / MARKET_DURATION_MAX_MS));
 
   const handleReset = async () => {
     const confirmed = await confirm({
@@ -216,7 +218,10 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <strong>{marketRemainingSeconds}s remaining</strong>
           </div>
           <div className={styles.marketEventProgressTrack} aria-hidden="true">
-            <span className={styles.marketEventProgress} />
+            <span
+              className={styles.marketEventProgress}
+              style={{ transform: `scaleX(${marketProgress})` }}
+            />
           </div>
         </section>
       )}
