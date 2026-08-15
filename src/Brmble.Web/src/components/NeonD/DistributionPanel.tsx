@@ -1,24 +1,23 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  CAPTAIN_BASE_MARGIN_MULTIPLIER,
-  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   CAPTAIN_LEVEL_THRESHOLDS,
   EQUIPMENT_CATALOG,
 } from './constants';
 import {
   getBailCost,
-  getCaptainLevel,
+  getCaptainEligibleLevel,
   getEquipmentCost,
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
 } from './economy';
-import { getSellerEquipmentBonuses } from './dealers';
+import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
-import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId, TalentPathId } from './types';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
 import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences';
+import { TalentLedger } from './TalentLedger';
 
 type DistributionPanelProps = {
   state: GameState;
@@ -28,6 +27,8 @@ type DistributionPanelProps = {
   buySellerEquipment: (sellerId: string, equipmentId: EquipmentId, sellerKind: 'dealer' | 'captain') => void;
   toggleDealerProtection: (dealerId: string) => void;
   payDealerBail: (dealerId: string) => void;
+  claimCaptainLevel: (captainId: string) => void;
+  purchaseCaptainTalent: (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => void;
   promoteCaptain: (captainId: string) => void;
 };
 
@@ -154,6 +155,9 @@ const DealerFavoriteButton = ({
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
   const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
+  const [ledgerCaptainId, setLedgerCaptainId] = useState<string | null>(null);
+  const talentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const distributionHeadingRef = useRef<HTMLHeadingElement>(null);
   const knownSellerIds = useMemo(
     () => [
       ...props.state.activeDealers
@@ -183,6 +187,19 @@ export function DistributionPanel(props: DistributionPanelProps) {
     });
   };
 
+  const closeLedger = () => {
+    const opener = ledgerCaptainId ? talentButtonRefs.current[ledgerCaptainId] : null;
+    setLedgerCaptainId(null);
+    requestAnimationFrame(() => opener?.focus());
+  };
+
+  const promoteFromLedger = () => {
+    if (!ledgerCaptainId) return;
+    props.promoteCaptain(ledgerCaptainId);
+    setLedgerCaptainId(null);
+    requestAnimationFrame(() => distributionHeadingRef.current?.focus());
+  };
+
   const refreshRemainingMs = getRecruitmentRefreshRemainingMs(
     props.state,
     props.state.lastTickAt,
@@ -190,7 +207,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
-      <h3 id="neond-distribution-heading" className={styles.distributionColumnHeader}>Distribution</h3>
+      <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
       <div className={styles.label}>Next candidates in {Math.ceil(refreshRemainingMs / 1000)}s</div>
 
       <div className={styles.cardStack}>
@@ -328,13 +345,16 @@ export function DistributionPanel(props: DistributionPanelProps) {
         })}
 
         {props.state.captains.map((captain) => {
-          const level = getCaptainLevel(captain.personalEarnings);
-          const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
-          const bonuses = getSellerEquipmentBonuses(captain.equipmentIds);
-          const volumeMultiplier = CAPTAIN_BASE_VOLUME_MULTIPLIER * (1 + bonuses.volumeBonus);
-          const marginMultiplier = CAPTAIN_BASE_MARGIN_MULTIPLIER * (1 + bonuses.marginBonus);
+          const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
+          const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[captain.level];
+          const bonuses = getCaptainBonuses(captain);
+          const volumeMultiplier = getCaptainMainSaleRate(captain) / 3;
+          const marginMultiplier = getCaptainMarginMultiplier(captain);
           const isCollapsed = collapsedSellerIds.has(captain.id);
           const bodyId = `distribution-body-${captain.id}`;
+          const pendingLevelUps = Math.max(0, eligibleLevel - captain.level);
+          const levelUpAvailable = pendingLevelUps > 0;
+          const isLedgerOpen = ledgerCaptainId === captain.id;
           return (
             <article
               key={captain.id}
@@ -379,39 +399,44 @@ export function DistributionPanel(props: DistributionPanelProps) {
                   />
                   <DealerRating label="Volume" multiplier={volumeMultiplier} />
                   <DealerRating label="Margin" multiplier={marginMultiplier} />
-                  <div className={styles.metricRow}><span>Level</span><strong>Level {level}</strong></div>
+                  <div className={styles.metricRow}><span>Secondary sales</span><strong>+{Math.round(bonuses.secondarySalesBonus * 100)}%</strong></div>
+                  <div className={styles.metricRow}><span>Level</span><strong>Level {captain.level}</strong></div>
                   <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
                   {nextThreshold ? (
                     <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(nextThreshold)}</strong></div>
                   ) : (
-                    <div className={styles.kingpinBadge}>Ready for Kingpin promotion</div>
+                    <div className={styles.kingpinBadge}>All Captain levels claimed</div>
                   )}
-                  <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + level * 0.5) * 100)}%</strong></div>
-                  <button
-                    type="button"
-                    className={styles.equipmentToggle}
-                    aria-expanded={expandedEquipmentIds.has(captain.id)}
-                    aria-label={`${expandedEquipmentIds.has(captain.id) ? 'Collapse' : 'Expand'} equipment for ${captain.name}`}
-                    onClick={() => toggleEquipment(captain.id)}
-                  >
-                    <span>Fixed equipment</span>
-                    <span aria-hidden="true">{expandedEquipmentIds.has(captain.id) ? '▴' : '▾'}</span>
-                  </button>
-                  {expandedEquipmentIds.has(captain.id) ? (
-                    <EquipmentList
-                      seller={captain}
-                      sellerKind="captain"
-                      state={props.state}
-                      onBuy={(equipmentId) => props.buySellerEquipment(captain.id, equipmentId, 'captain')}
-                    />
-                  ) : null}
-                  {level >= 10 && (
-                    <button className={styles.buyButton} onClick={() => props.promoteCaptain(captain.id)}>
-                      Promote to Kingpin
+                  <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + captain.level * 0.5) * 100)}%</strong></div>
+                  <div className={styles.actionStack}>
+                    {levelUpAvailable ? (
+                      <button type="button" className={styles.buyButton} onClick={() => props.claimCaptainLevel(captain.id)}>
+                        Level Up - {formatMoney(nextThreshold ?? 0)}
+                      </button>
+                    ) : null}
+                    {pendingLevelUps > 1 ? <span className={styles.label}>{pendingLevelUps - 1} more level-ups waiting</span> : null}
+                    <button
+                      ref={(element) => { talentButtonRefs.current[captain.id] = element; }}
+                      type="button"
+                      className={styles.unlockButton}
+                      disabled={!captain.ledgerUnlocked}
+                      aria-label={captain.ledgerUnlocked ? `Open talents for ${captain.name}` : `Talents locked for ${captain.name}`}
+                      onClick={() => setLedgerCaptainId(captain.id)}
+                    >
+                      Talents{captain.talentPoints > 0 ? ` (${captain.talentPoints} point${captain.talentPoints === 1 ? '' : 's'})` : ''}
                     </button>
-                  )}
+                  </div>
                 </div>
               )}
+              {isLedgerOpen ? (
+                <TalentLedger
+                  captain={captain}
+                  onClose={closeLedger}
+                  onClaimLevel={() => props.claimCaptainLevel(captain.id)}
+                  onPurchaseTalent={(path, row) => props.purchaseCaptainTalent(captain.id, path, row)}
+                  onPromote={promoteFromLedger}
+                />
+              ) : null}
             </article>
           );
         })}

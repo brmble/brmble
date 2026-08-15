@@ -57,6 +57,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     bulkSellProduct,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    claimCaptainLevel,
+    purchaseCaptainTalent,
     promoteCaptain,
     resetGame,
     importGame,
@@ -308,6 +310,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}
             payDealerBail={payDealerBail}
+            claimCaptainLevel={claimCaptainLevel}
+            purchaseCaptainTalent={purchaseCaptainTalent}
             promoteCaptain={promoteCaptain}
           />
         </div>

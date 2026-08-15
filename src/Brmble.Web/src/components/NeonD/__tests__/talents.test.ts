@@ -30,16 +30,17 @@ const makeCaptain = (overrides: Partial<Captain> = {}): Captain => ({
 
 describe('Captain talent rules', () => {
   it('defines the three lanes in their exact stat order and rank sizes', () => {
-    expect([0, 1, 2].map((row) => getTalentDefinition('red', row).stat)).toEqual([
+    const rows = [0, 1, 2] as const;
+    expect(rows.map((row) => getTalentDefinition('red', row).stat)).toEqual([
       'margin', 'volume', 'secondarySales',
     ]);
-    expect([0, 1, 2].map((row) => getTalentDefinition('yellow', row).stat)).toEqual([
+    expect(rows.map((row) => getTalentDefinition('yellow', row).stat)).toEqual([
       'secondarySales', 'margin', 'volume',
     ]);
-    expect([0, 1, 2].map((row) => getTalentDefinition('blue', row).stat)).toEqual([
+    expect(rows.map((row) => getTalentDefinition('blue', row).stat)).toEqual([
       'volume', 'secondarySales', 'margin',
     ]);
-    expect([0, 1, 2].map((row) => getTalentDefinition('red', row).maxRanks)).toEqual([2, 3, 4]);
+    expect(rows.map((row) => getTalentDefinition('red', row).maxRanks)).toEqual([2, 3, 4]);
   });
 
   it('splits each completed lane into the exact balance totals', () => {

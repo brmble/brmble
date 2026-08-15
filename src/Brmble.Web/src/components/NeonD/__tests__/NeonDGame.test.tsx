@@ -31,6 +31,8 @@ const mockNeonD = vi.hoisted(() => {
   const bulkSellProductMock = vi.fn();
   const dismissOfflineEarningsSummaryMock = vi.fn();
   const buyCaptainMock = vi.fn();
+  const claimCaptainLevelMock = vi.fn();
+  const purchaseCaptainTalentMock = vi.fn();
   const promoteCaptainMock = vi.fn();
   const resetGameMock = vi.fn();
   const importGameMock = vi.fn();
@@ -53,6 +55,8 @@ const mockNeonD = vi.hoisted(() => {
     bulkSellProductMock,
     dismissOfflineEarningsSummaryMock,
     buyCaptainMock,
+    claimCaptainLevelMock,
+    purchaseCaptainTalentMock,
     promoteCaptainMock,
     resetGameMock,
     importGameMock,
@@ -78,6 +82,8 @@ const mockNeonD = vi.hoisted(() => {
         bulkSellProductMock,
         dismissOfflineEarningsSummaryMock,
         buyCaptainMock,
+        claimCaptainLevelMock,
+        purchaseCaptainTalentMock,
         promoteCaptainMock,
         resetGameMock,
         importGameMock,
@@ -101,6 +107,8 @@ const mockNeonD = vi.hoisted(() => {
       bulkSellProduct: bulkSellProductMock,
       dismissOfflineEarningsSummary: dismissOfflineEarningsSummaryMock,
       buyCaptain: buyCaptainMock,
+      claimCaptainLevel: claimCaptainLevelMock,
+      purchaseCaptainTalent: purchaseCaptainTalentMock,
       promoteCaptain: promoteCaptainMock,
       resetGame: resetGameMock,
       importGame: importGameMock,
@@ -828,32 +836,23 @@ it('keeps owned dealer equipment compact while leaving dealer details visible', 
   expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
 });
 
-it('shows effective Captain star ratings and keeps equipment compact until expanded', async () => {
-  const user = userEvent.setup();
+it('shows talent-derived Captain ratings and hides compatibility equipment controls', () => {
   mockState({
     cash: 10_000_000,
     captains: [makeReferenceCaptain({
       id: 'captain-ui',
       name: 'Captain UI',
       equipmentIds: ['bicycle'],
+      level: 0,
     })],
   });
 
   render(<NeonDGame />);
 
   const captainCard = screen.getByRole('article', { name: 'Captain UI distribution' });
-  expect(within(captainCard).getByRole('img', { name: 'Volume: 1.65x' })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('img', { name: 'Volume: 1.50x' })).toBeInTheDocument();
   expect(within(captainCard).getByRole('img', { name: 'Margin: 1.50x' })).toBeInTheDocument();
-  const expandEquipment = within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' });
-  expect(expandEquipment).toHaveTextContent('Fixed equipment▾');
-  expect(within(captainCard).queryByRole('button', { name: /Baseball Bat/ })).not.toBeInTheDocument();
-
-  await user.click(within(captainCard).getByRole('button', { name: 'Expand equipment for Captain UI' }));
-  expect(within(captainCard).getByRole('button', { name: /Baseball Bat/ })).toBeInTheDocument();
-  expect(within(captainCard).getByRole('button', { name: /Collapse equipment for Captain UI/ })).toHaveTextContent('Fixed equipment▴');
-
-  await user.click(within(captainCard).getByRole('button', { name: /Baseball Bat/ }));
-  expect(mockNeonD.buySellerEquipmentMock).toHaveBeenCalledWith('captain-ui', 'baseballBat', 'captain');
+  expect(within(captainCard).queryByRole('button', { name: /equipment/i })).not.toBeInTheDocument();
 });
 
 it('collapses Captain cards independently while retaining product and earnings controls', async () => {
@@ -901,8 +900,42 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   await user.click(screen.getByRole('button', { name: /hire captain/i }));
 
   expect(screen.getByText(/captain ui/i)).toBeInTheDocument();
-  expect(screen.getByText(/level 1/i)).toBeInTheDocument();
+  expect(screen.getByText(/level 0/i)).toBeInTheDocument();
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+});
+
+it('shows manual Captain level claims and opens the Talent Ledger in place', async () => {
+  const user = userEvent.setup();
+  mockState({
+    captains: [makeReferenceCaptain({
+      id: 'captain-ledger',
+      name: 'Captain Ledger',
+      personalEarnings: 950_000,
+      level: 1,
+      talentPoints: 1,
+      ledgerUnlocked: true,
+    })],
+  });
+
+  render(<NeonDGame />);
+
+  const card = screen.getByRole('article', { name: 'Captain Ledger distribution' });
+  await user.click(within(card).getByRole('button', { name: /level up/i }));
+  expect(mockNeonD.claimCaptainLevelMock).toHaveBeenCalledWith('captain-ledger');
+
+  await user.click(within(card).getByRole('button', { name: 'Open talents for Captain Ledger' }));
+  expect(screen.getByRole('dialog', { name: /Captain Ledger/ })).toBeInTheDocument();
+  expect(screen.getByRole('article', { name: 'Captain Ledger distribution' })).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /Margin.*0\/2.*available/i }));
+  expect(mockNeonD.purchaseCaptainTalentMock).toHaveBeenCalledWith('captain-ledger', 'red', 0);
+});
+
+it('keeps the Talent Ledger locked before the first claimed level', () => {
+  mockState({ captains: [makeReferenceCaptain({ id: 'captain-locked', name: 'Captain Locked' })] });
+  render(<NeonDGame />);
+
+  expect(screen.getByRole('button', { name: 'Talents locked for Captain Locked' })).toBeDisabled();
 });
 
 it('does not show a global Bulk control while still showing Captain progression', () => {

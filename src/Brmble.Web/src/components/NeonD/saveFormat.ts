@@ -285,7 +285,7 @@ export function parseNeonDSave(text: string): GameState {
   if (parsed.version !== 2 && parsed.version !== NEON_D_SAVE_VERSION) {
     throw new Error('This Neon-D save version is not supported.');
   }
-  let state = parsed.state;
+  const state = parsed.state;
   if (parsed.version === 2) {
     if (!isObject(state) || state.schemaVersion !== 2) {
       throw new Error('This Neon-D save is incomplete or corrupted.');
