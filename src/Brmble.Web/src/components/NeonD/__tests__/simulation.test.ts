@@ -243,15 +243,15 @@ describe('deterministic production', () => {
     expect(protectedIncome).toBeCloseTo(unprotectedIncome * 0.90);
   });
 
-  it('Captain sells at 1.5 Volume x 3 and 1.5 Margin and accrues personal earnings', () => {
+  it('Captain sells at 1.75 Volume x 3 and 1.75 Margin and accrues personal earnings', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 100;
     state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
-    const expectedUnits = 1.5 * 3;
-    const expectedEarnings = expectedUnits * 4.2 * 1.5;
+    const expectedUnits = 1.75 * 3;
+    const expectedEarnings = expectedUnits * 4.2 * 1.75;
     expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(expectedEarnings);
     expect(next.captains[0].personalEarnings).toBeCloseTo(expectedEarnings);
   });
@@ -264,7 +264,7 @@ describe('deterministic production', () => {
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
-    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(3 * 4.2 * 1.5);
+    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(3 * 4.2 * 1.75);
     expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(0);
     expect(next.production.weed.stock).toBeCloseTo(0);
   });
@@ -274,7 +274,7 @@ describe('deterministic production', () => {
     state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
     state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
 
-    expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 4.5);
+    expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 5.25);
   });
 });
 

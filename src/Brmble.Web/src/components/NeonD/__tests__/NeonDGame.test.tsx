@@ -921,8 +921,8 @@ it('shows talent-derived Captain ratings and hides compatibility equipment contr
   render(<NeonDGame />);
 
   const captainCard = screen.getByRole('article', { name: 'Captain UI distribution' });
-  expect(within(captainCard).getByRole('img', { name: 'Volume: 1.50x' })).toBeInTheDocument();
-  expect(within(captainCard).getByRole('img', { name: 'Margin: 1.50x' })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('img', { name: 'Volume: 1.75x' })).toBeInTheDocument();
+  expect(within(captainCard).getByRole('img', { name: 'Margin: 1.75x' })).toBeInTheDocument();
   expect(within(captainCard).queryByRole('button', { name: /equipment/i })).not.toBeInTheDocument();
 });
 
