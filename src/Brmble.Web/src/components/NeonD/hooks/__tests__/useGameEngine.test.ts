@@ -9,8 +9,8 @@ import {
   getRecruitmentRefreshMs,
   getRespectMultiplier,
 } from '../../economy';
-import type { Captain, GameState } from '../../types';
-import { makeReferenceDealer } from '../../__tests__/testFixtures';
+import type { GameState } from '../../types';
+import { makeReferenceCaptain, makeReferenceDealer } from '../../__tests__/testFixtures';
 import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
 import { NEON_D_CARD_PREFERENCES_KEY } from '../usePersistedCardPreferences';
@@ -329,14 +329,75 @@ describe('useGameEngine', () => {
     expect(result.current.state.activeDealers).toEqual([null]);
   });
 
+  it('claims Captain levels one at a time and unlocks the ledger at Level 1', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({ id: 'captain-levels', personalEarnings: 1_000_000 })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 1,
+      talentPoints: 1,
+      ledgerUnlocked: true,
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0].level).toBe(2);
+    expect(result.current.state.captains[0].talentPoints).toBe(2);
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0].level).toBe(2);
+  });
+
+  it('only purchases a gated talent when one unspent point is available', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-talents',
+        level: 3,
+        talentPoints: 1,
+        ledgerUnlocked: true,
+        talentRanks: { red: [2, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      })],
+    });
+
+    act(() => result.current.purchaseCaptainTalent('captain-talents', 'red', 1));
+    expect(result.current.state.captains[0].talentRanks.red).toEqual([2, 1, 0]);
+    expect(result.current.state.captains[0].talentPoints).toBe(0);
+
+    act(() => result.current.purchaseCaptainTalent('captain-talents', 'yellow', 1));
+    expect(result.current.state.captains[0].talentRanks.yellow).toEqual([0, 0, 0]);
+  });
+
+  it('makes Kingpin optional and promotes only after a completed lane and point 10', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-kingpin',
+        personalEarnings: 161_340_000,
+        level: 9,
+        talentPoints: 0,
+        ledgerUnlocked: true,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-kingpin'));
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 10,
+      talentPoints: 1,
+      kingpinAvailable: true,
+    });
+
+    act(() => result.current.promoteCaptain('captain-kingpin'));
+    expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
   it('preserves existing Captains and Kingpins across a later Captain reset', () => {
-    const existingCaptain: Captain = {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 1_000_000,
-    };
+    });
 
     const { result } = renderSeededGame({
       cash: 10_000_000,
@@ -353,13 +414,12 @@ describe('useGameEngine', () => {
   });
 
   it('round-trips a later Captain reset when an existing Captain sells a non-Weed product', () => {
-    const existingCaptain: Captain = {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
       selling: 'mushrooms',
-      equipmentIds: [],
       personalEarnings: 1_000_000,
-    };
+    });
 
     const { result } = renderSeededGame({
       cash: 10_000_000,
@@ -377,13 +437,11 @@ describe('useGameEngine', () => {
   });
 
   it('charges the next Captain from the owned-count schedule before discount', () => {
-    const existingCaptain: Captain = {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 0,
-    };
+    });
     const expectedCost = 10_000_000 * 0.9;
 
     const { result } = renderSeededGame({
@@ -402,13 +460,16 @@ describe('useGameEngine', () => {
 
   it('promotes a level-10 Captain into one Kingpin', () => {
     const { result } = renderSeededGame({
-      captains: [{
+      captains: [makeReferenceCaptain({
         id: 'captain-10',
         name: 'Captain Ten',
-        selling: 'weed',
-        equipmentIds: [],
         personalEarnings: 161_340_000,
-      }],
+        level: 10,
+        talentPoints: 1,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+        ledgerUnlocked: true,
+        kingpinAvailable: true,
+      })],
     });
 
     act(() => result.current.promoteCaptain('captain-10'));
@@ -421,13 +482,16 @@ describe('useGameEngine', () => {
     const { result } = renderSeededGame({
       cash: 20_000_000,
       runEarnings: 20_000_000,
-      captains: [{
+      captains: [makeReferenceCaptain({
         id: 'captain-10',
         name: 'Captain Ten',
-        selling: 'weed',
-        equipmentIds: [],
         personalEarnings: 161_340_000,
-      }],
+        level: 10,
+        talentPoints: 1,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+        ledgerUnlocked: true,
+        kingpinAvailable: true,
+      })],
     });
 
     act(() => result.current.promoteCaptain('captain-10'));

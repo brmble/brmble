@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
+import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId, TalentPathId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
@@ -18,7 +18,7 @@ import {
   getEquipmentCost,
   getBailCost,
   getCaptainCost,
-  getCaptainLevel,
+  getCaptainEligibleLevel,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
@@ -38,7 +38,9 @@ import {
   getProductSalesRates,
   sellBulkOverflow,
 } from '../simulation';
+import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
+import { canPurchaseTalent } from '../talents';
 import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
@@ -82,6 +84,7 @@ export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>(
     NEON_D_SAVE_KEY,
     createInitialGameState,
+    migrateNeonDState,
   );
   const hasInitializedOfflineProgress = useRef(false);
 
@@ -381,10 +384,52 @@ export const useGameEngine = () => {
     });
   };
 
+  const claimCaptainLevel = (captainId: string) => {
+    setState((prev) => ({
+      ...prev,
+      captains: prev.captains.map((captain) => {
+        if (captain.id !== captainId) return captain;
+        const eligibleLevel = getCaptainEligibleLevel(captain.personalEarnings);
+        if (captain.level >= eligibleLevel || captain.level >= 28) return captain;
+        const level = captain.level + 1;
+        const laneComplete = Object.values(captain.talentRanks).some((ranks) => ranks[2] === 4);
+        return {
+          ...captain,
+          level,
+          talentPoints: captain.talentPoints + 1,
+          ledgerUnlocked: true,
+          kingpinAvailable: captain.kingpinAvailable || (level >= 10 && laneComplete),
+        };
+      }),
+    }));
+  };
+
+  const purchaseCaptainTalent = (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => {
+    setState((prev) => ({
+      ...prev,
+      captains: prev.captains.map((captain) => {
+        if (captain.id !== captainId || !canPurchaseTalent(captain, path, row)) return captain;
+        const talentRanks = {
+          ...captain.talentRanks,
+          [path]: captain.talentRanks[path].map((rank, index) =>
+            index === row ? rank + 1 : rank,
+          ) as [number, number, number],
+        };
+        return {
+          ...captain,
+          talentRanks,
+          talentPoints: captain.talentPoints - 1,
+          kingpinAvailable: captain.kingpinAvailable
+            || (captain.level >= 10 && talentRanks[path][2] === 4),
+        };
+      }),
+    }));
+  };
+
   const promoteCaptain = (captainId: string) => {
     setState((prev) => {
       const captain = prev.captains.find((item) => item.id === captainId);
-      if (!captain || getCaptainLevel(captain.personalEarnings) < 10) return prev;
+      if (!captain || !captain.kingpinAvailable || captain.talentPoints < 1) return prev;
 
       return {
         ...prev,
@@ -428,6 +473,8 @@ export const useGameEngine = () => {
     bulkSellProduct,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    claimCaptainLevel,
+    purchaseCaptainTalent,
     promoteCaptain,
     resetGame,
     importGame,
