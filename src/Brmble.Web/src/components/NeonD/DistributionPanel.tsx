@@ -122,8 +122,8 @@ const CandidateCard = ({
       />
       <span>{candidate.name}</span>
     </h5>
-    <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} />
-    <DealerRating label="Margin" multiplier={candidate.marginMultiplier} />
+    <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} maxStars={5} />
+    <DealerRating label="Margin" multiplier={candidate.marginMultiplier} maxStars={5} />
     <button className={styles.buyButton} onClick={() => onHire(candidate.id, slotIndex)}>
       Hire to Slot {slotIndex + 1}
     </button>
@@ -267,8 +267,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     state={props.state}
                     onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
                   />
-                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} />
-                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} />
+                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} maxStars={5} />
+                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} maxStars={5} />
                   <div className={styles.metricRow}><span>Earnings</span><strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong></div>
                   <div className={styles.metricRow}>
                     <span>Status</span>
@@ -401,8 +401,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     state={props.state}
                     onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
                   />
-                  <DealerRating label="Volume" multiplier={volumeMultiplier} />
-                  <DealerRating label="Margin" multiplier={marginMultiplier} />
+                  <DealerRating label="Volume" multiplier={volumeMultiplier} maxStars={6} />
+                  <DealerRating label="Margin" multiplier={marginMultiplier} maxStars={6} />
                   <div className={styles.metricRow}><span>Secondary sales</span><strong>+{Math.round(bonuses.secondarySalesBonus * 100)}%</strong></div>
                   <div className={styles.metricRow}><span>Level</span><strong>Level {captain.level}</strong></div>
                   <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
