@@ -86,6 +86,37 @@ describe('PaintSessionSetupModal', () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
+  it('does not close while creating a session', async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (created: { sessionId: string; channelId: number }) => void;
+    const createSession = vi.fn(() => new Promise<{ sessionId: string; channelId: number }>((resolve) => {
+      resolveCreate = resolve;
+    }));
+    const end = vi.fn().mockResolvedValue(undefined);
+    const sendMessage = vi.fn().mockResolvedValue({ event_id: '$invite' });
+    const onClose = vi.fn();
+    const onComplete = vi.fn();
+    render(<PaintSessionSetupModal
+      channelId={9}
+      channelRoomId="!channel:test"
+      paintApi={{ createSession, end }}
+      matrixClient={{ sendMessage } as never}
+      initialSourceFile={sourceFile}
+      onClose={onClose}
+      onComplete={onComplete}
+    />);
+
+    await user.click(screen.getByRole('button', { name: 'Start paint' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    fireEvent.click(screen.getByTestId('paint-setup-overlay'));
+
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveCreate({ sessionId: 's1', channelId: 9 });
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith('s1'));
+  });
+
   it('accepts a pasted image without exposing participant controls', async () => {
     const pasted = new File(['pixels'], 'image.png', { type: 'image/png' });
     renderSetup({ initialSourceFile: null });

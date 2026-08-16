@@ -1,5 +1,6 @@
 using Brmble.Server.Paint;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SkiaSharp;
 
 namespace Brmble.Server.Tests.Paint;
 
@@ -9,33 +10,8 @@ public sealed class PaintSourceValidatorTests
     private static readonly byte[] ValidPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
-    private static readonly byte[] ValidJpeg =
-    [
-        0xFF, 0xD8,
-        0xFF, 0xC0,
-        0x00, 0x11,
-        0x08,
-        0x00, 0x01,
-        0x00, 0x01,
-        0x03,
-        0x01, 0x11, 0x00,
-        0x02, 0x11, 0x00,
-        0x03, 0x11, 0x00,
-        0xFF, 0xD9,
-    ];
-
-    private static readonly byte[] ValidWebP =
-    [
-        0x52, 0x49, 0x46, 0x46,
-        0x16, 0x00, 0x00, 0x00,
-        0x57, 0x45, 0x42, 0x50,
-        0x56, 0x50, 0x38, 0x58,
-        0x0A, 0x00, 0x00, 0x00,
-        0x00,
-        0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00,
-    ];
+    private static readonly byte[] ValidJpeg = CreateValidImage(SKEncodedImageFormat.Jpeg);
+    private static readonly byte[] ValidWebP = CreateValidImage(SKEncodedImageFormat.Webp);
 
     private static readonly byte[] Png5000x1 =
     [
@@ -44,6 +20,13 @@ public sealed class PaintSourceValidatorTests
         0x00, 0x00, 0x13, 0x88, 0x00, 0x00, 0x00, 0x01,
         0x08, 0x06, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
+    ];
+
+    private static readonly byte[] TruncatedPngWithDimensions =
+    [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
     ];
 
     [TestMethod]
@@ -109,4 +92,18 @@ public sealed class PaintSourceValidatorTests
     public void Validate_RejectsCorruptBytesForSupportedMimeType()
         => Assert.ThrowsException<PaintValidationException>(() =>
             new PaintSourceValidator().Validate("image/png", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+
+    [TestMethod]
+    public void Validate_RejectsPngWithHeaderAndDimensionsButNoImageData()
+        => Assert.ThrowsException<PaintValidationException>(() =>
+            new PaintSourceValidator().Validate("image/png", TruncatedPngWithDimensions));
+
+    private static byte[] CreateValidImage(SKEncodedImageFormat format)
+    {
+        using var bitmap = new SKBitmap(1, 1);
+        bitmap.Erase(SKColors.Transparent);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, 100);
+        return data.ToArray();
+    }
 }

@@ -127,6 +127,10 @@ export function PaintSessionSetupModal({
     void stageSource(candidate, 'paste');
   }, [saving, stageSource]);
 
+  const handleClose = useCallback(() => {
+    if (!saving) onClose?.();
+  }, [onClose, saving]);
+
   const start = async () => {
     if (!file) {
       setError('Choose a source image.');
@@ -173,7 +177,7 @@ export function PaintSessionSetupModal({
   };
 
   return (
-    <div className="modal-overlay" data-testid="paint-setup-overlay" onClick={onClose}>
+    <div className="modal-overlay" data-testid="paint-setup-overlay" onClick={handleClose}>
       <div
         ref={dialogRef}
         className="paint-setup-modal glass-panel animate-slide-up"
@@ -185,7 +189,7 @@ export function PaintSessionSetupModal({
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
-            onClose?.();
+            handleClose();
             return;
           }
           if (event.key !== 'Tab') return;
@@ -233,7 +237,7 @@ export function PaintSessionSetupModal({
         )}
         {error && <p role="alert">{error}</p>}
         <div className="paint-setup-footer">
-          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={onClose}>
+          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={handleClose}>
             Cancel
           </button>
           <button

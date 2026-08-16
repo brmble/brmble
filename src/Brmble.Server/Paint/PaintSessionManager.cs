@@ -77,6 +77,7 @@ public sealed class PaintSessionManager(
             await sourceStore.WriteAsync(sessionId, sourceBytes, cancellationToken);
             lock (session.Lock)
             {
+                RequireCurrentHost(session, hostUserId);
                 session.Source = new PaintSource(sourceMetadata.MimeType, sourceMetadata.Width, sourceMetadata.Height, sourceMetadata.SizeBytes);
                 session.Status = PaintSessionStatus.Active;
                 session.Revision++;

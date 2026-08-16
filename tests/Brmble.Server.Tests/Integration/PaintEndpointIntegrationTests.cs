@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SkiaSharp;
 
 namespace Brmble.Server.Tests.Integration;
 
@@ -213,8 +214,7 @@ public sealed class PaintEndpointIntegrationTests
     {
         public static readonly byte[] SourcePngA = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
-        public static readonly byte[] SourcePngB = Convert.FromBase64String(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8DwHwAFAAH/e+m+7wAAAABJRU5ErkJggg==");
+        public static readonly byte[] SourcePngB = CreatePng(2, 1);
 
         private readonly WebApplication _app;
         private readonly TestPresence _presence;
@@ -352,6 +352,15 @@ public sealed class PaintEndpointIntegrationTests
 
         public string SessionDirectory(Guid sessionId)
             => Path.Combine(StorageRoot, sessionId.ToString("N"));
+
+        private static byte[] CreatePng(int width, int height)
+        {
+            using var bitmap = new SKBitmap(width, height);
+            bitmap.Erase(SKColors.Transparent);
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            return data.ToArray();
+        }
 
         public async ValueTask DisposeAsync()
         {

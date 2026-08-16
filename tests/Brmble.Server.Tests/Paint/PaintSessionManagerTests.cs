@@ -55,6 +55,21 @@ public sealed class PaintSessionManagerTests
     }
 
     [TestMethod]
+    public async Task Create_WhenHostLeavesWhileSourceIsWriting_RejectsAndSchedulesCleanup()
+    {
+        var store = new BlockingWritePaintSourceStore();
+        var fixture = PaintSessionFixture.New(store: store);
+        var create = fixture.Manager.CreateAsync(fixture.HostUserId, "image/png", PaintTestImages.ValidPng, CancellationToken.None);
+
+        await store.Started.Task;
+        await fixture.Manager.HandleSessionDisconnectedAsync(101);
+        store.Continue.TrySetResult(null);
+
+        await Assert.ThrowsExceptionAsync<PaintAuthorizationException>(() => create);
+        Assert.AreEqual(1, (await fixture.Cleanup.GetDueAsync(CancellationToken.None)).Count);
+    }
+
+    [TestMethod]
     public async Task Create_WhenStoreWriteFails_RemovesSessionAndSchedulesCleanup()
     {
         var fixture = PaintSessionFixture.New(store: new FailingWritePaintSourceStore());
@@ -196,6 +211,19 @@ public sealed class PaintSessionManagerTests
     private sealed class FailingWritePaintSourceStore : FakeSourceStore
     {
         public override Task WriteAsync(Guid sessionId, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken) => throw new IOException("write failed");
+    }
+
+    private sealed class BlockingWritePaintSourceStore : FakeSourceStore
+    {
+        public TaskCompletionSource<object?> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<object?> Continue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async Task WriteAsync(Guid sessionId, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult(null);
+            await Continue.Task.WaitAsync(cancellationToken);
+            await base.WriteAsync(sessionId, bytes, cancellationToken);
+        }
     }
 
     private sealed class FailingOnceCleanupRepository : PaintTemporaryCleanupRepository
