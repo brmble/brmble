@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TALENT_RANK_SPLITS } from '../constants';
 import type { Captain, TalentPathId, TalentRanks } from '../types';
 import {
   canPurchaseTalent,
@@ -30,6 +31,14 @@ const makeCaptain = (overrides: Partial<Captain> = {}): Captain => ({
 });
 
 describe('Captain talent rules', () => {
+  it('uses the reduced Volume split for every row size', () => {
+    expect(TALENT_RANK_SPLITS.volume).toEqual({
+      2: [0.50, 0.50],
+      3: [0.33, 0.33, 0.33],
+      4: [0.25, 0.25, 0.25, 0.25],
+    });
+  });
+
   it('defines the three lanes in their exact stat order and rank sizes', () => {
     const rows = [0, 1, 2] as const;
     expect(rows.map((row) => getTalentDefinition('red', row).stat)).toEqual([
@@ -52,7 +61,7 @@ describe('Captain talent rules', () => {
 
     expect(getTalentBonus(ranks)).toEqual({
       marginBonus: 2.4,
-      volumeBonus: 6,
+      volumeBonus: 2.99,
       secondarySalesBonus: 0.9,
     });
     expect(getSpentTalentPoints(ranks)).toBe(27);
