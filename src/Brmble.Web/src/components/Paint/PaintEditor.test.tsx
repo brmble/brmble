@@ -424,6 +424,43 @@ describe('PaintEditor', () => {
     expect(screen.getByRole('status')).toHaveTextContent('125%');
   });
 
+  it('anchors shift-wheel zoom to the rendered image when the image is letterboxed', async () => {
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:source'), revokeObjectURL: vi.fn() });
+    Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { configurable: true, get: () => 600 });
+    Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+
+    const viewportSize = { width: 400, height: 200 };
+    const snapshot = { ...activeSnapshot, source: { ...activeSnapshot.source!, width: 600, height: 400 } };
+    const paintApi = fakePaintApi();
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={snapshot} currentUserId={1} />);
+
+    const viewport = screen.getByTestId('paint-viewport');
+    Object.defineProperty(viewport, 'clientWidth', { configurable: true, value: viewportSize.width });
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: viewportSize.height });
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: viewportSize.width, height: viewportSize.height } as DOMRect);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('50%'));
+
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    let afterZoom = false;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => (afterZoom
+      ? { left: 0, top: 0, width: 450, height: 300 }
+      : { left: 50, top: 50, width: 300, height: 200 }) as DOMRect);
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      afterZoom = true;
+      callback(0);
+      return 0;
+    });
+    const event = new WheelEvent('wheel', { deltaY: -100, clientX: 300, clientY: 100, shiftKey: true, bubbles: true, cancelable: true });
+
+    await act(async () => viewport.dispatchEvent(event));
+
+    expect(viewport.scrollLeft).toBe(75);
+  });
+
   it('keeps normal wheel scrolling available without changing zoom', async () => {
     render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} />);
     const viewport = screen.getByTestId('paint-viewport');

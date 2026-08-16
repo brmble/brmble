@@ -68,7 +68,7 @@
 }
 
 .emoji-trigger-symbol {
-  font-size: 1.35rem;
+  font-size: var(--text-xl);
   line-height: 1;
 }
 

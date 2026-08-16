@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PaintPreview, PaintSessionSnapshot, PaintStrokeInput, PaintTool } from '../../types/paint';
 import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint } from '../../utils/paintCanvas';
 import { DEFAULT_PAINT_COLOR } from '../../utils/paintPalette';
+import { Icon } from '../Icon/Icon';
 import { PaintToolbar } from './PaintToolbar';
 import './PaintEditor.css';
 
@@ -262,18 +263,26 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
 
   const updateZoom = (nextZoom: number, focus?: { x: number; y: number }) => {
     const viewport = viewportRef.current;
+    const canvas = annotationRef.current;
     const currentZoom = zoomRef.current;
     const clampedZoom = Math.min(PAINT_MAX_ZOOM, Math.max(PAINT_MIN_ZOOM, nextZoom));
     if (clampedZoom === currentZoom) return;
     if (viewport && focus) {
-      const rect = viewport.getBoundingClientRect();
-      const localX = focus.x - rect.left;
-      const localY = focus.y - rect.top;
-      const imageX = (viewport.scrollLeft + localX) / currentZoom;
-      const imageY = (viewport.scrollTop + localY) / currentZoom;
+      const viewportRect = viewport.getBoundingClientRect();
+      const canvasRect = canvas?.getBoundingClientRect();
+      const localX = focus.x - viewportRect.left;
+      const localY = focus.y - viewportRect.top;
+      const imageX = canvasRect ? (focus.x - canvasRect.left) / currentZoom : (viewport.scrollLeft + localX) / currentZoom;
+      const imageY = canvasRect ? (focus.y - canvasRect.top) / currentZoom : (viewport.scrollTop + localY) / currentZoom;
       requestAnimationFrame(() => {
-        viewport.scrollLeft = Math.max(0, imageX * clampedZoom - localX);
-        viewport.scrollTop = Math.max(0, imageY * clampedZoom - localY);
+        const nextCanvasRect = canvas?.getBoundingClientRect();
+        const nextViewportRect = viewport.getBoundingClientRect();
+        const canvasOriginX = nextCanvasRect ? nextCanvasRect.left - nextViewportRect.left + viewport.scrollLeft : viewport.scrollLeft;
+        const canvasOriginY = nextCanvasRect ? nextCanvasRect.top - nextViewportRect.top + viewport.scrollTop : viewport.scrollTop;
+        const nextLocalX = focus.x - nextViewportRect.left;
+        const nextLocalY = focus.y - nextViewportRect.top;
+        viewport.scrollLeft = Math.max(0, canvasOriginX + imageX * clampedZoom - nextLocalX);
+        viewport.scrollTop = Math.max(0, canvasOriginY + imageY * clampedZoom - nextLocalY);
       });
     }
     zoomRef.current = clampedZoom;
@@ -306,10 +315,10 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
       <div className="paint-zoom-controls" aria-label="Paint zoom controls">
-        <button type="button" className="btn btn-secondary btn-sm" aria-label="Zoom out" onClick={() => updateZoom(zoom - PAINT_ZOOM_STEP)} disabled={zoom <= PAINT_MIN_ZOOM}>−</button>
+        <button type="button" className="btn btn-secondary btn-sm" aria-label="Zoom out" onClick={() => updateZoom(zoom - PAINT_ZOOM_STEP)} disabled={zoom <= PAINT_MIN_ZOOM}><Icon name="minus" size={18} /></button>
         <button type="button" className="btn btn-secondary btn-sm" aria-label="Fit image" onClick={fitImage}>Fit</button>
         <span role="status" aria-live="polite">{zoomPercent}%</span>
-        <button type="button" className="btn btn-secondary btn-sm" aria-label="Zoom in" onClick={() => updateZoom(zoom + PAINT_ZOOM_STEP)} disabled={zoom >= PAINT_MAX_ZOOM}>+</button>
+        <button type="button" className="btn btn-secondary btn-sm" aria-label="Zoom in" onClick={() => updateZoom(zoom + PAINT_ZOOM_STEP)} disabled={zoom >= PAINT_MAX_ZOOM}><Icon name="plus" size={18} /></button>
       </div>
       <div ref={viewportRef} className="paint-viewport" data-testid="paint-viewport" onWheel={handleWheel}>
         <div className="paint-canvas-stack" style={canvasSize}>

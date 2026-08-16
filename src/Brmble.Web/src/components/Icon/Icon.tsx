@@ -228,6 +228,9 @@ const iconPaths: Record<string, IconDef> = {
       </>
     ),
   },
+  'minus': {
+    paths: <line x1="5" y1="12" x2="19" y2="12" />,
+  },
   'check': {
     viewBox: '0 0 16 16',
     paths: <polyline points="3.5 8 6.5 11 12.5 5" />,
