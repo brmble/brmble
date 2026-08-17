@@ -60,6 +60,28 @@ describe('DistributionPanel hiring entry point', () => {
     expect(screen.getByRole('dialog', { name: 'Hire seller for Slot 2' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Hire seller for Slot 2' })).not.toBeInTheDocument();
   });
+
+  it('keeps the empty slot visible without rendering unassigned Captain cards', () => {
+    const unassignedCaptain = makeReferenceCaptain({
+      id: 'unassigned-captain',
+      name: 'Captain Five',
+    });
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={{
+          ...state,
+          activeDealers: [null],
+          captains: [unassignedCaptain],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Hire dealers 0/1' })).toBeInTheDocument();
+    expect(screen.getByText('Slot 1 - Empty')).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Captain Five distribution' })).not.toBeInTheDocument();
+  });
 });
 
 describe('Captain card rename control', () => {
@@ -84,49 +106,49 @@ describe('Captain card rename control', () => {
     return onRenameCaptain;
   };
 
-  it('shows a rename button for assigned and unassigned Captain cards', () => {
+  it('shows a rename button for assigned Captain cards only', () => {
     renderCaptainPanel();
 
-    expect(screen.getByRole('button', { name: 'Rename Captain Rename' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rename Assigned Captain' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rename Captain Rename' })).not.toBeInTheDocument();
   });
 
   it('opens the current name, commits a trimmed name, and closes the editor', async () => {
     const user = userEvent.setup();
     const onRenameCaptain = renderCaptainPanel();
 
-    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
-    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
-    expect(input).toHaveValue('Captain Rename');
+    await user.click(screen.getByRole('button', { name: 'Rename Assigned Captain' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Assigned Captain' });
+    expect(input).toHaveValue('Assigned Captain');
 
     await user.clear(input);
     await user.type(input, '  Nightshade  ');
     await user.keyboard('{Enter}');
 
-    expect(onRenameCaptain).toHaveBeenCalledWith('captain-rename', 'Nightshade');
-    expect(screen.queryByRole('textbox', { name: 'Name for Captain Rename' })).not.toBeInTheDocument();
+    expect(onRenameCaptain).toHaveBeenCalledWith('captain-assigned', 'Nightshade');
+    expect(screen.queryByRole('textbox', { name: 'Name for Assigned Captain' })).not.toBeInTheDocument();
   });
 
   it('cancels with Escape without renaming', async () => {
     const user = userEvent.setup();
     const onRenameCaptain = renderCaptainPanel();
 
-    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
-    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
+    await user.click(screen.getByRole('button', { name: 'Rename Assigned Captain' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Assigned Captain' });
     await user.clear(input);
     await user.type(input, 'Temporary');
     await user.keyboard('{Escape}');
 
     expect(onRenameCaptain).not.toHaveBeenCalled();
-    expect(screen.queryByRole('textbox', { name: 'Name for Captain Rename' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Name for Assigned Captain' })).not.toBeInTheDocument();
   });
 
   it('rejects a whitespace-only name when the editor loses focus', async () => {
     const user = userEvent.setup();
     const onRenameCaptain = renderCaptainPanel();
 
-    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
-    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
+    await user.click(screen.getByRole('button', { name: 'Rename Assigned Captain' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Assigned Captain' });
     await user.clear(input);
     await user.type(input, '   ');
     await user.tab();

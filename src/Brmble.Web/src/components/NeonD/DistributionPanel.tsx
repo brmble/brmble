@@ -483,18 +483,6 @@ export function DistributionPanel(props: DistributionPanelProps) {
           </article>
           );
         })}
-
-        {props.state.captains
-          .filter((captain) => !props.state.activeDealers.some((seller) => isCaptain(seller) && seller.id === captain.id))
-          .map((captain) => (
-            <article
-              key={captain.id}
-              className={`${styles.distributionCard} ${styles.captainCard}`}
-              aria-label={`${captain.name} distribution`}
-            >
-              {renderCaptainCard(captain)}
-            </article>
-          ))}
       </div>
       {hiringSlotIndex !== null ? (
         <DealerHiringModal
