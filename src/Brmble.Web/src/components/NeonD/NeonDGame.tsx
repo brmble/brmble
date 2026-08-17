@@ -6,12 +6,14 @@ import {
   getRespectPerSecond,
   isCaptainVisible,
 } from './economy';
+import { getCaptainDefaultName } from './dealers';
 import { MARKET_DURATION_MAX_MS } from './constants';
 import { confirm } from '../../hooks/usePrompt';
 import { Icon } from '../Icon/Icon';
 import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
 import { ProductionPanel } from './ProductionPanel';
 import { DistributionPanel } from './DistributionPanel';
+import { CaptainRecruitmentDialog } from './CaptainRecruitmentDialog';
 import { MusclePanel } from './MusclePanel';
 import styles from './NeonD.module.css';
 
@@ -67,6 +69,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   } = useGameEngine();
   const [importError, setImportError] = useState<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanel>('production');
+  const [isCaptainRecruitmentOpen, setIsCaptainRecruitmentOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const sellerIncomePerSecond = Object.values(state.lastEarningsPerSeller)
@@ -74,6 +77,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const respectPerSecond = getRespectPerSecond(state);
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
+  const captainDefaultName = getCaptainDefaultName(state.captains.length + state.kingpins + 1);
   const captainProgressValue = Math.min(
     captainCost,
     Math.max(0, Math.floor(state.cash)),
@@ -302,7 +306,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                 </div>
               </div>
               {captainProgressValue >= captainCost && (
-                <button type="button" className="btn btn-primary" onClick={buyCaptain}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setIsCaptainRecruitmentOpen(true)}
+                >
                   Hire Captain
                 </button>
               )}
@@ -324,6 +332,17 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           />
         </div>
       </div>
+
+      {isCaptainRecruitmentOpen && (
+        <CaptainRecruitmentDialog
+          defaultName={captainDefaultName}
+          onClose={() => setIsCaptainRecruitmentOpen(false)}
+          onConfirm={(name) => {
+            buyCaptain(name);
+            setIsCaptainRecruitmentOpen(false);
+          }}
+        />
+      )}
 
       {state.offlineEarningsSummary && (
         <div className="modal-overlay" onClick={dismissOfflineEarningsSummary}>

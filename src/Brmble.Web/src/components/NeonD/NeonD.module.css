@@ -1229,6 +1229,52 @@
   color: var(--text-primary);
 }
 
+.captainRecruitmentBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: var(--bg-overlay);
+}
+
+.captainRecruitmentDialog {
+  display: grid;
+  gap: var(--space-md);
+  width: min(100%, 520px);
+  padding: var(--space-xl);
+  border: var(--border-width-strong) solid var(--accent-primary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-deep);
+  box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-primary-glow);
+}
+
+.captainRecruitmentDialog form {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.captainRecruitmentField {
+  display: grid;
+  gap: var(--space-2xs);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.captainRecruitmentField input {
+  width: 100%;
+  min-width: 0;
+}
+
+.captainRecruitmentActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
 @media (max-width: 700px) {
   .hiringDealerGrid {
     grid-template-columns: 1fr;

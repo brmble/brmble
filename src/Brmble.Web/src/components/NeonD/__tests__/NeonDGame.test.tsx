@@ -460,7 +460,7 @@ it('shows current cash against the first Captain price', () => {
   expect(within(workspace).queryByRole('spinbutton')).not.toBeInTheDocument();
 });
 
-it('shows Hire Captain when cash reaches the next Captain price', async () => {
+it('opens Captain naming before invoking recruitment', async () => {
   const user = userEvent.setup();
   mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
 
@@ -474,7 +474,31 @@ it('shows Hire Captain when cash reaches the next Captain price', async () => {
     .toBe(within(workspace).getByRole('region', { name: 'Distribution' }));
 
   await user.click(hireButton);
-  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+
+  const dialog = screen.getByRole('dialog', { name: 'Name your Captain' });
+  expect(dialog).toBeInTheDocument();
+  const input = within(dialog).getByRole('textbox', { name: 'Captain name' });
+  expect(input).toHaveValue('Captain 1');
+  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
+
+  await user.clear(input);
+  await user.type(input, 'Nightshade');
+  await user.click(within(dialog).getByRole('button', { name: 'Confirm Captain name' }));
+
+  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Nightshade');
+  expect(screen.queryByRole('dialog', { name: 'Name your Captain' })).not.toBeInTheDocument();
+});
+
+it('cancels Captain naming without invoking recruitment', async () => {
+  const user = userEvent.setup();
+  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+
+  render(<NeonDGame />);
+  await user.click(screen.getByRole('button', { name: /hire captain/i }));
+  await user.click(screen.getByRole('button', { name: 'Cancel Captain naming' }));
+
+  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog', { name: 'Name your Captain' })).not.toBeInTheDocument();
 });
 
 it('keeps the recruitment panel visible for the next Captain after the first hire', () => {
@@ -1010,9 +1034,13 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
   render(<NeonDGame />);
   await user.click(screen.getByRole('button', { name: /hire captain/i }));
 
+  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
+  expect(screen.getByRole('textbox', { name: 'Captain name' })).toHaveValue('Captain 2');
+  await user.click(screen.getByRole('button', { name: 'Confirm Captain name' }));
+
   expect(screen.getByText(/captain ui/i)).toBeInTheDocument();
   expect(screen.getByText(/level 0/i)).toBeInTheDocument();
-  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledOnce();
+  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Captain 2');
 });
 
 it('shows manual Captain level claims and opens the Talent Ledger in place', async () => {

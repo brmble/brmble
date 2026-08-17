@@ -312,7 +312,7 @@ describe('useGameEngine', () => {
       runEarnings: 7_500_000,
     });
 
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 1'));
 
     expect(result.current.state.captains).toHaveLength(1);
     expect(result.current.state.captains[0]).toMatchObject({
@@ -335,10 +335,34 @@ describe('useGameEngine', () => {
       runEarnings: 7_500_000,
     });
 
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 1'));
 
     expect(result.current.state.captains).toHaveLength(1);
     expect(result.current.state.runEarnings).toBe(0);
+  });
+
+  it('creates a Captain with the confirmed name', () => {
+    const { result } = renderSeededGame({
+      cash: 7_500_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain('  Nightshade  '));
+
+    expect(result.current.state.captains[0].name).toBe('Nightshade');
+    expect(result.current.state.cash).toBe(100);
+  });
+
+  it('does not recruit or charge for an empty Captain name', () => {
+    const { result } = renderSeededGame({
+      cash: 7_500_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain('   '));
+
+    expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.cash).toBe(7_500_000);
   });
 
   it('requires a claim before earnings can progress the following Captain level', () => {
@@ -444,7 +468,7 @@ describe('useGameEngine', () => {
       kingpins: 1,
     });
 
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 2'));
 
     expect(result.current.state.captains).toHaveLength(2);
     expect(result.current.state.captains[0]).toEqual(existingCaptain);
@@ -466,7 +490,7 @@ describe('useGameEngine', () => {
       captains: [existingCaptain],
     });
 
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 2'));
 
     expect(parseNeonDSave(serializeNeonDSave(result.current.state))).toEqual(result.current.state);
     expect(result.current.state.captains.every((captain) =>
@@ -491,7 +515,7 @@ describe('useGameEngine', () => {
     });
 
     expect(getCaptainCost(result.current.state)).toBeCloseTo(expectedCost);
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 2'));
     expect(result.current.state.captains).toHaveLength(2);
     expect(result.current.state.cash).toBe(100);
   });
@@ -581,7 +605,7 @@ describe('useGameEngine', () => {
     expect(getRespectMultiplier(withKingpin)).toBeCloseTo(2);
     expect(getRecruitmentRefreshMs(withKingpin.kingpins)).toBe(59_000);
 
-    act(() => result.current.buyCaptain());
+    act(() => result.current.buyCaptain('Captain 2'));
     expect(result.current.state.cash).toBe(100);
     expect(result.current.state.unlockedProducts).toEqual(['weed']);
     expect(result.current.state.territoryLevel).toBe(0);

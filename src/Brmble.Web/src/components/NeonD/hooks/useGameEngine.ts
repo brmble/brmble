@@ -414,14 +414,20 @@ export const useGameEngine = () => {
     }));
   };
 
-  const buyCaptain = () => {
+  const buyCaptain = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
     setState((prev) => {
       if (!isCaptainVisible(prev)) return prev;
 
       const cost = getCaptainCost(prev);
       if (prev.cash < cost) return prev;
 
-      const captain = createCaptain(prev.captains.length + prev.kingpins + 1);
+      const captain = createCaptain(
+        prev.captains.length + prev.kingpins + 1,
+        trimmedName,
+      );
       return resetRunPreservingPrestige(
         [...prev.captains, captain],
         prev.kingpins,

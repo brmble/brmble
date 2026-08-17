@@ -100,9 +100,14 @@ export const generateNormalDealer = (
   earningsPerSecondAtArrest: 0,
 });
 
-export const createCaptain = (index: number): Captain => ({
+export const getCaptainDefaultName = (index: number) => `Captain ${index}`;
+
+export const createCaptain = (
+  index: number,
+  name: string = getCaptainDefaultName(index),
+): Captain => ({
   id: crypto.randomUUID(),
-  name: `Captain ${index}`,
+  name,
   selling: 'weed',
   equipmentIds: [],
   personalEarnings: 0,
