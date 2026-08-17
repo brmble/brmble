@@ -16,9 +16,10 @@ import type {
   ProductId,
   ProductState,
 } from './types';
+import { isTalentStateValid } from './talents';
 
 export const NEON_D_SAVE_FORMAT = NEON_D_SAVE_KEY;
-export const NEON_D_SAVE_VERSION = 2;
+export const NEON_D_SAVE_VERSION = 3;
 
 type SaveEnvelope = {
   format: typeof NEON_D_SAVE_FORMAT;
@@ -125,13 +126,19 @@ function isCaptain(
   unlockedProducts: readonly string[],
 ): value is Captain {
   if (!isObject(value)) return false;
-  if (!hasExactKeys(value, ['id', 'name', 'selling', 'equipmentIds', 'personalEarnings'])) return false;
+  if (!hasExactKeys(value, [
+    'id', 'name', 'selling', 'equipmentIds', 'personalEarnings',
+    'lastLevelUpEarnings', 'level', 'talentPoints', 'talentRanks', 'ledgerUnlocked', 'kingpinAvailable',
+  ])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
   return typeof value.id === 'string'
     && typeof value.name === 'string'
     && isKnownCanonicalEquipmentPrefix(value.equipmentIds)
-    && isNonNegativeFiniteNumber(value.personalEarnings);
+    && isNonNegativeFiniteNumber(value.personalEarnings)
+    && isNonNegativeFiniteNumber(value.lastLevelUpEarnings)
+    && value.lastLevelUpEarnings <= value.personalEarnings
+    && isTalentStateValid(value as unknown as Captain);
 }
 
 function isMarketEvent(
@@ -181,6 +188,26 @@ function isProductionRecord(
     && Object.keys(value).every((key) => PRODUCT_IDS.has(key as (typeof PRODUCT_CATALOG)[number]['id']));
 }
 
+function areBulkUnlockedProductsValid(
+  production: unknown,
+  unlockedProducts: readonly string[],
+  bulkUnlockedProductIds: unknown,
+): boolean {
+  if (!Array.isArray(bulkUnlockedProductIds) || !hasUniqueValues(bulkUnlockedProductIds)) return false;
+
+  return bulkUnlockedProductIds.every((productId) => {
+    if (!isProductId(productId) || !unlockedProducts.includes(productId)) return false;
+
+    const product = PRODUCT_CATALOG.find((candidate) => candidate.id === productId);
+    const productState = isObject(production) ? production[productId] : undefined;
+    if (!product || !isProductState(productState)) return false;
+
+    const upgradeIds = product.upgrades.map((upgrade) => upgrade.id);
+    return matchesCatalogPrefix(productState.purchasedUpgradeIds, upgradeIds)
+      && productState.purchasedUpgradeIds.length === upgradeIds.length;
+  });
+}
+
 function isMuscleOwnedRecord(value: unknown): boolean {
   if (!isObject(value)) return false;
 
@@ -201,7 +228,7 @@ function isGameState(value: unknown): value is GameState {
   if (!hasExactKeys(value, [
     'schemaVersion', 'cash', 'runEarnings', 'respect', 'production', 'unlockedProducts',
     'muscleOwned', 'territoryLevel', 'discountLevel', 'activeDealers', 'availableDealers',
-    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlocked', 'autoBulkEnabled',
+    'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlockedProductIds', 'lastBulkSellAt',
     'activeMarketEvent', 'nextMarketCheckAt', 'nextRiskCheckAt', 'lastEarningsPerSeller',
     'lastTickAt', 'offlineEarningsSummary',
   ])) return false;
@@ -226,19 +253,20 @@ function isGameState(value: unknown): value is GameState {
 
   const activeDealerRecords = activeDealers.filter((dealer): dealer is Dealer => dealer !== null);
 
-  return value.schemaVersion === 2
+  const bulkUnlockedProductIds = value.bulkUnlockedProductIds;
+
+  return value.schemaVersion === 5
     && isNonNegativeFiniteNumber(value.cash)
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
     && isProductionRecord(value.production, unlockedProducts)
+    && areBulkUnlockedProductsValid(value.production, unlockedProducts, bulkUnlockedProductIds)
     && isMuscleOwnedRecord(value.muscleOwned)
     && isNonNegativeInteger(value.discountLevel)
     && hasUniqueSellerIds([...activeDealerRecords, ...availableDealers, ...captains])
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
-    && typeof value.bulkUnlocked === 'boolean'
-    && typeof value.autoBulkEnabled === 'boolean'
-    && (!value.autoBulkEnabled || value.bulkUnlocked)
+    && isNonNegativeFiniteNumber(value.lastBulkSellAt)
     && (value.activeMarketEvent === null || isMarketEvent(value.activeMarketEvent, unlockedProducts))
     && isNonNegativeFiniteNumber(value.nextMarketCheckAt)
     && isNonNegativeFiniteNumber(value.nextRiskCheckAt)
@@ -257,6 +285,52 @@ export function serializeNeonDSave(state: GameState): string {
   return JSON.stringify(envelope, null, 2);
 }
 
+export function migrateNeonDState(value: unknown): unknown {
+  if (!isObject(value)) return { schemaVersion: 5 };
+  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) {
+    return value;
+  }
+
+  let state: Record<string, unknown> = { ...value };
+  if (state.schemaVersion === 2) {
+    delete state.autoBulkEnabled;
+    state = { ...state, schemaVersion: 3, lastBulkSellAt: 0 };
+  }
+  if (state.schemaVersion === 3) {
+    delete state.bulkUnlocked;
+    state = { ...state, schemaVersion: 4, bulkUnlockedProductIds: [] };
+  }
+  if (state.schemaVersion === 4) {
+    const captains = Array.isArray(state.captains)
+      ? state.captains.map((captain) => (
+        isObject(captain)
+          ? {
+              ...captain,
+              lastLevelUpEarnings: captain.personalEarnings,
+              level: 0,
+              talentPoints: 0,
+              talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+              ledgerUnlocked: false,
+              kingpinAvailable: false,
+            }
+          : captain
+      ))
+      : state.captains;
+    state = { ...state, schemaVersion: 5, captains };
+  }
+
+  const captains = Array.isArray(state.captains)
+    ? state.captains.map((captain) => (
+      isObject(captain) && !('lastLevelUpEarnings' in captain)
+        ? { ...captain, lastLevelUpEarnings: captain.personalEarnings }
+        : captain
+    ))
+    : state.captains;
+
+  delete state.captainRecruitmentFund;
+  return { ...state, schemaVersion: 5, captains };
+}
+
 export function parseNeonDSave(text: string): GameState {
   let parsed: unknown;
   try {
@@ -268,12 +342,13 @@ export function parseNeonDSave(text: string): GameState {
   if (!isObject(parsed) || !hasExactKeys(parsed, ['format', 'version', 'state']) || parsed.format !== NEON_D_SAVE_FORMAT) {
     throw new Error('This file is not a Neon-D save.');
   }
-  if (parsed.version !== NEON_D_SAVE_VERSION) {
+  if (parsed.version !== 2 && parsed.version !== NEON_D_SAVE_VERSION) {
     throw new Error('This Neon-D save version is not supported.');
   }
-  if (!isGameState(parsed.state)) {
+  const state = migrateNeonDState(parsed.state);
+  if (!isGameState(state)) {
     throw new Error('This Neon-D save is incomplete or corrupted.');
   }
 
-  return parsed.state;
+  return state;
 }

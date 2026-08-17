@@ -3,6 +3,7 @@ import type {
   GameState,
   MuscleWorkerDefinition,
   ProductDefinition,
+  TalentStat,
 } from './types';
 
 export const NEON_D_SAVE_KEY = 'brmble_neon_d_save_v2';
@@ -26,8 +27,8 @@ export const DISCOUNT_GROWTH = 3.8;
 export const DISCOUNT_PRICE_MULTIPLIER = 0.9;
 export const BULK_UNLOCK_COST = 141_592;
 export const BULK_VISIBLE_EARNINGS = 212_388;
+export const BULK_SELL_COOLDOWN_MS = 20 * 60 * 1000;
 export const BULK_VALUE_MULTIPLIER = 0.90;
-export const AUTO_BULK_TRIGGER_STOCK = 1_500;
 export const AUTO_BULK_RETAIN_STOCK = 500;
 export const MARKET_CHECK_INTERVAL_MS = 30_000;
 export const MARKET_EVENT_CHANCE = 0.10;
@@ -36,10 +37,10 @@ export const MARKET_MULTIPLIER_MAX = 5;
 export const MARKET_DURATION_MIN_MS = 60_000;
 export const MARKET_DURATION_MAX_MS = 160_000;
 export const CAPTAIN_VISIBLE_EARNINGS = 7_500_000;
-export const CAPTAIN_BASE_COST = 5_000_000;
-export const CAPTAIN_COST_GROWTH = 1.18;
-export const CAPTAIN_BASE_VOLUME_MULTIPLIER = 1.5;
-export const CAPTAIN_BASE_MARGIN_MULTIPLIER = 1.5;
+export const CAPTAIN_COSTS = [7_500_000, 10_000_000, 15_000_000] as const;
+export const CAPTAIN_COST_INCREMENT = 5_000_000;
+export const CAPTAIN_BASE_VOLUME_MULTIPLIER = 1.75;
+export const CAPTAIN_BASE_MARGIN_MULTIPLIER = 1.75;
 export const CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER = 4;
 export const OFFLINE_MIN_AWAY_MS = 30_000;
 export const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
@@ -158,10 +159,38 @@ export const MUSCLE_CATALOG = [
 export const CAPTAIN_LEVEL_THRESHOLDS = [
   500_000, 950_000, 1_810_000, 3_430_000, 6_520_000,
   12_380_000, 23_520_000, 44_690_000, 84_920_000, 161_340_000,
+  306_546_000, 582_437_000, 1_106_630_000, 2_102_597_000, 3_994_934_000,
+  7_590_375_000, 14_421_712_000, 27_401_253_000, 52_062_381_000, 98_918_524_000,
+  187_945_196_000, 357_095_872_000, 678_482_157_000, 1_289_116_098_000,
+  2_449_320_586_000, 4_653_709_113_000, 8_842_047_315_000, 16_799_889_899_000,
 ] as const;
 
+export const TALENT_STAT_TOTALS: Record<TalentStat, number> = {
+  margin: 0.80,
+  volume: 2.00,
+  secondarySales: 0.30,
+};
+
+export const TALENT_RANK_SPLITS: Record<TalentStat, Record<2 | 3 | 4, readonly number[]>> = {
+  margin: {
+    2: [0.40, 0.40],
+    3: [0.26, 0.27, 0.27],
+    4: [0.20, 0.20, 0.20, 0.20],
+  },
+  volume: {
+    2: [0.50, 0.50],
+    3: [0.33, 0.33, 0.33],
+    4: [0.25, 0.25, 0.25, 0.25],
+  },
+  secondarySales: {
+    2: [0.15, 0.15],
+    3: [0.10, 0.10, 0.10],
+    4: [0.07, 0.07, 0.08, 0.08],
+  },
+};
+
 export const createBaseGameState = (now: number): GameState => ({
-  schemaVersion: 2,
+  schemaVersion: 5,
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,
@@ -178,8 +207,8 @@ export const createBaseGameState = (now: number): GameState => ({
   lastDealerRefreshAt: now,
   captains: [],
   kingpins: 0,
-  bulkUnlocked: false,
-  autoBulkEnabled: false,
+  bulkUnlockedProductIds: [],
+  lastBulkSellAt: 0,
   activeMarketEvent: null,
   nextMarketCheckAt: now + MARKET_CHECK_INTERVAL_MS,
   nextRiskCheckAt: now + RISK_CHECK_INTERVAL_MS,

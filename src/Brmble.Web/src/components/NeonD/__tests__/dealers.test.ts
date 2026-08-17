@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSecondaryDemands,
   createCaptain,
+  getCaptainBonuses,
+  getCaptainMainSaleRate,
+  getCaptainMarginMultiplier,
   generateCandidatePool,
   getNormalDealerMainSaleRate,
   getSellerEquipmentBonuses,
 } from '../dealers';
+import { makeReferenceCaptain } from './testFixtures';
 
 describe('reference dealer behavior', () => {
   it('creates a Captain with a Weed assignment and empty personal state', () => {
@@ -14,7 +18,40 @@ describe('reference dealer behavior', () => {
       selling: 'weed',
       equipmentIds: [],
       personalEarnings: 0,
+      level: 0,
+      talentPoints: 0,
+      talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: false,
+      kingpinAvailable: false,
     });
+  });
+
+  it('creates a Level 0 Captain with an empty talent ledger', () => {
+    expect(createCaptain(2)).toMatchObject({
+      level: 0,
+      talentPoints: 0,
+      talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: false,
+      kingpinAvailable: false,
+    });
+  });
+
+  it('uses purchased Captain talents and ignores compatibility equipment', () => {
+    const captain = makeReferenceCaptain({
+      equipmentIds: ['personalArmy'],
+      level: 1,
+      talentPoints: 0,
+      talentRanks: { red: [1, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+    });
+
+    expect(getCaptainBonuses(captain)).toEqual({
+      marginBonus: 0.4,
+      volumeBonus: 0,
+      secondarySalesBonus: 0,
+    });
+    expect(getCaptainMainSaleRate(captain)).toBeCloseTo(1.75 * 3);
+    expect(getCaptainMarginMultiplier(captain)).toBeCloseTo(1.75 * 1.4);
   });
 
   it('generates exactly three candidates with independent 0.5-1.5 multipliers', () => {

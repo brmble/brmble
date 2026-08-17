@@ -1,23 +1,21 @@
-import { useState } from 'react';
-import {
-  CAPTAIN_BASE_MARGIN_MULTIPLIER,
-  CAPTAIN_BASE_VOLUME_MULTIPLIER,
-  CAPTAIN_LEVEL_THRESHOLDS,
-  EQUIPMENT_CATALOG,
-} from './constants';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { EQUIPMENT_CATALOG } from './constants';
 import {
   getBailCost,
-  getCaptainLevel,
+  getCaptainRemainingThreshold,
   getEquipmentCost,
   getProductDefinition,
   getRecruitmentRefreshRemainingMs,
+  isCaptainLevelUpAvailable,
 } from './economy';
-import { getNormalDealerMainSaleRate } from './dealers';
+import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
-import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId, TalentPathId } from './types';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
+import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences';
+import { TalentLedger } from './TalentLedger';
 
 type DistributionPanelProps = {
   state: GameState;
@@ -27,6 +25,8 @@ type DistributionPanelProps = {
   buySellerEquipment: (sellerId: string, equipmentId: EquipmentId, sellerKind: 'dealer' | 'captain') => void;
   toggleDealerProtection: (dealerId: string) => void;
   payDealerBail: (dealerId: string) => void;
+  claimCaptainLevel: (captainId: string) => void;
+  purchaseCaptainTalent: (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => void;
   promoteCaptain: (captainId: string) => void;
 };
 
@@ -104,42 +104,98 @@ const CandidateCard = ({
   candidate,
   slotIndex,
   onHire,
+  isFavorite,
+  onToggleFavorite,
 }: {
   candidate: Dealer;
   slotIndex: number;
   onHire: (dealerId: string, slotIndex: number) => void;
+  isFavorite: boolean;
+  onToggleFavorite: (dealerId: string) => void;
 }) => (
   <article className={styles.dealerCard}>
-    <h5 className={styles.dealerName}>{candidate.name}</h5>
-    <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} />
-    <DealerRating label="Margin" multiplier={candidate.marginMultiplier} />
-    <div className={styles.metricRow}><span>Main sales</span><strong>{getNormalDealerMainSaleRate(candidate).toFixed(2)} units/s</strong></div>
+    <h5 className={styles.dealerName}>
+      <DealerFavoriteButton
+        dealer={candidate}
+        isFavorite={isFavorite}
+        onToggle={onToggleFavorite}
+      />
+      <span>{candidate.name}</span>
+    </h5>
+    <DealerRating label="Volume" multiplier={candidate.volumeMultiplier} maxStars={5} />
+    <DealerRating label="Margin" multiplier={candidate.marginMultiplier} maxStars={5} />
     <button className={styles.buyButton} onClick={() => onHire(candidate.id, slotIndex)}>
       Hire to Slot {slotIndex + 1}
     </button>
   </article>
 );
 
+const DealerFavoriteButton = ({
+  dealer,
+  isFavorite,
+  onToggle,
+}: {
+  dealer: Dealer;
+  isFavorite: boolean;
+  onToggle: (dealerId: string) => void;
+}) => (
+  <button
+    type="button"
+    className={`${styles.dealerFavoriteButton} ${isFavorite ? styles.dealerFavoriteButtonActive : ''}`}
+    aria-label={`${isFavorite ? 'Unfavorite' : 'Favorite'} ${dealer.name}`}
+    aria-pressed={isFavorite}
+    onClick={() => onToggle(dealer.id)}
+  >
+    <Icon name="star" size={14} />
+  </button>
+);
+
 export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
-  const [collapsedDealerIds, setCollapsedDealerIds] = useState<Set<string>>(() => new Set());
+  const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
+  const [ledgerCaptainId, setLedgerCaptainId] = useState<string | null>(null);
+  const talentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const distributionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const knownSellerIds = useMemo(
+    () => [
+      ...props.state.activeDealers
+        .filter((dealer): dealer is Dealer => dealer !== null)
+        .map((dealer) => dealer.id),
+      ...props.state.captains.map((captain) => captain.id),
+    ],
+    [props.state.activeDealers, props.state.captains],
+  );
+  const [collapsedSellerIds, toggleSellerCard] = usePersistedCardPreferences(knownSellerIds);
 
-  const toggleEquipment = (dealerId: string) => {
-    setExpandedEquipmentIds((current) => {
+  const toggleDealerFavorite = useCallback((dealerId: string) => {
+    setFavoriteDealerIds((current) => {
       const next = new Set(current);
       if (next.has(dealerId)) next.delete(dealerId);
       else next.add(dealerId);
+      return next;
+    });
+  }, []);
+
+  const toggleEquipment = (sellerId: string) => {
+    setExpandedEquipmentIds((current) => {
+      const next = new Set(current);
+      if (next.has(sellerId)) next.delete(sellerId);
+      else next.add(sellerId);
       return next;
     });
   };
 
-  const toggleDealerCard = (dealerId: string) => {
-    setCollapsedDealerIds((current) => {
-      const next = new Set(current);
-      if (next.has(dealerId)) next.delete(dealerId);
-      else next.add(dealerId);
-      return next;
-    });
+  const closeLedger = () => {
+    const opener = ledgerCaptainId ? talentButtonRefs.current[ledgerCaptainId] : null;
+    setLedgerCaptainId(null);
+    requestAnimationFrame(() => opener?.focus());
+  };
+
+  const promoteFromLedger = () => {
+    if (!ledgerCaptainId) return;
+    props.promoteCaptain(ledgerCaptainId);
+    setLedgerCaptainId(null);
+    requestAnimationFrame(() => distributionHeadingRef.current?.focus());
   };
 
   const refreshRemainingMs = getRecruitmentRefreshRemainingMs(
@@ -149,12 +205,12 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
-      <h3 id="neond-distribution-heading" className={styles.distributionColumnHeader}>Distribution</h3>
+      <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
       <div className={styles.label}>Next candidates in {Math.ceil(refreshRemainingMs / 1000)}s</div>
 
       <div className={styles.cardStack}>
         {props.state.activeDealers.map((dealer, slotIndex) => {
-          const isCollapsed = dealer ? collapsedDealerIds.has(dealer.id) : false;
+          const isCollapsed = dealer ? collapsedSellerIds.has(dealer.id) : false;
           const bodyId = dealer ? `distribution-body-${dealer.id}` : undefined;
 
           return (
@@ -166,8 +222,13 @@ export function DistributionPanel(props: DistributionPanelProps) {
             {dealer ? (
               <>
                 <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
-                  <span className={styles.dealerHeaderTitle}>
-                    {dealer.name} ({getProductDefinition(dealer.selling).name})
+                  <span className={`${styles.dealerHeaderTitle} ${styles.dealerHeaderTitleWithFavorite}`}>
+                    <DealerFavoriteButton
+                      dealer={dealer}
+                      isFavorite={favoriteDealerIds.has(dealer.id)}
+                      onToggle={toggleDealerFavorite}
+                    />
+                    <span>{dealer.name} ({getProductDefinition(dealer.selling).name})</span>
                   </span>
                   <button
                     type="button"
@@ -175,7 +236,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dealer.name} distribution`}
                     aria-expanded={!isCollapsed}
                     aria-controls={bodyId}
-                    onClick={() => toggleDealerCard(dealer.id)}
+                    onClick={() => toggleSellerCard(dealer.id)}
                   >
                     <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
                   </button>
@@ -206,9 +267,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     state={props.state}
                     onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
                   />
-                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} />
-                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} />
-                  <div className={styles.metricRow}><span>Main sales</span><strong>{dealer.isArrested ? '0.00' : getNormalDealerMainSaleRate(dealer).toFixed(2)} units/s</strong></div>
+                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} maxStars={5} />
+                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} maxStars={5} />
                   <div className={styles.metricRow}><span>Earnings</span><strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong></div>
                   <div className={styles.metricRow}>
                     <span>Status</span>
@@ -272,6 +332,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
                     candidate={candidate}
                     slotIndex={slotIndex}
                     onHire={props.hireDealer}
+                    isFavorite={favoriteDealerIds.has(candidate.id)}
+                    onToggleFavorite={toggleDealerFavorite}
                   />
                 ))}
               </div>
@@ -281,40 +343,103 @@ export function DistributionPanel(props: DistributionPanelProps) {
         })}
 
         {props.state.captains.map((captain) => {
-          const level = getCaptainLevel(captain.personalEarnings);
-          const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
+          const remainingThreshold = getCaptainRemainingThreshold(
+            captain.level,
+            captain.personalEarnings,
+            captain.lastLevelUpEarnings,
+          );
+          const bonuses = getCaptainBonuses(captain);
+          const volumeMultiplier = getCaptainMainSaleRate(captain) / 3;
+          const marginMultiplier = getCaptainMarginMultiplier(captain);
+          const isCollapsed = collapsedSellerIds.has(captain.id);
+          const bodyId = `distribution-body-${captain.id}`;
+          const levelUpAvailable = isCaptainLevelUpAvailable(
+            captain.level,
+            captain.personalEarnings,
+            captain.lastLevelUpEarnings,
+          );
+          const isLedgerOpen = ledgerCaptainId === captain.id;
           return (
-            <article key={captain.id} className={`${styles.distributionCard} ${styles.captainCard}`}>
-              <div className={styles.dealerHeader}>{captain.name}</div>
-              <div className={styles.dealerBody}>
-                <ProductSelect
-                  value={captain.selling}
-                  label={`Product for ${captain.name}`}
-                  state={props.state}
-                  onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
-                />
-                <div className={styles.metricRow}><span>Volume</span><strong>{CAPTAIN_BASE_VOLUME_MULTIPLIER.toFixed(2)}x base</strong></div>
-                <div className={styles.metricRow}><span>Margin</span><strong>{CAPTAIN_BASE_MARGIN_MULTIPLIER.toFixed(2)}x base</strong></div>
-                <div className={styles.metricRow}><span>Level</span><strong>Level {level}</strong></div>
-                <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
-                {nextThreshold ? (
-                  <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(nextThreshold)}</strong></div>
-                ) : (
-                  <div className={styles.kingpinBadge}>Ready for Kingpin promotion</div>
-                )}
-                <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + level * 0.5) * 100)}%</strong></div>
-                <EquipmentList
-                  seller={captain}
-                  sellerKind="captain"
-                  state={props.state}
-                  onBuy={(equipmentId) => props.buySellerEquipment(captain.id, equipmentId, 'captain')}
-                />
-                {level >= 10 && (
-                  <button className={styles.buyButton} onClick={() => props.promoteCaptain(captain.id)}>
-                    Promote to Kingpin
-                  </button>
-                )}
+            <article
+              key={captain.id}
+              className={`${styles.distributionCard} ${styles.captainCard}`}
+              aria-label={`${captain.name} distribution`}
+            >
+              <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
+                <span className={styles.dealerHeaderTitle}>
+                  {captain.name} ({getProductDefinition(captain.selling).name})
+                </span>
+                <button
+                  type="button"
+                  className={styles.cardCollapseButton}
+                  aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${captain.name} distribution`}
+                  aria-expanded={!isCollapsed}
+                  aria-controls={bodyId}
+                  onClick={() => toggleSellerCard(captain.id)}
+                >
+                  <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+                </button>
               </div>
+              {isCollapsed ? (
+                <div id={bodyId} className={styles.collapsedDealerBody}>
+                  <ProductSelect
+                    value={captain.selling}
+                    label={`Product for ${captain.name}`}
+                    state={props.state}
+                    onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
+                  />
+                  <div className={styles.collapsedDealerSummary}>
+                    <span>Earnings</span>
+                    <strong>{formatMoney(props.state.lastEarningsPerSeller[captain.id] ?? 0)}/s</strong>
+                  </div>
+                </div>
+              ) : (
+                <div id={bodyId} className={styles.dealerBody}>
+                  <ProductSelect
+                    value={captain.selling}
+                    label={`Product for ${captain.name}`}
+                    state={props.state}
+                    onChange={(productId) => props.setSellerProduct(captain.id, productId, 'captain')}
+                  />
+                  <DealerRating label="Volume" multiplier={volumeMultiplier} maxStars={6} />
+                  <DealerRating label="Margin" multiplier={marginMultiplier} maxStars={6} />
+                  <div className={styles.metricRow}><span>Secondary sales</span><strong>+{Math.round(bonuses.secondarySalesBonus * 100)}%</strong></div>
+                  <div className={styles.metricRow}><span>Level</span><strong>Level {captain.level}</strong></div>
+                  <div className={styles.metricRow}><span>Personal earnings</span><strong>{formatMoney(captain.personalEarnings)}</strong></div>
+                  {remainingThreshold !== null ? (
+                    <div className={styles.metricRow}><span>Next threshold</span><strong>{formatMoney(remainingThreshold)} to level</strong></div>
+                  ) : (
+                    <div className={styles.kingpinBadge}>All Captain levels claimed</div>
+                  )}
+                  <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + captain.level * 0.5) * 100)}%</strong></div>
+                  <div className={styles.actionStack}>
+                    {levelUpAvailable ? (
+                      <button type="button" className={styles.buyButton} onClick={() => props.claimCaptainLevel(captain.id)}>
+                        Level Up
+                      </button>
+                    ) : null}
+                    <button
+                      ref={(element) => { talentButtonRefs.current[captain.id] = element; }}
+                      type="button"
+                      className={styles.unlockButton}
+                      disabled={!captain.ledgerUnlocked}
+                      aria-label={captain.ledgerUnlocked ? `Open talents for ${captain.name}` : `Talents locked for ${captain.name}`}
+                      onClick={() => setLedgerCaptainId(captain.id)}
+                    >
+                      Talents{captain.talentPoints > 0 ? ` (${captain.talentPoints} point${captain.talentPoints === 1 ? '' : 's'})` : ''}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isLedgerOpen ? (
+                <TalentLedger
+                  captain={captain}
+                  onClose={closeLedger}
+                  onClaimLevel={() => props.claimCaptainLevel(captain.id)}
+                  onPurchaseTalent={(path, row) => props.purchaseCaptainTalent(captain.id, path, row)}
+                  onPromote={promoteFromLedger}
+                />
+              ) : null}
             </article>
           );
         })}

@@ -1,7 +1,7 @@
 import { createElement, StrictMode, type PropsWithChildren } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBaseGameState, NEON_D_SAVE_KEY } from '../../constants';
+import { createBaseGameState, NEON_D_SAVE_KEY, STARTING_CASH } from '../../constants';
 import {
   getCaptainCost,
   getProducerCost,
@@ -9,10 +9,11 @@ import {
   getRecruitmentRefreshMs,
   getRespectMultiplier,
 } from '../../economy';
-import type { Captain, GameState } from '../../types';
-import { makeReferenceDealer } from '../../__tests__/testFixtures';
+import type { GameState } from '../../types';
+import { makeReferenceCaptain, makeReferenceDealer } from '../../__tests__/testFixtures';
 import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
+import { NEON_D_CARD_PREFERENCES_KEY } from '../usePersistedCardPreferences';
 
 const renderSeededGame = (overrides: Partial<GameState>) => {
   const now = Date.now();
@@ -84,6 +85,18 @@ describe('useGameEngine', () => {
     expect(result.current.state.cash).toBe(100);
   });
 
+  it('clears persisted card preferences when the Neon-D empire is reset', () => {
+    localStorage.setItem(
+      NEON_D_CARD_PREFERENCES_KEY,
+      JSON.stringify({ collapsedSellerIds: ['dealer-1'] }),
+    );
+    const { result } = renderHook(() => useGameEngine());
+
+    act(() => result.current.resetGame());
+
+    expect(localStorage.getItem(NEON_D_CARD_PREFERENCES_KEY)).toBeNull();
+  });
+
   it('buyProducer buys exactly one producer and charges the exponential current price', () => {
     const { result } = renderHook(() => useGameEngine());
 
@@ -109,23 +122,49 @@ describe('useGameEngine', () => {
     expect(result.current.state.unlockedProducts).toEqual(['weed', 'mushrooms']);
   });
 
-  it('keeps Bulk Selling hidden before $212,388 and buys it for exactly $141,592', () => {
+  it('does not unlock bulk selling before every product upgrade is owned', () => {
     const { result } = renderSeededGame({
       cash: 200_000,
-      runEarnings: 212_388,
     });
 
-    act(() => result.current.unlockBulkSelling());
+    act(() => result.current.unlockBulkSelling('weed'));
 
-    expect(result.current.state.bulkUnlocked).toBe(true);
+    expect(result.current.state.bulkUnlockedProductIds).toEqual([]);
+    expect(result.current.state.cash).toBe(200_000);
+  });
+
+  it('purchases bulk selling for only a fully upgraded product', () => {
+    const { result } = renderSeededGame({
+      cash: 200_000,
+      production: {
+        ...createBaseGameState(0).production,
+        weed: { stock: 0, producersOwned: 0, purchasedUpgradeIds: ['fertilizer', 'hydroponics'] },
+      },
+    });
+
+    act(() => result.current.unlockBulkSelling('weed'));
+
+    expect(result.current.state.bulkUnlockedProductIds).toEqual(['weed']);
     expect(result.current.state.cash).toBeCloseTo(58_408);
   });
 
-  it('only changes auto bulk after Bulk Selling is unlocked', () => {
-    const { result } = renderHook(() => useGameEngine());
+  it('blocks a second manual bulk sale during the cooldown', () => {
+    const { result } = renderSeededGame({
+      bulkUnlockedProductIds: ['weed'],
+      lastBulkSellAt: 0,
+      production: {
+        ...createBaseGameState(1_000).production,
+        weed: { stock: 1_500, producersOwned: 0, purchasedUpgradeIds: [] },
+      },
+    });
 
-    act(() => result.current.setAutoBulkEnabled(true));
-    expect(result.current.state.autoBulkEnabled).toBe(false);
+    act(() => result.current.bulkSellProduct('weed'));
+    const cashAfterFirstSale = result.current.state.cash;
+
+    act(() => result.current.bulkSellProduct('weed'));
+
+    expect(result.current.state.cash).toBe(cashAfterFirstSale);
+    expect(result.current.state.production.weed.stock).toBe(500);
   });
 
   it('does not simulate or show a summary for less than 30 seconds away on mount', () => {
@@ -267,9 +306,9 @@ describe('useGameEngine', () => {
     });
   });
 
-  it('shows the first Captain progression at $7.5M and buys at a $5M base price', () => {
+  it('shows the first Captain progression at $7.5M and buys at a $7.5M price', () => {
     const { result } = renderSeededGame({
-      cash: 5_000_000,
+      cash: 7_500_000,
       runEarnings: 7_500_000,
     });
 
@@ -290,17 +329,116 @@ describe('useGameEngine', () => {
     expect(result.current.state.activeDealers).toEqual([null]);
   });
 
+  it('uses current cash as Captain progress and keeps the panel unlocked after hiring', () => {
+    const { result } = renderSeededGame({
+      cash: 7_500_000,
+      runEarnings: 7_500_000,
+    });
+
+    act(() => result.current.buyCaptain());
+
+    expect(result.current.state.captains).toHaveLength(1);
+    expect(result.current.state.runEarnings).toBe(0);
+  });
+
+  it('requires a claim before earnings can progress the following Captain level', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-levels',
+        personalEarnings: 1_000_000,
+        lastLevelUpEarnings: 0,
+      })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 1,
+      talentPoints: 1,
+      lastLevelUpEarnings: 1_000_000,
+      ledgerUnlocked: true,
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0].level).toBe(1);
+    expect(result.current.state.captains[0].talentPoints).toBe(1);
+
+    act(() => result.current.claimCaptainLevel('captain-levels'));
+    expect(result.current.state.captains[0].level).toBe(1);
+  });
+
+  it('claims Level 2 only after the Level 1 baseline has gained the next increment', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-level-two',
+        level: 1,
+        personalEarnings: 1_200_000,
+        lastLevelUpEarnings: 750_000,
+        talentPoints: 1,
+        ledgerUnlocked: true,
+      })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-level-two'));
+
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 2,
+      talentPoints: 2,
+      lastLevelUpEarnings: 1_200_000,
+    });
+  });
+
+  it('only purchases a gated talent when one unspent point is available', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-talents',
+        level: 3,
+        talentPoints: 1,
+        ledgerUnlocked: true,
+        talentRanks: { red: [2, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      })],
+    });
+
+    act(() => result.current.purchaseCaptainTalent('captain-talents', 'red', 1));
+    expect(result.current.state.captains[0].talentRanks.red).toEqual([2, 1, 0]);
+    expect(result.current.state.captains[0].talentPoints).toBe(0);
+
+    act(() => result.current.purchaseCaptainTalent('captain-talents', 'yellow', 1));
+    expect(result.current.state.captains[0].talentRanks.yellow).toEqual([0, 0, 0]);
+  });
+
+  it('makes Kingpin optional and promotes only after a completed lane and point 10', () => {
+    const { result } = renderSeededGame({
+      captains: [makeReferenceCaptain({
+        id: 'captain-kingpin',
+        personalEarnings: 161_340_000,
+        level: 9,
+        talentPoints: 0,
+        ledgerUnlocked: true,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      })],
+    });
+
+    act(() => result.current.claimCaptainLevel('captain-kingpin'));
+    expect(result.current.state.captains[0]).toMatchObject({
+      level: 10,
+      talentPoints: 1,
+      kingpinAvailable: true,
+    });
+
+    act(() => result.current.promoteCaptain('captain-kingpin'));
+    expect(result.current.state.captains).toEqual([]);
+    expect(result.current.state.kingpins).toBe(1);
+  });
+
   it('preserves existing Captains and Kingpins across a later Captain reset', () => {
-    const existingCaptain: Captain = {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 1_000_000,
-    };
+    });
 
     const { result } = renderSeededGame({
-      cash: 7_000_000,
+      cash: 10_000_000,
       runEarnings: 7_500_000,
       captains: [existingCaptain],
       kingpins: 1,
@@ -314,16 +452,15 @@ describe('useGameEngine', () => {
   });
 
   it('round-trips a later Captain reset when an existing Captain sells a non-Weed product', () => {
-    const existingCaptain: Captain = {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
       selling: 'mushrooms',
-      equipmentIds: [],
       personalEarnings: 1_000_000,
-    };
+    });
 
     const { result } = renderSeededGame({
-      cash: 7_000_000,
+      cash: 10_000_000,
       runEarnings: 7_500_000,
       unlockedProducts: ['weed', 'mushrooms'],
       captains: [existingCaptain],
@@ -337,15 +474,13 @@ describe('useGameEngine', () => {
     )).toBe(true);
   });
 
-  it('charges the next Captain at base * 1.18^(captains + kingpins) before discount', () => {
-    const existingCaptain: Captain = {
+  it('charges the next Captain from the owned-count schedule before discount', () => {
+    const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 0,
-    };
-    const expectedCost = 5_000_000 * Math.pow(1.18, 2) * 0.9;
+    });
+    const expectedCost = 10_000_000 * 0.9;
 
     const { result } = renderSeededGame({
       cash: expectedCost,
@@ -361,34 +496,64 @@ describe('useGameEngine', () => {
     expect(result.current.state.cash).toBe(100);
   });
 
-  it('promotes a level-10 Captain into one Kingpin', () => {
+  it('promotes a Captain by fully resetting the run and retaining the Kingpin prestige', () => {
     const { result } = renderSeededGame({
-      captains: [{
-        id: 'captain-10',
-        name: 'Captain Ten',
-        selling: 'weed',
-        equipmentIds: [],
-        personalEarnings: 161_340_000,
-      }],
+      cash: 99_999,
+      runEarnings: 88_888,
+      unlockedProducts: ['weed', 'mushrooms'],
+      territoryLevel: 3,
+      discountLevel: 2,
+      activeDealers: [makeReferenceDealer({ id: 'active-before-reset' })],
+      availableDealers: [makeReferenceDealer({ id: 'candidate-before-reset' })],
+      production: {
+        ...createBaseGameState(0).production,
+        weed: { stock: 42, producersOwned: 2, purchasedUpgradeIds: [] },
+      },
+      captains: [
+        makeReferenceCaptain({
+          id: 'captain-10',
+          name: 'Captain Ten',
+          personalEarnings: 161_340_000,
+          level: 10,
+          talentPoints: 1,
+          talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+          ledgerUnlocked: true,
+          kingpinAvailable: true,
+        }),
+        makeReferenceCaptain({ id: 'captain-existing', name: 'Captain Existing' }),
+      ],
+      kingpins: 1,
     });
 
     act(() => result.current.promoteCaptain('captain-10'));
 
     expect(result.current.state.captains).toEqual([]);
-    expect(result.current.state.kingpins).toBe(1);
+    expect(result.current.state.kingpins).toBe(2);
+    expect(result.current.state.cash).toBe(STARTING_CASH);
+    expect(result.current.state.runEarnings).toBe(0);
+    expect(result.current.state.unlockedProducts).toEqual(['weed']);
+    expect(result.current.state.activeDealers).toEqual([null]);
+    expect(result.current.state.production.weed.producersOwned).toBe(0);
+    expect(result.current.state.production.weed.stock).toBe(0);
+    expect(result.current.state.territoryLevel).toBe(0);
+    expect(result.current.state.discountLevel).toBe(0);
+    expect(result.current.state.availableDealers).toHaveLength(3);
   });
 
   it('keeps Kingpin bonuses permanent through the next Captain reset', () => {
     const { result } = renderSeededGame({
       cash: 20_000_000,
       runEarnings: 20_000_000,
-      captains: [{
+      captains: [makeReferenceCaptain({
         id: 'captain-10',
         name: 'Captain Ten',
-        selling: 'weed',
-        equipmentIds: [],
         personalEarnings: 161_340_000,
-      }],
+        level: 10,
+        talentPoints: 1,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+        ledgerUnlocked: true,
+        kingpinAvailable: true,
+      })],
     });
 
     act(() => result.current.promoteCaptain('captain-10'));
@@ -432,6 +597,12 @@ describe('useGameEngine', () => {
         selling: 'weed',
         equipmentIds: [],
         personalEarnings: 0,
+        lastLevelUpEarnings: 0,
+        level: 0,
+        talentPoints: 0,
+        talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+        ledgerUnlocked: false,
+        kingpinAvailable: false,
       }],
     });
 

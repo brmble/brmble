@@ -6,29 +6,28 @@ import {
 import {
   buildSecondaryDemands,
   getSellerEquipmentBonuses,
+  getCaptainBonuses,
+  getCaptainMainSaleRate,
+  getCaptainMarginMultiplier,
   getDealerMarginMultiplier,
   getNormalDealerMainSaleRate,
 } from './dealers';
 import {
   AUTO_BULK_RETAIN_STOCK,
-  AUTO_BULK_TRIGGER_STOCK,
+  BULK_SELL_COOLDOWN_MS,
   BULK_VALUE_MULTIPLIER,
-  CAPTAIN_BASE_MARGIN_MULTIPLIER,
-  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   MARKET_CHECK_INTERVAL_MS,
   MARKET_EVENT_CHANCE,
   MARKET_DURATION_MAX_MS,
   MARKET_DURATION_MIN_MS,
   MARKET_MULTIPLIER_MAX,
   MARKET_MULTIPLIER_MIN,
-  MAIN_SALE_UNITS_PER_VOLUME,
   OFFLINE_CAP_MS,
   OFFLINE_MIN_AWAY_MS,
   PROTECTION_INCOME_MULTIPLIER,
   RISK_ATTEMPT_CHANCE,
   RISK_CHECK_INTERVAL_MS,
   RISK_LIFETIME_EARNINGS_THRESHOLD,
-  CAPTAIN_LEVEL_THRESHOLDS,
 } from './constants';
 import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
@@ -43,8 +42,11 @@ type SaleDemand = {
 export const sellBulkOverflow = (
   state: GameState,
   productId: ProductId,
+  now: number,
 ): GameState => {
-  if (!state.bulkUnlocked || !state.unlockedProducts.includes(productId)) return state;
+  if (!state.bulkUnlockedProductIds.includes(productId) || !state.unlockedProducts.includes(productId)) return state;
+  const hasPreviousBulkSale = state.lastBulkSellAt > 0;
+  if (hasPreviousBulkSale && now - state.lastBulkSellAt < BULK_SELL_COOLDOWN_MS) return state;
 
   const stock = state.production[productId].stock;
   const unitsToSell = Math.max(0, stock - AUTO_BULK_RETAIN_STOCK);
@@ -59,6 +61,7 @@ export const sellBulkOverflow = (
     ...state,
     cash: state.cash + earned,
     runEarnings: state.runEarnings + earned,
+    lastBulkSellAt: now,
     production: {
       ...state.production,
       [productId]: {
@@ -67,17 +70,6 @@ export const sellBulkOverflow = (
       },
     },
   };
-};
-
-export const applyAutoBulk = (state: GameState): GameState => {
-  if (!state.bulkUnlocked || !state.autoBulkEnabled) return state;
-
-  return state.unlockedProducts.reduce(
-    (nextState, productId) => nextState.production[productId].stock > AUTO_BULK_TRIGGER_STOCK
-      ? sellBulkOverflow(nextState, productId)
-      : nextState,
-    state,
-  );
 };
 
 const rollBetween = (min: number, max: number, rng: () => number) =>
@@ -153,14 +145,9 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
 
 const buildCaptainDemands = (state: GameState): SaleDemand[] =>
   state.captains.flatMap((captain) => {
-    const bonuses = getSellerEquipmentBonuses(captain.equipmentIds);
-    const mainRate =
-      CAPTAIN_BASE_VOLUME_MULTIPLIER *
-      (1 + bonuses.volumeBonus) *
-      MAIN_SALE_UNITS_PER_VOLUME;
-    const marginMultiplier =
-      CAPTAIN_BASE_MARGIN_MULTIPLIER *
-      (1 + bonuses.marginBonus);
+    const bonuses = getCaptainBonuses(captain);
+    const mainRate = getCaptainMainSaleRate(captain);
+    const marginMultiplier = getCaptainMarginMultiplier(captain);
 
     const demands: SaleDemand[] = [{
       sellerId: captain.id,
@@ -280,8 +267,8 @@ export const advanceDeterministicState = (
   let cash = state.cash;
   let runEarnings = state.runEarnings;
   const demands = [
-    ...buildNormalDealerDemands(state),
     ...buildCaptainDemands(state),
+    ...buildNormalDealerDemands(state),
   ];
 
   state.unlockedProducts.forEach((productId) => {
@@ -309,7 +296,7 @@ export const advanceDeterministicState = (
     };
   });
 
-  return applyAutoBulk({
+  return {
     ...state,
     cash,
     runEarnings,
@@ -322,7 +309,7 @@ export const advanceDeterministicState = (
     })),
     lastEarningsPerSeller,
     lastTickAt: now,
-  });
+  };
 };
 
 export const applyOfflineProgress = (
@@ -348,47 +335,12 @@ export const applyOfflineProgress = (
     offlineEarningsSummary: null,
   };
   const wholeSeconds = Math.floor(simulatedMs / 1000);
-  let remainingSeconds = wholeSeconds;
-
-  while (remainingSeconds > 0) {
-    if (advanced.bulkUnlocked && advanced.autoBulkEnabled) {
-      const bulkApplied = applyAutoBulk(advanced);
-      if (bulkApplied !== advanced) {
-        advanced = bulkApplied;
-        continue;
-      }
-    }
-
-    let span = remainingSeconds;
-    const salesRates = getProductSalesRates(advanced);
-    advanced.unlockedProducts.forEach((productId) => {
-      const netProductionRate = getProductProductionRate(advanced, productId) - salesRates[productId];
-      const stock = advanced.production[productId].stock;
-      if (netProductionRate > 0 && stock < AUTO_BULK_TRIGGER_STOCK) {
-        span = Math.min(span, (AUTO_BULK_TRIGGER_STOCK - stock) / netProductionRate);
-      }
-    });
-
-    const oneSecondPreview = advanceDeterministicState(
-      advanced,
-      1,
-      advanced.lastTickAt + 1_000,
-    );
-    advanced.captains.forEach((captain, index) => {
-      const earningsPerSecond = oneSecondPreview.captains[index].personalEarnings - captain.personalEarnings;
-      const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS.find((threshold) => threshold > captain.personalEarnings);
-      if (earningsPerSecond > 0 && nextThreshold !== undefined) {
-        span = Math.min(span, (nextThreshold - captain.personalEarnings) / earningsPerSecond);
-      }
-    });
-
-    const step = Math.max(Math.min(span, remainingSeconds), Number.EPSILON);
+  if (wholeSeconds > 0) {
     advanced = advanceDeterministicState(
       advanced,
-      step,
-      advanced.lastTickAt + step * 1_000,
+      wholeSeconds,
+      advanced.lastTickAt + wholeSeconds * 1_000,
     );
-    remainingSeconds -= step;
   }
 
   const fractionalSeconds = (simulatedMs % 1_000) / 1_000;

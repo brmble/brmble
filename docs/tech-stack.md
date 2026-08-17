@@ -24,6 +24,16 @@ Every component is open source and permissively licensed (Apache 2.0, MIT, or BS
 
 ---
 
+## Local Client Data
+
+WebView2 user data is stored in `%LOCALAPPDATA%\Brmble\WebView2`, a
+version-independent directory shared by the main client and companion overlay.
+This includes machine-local browser storage such as Neon-D progress. It is
+intentionally not synchronized between devices and is preserved across Brmble
+application updates.
+
+---
+
 ## Voice — Mumble
 
 Mumble is the backbone of the platform. It provides the lowest-latency voice communication of any available solution, purpose-built for gaming.

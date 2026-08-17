@@ -1,8 +1,8 @@
 import {
   BAIL_EARNINGS_SECONDS,
   BULK_VISIBLE_EARNINGS,
-  CAPTAIN_BASE_COST,
-  CAPTAIN_COST_GROWTH,
+  CAPTAIN_COST_INCREMENT,
+  CAPTAIN_COSTS,
   CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER,
   CAPTAIN_LEVEL_THRESHOLDS,
   CAPTAIN_VISIBLE_EARNINGS,
@@ -61,6 +61,15 @@ export const getProductProductionRate = (state: GameState, productId: ProductId)
   return productState.producersOwned * definition.producer.baseRate * upgradeMultiplier * (1 + state.kingpins);
 };
 
+export const isProductFullyUpgraded = (
+  state: Pick<GameState, 'production'>,
+  productId: ProductId,
+) => {
+  const product = getProductDefinition(productId);
+  const purchased = state.production[productId].purchasedUpgradeIds;
+  return product.upgrades.every((upgrade) => purchased.includes(upgrade.id));
+};
+
 export const getVisibleProductIds = (state: GameState): ProductId[] => {
   const next = PRODUCT_CATALOG[state.unlockedProducts.length];
   if (!next) return [...state.unlockedProducts];
@@ -77,12 +86,56 @@ export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, dis
   return worker.baseCost * Math.pow(worker.growth, owned) * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainLevel = (personalEarnings: number) =>
+export const getCaptainEligibleLevel = (personalEarnings: number) =>
   CAPTAIN_LEVEL_THRESHOLDS.filter((threshold) => personalEarnings >= threshold).length;
+
+const getCaptainCumulativeThreshold = (level: number) =>
+  level === 0 ? 0 : CAPTAIN_LEVEL_THRESHOLDS[level - 1];
+
+export const getCaptainLevelRequirement = (level: number) => {
+  const nextThreshold = CAPTAIN_LEVEL_THRESHOLDS[level];
+  const currentThreshold = getCaptainCumulativeThreshold(level);
+  return nextThreshold === undefined || currentThreshold === undefined
+    ? null
+    : nextThreshold - currentThreshold;
+};
+
+export const getCaptainLevelProgress = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  if (requirement === null) return null;
+  return Math.min(requirement, Math.max(0, personalEarnings - lastLevelUpEarnings));
+};
+
+export const isCaptainLevelUpAvailable = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  const progress = getCaptainLevelProgress(level, personalEarnings, lastLevelUpEarnings);
+  return requirement !== null && progress !== null && progress >= requirement;
+};
+
+export const getCaptainRemainingThreshold = (
+  level: number,
+  personalEarnings: number,
+  lastLevelUpEarnings: number,
+) => {
+  const requirement = getCaptainLevelRequirement(level);
+  const progress = getCaptainLevelProgress(level, personalEarnings, lastLevelUpEarnings);
+  return requirement === null || progress === null ? null : requirement - progress;
+};
+
+/** @deprecated Use getCaptainEligibleLevel for earnings-based eligibility. */
+export const getCaptainLevel = getCaptainEligibleLevel;
 
 export const getRespectMultiplier = (state: GameState) => {
   const captainBonus = state.captains.reduce(
-    (sum, captain) => sum + 1 + getCaptainLevel(captain.personalEarnings) * 0.5,
+    (sum, captain) => sum + 1 + captain.level * 0.5,
     0,
   );
   return 1 + captainBonus + state.kingpins;
@@ -101,8 +154,14 @@ export const getEquipmentCost = (equipmentId: EquipmentId, sellerKind: 'dealer' 
   return getEquipmentDefinition(equipmentId).baseCost * sellerMultiplier * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainCost = (state: Pick<GameState, 'captains' | 'kingpins' | 'discountLevel'>) =>
-  CAPTAIN_BASE_COST * Math.pow(CAPTAIN_COST_GROWTH, state.captains.length + state.kingpins) * getDiscountMultiplier(state.discountLevel);
+export const getCaptainCost = (state: Pick<GameState, 'captains' | 'discountLevel'>) => {
+  const captainCount = state.captains.length;
+  const baseCost = captainCount < CAPTAIN_COSTS.length
+    ? CAPTAIN_COSTS[captainCount]
+    : CAPTAIN_COSTS[CAPTAIN_COSTS.length - 1]
+      + (captainCount - CAPTAIN_COSTS.length + 1) * CAPTAIN_COST_INCREMENT;
+  return baseCost * getDiscountMultiplier(state.discountLevel);
+};
 
 export const getRecruitmentRefreshMs = (kingpins: number) => Math.max(
   RECRUITMENT_MIN_REFRESH_MS,
@@ -123,4 +182,5 @@ export const getEffectiveStreetValue = (state: Pick<GameState, 'activeMarketEven
 
 export const isRiskActive = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= 30_000;
 export const isBulkSellingVisible = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= BULK_VISIBLE_EARNINGS;
-export const isCaptainVisible = (state: Pick<GameState, 'runEarnings'>) => state.runEarnings >= CAPTAIN_VISIBLE_EARNINGS;
+export const isCaptainVisible = (state: Pick<GameState, 'runEarnings' | 'captains'>) =>
+  state.runEarnings >= CAPTAIN_VISIBLE_EARNINGS || state.captains.length > 0;

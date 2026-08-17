@@ -1,12 +1,12 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
-import { CAPTAIN_VISIBLE_EARNINGS } from './constants';
 import {
   getCaptainCost,
   getProductDefinition,
   getRespectPerSecond,
   isCaptainVisible,
 } from './economy';
+import { MARKET_DURATION_MAX_MS } from './constants';
 import { confirm } from '../../hooks/usePrompt';
 import { Icon } from '../Icon/Icon';
 import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
@@ -55,9 +55,10 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     payDealerBail,
     unlockBulkSelling,
     bulkSellProduct,
-    setAutoBulkEnabled,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    claimCaptainLevel,
+    purchaseCaptainTalent,
     promoteCaptain,
     resetGame,
     importGame,
@@ -72,11 +73,20 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
   const captainProgressValue = Math.min(
-    CAPTAIN_VISIBLE_EARNINGS,
-    Math.max(0, Math.floor(state.runEarnings)),
+    captainCost,
+    Math.max(0, Math.floor(state.cash)),
   );
-  const captainProgress = captainProgressValue / CAPTAIN_VISIBLE_EARNINGS;
+  const captainProgress = captainCost > 0 ? captainProgressValue / captainCost : 0;
   const renderNow = state.lastTickAt;
+  const activeMarketEvent = state.activeMarketEvent;
+  const activeMarketProduct = activeMarketEvent
+    ? getProductDefinition(activeMarketEvent.productId)
+    : null;
+  const marketRemainingMs = activeMarketEvent
+    ? Math.max(0, activeMarketEvent.endsAt - renderNow)
+    : 0;
+  const marketRemainingSeconds = Math.ceil(marketRemainingMs / 1_000);
+  const marketProgress = Math.min(1, Math.max(0, marketRemainingMs / MARKET_DURATION_MAX_MS));
 
   const handleReset = async () => {
     const confirmed = await confirm({
@@ -88,6 +98,19 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     });
 
     if (confirmed) resetGame();
+  };
+
+  const handleFireDealer = async (dealerId: string) => {
+    const dealer = state.activeDealers.find((candidate) => candidate?.id === dealerId);
+    const confirmed = await confirm({
+      title: 'Fire dealer?',
+      message: `Are you sure you want to fire ${dealer?.name ?? 'this dealer'}?`,
+      confirmLabel: 'Fire Dealer',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+
+    if (confirmed) fireDealer(dealerId);
   };
 
   const handleExport = () => {
@@ -190,12 +213,27 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
         {importError && <p className={styles.importError} role="alert">{importError}</p>}
       </header>
 
-      {state.activeMarketEvent && state.activeMarketEvent.endsAt > renderNow && (
-        <div className={`glass-panel ${styles.marketBanner}`}>
-          <strong>Market spike: {getProductDefinition(state.activeMarketEvent.productId).name}</strong>
-          <span>{state.activeMarketEvent.multiplier.toFixed(2)}x street value</span>
-          <span>{Math.ceil((state.activeMarketEvent.endsAt - renderNow) / 1000)}s remaining</span>
-        </div>
+      {activeMarketEvent && activeMarketProduct && activeMarketEvent.endsAt > renderNow && (
+        <section className={styles.marketEventCard} aria-labelledby="market-event-title">
+          <div className={styles.marketEventAccent} aria-hidden="true" />
+          <div className={styles.marketEventContent}>
+            <span className={styles.marketEventBadge}>LIVE MARKET</span>
+            <h3 id="market-event-title" className={styles.marketEventHeading}>
+              {activeMarketProduct.name} market spike
+            </h3>
+            <span className={styles.marketEventLabel}>Street value boost</span>
+            <strong className={styles.marketEventMultiplier}>
+              {activeMarketEvent.multiplier.toFixed(2)}x
+            </strong>
+          </div>
+          <div className={styles.marketEventStatus}>
+            <span className={styles.marketEventLabel}>Time remaining</span>
+            <strong>{marketRemainingSeconds}s remaining</strong>
+          </div>
+          <div className={styles.marketEventProgressTrack} aria-hidden="true">
+            <span className={styles.marketEventProgress} style={{ width: `${marketProgress * 100}%` }} />
+          </div>
+        </section>
       )}
 
       <div className={styles.gameplayGrid}>
@@ -228,7 +266,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
               buyProductUpgrade={buyProductUpgrade}
               unlockBulkSelling={unlockBulkSelling}
               bulkSellProduct={bulkSellProduct}
-              setAutoBulkEnabled={setAutoBulkEnabled}
             />
           ) : (
             <MusclePanel
@@ -240,53 +277,45 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           )}
         </div>
         <div className={styles.rightWorkspace} data-testid="distribution-workspace">
-          <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
-            {captainVisible ? (
-              <>
-                <div className={styles.captainMilestoneCopy}>
-                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain recruitment</span>
-                  <strong>Expand your command</strong>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={buyCaptain}
-                  disabled={state.cash < captainCost}
-                >
-                  Hire Captain - {formatMoney(captainCost)}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className={styles.captainMilestoneHeader}>
-                  <span id="captain-milestone-title" className={styles.metricLabel}>Captain unlock</span>
-                  <strong>{formatMoney(captainProgressValue)} / {formatMoney(CAPTAIN_VISIBLE_EARNINGS)}</strong>
-                </div>
+          {captainVisible && (
+            <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
+              <div className={styles.captainMilestoneCopy}>
+                <span id="captain-milestone-title" className={styles.metricLabel}>Next Captain — Cash saved:</span>
+                <strong>{formatMoney(captainProgressValue)} / {formatMoney(captainCost)}</strong>
+              </div>
+              <div className={styles.captainProgressBlock}>
                 <div
                   className={styles.captainProgressTrack}
                   role="progressbar"
-                  aria-label="Captain unlock progress"
+                  aria-label="Captain recruitment fund"
                   aria-valuemin={0}
-                  aria-valuemax={CAPTAIN_VISIBLE_EARNINGS}
+                  aria-valuemax={captainCost}
                   aria-valuenow={captainProgressValue}
-                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(CAPTAIN_VISIBLE_EARNINGS)}`}
+                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(captainCost)}`}
                 >
                   <span
                     className={styles.captainProgressFill}
                     style={{ width: `${captainProgress * 100}%` }}
                   />
                 </div>
-              </>
-            )}
-          </section>
+              </div>
+              {captainProgressValue >= captainCost && (
+                <button type="button" className="btn btn-primary" onClick={buyCaptain}>
+                  Hire Captain
+                </button>
+              )}
+            </section>
+          )}
           <DistributionPanel
             state={state}
             hireDealer={hireDealer}
-            fireDealer={fireDealer}
+            fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}
             payDealerBail={payDealerBail}
+            claimCaptainLevel={claimCaptainLevel}
+            purchaseCaptainTalent={purchaseCaptainTalent}
             promoteCaptain={promoteCaptain}
           />
         </div>

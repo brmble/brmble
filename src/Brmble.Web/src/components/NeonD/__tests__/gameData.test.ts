@@ -64,6 +64,9 @@ describe('Neon-D reference catalog', () => {
     expect(state.production.weed.producersOwned).toBe(0);
     expect(state.production.weed.stock).toBe(0);
     expect(state.lastTickAt).toBe(1234);
+    expect(state.schemaVersion).toBe(5);
+    expect(state.lastBulkSellAt).toBe(0);
+    expect(state.bulkUnlockedProductIds).toEqual([]);
   });
 
   it('locks reference equipment, Muscle, and Captain thresholds', () => {
@@ -84,6 +87,11 @@ describe('Neon-D reference catalog', () => {
     expect(CAPTAIN_LEVEL_THRESHOLDS).toEqual([
       500_000, 950_000, 1_810_000, 3_430_000, 6_520_000,
       12_380_000, 23_520_000, 44_690_000, 84_920_000, 161_340_000,
+      306_546_000, 582_437_000, 1_106_630_000, 2_102_597_000,
+      3_994_934_000, 7_590_375_000, 14_421_712_000, 27_401_253_000,
+      52_062_381_000, 98_918_524_000, 187_945_196_000, 357_095_872_000,
+      678_482_157_000, 1_289_116_098_000, 2_449_320_586_000, 4_653_709_113_000,
+      8_842_047_315_000, 16_799_889_899_000,
     ]);
   });
 });

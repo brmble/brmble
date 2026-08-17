@@ -1,11 +1,14 @@
 import {
+  CAPTAIN_BASE_MARGIN_MULTIPLIER,
+  CAPTAIN_BASE_VOLUME_MULTIPLIER,
   EQUIPMENT_CATALOG,
   MAIN_SALE_UNITS_PER_VOLUME,
   NORMAL_DEALER_MAX_MULTIPLIER,
   NORMAL_DEALER_MIN_MULTIPLIER,
 } from './constants';
 import { getRecruitmentRefreshMs } from './economy';
-import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId } from './types';
+import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId, SellerBonuses } from './types';
+import { getTalentBonus } from './talents';
 
 const DEALER_FIRST_NAMES = [
   'Thomas', 'Dutch', 'Belgian', 'Chemist', 'Slick', 'Vito', 'Snake',
@@ -31,7 +34,7 @@ const rollMultiplier = (rng: () => number) =>
   NORMAL_DEALER_MIN_MULTIPLIER +
   rng() * (NORMAL_DEALER_MAX_MULTIPLIER - NORMAL_DEALER_MIN_MULTIPLIER);
 
-export const getSellerEquipmentBonuses = (equipmentIds: EquipmentId[]) =>
+export const getSellerEquipmentBonuses = (equipmentIds: EquipmentId[]): SellerBonuses =>
   equipmentIds.reduce(
     (totals, equipmentId) => {
       const item = EQUIPMENT_CATALOG.find((entry) => entry.id === equipmentId);
@@ -44,8 +47,17 @@ export const getSellerEquipmentBonuses = (equipmentIds: EquipmentId[]) =>
           totals.secondarySalesBonus + (effect.secondarySalesBonus ?? 0),
       };
     },
-    { volumeBonus: 0, marginBonus: 0, secondarySalesBonus: 0 },
+    { volumeBonus: 0, marginBonus: 0, secondarySalesBonus: 0 } satisfies SellerBonuses,
   );
+
+export const getCaptainBonuses = (captain: Captain): SellerBonuses =>
+  getTalentBonus(captain.talentRanks);
+
+export const getCaptainMainSaleRate = (captain: Captain) =>
+  CAPTAIN_BASE_VOLUME_MULTIPLIER * (1 + getCaptainBonuses(captain).volumeBonus) * MAIN_SALE_UNITS_PER_VOLUME;
+
+export const getCaptainMarginMultiplier = (captain: Captain) =>
+  CAPTAIN_BASE_MARGIN_MULTIPLIER * (1 + getCaptainBonuses(captain).marginBonus);
 
 export const getNormalDealerMainSaleRate = (dealer: Dealer) => {
   const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);
@@ -95,6 +107,12 @@ export const createCaptain = (index: number): Captain => ({
   selling: 'weed',
   equipmentIds: [],
   personalEarnings: 0,
+  lastLevelUpEarnings: 0,
+  level: 0,
+  talentPoints: 0,
+  talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+  ledgerUnlocked: false,
+  kingpinAvailable: false,
 });
 
 export const generateCandidatePool = (

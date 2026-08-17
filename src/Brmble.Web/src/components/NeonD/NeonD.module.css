@@ -172,6 +172,12 @@
   align-items: center;
 }
 
+.captainMilestone > button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  white-space: nowrap;
+}
+
 .captainMilestoneHeader,
 .captainMilestoneCopy {
   display: flex;
@@ -181,9 +187,16 @@
 }
 
 .captainMilestoneCopy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.captainProgressBlock {
   display: grid;
-  justify-content: start;
   gap: var(--space-2xs);
+  min-width: 0;
 }
 
 .captainProgressTrack {
@@ -283,10 +296,115 @@
   opacity: 0.65;
 }
 
-.captainCard,
-.marketBanner {
+.captainCard {
   display: grid;
   gap: var(--space-2xs);
+}
+
+.marketEventCard {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--accent-secondary) 12%, transparent), transparent 42%),
+    var(--bg-surface);
+  border: var(--border-width-thin) solid color-mix(in srgb, var(--accent-secondary) 48%, var(--glass-border));
+  border-left: var(--space-2xs) solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 var(--glow-md) var(--accent-secondary-glow);
+}
+
+.marketEventAccent {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 12% 20%, var(--accent-secondary-glow), transparent 34%);
+  opacity: 0.55;
+}
+
+.marketEventContent,
+.marketEventStatus,
+.marketEventProgressTrack {
+  position: relative;
+  z-index: 1;
+}
+
+.marketEventContent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-sm);
+  row-gap: var(--space-2xs);
+}
+
+.marketEventBadge {
+  grid-column: 1 / -1;
+  width: fit-content;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid var(--accent-secondary);
+  border-radius: var(--radius-full);
+  color: var(--accent-secondary);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.marketEventHeading {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.marketEventLabel {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-style: italic;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.marketEventMultiplier {
+  color: var(--accent-secondary);
+  font-size: clamp(var(--text-2xl), 4vw, var(--text-4xl));
+  line-height: 1;
+  text-shadow: 0 0 var(--glow-sm) var(--accent-secondary-glow);
+}
+
+.marketEventStatus {
+  display: grid;
+  gap: var(--space-2xs);
+  justify-items: end;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.marketEventStatus strong {
+  font-size: var(--text-lg);
+}
+
+.marketEventProgressTrack {
+  grid-column: 1 / -1;
+  height: var(--space-2xs);
+  overflow: hidden;
+  background: var(--bg-deep);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-full);
+}
+
+.marketEventProgress {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent-secondary);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-secondary-glow);
+  transition: width var(--transition-normal);
 }
 
 .muscleActionGrid {
@@ -580,6 +698,9 @@
 }
 
 .dealerName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
   color: var(--accent-primary);
   margin-bottom: var(--space-sm);
 }
@@ -599,6 +720,240 @@
   max-width: var(--neond-modal-max-width);
   display: grid;
   gap: var(--space-md);
+}
+
+.talentLedgerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  overflow: hidden;
+  background: var(--bg-overlay);
+}
+
+.talentLedgerModal {
+  display: grid;
+  gap: var(--space-lg);
+  width: min(100%, var(--neond-talent-ledger-max-width));
+  max-height: calc(100vh - var(--space-2xl));
+  overflow: auto;
+  padding: var(--space-xl);
+  border: var(--border-width-strong) solid var(--accent-primary);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 38%),
+    var(--bg-deep);
+  box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-primary-glow);
+}
+
+.talentLedgerModal:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
+}
+
+.talentLedgerHeader,
+.talentLedgerSummary,
+.kingpinNodeSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.talentLedgerKicker {
+  margin: 0 0 var(--space-2xs);
+  color: var(--accent-primary);
+  font-size: var(--text-2xs);
+  font-style: italic;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.talentLedgerSubtitle,
+.kingpinNodeCopy p,
+.talentPromotionConfirm p {
+  margin: var(--space-2xs) 0 0;
+  color: var(--text-muted);
+}
+
+.modalCloseButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--neond-control-min-height);
+  height: var(--neond-control-min-height);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-hover-light);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--text-xl);
+}
+
+.modalCloseButton:hover,
+.modalCloseButton:focus-visible {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.modalCloseButton:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
+}
+
+.talentLedgerSummary {
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-left: var(--space-2xs) solid var(--accent-success);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-secondary);
+}
+
+.talentLedgerSummary strong {
+  color: var(--text-primary);
+}
+
+.talentLedgerStatus {
+  color: var(--accent-primary);
+  font-size: var(--text-sm);
+}
+
+.talentLedgerTree {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.talentLane {
+  --talent-lane-accent: var(--accent-primary);
+  display: grid;
+  align-content: start;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-md);
+  border: var(--border-width-thin) solid color-mix(in srgb, var(--talent-lane-accent) 56%, var(--glass-border));
+  border-top: var(--space-2xs) solid var(--talent-lane-accent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--talent-lane-accent) 7%, var(--bg-surface));
+}
+
+.talentLaneRed {
+  --talent-lane-accent: var(--accent-danger);
+}
+
+.talentLaneYellow {
+  --talent-lane-accent: var(--accent-secondary);
+}
+
+.talentLaneBlue {
+  --talent-lane-accent: var(--accent-primary);
+}
+
+.talentLaneHeader {
+  display: grid;
+  gap: var(--space-2xs);
+  width: 100%;
+  max-width: 12rem;
+  justify-self: center;
+  color: var(--talent-lane-accent);
+  text-align: center;
+}
+
+.talentLaneHeader span {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-style: italic;
+}
+
+.talentNodeSlot {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem);
+  justify-content: center;
+  justify-items: stretch;
+  gap: var(--space-2xs);
+}
+
+.talentNode {
+  display: grid;
+  gap: var(--space-2xs);
+  width: 100%;
+  min-height: var(--neond-control-min-height);
+  padding: var(--space-sm);
+  border: var(--border-width-thin) solid color-mix(in srgb, var(--talent-lane-accent) 62%, var(--glass-border));
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.talentNode:hover:not(:disabled),
+.talentNode:focus-visible {
+  border-color: var(--talent-lane-accent);
+  box-shadow: 0 0 var(--glow-md) color-mix(in srgb, var(--talent-lane-accent) 54%, transparent);
+  transform: translateY(calc(-1 * var(--space-2xs)));
+}
+
+.talentNode:focus-visible {
+  outline: var(--border-width-strong) solid var(--talent-lane-accent);
+  outline-offset: var(--space-2xs);
+}
+
+.talentNode:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.talentNodeComplete {
+  border-color: var(--accent-success);
+  box-shadow: 0 0 var(--glow-sm) var(--accent-success-glow);
+}
+
+.talentNodeLabel {
+  color: var(--talent-lane-accent);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.talentNodeEffect {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+
+.talentLaneArrow {
+  color: var(--talent-lane-accent);
+  font-size: var(--text-xl);
+  line-height: 1;
+}
+
+.kingpinNodeSection {
+  padding: var(--space-md);
+  border: var(--border-width-strong) solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+}
+
+.kingpinNodeCopy {
+  min-width: 0;
+}
+
+.talentPromotionConfirm {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: var(--border-width-strong) solid var(--accent-danger);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-elevated);
 }
 
 .dealerCard {
@@ -747,6 +1102,46 @@
   flex: 1;
   min-width: 0;
   text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+}
+
+.dealerHeaderTitleWithFavorite {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.dealerFavoriteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dealerFavoriteButtonActive {
+  color: var(--accent-primary);
+}
+
+.dealerFavoriteButtonActive svg {
+  fill: currentColor;
+}
+
+.dealerFavoriteButton:hover,
+.dealerFavoriteButton:focus-visible {
+  color: var(--text-primary);
+}
+
+.dealerFavoriteButton:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: var(--space-2xs);
 }
 
 .collapsedDealerBody {
@@ -794,6 +1189,8 @@
   }
 
   .captainMilestone > button {
+    grid-column: 1;
+    grid-row: auto;
     width: 100%;
     overflow-wrap: anywhere;
     white-space: normal;
@@ -802,6 +1199,16 @@
   .gameplayGrid {
     grid-template-columns: 1fr;
     overflow: auto;
+  }
+
+  .marketEventCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-bottom: var(--space-md);
+    padding-inline: var(--space-md);
+  }
+
+  .marketEventHeading {
+    font-size: var(--text-md);
   }
 
   .leftWorkspace {

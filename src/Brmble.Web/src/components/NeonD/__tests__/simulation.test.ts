@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createBaseGameState } from '../constants';
-import { getCaptainLevel } from '../economy';
 import {
   advanceDeterministicState,
   applyOfflineProgress,
-  applyAutoBulk,
   applyDueRiskCheck,
   applyMarketClock,
   getProductSalesRates,
@@ -70,47 +68,84 @@ describe('deterministic production', () => {
     expect(next.activeDealers[0]?.isArrested).toBe(false);
   });
 
-  it('updates Captain level during offline stepping after personal earnings cross $500,000', () => {
+  it('accumulates Captain earnings offline without claiming a level', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     state.production.weed.producersOwned = 10_000;
-    state.captains = [{
+    state.captains = [makeReferenceCaptain({
       id: 'captain-threshold',
       name: 'Captain Threshold',
-      selling: 'weed',
-      equipmentIds: [],
       personalEarnings: 499_990,
-    }];
+    })];
 
     const next = applyOfflineProgress(state, 31_000);
     const captain = next.captains[0];
 
     expect(captain.personalEarnings).toBeGreaterThanOrEqual(500_000);
-    expect(getCaptainLevel(captain.personalEarnings)).toBe(1);
-    expect(next.offlineEarningsSummary?.respectEarned).toBeGreaterThan(62);
+    expect(captain.level).toBe(0);
+    expect(captain.talentPoints).toBe(0);
+    expect(next.offlineEarningsSummary?.respectEarned).toBeCloseTo(62);
   });
 
   it('manual bulk overflow sells stock down to 500g at 90 percent of street value', () => {
     const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 1_500;
 
-    const next = sellBulkOverflow(state, 'weed');
+    const next = sellBulkOverflow(state, 'weed', 10_000);
 
     expect(next.production.weed.stock).toBeCloseTo(500);
     expect(next.cash - state.cash).toBeCloseTo(1_000 * 4.2 * 0.90);
     expect(next.runEarnings - state.runEarnings).toBeCloseTo(1_000 * 4.2 * 0.90);
+    expect(next.lastBulkSellAt).toBe(10_000);
   });
 
-  it('auto bulk triggers only above 1500g and sells down to 500g', () => {
-    const state = createBaseGameState(0);
-    state.bulkUnlocked = true;
-    state.autoBulkEnabled = true;
+  it('allows the first bulk sale after the game advances from a fresh state', () => {
+    const state = createBaseGameState(1_000);
+    state.lastTickAt = 2_000;
+    state.bulkUnlockedProductIds = ['weed'];
     state.production.weed.stock = 1_500;
-    expect(applyAutoBulk(state).production.weed.stock).toBe(1_500);
 
-    state.production.weed.stock = 1_500.01;
-    expect(applyAutoBulk(state).production.weed.stock).toBeCloseTo(500);
+    const next = sellBulkOverflow(state, 'weed', 3_000);
+
+    expect(next.production.weed.stock).toBe(500);
+    expect(next.lastBulkSellAt).toBe(3_000);
+  });
+
+  it('blocks another manual bulk sale until the 20-minute cooldown expires', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlockedProductIds = ['weed'];
+    state.production.weed.stock = 1_500;
+
+    const sold = sellBulkOverflow(state, 'weed', 10_000);
+    sold.production.weed.stock = 1_500;
+    const blocked = sellBulkOverflow(sold, 'weed', 10_000 + 1_199_999);
+
+    expect(blocked).toBe(sold);
+
+    const allowed = sellBulkOverflow(sold, 'weed', 10_000 + 1_200_000);
+    expect(allowed.production.weed.stock).toBe(500);
+    expect(allowed.lastBulkSellAt).toBe(1_210_000);
+  });
+
+  it('does not start a cooldown when there is no overflow to sell', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlockedProductIds = ['weed'];
+    state.production.weed.stock = 500;
+
+    const next = sellBulkOverflow(state, 'weed', 10_000);
+
+    expect(next).toBe(state);
+    expect(next.lastBulkSellAt).toBe(0);
+  });
+
+  it('does not automatically bulk sell stock above 1500g', () => {
+    const state = createBaseGameState(0);
+    state.bulkUnlockedProductIds = ['weed'];
+    state.production.weed.stock = 1_500;
+    state.production.weed.producersOwned = 1;
+
+    expect(advanceDeterministicState(state, 1, 1_000).production.weed.stock).toBeGreaterThan(1_500);
   });
 
   it('produces 0.20 units per second for one Cannabis Plant', () => {
@@ -208,20 +243,20 @@ describe('deterministic production', () => {
     expect(protectedIncome).toBeCloseTo(unprotectedIncome * 0.90);
   });
 
-  it('Captain sells at 1.5 Volume x 3 and 1.5 Margin and accrues personal earnings', () => {
+  it('Captain sells at 1.75 Volume x 3 and 1.75 Margin and accrues personal earnings', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 100;
     state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
-    const expectedUnits = 1.5 * 3;
-    const expectedEarnings = expectedUnits * 4.2 * 1.5;
+    const expectedUnits = 1.75 * 3;
+    const expectedEarnings = expectedUnits * 4.2 * 1.75;
     expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(expectedEarnings);
     expect(next.captains[0].personalEarnings).toBeCloseTo(expectedEarnings);
   });
 
-  it('allocates normal dealer demand before Captain demand when stock is scarce', () => {
+  it('allocates Captain demand before normal dealer demand when stock is scarce', () => {
     const state = createBaseGameState(0);
     state.production.weed.stock = 3;
     state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
@@ -229,8 +264,8 @@ describe('deterministic production', () => {
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
-    expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(12.6);
-    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(0);
+    expect(next.lastEarningsPerSeller['captain-1']).toBeCloseTo(3 * 4.2 * 1.75);
+    expect(next.lastEarningsPerSeller['dealer-1']).toBeCloseTo(0);
     expect(next.production.weed.stock).toBeCloseTo(0);
   });
 
@@ -239,7 +274,7 @@ describe('deterministic production', () => {
     state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
     state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
 
-    expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 4.5);
+    expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 5.25);
   });
 });
 

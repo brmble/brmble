@@ -33,6 +33,7 @@
   --neond-arrow-width: var(--space-xs);
   --neond-arrow-height: var(--space-sm);
   --neond-modal-max-width: 26.25rem;
+  --neond-talent-ledger-max-width: calc(var(--neond-panel-max-width) + var(--neond-panel-max-width) + var(--neond-grid-gap));
 
   /* Transitions */
   --transition-fast: 150ms ease;

@@ -39,6 +39,12 @@ function createCorruptEnvelope(mutator: (state: GameState) => void): string {
   return createEnvelope(state);
 }
 
+function createCaptainCorruptEnvelope(mutator: (state: GameState) => void): string {
+  const state = createState({ captains: [makeReferenceCaptain()] });
+  mutator(state);
+  return createEnvelope(state);
+}
+
 describe('Neon-D save format', () => {
   it('serializes and parses a versioned save envelope', () => {
     const state = createState({ cash: 1234.5 });
@@ -53,9 +59,8 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(json)).toEqual(state);
   });
 
-  it('serializes the v2 schema without restoring v1-only fields', () => {
+  it('serializes the v5 schema without restoring legacy fields', () => {
     const state = createState({
-      schemaVersion: 2,
       offlineEarningsSummary: {
         actualAwayMs: 60_000,
         simulatedMs: 30_000,
@@ -68,14 +73,14 @@ describe('Neon-D save format', () => {
     const parsed = JSON.parse(json);
     const legacyResearchField = ['research', 'Speed'].join('');
 
-    expect(parsed.state.schemaVersion).toBe(2);
+    expect(parsed.state.schemaVersion).toBe(5);
     expect(parsed.state).not.toHaveProperty('money');
     expect(parsed.state).not.toHaveProperty(legacyResearchField);
     expect(parsed.state).not.toHaveProperty('unlockedProduction');
     expect(parsed.state.offlineEarningsSummary).toEqual(state.offlineEarningsSummary);
   });
 
-  it('round-trips valid v2 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
+  it('round-trips valid v4 progression state while preserving fractional cash, Respect, stock, and earnings', () => {
     const state = createState({
       cash: 1234.56,
       runEarnings: 7890.12,
@@ -86,12 +91,12 @@ describe('Neon-D save format', () => {
         weed: {
           stock: 12.34,
           producersOwned: 2,
-          purchasedUpgradeIds: ['fertilizer'],
+          purchasedUpgradeIds: ['fertilizer', 'hydroponics'],
         },
         mushrooms: {
           stock: 5.67,
           producersOwned: 1,
-          purchasedUpgradeIds: ['autoHygrometer'],
+          purchasedUpgradeIds: ['autoHygrometer', 'irrigationSystem'],
         },
       },
       muscleOwned: {
@@ -126,8 +131,8 @@ describe('Neon-D save format', () => {
         }),
       ],
       kingpins: 1,
-      bulkUnlocked: true,
-      autoBulkEnabled: true,
+      bulkUnlockedProductIds: ['weed', 'mushrooms'],
+      lastBulkSellAt: 1_000,
       activeMarketEvent: {
         productId: 'mushrooms',
         multiplier: 3.25,
@@ -151,6 +156,116 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
   });
 
+  it('migrates a schema-v2 save through the current schema while preserving progression', () => {
+    const v3State = { ...createState({ captains: [makeReferenceCaptain({ personalEarnings: 42_000 })] }) };
+    delete (v3State as Partial<GameState>).lastBulkSellAt;
+    const legacyState = {
+      ...v3State,
+      schemaVersion: 2,
+      autoBulkEnabled: true,
+    } as unknown as GameState & { autoBulkEnabled: boolean };
+    const migrated = parseNeonDSave(JSON.stringify({
+      format: NEON_D_SAVE_FORMAT,
+      version: 2,
+      state: legacyState,
+    }));
+
+    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.cash).toBe(legacyState.cash);
+    expect(migrated.production).toEqual(legacyState.production);
+    expect(migrated.bulkUnlockedProductIds).toEqual([]);
+    expect(migrated.lastBulkSellAt).toBe(0);
+    expect(migrated.captains[0]).toMatchObject({
+      personalEarnings: legacyState.captains[0].personalEarnings,
+      level: 0,
+      talentPoints: 0,
+      talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: false,
+      kingpinAvailable: false,
+    });
+  });
+
+  it('round-trips partial and fully developed Captain talent state', () => {
+    const partialCaptain = makeReferenceCaptain({
+      id: 'captain-partial',
+      level: 5,
+      talentPoints: 0,
+      talentRanks: { red: [2, 3, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+      kingpinAvailable: false,
+    });
+    const fullCaptain = makeReferenceCaptain({
+      id: 'captain-full',
+      level: 27,
+      talentPoints: 0,
+      talentRanks: { red: [2, 3, 4], yellow: [2, 3, 4], blue: [2, 3, 4] },
+      ledgerUnlocked: true,
+      kingpinAvailable: true,
+    });
+    const state = createState({ captains: [partialCaptain, fullCaptain] });
+
+    expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
+  });
+
+  it('round-trips the Captain level-up earnings baseline', () => {
+    const captain = {
+      ...makeReferenceCaptain({ personalEarnings: 1_000_000 }),
+      lastLevelUpEarnings: 750_000,
+    };
+    const state = createState({ captains: [captain] });
+
+    expect(parseNeonDSave(serializeNeonDSave(state)).captains[0].lastLevelUpEarnings)
+      .toBe(750_000);
+  });
+
+  it('normalizes a missing Captain baseline when importing a schema-v5 save', () => {
+    const captain = makeReferenceCaptain({ personalEarnings: 750_000 });
+    delete (captain as Partial<GameState['captains'][number]>).lastLevelUpEarnings;
+    const state = createState({ captains: [captain] });
+
+    const imported = parseNeonDSave(createEnvelope(state));
+
+    expect(imported.captains[0].lastLevelUpEarnings).toBe(750_000);
+  });
+
+  it('preserves only explicitly purchased product IDs during a v4 round trip', () => {
+    const baseState = createState();
+    const state = createState({
+      production: {
+        ...baseState.production,
+        weed: {
+          ...baseState.production.weed,
+          purchasedUpgradeIds: ['fertilizer', 'hydroponics'],
+        },
+      },
+      bulkUnlockedProductIds: ['weed'],
+    });
+
+    expect(parseNeonDSave(serializeNeonDSave(state)).bulkUnlockedProductIds).toEqual(['weed']);
+  });
+
+  it('rejects a bulk unlock for an unlocked product that is not fully upgraded', () => {
+    const baseState = createState();
+    const state = createState({
+      bulkUnlockedProductIds: ['weed'],
+      production: {
+        ...baseState.production,
+        weed: {
+          ...baseState.production.weed,
+          purchasedUpgradeIds: ['fertilizer'],
+        },
+      },
+    });
+
+    expect(() => parseNeonDSave(createEnvelope(state))).toThrow();
+  });
+
+  it('rejects a bulk unlock for a product that is still locked', () => {
+    const state = createState({ bulkUnlockedProductIds: ['mushrooms'] });
+
+    expect(() => parseNeonDSave(createEnvelope(state))).toThrow();
+  });
+
   it.each([
     ['invalid JSON', 'not json'],
     ['wrong format', JSON.stringify({ format: 'other-game', version: NEON_D_SAVE_VERSION, state: createState() })],
@@ -167,6 +282,15 @@ describe('Neon-D save format', () => {
     ['wrong schema version in state', JSON.stringify({ format: NEON_D_SAVE_FORMAT, version: NEON_D_SAVE_VERSION, state: { ...createState(), schemaVersion: 1 } })],
     ['legacy offline summary shape', createCorruptEnvelope((state) => {
       state.offlineEarningsSummary = { awayMs: 60_000, earned: 250 } as unknown as GameState['offlineEarningsSummary'];
+    })],
+    ['unknown bulk product ID', createCorruptEnvelope((state) => {
+      state.bulkUnlockedProductIds = ['not-a-product' as GameState['bulkUnlockedProductIds'][number]];
+    })],
+    ['duplicate bulk product ID', createCorruptEnvelope((state) => {
+      state.bulkUnlockedProductIds = ['weed', 'weed'];
+    })],
+    ['non-array bulk product IDs', createCorruptEnvelope((state) => {
+      (state as unknown as { bulkUnlockedProductIds: unknown }).bulkUnlockedProductIds = 'weed';
     })],
     ['negative cash', createCorruptEnvelope((state) => {
       state.cash = -0.01;
@@ -267,15 +391,45 @@ describe('Neon-D save format', () => {
         }),
       ];
     })],
+    ['captain missing talent fields', createCaptainCorruptEnvelope((state) => {
+      delete (state.captains[0] as unknown as Record<string, unknown>).talentRanks;
+    })],
+    ['captain with negative talent points', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].talentPoints = -1;
+    })],
+    ['captain with invalid level-up earnings baseline', createCaptainCorruptEnvelope((state) => {
+      (state.captains[0] as unknown as Record<string, unknown>).lastLevelUpEarnings = -1;
+    })],
+    ['captain with fractional talent points', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].talentPoints = 0.5;
+    })],
+    ['captain with unknown talent path', createCaptainCorruptEnvelope((state) => {
+      (state.captains[0].talentRanks as unknown as Record<string, unknown>).rogue = [0, 0, 0];
+    })],
+    ['captain with rank gap', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].level = 2;
+      state.captains[0].talentPoints = 1;
+      state.captains[0].talentRanks.red = [2, 1, 0];
+    })],
+    ['captain with mismatched point accounting', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].level = 1;
+      state.captains[0].talentPoints = 0;
+      state.captains[0].talentRanks.red = [1, 0, 0];
+    })],
+    ['captain with invalid ledger unlock flag', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].ledgerUnlocked = true;
+    })],
+    ['captain with out-of-range level', createCaptainCorruptEnvelope((state) => {
+      state.captains[0].level = 29;
+    })],
     ['dealer volume below minimum', createCorruptEnvelope((state) => {
       state.activeDealers = [makeReferenceDealer({ id: 'dealer-low-volume', volumeMultiplier: 0.49 })];
     })],
     ['dealer margin above maximum', createCorruptEnvelope((state) => {
       state.activeDealers = [makeReferenceDealer({ id: 'dealer-high-margin', marginMultiplier: 1.51 })];
     })],
-    ['auto bulk enabled without the unlock', createCorruptEnvelope((state) => {
-      state.autoBulkEnabled = true;
-      state.bulkUnlocked = false;
+    ['negative last bulk sale timestamp', createCorruptEnvelope((state) => {
+      state.lastBulkSellAt = -1;
     })],
     ['negative last earnings per seller', createCorruptEnvelope((state) => {
       state.lastEarningsPerSeller = { dealer: -0.01 };

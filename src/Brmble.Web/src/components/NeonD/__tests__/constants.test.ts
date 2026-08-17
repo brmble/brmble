@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_BULK_RETAIN_STOCK,
-  AUTO_BULK_TRIGGER_STOCK,
   BULK_UNLOCK_COST,
+  BULK_SELL_COOLDOWN_MS,
   BULK_VISIBLE_EARNINGS,
-  CAPTAIN_BASE_COST,
+  CAPTAIN_COSTS,
   CAPTAIN_VISIBLE_EARNINGS,
   createBaseGameState,
   NEON_D_SAVE_KEY,
@@ -12,7 +12,7 @@ import {
   STARTING_CASH,
 } from '../constants';
 
-describe('Neon-D v2 constants', () => {
+describe('Neon-D constants', () => {
   it('uses the v2 save key and aligned fresh-run state', () => {
     const state = createBaseGameState(1_234);
 
@@ -23,6 +23,9 @@ describe('Neon-D v2 constants', () => {
     expect(state.activeDealers).toEqual([null]);
     expect(state.respect).toBe(0);
     expect(state.lastTickAt).toBe(1_234);
+    expect(state.schemaVersion).toBe(5);
+    expect(state.lastBulkSellAt).toBe(0);
+    expect(state.bulkUnlockedProductIds).toEqual([]);
   });
 
   it('locks the aligned 16-product catalog and excludes removed v1 tiers', () => {
@@ -52,9 +55,9 @@ describe('Neon-D v2 constants', () => {
   it('locks the Bulk and Captain progression thresholds', () => {
     expect(BULK_UNLOCK_COST).toBe(141_592);
     expect(BULK_VISIBLE_EARNINGS).toBe(212_388);
-    expect(AUTO_BULK_TRIGGER_STOCK).toBe(1_500);
+    expect(BULK_SELL_COOLDOWN_MS).toBe(20 * 60 * 1000);
     expect(AUTO_BULK_RETAIN_STOCK).toBe(500);
-    expect(CAPTAIN_BASE_COST).toBe(5_000_000);
+    expect(CAPTAIN_COSTS).toEqual([7_500_000, 10_000_000, 15_000_000]);
     expect(CAPTAIN_VISIBLE_EARNINGS).toBe(7_500_000);
   });
 });

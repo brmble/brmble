@@ -12,6 +12,25 @@ export type MuscleWorkerId =
   | 'corruptSenator' | 'puppetWorldLeader' | 'hunterKillerSubmarine'
   | 'nimitzCarrier' | 'orbitalIonCannon';
 
+export type TalentPathId = 'red' | 'yellow' | 'blue';
+export type TalentStat = 'margin' | 'volume' | 'secondarySales';
+export type TalentRanks = Record<TalentPathId, [number, number, number]>;
+
+export interface SellerBonuses {
+  marginBonus: number;
+  volumeBonus: number;
+  secondarySalesBonus: number;
+}
+
+export interface TalentNodeDefinition {
+  path: TalentPathId;
+  row: 0 | 1 | 2;
+  stat: TalentStat;
+  maxRanks: 2 | 3 | 4;
+  rankBonuses: readonly number[];
+  label: string;
+}
+
 export interface ProductUpgradeDefinition {
   id: string;
   name: string;
@@ -76,6 +95,12 @@ export interface Captain {
   selling: ProductId;
   equipmentIds: EquipmentId[];
   personalEarnings: number;
+  lastLevelUpEarnings: number;
+  level: number;
+  talentPoints: number;
+  talentRanks: TalentRanks;
+  ledgerUnlocked: boolean;
+  kingpinAvailable: boolean;
 }
 
 export interface MarketEvent {
@@ -92,7 +117,7 @@ export interface OfflineEarningsSummary {
 }
 
 export interface GameState {
-  schemaVersion: 2;
+  schemaVersion: 5;
   cash: number;
   runEarnings: number;
   respect: number;
@@ -106,8 +131,8 @@ export interface GameState {
   lastDealerRefreshAt: number;
   captains: Captain[];
   kingpins: number;
-  bulkUnlocked: boolean;
-  autoBulkEnabled: boolean;
+  bulkUnlockedProductIds: ProductId[];
+  lastBulkSellAt: number;
   activeMarketEvent: MarketEvent | null;
   nextMarketCheckAt: number;
   nextRiskCheckAt: number;

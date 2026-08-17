@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId } from '../types';
+import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId, TalentPathId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
@@ -18,12 +18,12 @@ import {
   getEquipmentCost,
   getBailCost,
   getCaptainCost,
-  getCaptainLevel,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
-  isBulkSellingVisible,
+  isProductFullyUpgraded,
   isCaptainVisible,
+  isCaptainLevelUpAvailable,
 } from '../economy';
 import {
   applyRecruitmentClock,
@@ -38,7 +38,10 @@ import {
   getProductSalesRates,
   sellBulkOverflow,
 } from '../simulation';
+import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
+import { canPurchaseTalent } from '../talents';
+import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
   const now = Date.now();
@@ -81,6 +84,7 @@ export const useGameEngine = () => {
   const [state, setState, clearStorage] = usePersistedGameState<GameState>(
     NEON_D_SAVE_KEY,
     createInitialGameState,
+    migrateNeonDState,
   );
   const hasInitializedOfflineProgress = useRef(false);
 
@@ -338,26 +342,23 @@ export const useGameEngine = () => {
     });
   };
 
-  const unlockBulkSelling = () => {
+  const unlockBulkSelling = (productId: ProductId) => {
     setState((prev) => {
-      if (prev.bulkUnlocked) return prev;
-      if (!isBulkSellingVisible(prev)) return prev;
+      if (!prev.unlockedProducts.includes(productId)) return prev;
+      if (prev.bulkUnlockedProductIds.includes(productId)) return prev;
+      if (!isProductFullyUpgraded(prev, productId)) return prev;
       if (prev.cash < BULK_UNLOCK_COST) return prev;
 
       return {
         ...prev,
         cash: prev.cash - BULK_UNLOCK_COST,
-        bulkUnlocked: true,
+        bulkUnlockedProductIds: [...prev.bulkUnlockedProductIds, productId],
       };
     });
   };
 
   const bulkSellProduct = (productId: ProductId) => {
-    setState((prev) => sellBulkOverflow(prev, productId));
-  };
-
-  const setAutoBulkEnabled = (enabled: boolean) => {
-    setState((prev) => prev.bulkUnlocked ? { ...prev, autoBulkEnabled: enabled } : prev);
+    setState((prev) => sellBulkOverflow(prev, productId, Date.now()));
   };
 
   const dismissOfflineEarningsSummary = () => {
@@ -383,21 +384,68 @@ export const useGameEngine = () => {
     });
   };
 
+  const claimCaptainLevel = (captainId: string) => {
+    setState((prev) => ({
+      ...prev,
+      captains: prev.captains.map((captain) => {
+        if (captain.id !== captainId) return captain;
+        if (!isCaptainLevelUpAvailable(
+          captain.level,
+          captain.personalEarnings,
+          captain.lastLevelUpEarnings,
+        )) return captain;
+        const level = captain.level + 1;
+        const laneComplete = Object.values(captain.talentRanks).some((ranks) => ranks[2] === 4);
+        return {
+          ...captain,
+          level,
+          lastLevelUpEarnings: captain.personalEarnings,
+          talentPoints: captain.talentPoints + 1,
+          ledgerUnlocked: true,
+          kingpinAvailable: captain.kingpinAvailable || (level >= 10 && laneComplete),
+        };
+      }),
+    }));
+  };
+
+  const purchaseCaptainTalent = (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => {
+    setState((prev) => ({
+      ...prev,
+      captains: prev.captains.map((captain) => {
+        if (captain.id !== captainId || !canPurchaseTalent(captain, path, row)) return captain;
+        const talentRanks = {
+          ...captain.talentRanks,
+          [path]: captain.talentRanks[path].map((rank, index) =>
+            index === row ? rank + 1 : rank,
+          ) as [number, number, number],
+        };
+        return {
+          ...captain,
+          talentRanks,
+          talentPoints: captain.talentPoints - 1,
+          kingpinAvailable: captain.kingpinAvailable
+            || (captain.level >= 10 && talentRanks[path][2] === 4),
+        };
+      }),
+    }));
+  };
+
   const promoteCaptain = (captainId: string) => {
     setState((prev) => {
       const captain = prev.captains.find((item) => item.id === captainId);
-      if (!captain || getCaptainLevel(captain.personalEarnings) < 10) return prev;
+      if (!captain || !captain.kingpinAvailable || captain.talentPoints < 1) return prev;
 
-      return {
-        ...prev,
-        captains: prev.captains.filter((item) => item.id !== captainId),
-        kingpins: prev.kingpins + 1,
-      };
+      return resetRunPreservingPrestige([], prev.kingpins + 1, Date.now());
     });
   };
 
   const resetGame = useCallback(() => {
     clearStorage();
+    try {
+      localStorage.removeItem(NEON_D_CARD_PREFERENCES_KEY);
+    } catch {
+      // Preferences are best effort and must not affect resetting the game.
+    }
     setState(createInitialGameState());
   }, [clearStorage, setState]);
 
@@ -423,9 +471,10 @@ export const useGameEngine = () => {
     payDealerBail,
     unlockBulkSelling,
     bulkSellProduct,
-    setAutoBulkEnabled,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    claimCaptainLevel,
+    purchaseCaptainTalent,
     promoteCaptain,
     resetGame,
     importGame,
