@@ -9,6 +9,7 @@ import {
   sellBulkOverflow,
 } from '../simulation';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
+import type { Dealer } from '../types';
 
 describe('deterministic production', () => {
   it('does not simulate or show a summary for less than 30 seconds away', () => {
@@ -65,18 +66,20 @@ describe('deterministic production', () => {
 
     const next = applyOfflineProgress(state, 60_000);
     expect(next.activeMarketEvent).toBeNull();
-    expect(next.activeDealers[0]?.isArrested).toBe(false);
+    expect((next.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
   });
 
   it('accumulates Captain earnings offline without claiming a level', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     state.production.weed.producersOwned = 10_000;
-    state.captains = [makeReferenceCaptain({
+    const ownedCaptain = makeReferenceCaptain({
       id: 'captain-threshold',
       name: 'Captain Threshold',
       personalEarnings: 499_990,
-    })];
+    });
+    state.captains = [ownedCaptain];
+    state.activeDealers = [ownedCaptain];
 
     const next = applyOfflineProgress(state, 31_000);
     const captain = next.captains[0];
@@ -192,7 +195,7 @@ describe('deterministic production', () => {
     state.nextRiskCheckAt = 30_000;
 
     const next = applyDueRiskCheck(state, 30_000, () => 0);
-    expect(next.activeDealers[0]?.isArrested).toBe(false);
+    expect((next.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
   });
 
   it('on a successful global roll arrests one selected unprotected normal dealer', () => {
@@ -208,8 +211,8 @@ describe('deterministic production', () => {
     const rolls = [0.01, 0.75];
     const next = applyDueRiskCheck(state, 30_000, () => rolls.shift() ?? 0.5);
 
-    expect(next.activeDealers.filter((d) => d?.isArrested)).toHaveLength(1);
-    expect(next.activeDealers[1]?.earningsPerSecondAtArrest).toBe(20);
+    expect(next.activeDealers.filter((d) => (d as Dealer | null)?.isArrested)).toHaveLength(1);
+    expect((next.activeDealers[1] as Dealer | null)?.earningsPerSecondAtArrest).toBe(20);
   });
 
   it('successful selection of a protected dealer does not arrest them', () => {
@@ -219,7 +222,7 @@ describe('deterministic production', () => {
     state.nextRiskCheckAt = 30_000;
 
     const next = applyDueRiskCheck(state, 30_000, () => 0);
-    expect(next.activeDealers[0]?.isArrested).toBe(false);
+    expect((next.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
   });
 
   it('protected income is exactly 90 percent of the same unprotected sale', () => {
@@ -246,7 +249,9 @@ describe('deterministic production', () => {
   it('Captain sells at 1.75 Volume x 3 and 1.75 Margin and accrues personal earnings', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 100;
-    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+    const captain = makeReferenceCaptain({ id: 'captain-1' });
+    state.captains = [captain];
+    state.activeDealers = [captain];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
@@ -256,11 +261,40 @@ describe('deterministic production', () => {
     expect(next.captains[0].personalEarnings).toBeCloseTo(expectedEarnings);
   });
 
+  it('uses the owned Captain record for an assigned Captain slot', () => {
+    const state = createBaseGameState(0);
+    const ownedCaptain = makeReferenceCaptain({
+      id: 'captain-authoritative',
+      selling: 'mushrooms',
+    });
+    state.unlockedProducts = ['weed', 'mushrooms'];
+    state.captains = [ownedCaptain];
+    state.activeDealers = [{ ...ownedCaptain, selling: 'weed' }];
+
+    expect(getProductSalesRates(state).mushrooms).toBeCloseTo(5.25);
+    expect(getProductSalesRates(state).weed).toBe(0);
+  });
+
+  it('mirrors Captain earnings back into the assigned Captain slot', () => {
+    const state = createBaseGameState(0);
+    const ownedCaptain = makeReferenceCaptain({ id: 'captain-threshold' });
+    state.production.weed.producersOwned = 100;
+    state.captains = [ownedCaptain];
+    state.activeDealers = [{ ...ownedCaptain, personalEarnings: 0 }];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+
+    expect(next.captains[0].personalEarnings).toBeGreaterThan(0);
+    expect((next.activeDealers[0] as typeof ownedCaptain).personalEarnings)
+      .toBe(next.captains[0].personalEarnings);
+  });
+
   it('allocates Captain demand before normal dealer demand when stock is scarce', () => {
     const state = createBaseGameState(0);
     state.production.weed.stock = 3;
-    state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
-    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+    const captain = makeReferenceCaptain({ id: 'captain-1' });
+    state.activeDealers = [captain, makeReferenceDealer({ id: 'dealer-1' })];
+    state.captains = [captain];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
@@ -271,10 +305,23 @@ describe('deterministic production', () => {
 
   it('reports combined normal dealer and Captain unit demand by product', () => {
     const state = createBaseGameState(0);
-    state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' })];
-    state.captains = [makeReferenceCaptain({ id: 'captain-1' })];
+    const captain = makeReferenceCaptain({ id: 'captain-1' });
+    state.activeDealers = [makeReferenceDealer({ id: 'dealer-1' }), captain];
+    state.captains = [captain];
 
     expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 5.25);
+  });
+
+  it('does not sell for an owned Captain until the Captain is assigned to a slot', () => {
+    const state = createBaseGameState(0);
+    state.production.weed.producersOwned = 100;
+    state.captains = [makeReferenceCaptain({ id: 'unassigned-captain' })];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+
+    expect(next.lastEarningsPerSeller['unassigned-captain']).toBeUndefined();
+    expect(next.captains[0].personalEarnings).toBe(0);
+    expect(next.cash).toBe(state.cash);
   });
 });
 

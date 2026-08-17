@@ -6,8 +6,9 @@ import {
   getRespectPerSecond,
   isCaptainVisible,
 } from './economy';
+import { getCaptainDefaultName } from './dealers';
 import { MARKET_DURATION_MAX_MS } from './constants';
-import { confirm } from '../../hooks/usePrompt';
+import { confirm, prompt } from '../../hooks/usePrompt';
 import { Icon } from '../Icon/Icon';
 import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
 import { ProductionPanel } from './ProductionPanel';
@@ -47,7 +48,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     buyMuscleWorker,
     buyTerritory,
     buyDiscount,
-    hireDealer,
+    hireSeller,
+    refreshDealers,
+    renameCaptain,
     fireDealer,
     setSellerProduct,
     buySellerEquipment,
@@ -72,6 +75,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const respectPerSecond = getRespectPerSecond(state);
   const captainVisible = isCaptainVisible(state);
   const captainCost = getCaptainCost(state);
+  const captainDefaultName = getCaptainDefaultName(state.captains.length + state.kingpins + 1);
   const captainProgressValue = Math.min(
     captainCost,
     Math.max(0, Math.floor(state.cash)),
@@ -111,6 +115,20 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     });
 
     if (confirmed) fireDealer(dealerId);
+  };
+
+  const handleRecruitCaptain = async () => {
+    const name = await prompt({
+      title: 'Name your Captain',
+      message: 'Give your new Captain a name before recruiting him.',
+      placeholder: 'Captain name',
+      defaultValue: captainDefaultName,
+      confirmLabel: 'Recruit Captain',
+      cancelLabel: 'Cancel',
+    });
+
+    const trimmedName = name?.trim();
+    if (trimmedName) buyCaptain(trimmedName);
   };
 
   const handleExport = () => {
@@ -300,7 +318,11 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                 </div>
               </div>
               {captainProgressValue >= captainCost && (
-                <button type="button" className="btn btn-primary" onClick={buyCaptain}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { void handleRecruitCaptain(); }}
+                >
                   Hire Captain
                 </button>
               )}
@@ -308,7 +330,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           )}
           <DistributionPanel
             state={state}
-            hireDealer={hireDealer}
+            onHireSeller={hireSeller}
+            onRefreshDealers={refreshDealers}
+            onRenameCaptain={renameCaptain}
             fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}

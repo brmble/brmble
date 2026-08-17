@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId, TalentPathId } from '../types';
+import type { ActiveSeller, Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId, TalentPathId } from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
@@ -21,6 +21,7 @@ import {
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
+  getRecruitmentRefreshMs,
   isProductFullyUpgraded,
   isCaptainVisible,
   isCaptainLevelUpAvailable,
@@ -41,6 +42,7 @@ import {
 import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
 import { canPurchaseTalent } from '../talents';
+import { getAssignedCaptainIds, isDealer, syncAssignedCaptainSlots } from '../sellers';
 import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
@@ -207,17 +209,26 @@ export const useGameEngine = () => {
     });
   };
 
-  const hireDealer = (dealerId: string, slotIndex: number) => {
+  const hireSeller = (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => {
     setState((prev) => {
       if (slotIndex < 0 || slotIndex >= prev.activeDealers.length) return prev;
       if (prev.activeDealers[slotIndex] !== null) return prev;
 
-      const candidate = prev.availableDealers.find((dealer) => dealer.id === dealerId);
-      if (!candidate) return prev;
+      let seller: ActiveSeller | null = null;
+      if (sellerKind === 'dealer') {
+        seller = prev.availableDealers.find((dealer) => dealer.id === sellerId) ?? null;
+      } else {
+        const assignedCaptainIds = getAssignedCaptainIds(prev.activeDealers);
+        if (assignedCaptainIds.has(sellerId)) return prev;
+        seller = prev.captains.find((captain) => captain.id === sellerId) ?? null;
+      }
+      if (!seller) return prev;
 
       const activeDealers = [...prev.activeDealers];
-      activeDealers[slotIndex] = candidate;
-      const remaining = prev.availableDealers.filter((dealer) => dealer.id !== dealerId);
+      activeDealers[slotIndex] = seller;
+      if (sellerKind === 'captain') return { ...prev, activeDealers };
+
+      const remaining = prev.availableDealers.filter((dealer) => dealer.id !== sellerId);
 
       return {
         ...prev,
@@ -230,11 +241,42 @@ export const useGameEngine = () => {
     });
   };
 
+  const hireDealer = (dealerId: string, slotIndex: number) => {
+    hireSeller(dealerId, slotIndex, 'dealer');
+  };
+
+  const refreshDealers = () => {
+    setState((prev) => {
+      const now = Date.now();
+      if (now - prev.lastDealerRefreshAt < getRecruitmentRefreshMs(prev.kingpins)) return prev;
+      return {
+        ...prev,
+        lastDealerRefreshAt: now,
+        availableDealers: generateCandidatePool(prev.unlockedProducts),
+      };
+    });
+  };
+
+  const renameCaptain = (captainId: string, name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    setState((prev) => {
+      const captains = prev.captains.map((captain) =>
+        captain.id === captainId ? { ...captain, name: trimmedName } : captain,
+      );
+      return {
+        ...prev,
+        captains,
+        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+      };
+    });
+  };
+
   const fireDealer = (dealerId: string) => {
     setState((prev) => ({
       ...prev,
       activeDealers: prev.activeDealers.map((dealer) =>
-        dealer?.id === dealerId ? null : dealer,
+        isDealer(dealer) && dealer.id === dealerId ? null : dealer,
       ),
     }));
   };
@@ -251,16 +293,18 @@ export const useGameEngine = () => {
         return {
           ...prev,
           activeDealers: prev.activeDealers.map((dealer) =>
-            dealer?.id === sellerId ? { ...dealer, selling: productId } : dealer,
+            isDealer(dealer) && dealer.id === sellerId ? { ...dealer, selling: productId } : dealer,
           ),
         };
       }
 
+      const captains = prev.captains.map((captain) =>
+        captain.id === sellerId ? { ...captain, selling: productId } : captain,
+      );
       return {
         ...prev,
-        captains: prev.captains.map((captain) =>
-          captain.id === sellerId ? { ...captain, selling: productId } : captain,
-        ),
+        captains,
+        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
       };
     });
   };
@@ -272,7 +316,7 @@ export const useGameEngine = () => {
   ) => {
     setState((prev) => {
       const seller = sellerKind === 'dealer'
-        ? prev.activeDealers.find((dealer): dealer is Dealer => dealer?.id === sellerId) ?? null
+        ? prev.activeDealers.find((dealer): dealer is Dealer => isDealer(dealer) && dealer.id === sellerId) ?? null
         : prev.captains.find((captain) => captain.id === sellerId) ?? null;
 
       if (!seller || seller.equipmentIds.includes(equipmentId)) return prev;
@@ -285,21 +329,23 @@ export const useGameEngine = () => {
           ...prev,
           cash: prev.cash - cost,
           activeDealers: prev.activeDealers.map((dealer) =>
-            dealer?.id === sellerId
+            isDealer(dealer) && dealer.id === sellerId
               ? { ...dealer, equipmentIds: [...dealer.equipmentIds, equipmentId] }
               : dealer,
           ),
         };
       }
 
+      const captains = prev.captains.map((captain) =>
+        captain.id === sellerId
+          ? { ...captain, equipmentIds: [...captain.equipmentIds, equipmentId] }
+          : captain,
+      );
       return {
         ...prev,
         cash: prev.cash - cost,
-        captains: prev.captains.map((captain) =>
-          captain.id === sellerId
-            ? { ...captain, equipmentIds: [...captain.equipmentIds, equipmentId] }
-            : captain,
-        ),
+        captains,
+        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
       };
     });
   };
@@ -308,7 +354,7 @@ export const useGameEngine = () => {
     setState((prev) => ({
       ...prev,
       activeDealers: prev.activeDealers.map((dealer) =>
-        dealer?.id === dealerId
+        isDealer(dealer) && dealer.id === dealerId
           ? { ...dealer, isProtected: !dealer.isProtected }
           : dealer,
       ),
@@ -318,7 +364,7 @@ export const useGameEngine = () => {
   const payDealerBail = (dealerId: string) => {
     setState((prev) => {
       const dealer = prev.activeDealers.find((candidate): candidate is Dealer =>
-        candidate?.id === dealerId,
+        isDealer(candidate) && candidate.id === dealerId,
       );
       if (!dealer || !dealer.isArrested) return prev;
 
@@ -329,7 +375,7 @@ export const useGameEngine = () => {
         ...prev,
         cash: prev.cash - cost,
         activeDealers: prev.activeDealers.map((candidate) =>
-          candidate?.id === dealerId
+          isDealer(candidate) && candidate.id === dealerId
             ? {
               ...candidate,
               isArrested: false,
@@ -368,14 +414,20 @@ export const useGameEngine = () => {
     }));
   };
 
-  const buyCaptain = () => {
+  const buyCaptain = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
     setState((prev) => {
       if (!isCaptainVisible(prev)) return prev;
 
       const cost = getCaptainCost(prev);
       if (prev.cash < cost) return prev;
 
-      const captain = createCaptain(prev.captains.length + prev.kingpins + 1);
+      const captain = createCaptain(
+        prev.captains.length + prev.kingpins + 1,
+        trimmedName,
+      );
       return resetRunPreservingPrestige(
         [...prev.captains, captain],
         prev.kingpins,
@@ -385,9 +437,8 @@ export const useGameEngine = () => {
   };
 
   const claimCaptainLevel = (captainId: string) => {
-    setState((prev) => ({
-      ...prev,
-      captains: prev.captains.map((captain) => {
+    setState((prev) => {
+      const captains = prev.captains.map((captain) => {
         if (captain.id !== captainId) return captain;
         if (!isCaptainLevelUpAvailable(
           captain.level,
@@ -404,14 +455,18 @@ export const useGameEngine = () => {
           ledgerUnlocked: true,
           kingpinAvailable: captain.kingpinAvailable || (level >= 10 && laneComplete),
         };
-      }),
-    }));
+      });
+      return {
+        ...prev,
+        captains,
+        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+      };
+    });
   };
 
   const purchaseCaptainTalent = (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => {
-    setState((prev) => ({
-      ...prev,
-      captains: prev.captains.map((captain) => {
+    setState((prev) => {
+      const captains = prev.captains.map((captain) => {
         if (captain.id !== captainId || !canPurchaseTalent(captain, path, row)) return captain;
         const talentRanks = {
           ...captain.talentRanks,
@@ -426,8 +481,13 @@ export const useGameEngine = () => {
           kingpinAvailable: captain.kingpinAvailable
             || (captain.level >= 10 && talentRanks[path][2] === 4),
         };
-      }),
-    }));
+      });
+      return {
+        ...prev,
+        captains,
+        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+      };
+    });
   };
 
   const promoteCaptain = (captainId: string) => {
@@ -463,7 +523,10 @@ export const useGameEngine = () => {
     buyMuscleWorker,
     buyTerritory,
     buyDiscount,
+    hireSeller,
     hireDealer,
+    refreshDealers,
+    renameCaptain,
     fireDealer,
     setSellerProduct,
     buySellerEquipment,

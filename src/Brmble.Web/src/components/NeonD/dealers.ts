@@ -6,7 +6,6 @@ import {
   NORMAL_DEALER_MAX_MULTIPLIER,
   NORMAL_DEALER_MIN_MULTIPLIER,
 } from './constants';
-import { getRecruitmentRefreshMs } from './economy';
 import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId, SellerBonuses } from './types';
 import { getTalentBonus } from './talents';
 
@@ -101,9 +100,14 @@ export const generateNormalDealer = (
   earningsPerSecondAtArrest: 0,
 });
 
-export const createCaptain = (index: number): Captain => ({
+export const getCaptainDefaultName = (index: number) => `Captain ${index}`;
+
+export const createCaptain = (
+  index: number,
+  name: string = getCaptainDefaultName(index),
+): Captain => ({
   id: crypto.randomUUID(),
-  name: `Captain ${index}`,
+  name,
   selling: 'weed',
   equipmentIds: [],
   personalEarnings: 0,
@@ -122,15 +126,5 @@ export const generateCandidatePool = (
 
 export const applyRecruitmentClock = (
   state: GameState,
-  now: number,
-  rng: () => number = Math.random,
-): GameState => {
-  const cooldown = getRecruitmentRefreshMs(state.kingpins);
-  if (now - state.lastDealerRefreshAt < cooldown) return state;
-
-  return {
-    ...state,
-    lastDealerRefreshAt: now,
-    availableDealers: generateCandidatePool(state.unlockedProducts, rng),
-  };
-};
+  _now: number,
+): GameState => state;

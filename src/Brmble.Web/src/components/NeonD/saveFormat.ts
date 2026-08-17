@@ -219,10 +219,6 @@ function isNumericRecord(value: unknown): boolean {
   return isObject(value) && Object.values(value).every(isNonNegativeFiniteNumber);
 }
 
-function hasUniqueSellerIds(sellers: readonly { id: string }[]): boolean {
-  return hasUniqueValues(sellers.map((seller) => seller.id));
-}
-
 function isGameState(value: unknown): value is GameState {
   if (!isObject(value)) return false;
   if (!hasExactKeys(value, [
@@ -247,11 +243,20 @@ function isGameState(value: unknown): value is GameState {
   const territoryLevel = value.territoryLevel;
   if (!isNonNegativeInteger(territoryLevel)) return false;
   if (activeDealers.length !== territoryLevel + 1) return false;
-  if (!activeDealers.every((dealer) => dealer === null || isDealer(dealer, unlockedProducts))) return false;
+  if (!activeDealers.every((seller) => seller === null || isDealer(seller, unlockedProducts) || isCaptain(seller, unlockedProducts))) return false;
   if (!availableDealers.every((dealer) => isDealer(dealer, unlockedProducts))) return false;
   if (!captains.every((captain) => isCaptain(captain, unlockedProducts))) return false;
 
-  const activeDealerRecords = activeDealers.filter((dealer): dealer is Dealer => dealer !== null);
+  const activeSellerRecords = activeDealers.filter((seller): seller is Dealer | Captain => seller !== null);
+  const activeCaptainIds = new Set(
+    activeSellerRecords.filter((seller): seller is Captain => isCaptain(seller, unlockedProducts)).map((captain) => captain.id),
+  );
+  const ownedCaptainIds = new Set(captains.map((captain) => captain.id));
+  const activeDealerIds = activeSellerRecords
+    .filter((seller): seller is Dealer => isDealer(seller, unlockedProducts))
+    .map((dealer) => dealer.id);
+  const activeCaptainRecords = activeSellerRecords
+    .filter((seller): seller is Captain => isCaptain(seller, unlockedProducts));
 
   const bulkUnlockedProductIds = value.bulkUnlockedProductIds;
 
@@ -263,7 +268,15 @@ function isGameState(value: unknown): value is GameState {
     && areBulkUnlockedProductsValid(value.production, unlockedProducts, bulkUnlockedProductIds)
     && isMuscleOwnedRecord(value.muscleOwned)
     && isNonNegativeInteger(value.discountLevel)
-    && hasUniqueSellerIds([...activeDealerRecords, ...availableDealers, ...captains])
+    && hasUniqueValues(activeDealerIds)
+    && hasUniqueValues([...availableDealers.map((dealer) => dealer.id), ...captains.map((captain) => captain.id)])
+    && activeDealerIds.every((id) => !availableDealers.some((dealer) => dealer.id === id || ownedCaptainIds.has(id)))
+    && activeCaptainIds.size === activeCaptainRecords.length
+    && [...activeCaptainIds].every((id) => ownedCaptainIds.has(id))
+    && activeCaptainRecords.every((activeCaptain) => {
+      const ownedCaptain = captains.find((captain) => captain.id === activeCaptain.id);
+      return ownedCaptain !== undefined && JSON.stringify(ownedCaptain) === JSON.stringify(activeCaptain);
+    })
     && isNonNegativeFiniteNumber(value.lastDealerRefreshAt)
     && isNonNegativeInteger(value.kingpins)
     && isNonNegativeFiniteNumber(value.lastBulkSellAt)

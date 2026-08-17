@@ -607,6 +607,47 @@
   background: color-mix(in srgb, currentColor 15%, transparent);
 }
 
+.captainRenameButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.captainRenameButton:hover,
+.captainRenameButton:focus-visible {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.captainRenameEditor {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-xs);
+  background: var(--bg-surface);
+}
+
+.captainRenameEditor label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.captainRenameEditor input {
+  min-width: 0;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+}
+
 .productionBody {
   padding: var(--space-sm);
 }
@@ -777,32 +818,6 @@
 .talentPromotionConfirm p {
   margin: var(--space-2xs) 0 0;
   color: var(--text-muted);
-}
-
-.modalCloseButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: var(--neond-control-min-height);
-  height: var(--neond-control-min-height);
-  border: var(--border-width-thin) solid var(--glass-border);
-  border-radius: var(--radius-md);
-  background: var(--bg-hover-light);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: var(--text-xl);
-}
-
-.modalCloseButton:hover,
-.modalCloseButton:focus-visible {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-}
-
-.modalCloseButton:focus-visible {
-  outline: var(--border-width-strong) solid var(--accent-primary);
-  outline-offset: var(--space-2xs);
 }
 
 .talentLedgerSummary {
@@ -1054,6 +1069,27 @@
   cursor: not-allowed;
 }
 
+.talentPreviewButton {
+  flex: 0 0 auto;
+  width: auto;
+  padding: var(--space-2xs) var(--space-xs);
+  border-radius: var(--radius-md);
+  border: var(--border-width-strong) solid var(--accent-primary);
+  background: transparent;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.talentPreviewButton:hover {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+  box-shadow: 0 0 var(--glow-md) var(--accent-primary-glow);
+}
+
 .dangerButton {
   width: 100%;
   padding: var(--space-2xs) var(--space-xs);
@@ -1137,6 +1173,70 @@
 .dealerFavoriteButton:hover,
 .dealerFavoriteButton:focus-visible {
   color: var(--text-primary);
+}
+
+.dealerHiringModal {
+  display: grid;
+  gap: var(--space-md);
+  width: min(100%, 960px);
+  max-height: calc(100vh - var(--space-2xl));
+  overflow: auto;
+  padding: var(--space-xl);
+  border: var(--border-width-strong) solid var(--accent-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-deep);
+  box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-secondary-glow);
+}
+
+.dealerHiringModal:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-secondary);
+  outline-offset: var(--space-2xs);
+}
+
+.dealerHiringHeader,
+.dealerHiringActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.hiringDealerGrid,
+.hiringCaptainGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.hiringCaptainGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.hiringCaptainCard {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.captainRenameField {
+  display: grid;
+  gap: var(--space-2xs);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.captainRenameField input {
+  min-width: 0;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+}
+
+@media (max-width: 700px) {
+  .hiringDealerGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dealerFavoriteButton:focus-visible {

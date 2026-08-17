@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSecondaryDemands,
   createCaptain,
+  getCaptainDefaultName,
   getCaptainBonuses,
   getCaptainMainSaleRate,
   getCaptainMarginMultiplier,
@@ -12,6 +13,12 @@ import {
 import { makeReferenceCaptain } from './testFixtures';
 
 describe('reference dealer behavior', () => {
+  it('uses a supplied Captain name while retaining the generated default', () => {
+    expect(createCaptain(2, '  Nightshade  ')).toMatchObject({ name: '  Nightshade  ' });
+    expect(getCaptainDefaultName(2)).toBe('Captain 2');
+    expect(createCaptain(2)).toMatchObject({ name: 'Captain 2' });
+  });
+
   it('creates a Captain with a Weed assignment and empty personal state', () => {
     expect(createCaptain(2)).toMatchObject({
       name: 'Captain 2',

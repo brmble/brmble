@@ -103,6 +103,8 @@ export interface Captain {
   kingpinAvailable: boolean;
 }
 
+export type ActiveSeller = Dealer | Captain;
+
 export interface MarketEvent {
   productId: ProductId;
   multiplier: number;
@@ -126,7 +128,7 @@ export interface GameState {
   muscleOwned: Record<MuscleWorkerId, number>;
   territoryLevel: number;
   discountLevel: number;
-  activeDealers: (Dealer | null)[];
+  activeDealers: (Dealer | Captain | null)[];
   availableDealers: Dealer[];
   lastDealerRefreshAt: number;
   captains: Captain[];

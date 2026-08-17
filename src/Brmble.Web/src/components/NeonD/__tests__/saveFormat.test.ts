@@ -207,6 +207,13 @@ describe('Neon-D save format', () => {
     expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
   });
 
+  it('round-trips an assigned Captain slot while retaining the owned Captain record', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-slot', name: 'Named Captain' });
+    const state = createState({ captains: [captain], activeDealers: [captain] });
+
+    expect(parseNeonDSave(serializeNeonDSave(state))).toEqual(state);
+  });
+
   it('round-trips the Captain level-up earnings baseline', () => {
     const captain = {
       ...makeReferenceCaptain({ personalEarnings: 1_000_000 }),
