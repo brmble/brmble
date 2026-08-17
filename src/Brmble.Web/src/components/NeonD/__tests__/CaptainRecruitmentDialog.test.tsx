@@ -64,4 +64,34 @@ describe('CaptainRecruitmentDialog', () => {
     await user.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps the input selection and focus stable when the parent rerenders', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const firstOnClose = vi.fn();
+    const { rerender } = render(
+      <CaptainRecruitmentDialog
+        defaultName="Captain 2"
+        onConfirm={onConfirm}
+        onClose={firstOnClose}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Captain name' });
+    await user.clear(input);
+    await user.type(input, 'Night');
+
+    rerender(
+      <CaptainRecruitmentDialog
+        defaultName="Captain 2"
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.keyboard('shade');
+
+    expect(input).toHaveValue('Nightshade');
+    expect(document.activeElement).toBe(input);
+  });
 });

@@ -106,6 +106,9 @@ export function DealerHiringModal({
 
   useEffect(() => {
     dialogRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };

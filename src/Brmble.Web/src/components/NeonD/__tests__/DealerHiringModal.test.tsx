@@ -136,4 +136,39 @@ describe('DealerHiringModal', () => {
     expect(screen.queryByRole('heading', { name: /Captain’s Talent Ledger — Captain One/ })).not.toBeInTheDocument();
     expect(onHireSeller).not.toHaveBeenCalled();
   });
+
+  it('keeps Captain naming focused when the parent rerenders', async () => {
+    const user = userEvent.setup();
+    const firstOnClose = vi.fn();
+    const { rerender } = render(
+      <DealerHiringModal
+        state={state}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={firstOnClose}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Name for Captain One' });
+    await user.clear(input);
+    await user.type(input, 'Night');
+
+    rerender(
+      <DealerHiringModal
+        state={state}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.keyboard('shade');
+
+    expect(input).toHaveValue('Nightshade');
+    expect(document.activeElement).toBe(input);
+  });
 });
