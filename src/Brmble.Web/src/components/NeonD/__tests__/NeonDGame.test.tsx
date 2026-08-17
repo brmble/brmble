@@ -23,6 +23,9 @@ const mockNeonD = vi.hoisted(() => {
   const buyTerritoryMock = vi.fn();
   const buyDiscountMock = vi.fn();
   const hireDealerMock = vi.fn();
+  const hireSellerMock = vi.fn();
+  const refreshDealersMock = vi.fn();
+  const renameCaptainMock = vi.fn();
   const fireDealerMock = vi.fn();
   const setSellerProductMock = vi.fn();
   const buySellerEquipmentMock = vi.fn();
@@ -47,6 +50,9 @@ const mockNeonD = vi.hoisted(() => {
     buyTerritoryMock,
     buyDiscountMock,
     hireDealerMock,
+    hireSellerMock,
+    refreshDealersMock,
+    renameCaptainMock,
     fireDealerMock,
     setSellerProductMock,
     buySellerEquipmentMock,
@@ -74,6 +80,9 @@ const mockNeonD = vi.hoisted(() => {
         buyTerritoryMock,
         buyDiscountMock,
         hireDealerMock,
+        hireSellerMock,
+        refreshDealersMock,
+        renameCaptainMock,
         fireDealerMock,
         setSellerProductMock,
         buySellerEquipmentMock,
@@ -99,6 +108,9 @@ const mockNeonD = vi.hoisted(() => {
       buyTerritory: buyTerritoryMock,
       buyDiscount: buyDiscountMock,
       hireDealer: hireDealerMock,
+      hireSeller: hireSellerMock,
+      refreshDealers: refreshDealersMock,
+      renameCaptain: renameCaptainMock,
       fireDealer: fireDealerMock,
       setSellerProduct: setSellerProductMock,
       buySellerEquipment: buySellerEquipmentMock,
@@ -833,23 +845,24 @@ it('keeps captain headers centered while hired dealer headers support collapse c
   expect(css).toMatch(/\.collapsibleDealerHeader\s*\{[^}]*display:\s*flex/);
 });
 
-it('shows all three auto-refreshed candidates without a manual refresh button', () => {
+it('shows all three candidates in the hiring modal with a manual refresh button', async () => {
   mockState({
     activeDealers: [null],
   });
 
+  const user = userEvent.setup();
   render(<NeonDGame />);
 
-  expect(screen.getByText(/candidate one/i)).toBeInTheDocument();
-  expect(screen.getByText(/candidate two/i)).toBeInTheDocument();
-  expect(screen.getByText(/candidate three/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  expect(screen.getAllByText(/candidate one/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/candidate two/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/candidate three/i).length).toBeGreaterThan(0);
   expect(screen.getByRole('img', { name: 'Volume: 1.23x' })).toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Margin: 0.87x' })).toBeInTheDocument();
-  expect(screen.getByText(/next candidates in/i)).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /refresh available/i })).toBeDisabled();
 });
 
-it('toggles favorite stars for hired and candidate dealers without changing dealer actions', async () => {
+it('keeps hired dealer favorite stars while candidate hiring stays in the modal', async () => {
   const user = userEvent.setup();
   mockState({
     activeDealers: [makeReferenceDealer({ id: 'dealer-favorite', name: 'Favorite Dealer' }), null],
@@ -859,20 +872,15 @@ it('toggles favorite stars for hired and candidate dealers without changing deal
   render(<NeonDGame />);
 
   const hiredCard = screen.getByRole('article', { name: 'Favorite Dealer distribution' });
-  const candidateCard = screen.getByText('Candidate Dealer').closest('article') as HTMLElement;
   const hiredStar = within(hiredCard).getByRole('button', { name: 'Favorite Favorite Dealer' });
-  const candidateStar = within(candidateCard).getByRole('button', { name: 'Favorite Candidate Dealer' });
 
   expect(hiredStar).toHaveAttribute('aria-pressed', 'false');
-  expect(candidateStar).toHaveAttribute('aria-pressed', 'false');
 
   await user.click(hiredStar);
 
   expect(within(hiredCard).getByRole('button', { name: 'Unfavorite Favorite Dealer' }))
     .toHaveAttribute('aria-pressed', 'true');
-  expect(within(candidateCard).getByRole('button', { name: 'Favorite Candidate Dealer' }))
-    .toHaveAttribute('aria-pressed', 'false');
-  expect(mockNeonD.hireDealerMock).not.toHaveBeenCalled();
+  expect(mockNeonD.hireSellerMock).not.toHaveBeenCalled();
 
   await user.click(within(hiredCard).getByRole('button', { name: 'Unfavorite Favorite Dealer' }));
 
@@ -961,6 +969,35 @@ it('collapses Captain cards independently while retaining product and earnings c
 
   await user.click(within(firstCard).getByRole('button', { name: 'Expand Captain One distribution' }));
   expect(within(firstCard).getByRole('img', { name: /Volume:/ })).toBeInTheDocument();
+});
+
+it('shows stats and product controls for an assigned Captain card', async () => {
+  const user = userEvent.setup();
+  const assignedCaptain = makeReferenceCaptain({
+    id: 'captain-assigned',
+    name: 'Assigned Captain',
+    personalEarnings: 250_000,
+  });
+  mockState({
+    activeDealers: [{ ...assignedCaptain, personalEarnings: 0 }],
+    captains: [assignedCaptain],
+    unlockedProducts: ['weed', 'mushrooms'],
+  });
+
+  render(<NeonDGame />);
+
+  const captainCard = screen.getByRole('article', { name: 'Assigned Captain distribution' });
+  expect(within(captainCard).getByRole('button', { name: 'Collapse Assigned Captain distribution' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  expect(within(captainCard).getByRole('img', { name: /Volume:/ })).toBeInTheDocument();
+  expect(within(captainCard).getByText('Personal earnings').parentElement?.textContent?.replace(/\D/g, ''))
+    .toBe('250000');
+
+  await user.click(within(captainCard).getByRole('combobox', { name: 'Product for Assigned Captain' }));
+  await user.click(screen.getByRole('option', { name: 'Magic Mushrooms' }));
+  expect(mockNeonD.setSellerProductMock).toHaveBeenCalledWith('captain-assigned', 'mushrooms', 'captain');
 });
 
 it('shows the Captain prestige controls and invokes buyCaptain', async () => {

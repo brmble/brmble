@@ -7,6 +7,7 @@ import styles from './NeonD.module.css';
 
 export type TalentLedgerProps = {
   captain: Captain;
+  readOnly?: boolean;
   onClose: () => void;
   onClaimLevel: () => void;
   onPurchaseTalent: (path: TalentPathId, row: 0 | 1 | 2) => void;
@@ -32,6 +33,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export function TalentLedger({
   captain,
+  readOnly = false,
   onClose,
   onClaimLevel,
   onPurchaseTalent,
@@ -67,6 +69,7 @@ export function TalentLedger({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
+      event.stopPropagation();
       if (promotionConfirming) setPromotionConfirming(false);
       else onClose();
       return;
@@ -142,7 +145,7 @@ export function TalentLedger({
           ) : (
             <span className={styles.talentLedgerStatus}>Maximum level reached</span>
           )}
-          {levelUpAvailable ? (
+          {!readOnly && levelUpAvailable ? (
             <button type="button" className={styles.buyButton} onClick={onClaimLevel}>
               Level Up
             </button>
@@ -171,7 +174,7 @@ export function TalentLedger({
                     <button
                       type="button"
                       className={`${styles.talentNode} ${isComplete ? styles.talentNodeComplete : ''}`}
-                      disabled={!canPurchase}
+                      disabled={readOnly || !canPurchase}
                       aria-label={`${definition.label}, ${currentRanks}/${definition.maxRanks}, ${canPurchase ? 'available' : isComplete ? 'complete' : `locked. ${requirement}`}`}
                       onClick={() => onPurchaseTalent(path.id, row as 0 | 1 | 2)}
                     >
@@ -195,15 +198,17 @@ export function TalentLedger({
             <h3 className="heading-section">Kingpin</h3>
             <p>{promotionAvailable ? 'Spend the 10th point to retire this Captain permanently.' : 'Complete one lane and claim Level 10 to unlock promotion.'}</p>
           </div>
-          <button
-            type="button"
-            className={styles.dangerButton}
-            disabled={!promotionAvailable}
-            aria-label={promotionAvailable ? 'Promote to Kingpin' : 'Promote to Kingpin, locked'}
-            onClick={() => setPromotionConfirming(true)}
-          >
-            Promote to Kingpin
-          </button>
+          {!readOnly ? (
+            <button
+              type="button"
+              className={styles.dangerButton}
+              disabled={!promotionAvailable}
+              aria-label={promotionAvailable ? 'Promote to Kingpin' : 'Promote to Kingpin, locked'}
+              onClick={() => setPromotionConfirming(true)}
+            >
+              Promote to Kingpin
+            </button>
+          ) : null}
         </div>
 
         </>}

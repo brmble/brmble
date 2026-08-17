@@ -180,4 +180,28 @@ describe('TalentLedger', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Kingpin promotion' }));
     expect(onPromote).toHaveBeenCalledOnce();
   });
+
+  it('renders a read-only tree without progression or promotion actions', () => {
+    render(
+      <TalentLedger
+        captain={makeReferenceCaptain({
+          name: 'Preview Captain',
+          level: 10,
+          talentPoints: 1,
+          talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+          ledgerUnlocked: true,
+          kingpinAvailable: true,
+        })}
+        readOnly
+        onClose={vi.fn()}
+        onClaimLevel={vi.fn()}
+        onPurchaseTalent={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Volume, 0\/2/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Promote to Kingpin' })).not.toBeInTheDocument();
+  });
 });

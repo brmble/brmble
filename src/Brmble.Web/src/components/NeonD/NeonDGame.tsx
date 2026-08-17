@@ -47,7 +47,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     buyMuscleWorker,
     buyTerritory,
     buyDiscount,
-    hireDealer,
+    hireSeller,
+    refreshDealers,
+    renameCaptain,
     fireDealer,
     setSellerProduct,
     buySellerEquipment,
@@ -308,7 +310,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           )}
           <DistributionPanel
             state={state}
-            hireDealer={hireDealer}
+            onHireSeller={hireSeller}
+            onRefreshDealers={refreshDealers}
+            onRenameCaptain={renameCaptain}
             fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}

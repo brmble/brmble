@@ -9,7 +9,7 @@ import {
   getRecruitmentRefreshMs,
   getRespectMultiplier,
 } from '../../economy';
-import type { GameState } from '../../types';
+import type { Dealer, GameState } from '../../types';
 import { makeReferenceCaptain, makeReferenceDealer } from '../../__tests__/testFixtures';
 import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import { useGameEngine } from '../useGameEngine';
@@ -216,7 +216,7 @@ describe('useGameEngine', () => {
       simulatedMs: 24 * 60 * 60 * 1000,
     });
     expect(result.current.state.activeMarketEvent).toBeNull();
-    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+    expect((result.current.state.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
     expect(result.current.state.nextMarketCheckAt).toBe(now + 30_000);
     expect(result.current.state.nextRiskCheckAt).toBe(now + 30_000);
   });
@@ -672,7 +672,74 @@ describe('useGameEngine', () => {
     expect(result.current.state.activeDealers[0]?.id).toBe(candidate.id);
   });
 
-  it('automatically refreshes a pool of three after 60 seconds with no Kingpins', () => {
+  it('assigns an unassigned Captain without removing it from ownership', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-slot', name: 'Owned Captain' });
+    const { result } = renderSeededGame({ captains: [captain] });
+
+    act(() => result.current.hireSeller(captain.id, 0, 'captain'));
+
+    expect(result.current.state.activeDealers[0]).toEqual(captain);
+    expect(result.current.state.captains).toEqual([captain]);
+  });
+
+  it('updates the assigned Captain slot when changing the Captain product', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-product' });
+    const { result } = renderSeededGame({
+      unlockedProducts: ['weed', 'mushrooms'],
+      captains: [captain],
+      activeDealers: [captain],
+    });
+
+    act(() => result.current.setSellerProduct(captain.id, 'mushrooms', 'captain'));
+
+    expect(result.current.state.captains[0].selling).toBe('mushrooms');
+    expect(result.current.state.activeDealers[0]?.selling).toBe('mushrooms');
+  });
+
+  it('rejects Captain assignment when the Captain is already assigned or the slot is occupied', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-assigned' });
+    const dealer = makeReferenceDealer({ id: 'dealer-occupied' });
+    const { result } = renderSeededGame({ captains: [captain], activeDealers: [captain, dealer] });
+
+    act(() => result.current.hireSeller(captain.id, 1, 'captain'));
+    expect(result.current.state.activeDealers).toEqual([captain, dealer]);
+
+    act(() => result.current.hireSeller(captain.id, 0, 'captain'));
+    expect(result.current.state.activeDealers).toEqual([captain, dealer]);
+  });
+
+  it('renames an owned Captain and mirrors the name into an assigned slot', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-rename', name: 'Before' });
+    const { result } = renderSeededGame({ captains: [captain], activeDealers: [captain] });
+
+    act(() => result.current.renameCaptain(captain.id, '  After  '));
+    expect(result.current.state.captains[0].name).toBe('After');
+    expect(result.current.state.activeDealers[0]?.name).toBe('After');
+
+    act(() => result.current.renameCaptain(captain.id, '   '));
+    expect(result.current.state.captains[0].name).toBe('After');
+  });
+
+  it('refreshes exactly three normal candidates only after the cooldown', () => {
+    const { result } = renderSeededGame({ lastDealerRefreshAt: 1_000 });
+    const beforeIds = result.current.state.availableDealers.map((dealer) => dealer.id);
+
+    act(() => {
+      vi.advanceTimersByTime(59_000);
+      result.current.refreshDealers();
+    });
+    expect(result.current.state.availableDealers.map((dealer) => dealer.id)).toEqual(beforeIds);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+      result.current.refreshDealers();
+    });
+    expect(result.current.state.availableDealers).toHaveLength(3);
+    expect(result.current.state.availableDealers.map((dealer) => dealer.id)).not.toEqual(beforeIds);
+    expect(result.current.state.lastDealerRefreshAt).toBe(61_000);
+  });
+
+  it('keeps the candidate pool stable until Refresh dealers is pressed', () => {
     const { result } = renderHook(() => useGameEngine());
     const beforeIds = result.current.state.availableDealers.map((d) => d.id);
 
@@ -681,7 +748,7 @@ describe('useGameEngine', () => {
 
     act(() => vi.advanceTimersByTime(1_000));
     expect(result.current.state.availableDealers).toHaveLength(3);
-    expect(result.current.state.availableDealers.map((d) => d.id)).not.toEqual(beforeIds);
+    expect(result.current.state.availableDealers.map((d) => d.id)).toEqual(beforeIds);
   });
 
   it('buys a fixed equipment item once and charges its listed discounted price', () => {
@@ -706,7 +773,7 @@ describe('useGameEngine', () => {
 
     act(() => result.current.toggleDealerProtection('d1'));
 
-    expect(result.current.state.activeDealers[0]?.isProtected).toBe(true);
+    expect((result.current.state.activeDealers[0] as Dealer | null)?.isProtected).toBe(true);
     expect(result.current.state.nextRiskCheckAt).toBe(30_000);
   });
 
@@ -724,6 +791,6 @@ describe('useGameEngine', () => {
 
     act(() => result.current.payDealerBail('arrested'));
     expect(result.current.state.cash).toBeCloseTo(10_000 - 1_900);
-    expect(result.current.state.activeDealers[0]?.isArrested).toBe(false);
+    expect((result.current.state.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
   });
 });
