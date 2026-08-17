@@ -607,6 +607,47 @@
   background: color-mix(in srgb, currentColor 15%, transparent);
 }
 
+.captainRenameButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.captainRenameButton:hover,
+.captainRenameButton:focus-visible {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.captainRenameEditor {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-xs);
+  background: var(--bg-surface);
+}
+
+.captainRenameEditor label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.captainRenameEditor input {
+  min-width: 0;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--border-width-thin) solid var(--glass-border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+}
+
 .productionBody {
   padding: var(--space-sm);
 }
