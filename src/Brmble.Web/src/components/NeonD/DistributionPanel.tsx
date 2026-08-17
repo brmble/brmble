@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EQUIPMENT_CATALOG } from './constants';
 import {
   getBailCost,
@@ -128,8 +128,11 @@ export function DistributionPanel(props: DistributionPanelProps) {
   const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
   const [ledgerCaptainId, setLedgerCaptainId] = useState<string | null>(null);
   const [hiringSlotIndex, setHiringSlotIndex] = useState<number | null>(null);
+  const [editingCaptainId, setEditingCaptainId] = useState<string | null>(null);
+  const [captainDraftName, setCaptainDraftName] = useState('');
   const talentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const distributionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const captainRenameInputRef = useRef<HTMLInputElement>(null);
   const knownSellerIds = useMemo(
     () => [
       ...props.state.activeDealers
@@ -172,6 +175,29 @@ export function DistributionPanel(props: DistributionPanelProps) {
     requestAnimationFrame(() => distributionHeadingRef.current?.focus());
   };
 
+  useEffect(() => {
+    if (editingCaptainId) {
+      captainRenameInputRef.current?.focus();
+      captainRenameInputRef.current?.select();
+    }
+  }, [editingCaptainId]);
+
+  const startCaptainRename = (captain: Captain) => {
+    setCaptainDraftName(captain.name);
+    setEditingCaptainId(captain.id);
+  };
+
+  const cancelCaptainRename = () => {
+    setEditingCaptainId(null);
+    setCaptainDraftName('');
+  };
+
+  const commitCaptainRename = (captainId: string) => {
+    const trimmedName = captainDraftName.trim();
+    if (trimmedName) props.onRenameCaptain(captainId, trimmedName);
+    cancelCaptainRename();
+  };
+
   const renderCaptainCard = (captain: Captain, slotIndex?: number) => {
     const remainingThreshold = getCaptainRemainingThreshold(
       captain.level,
@@ -189,6 +215,8 @@ export function DistributionPanel(props: DistributionPanelProps) {
       captain.lastLevelUpEarnings,
     );
     const isLedgerOpen = ledgerCaptainId === captain.id;
+    const isEditing = editingCaptainId === captain.id;
+    const renameEditorId = `captain-rename-${captain.id}`;
     const title = slotIndex === undefined
       ? `${captain.name} (${getProductDefinition(captain.selling).name})`
       : `♛ ${captain.name} · Captain · Slot ${slotIndex + 1}`;
@@ -197,17 +225,52 @@ export function DistributionPanel(props: DistributionPanelProps) {
       <>
         <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
           <span className={styles.dealerHeaderTitle}>{title}</span>
-          <button
-            type="button"
-            className={styles.cardCollapseButton}
-            aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${captain.name} distribution`}
-            aria-expanded={!isCollapsed}
-            aria-controls={bodyId}
-            onClick={() => toggleSellerCard(captain.id)}
-          >
-            <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
-          </button>
+          <div className={styles.cardHeaderActions}>
+            <button
+              type="button"
+              className={styles.captainRenameButton}
+              aria-label={`Rename ${captain.name}`}
+              aria-expanded={isEditing}
+              aria-controls={renameEditorId}
+              onClick={() => startCaptainRename(captain)}
+            >
+              <Icon name="pencil" size={14} />
+            </button>
+            <button
+              type="button"
+              className={styles.cardCollapseButton}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${captain.name} distribution`}
+              aria-expanded={!isCollapsed}
+              aria-controls={bodyId}
+              onClick={() => toggleSellerCard(captain.id)}
+            >
+              <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+            </button>
+          </div>
         </div>
+        {isEditing ? (
+          <div id={renameEditorId} className={styles.captainRenameEditor}>
+            <label htmlFor={`${renameEditorId}-input`}>Name for {captain.name}</label>
+            <input
+              ref={captainRenameInputRef}
+              id={`${renameEditorId}-input`}
+              className="brmble-input"
+              value={captainDraftName}
+              onChange={(event) => setCaptainDraftName(event.target.value)}
+              onBlur={() => commitCaptainRename(captain.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitCaptainRename(captain.id);
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelCaptainRename();
+                }
+              }}
+            />
+          </div>
+        ) : null}
         {isCollapsed ? (
           <div id={bodyId} className={styles.collapsedDealerBody}>
             <ProductSelect

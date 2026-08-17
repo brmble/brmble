@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createBaseGameState } from '../constants';
 import { DistributionPanel } from '../DistributionPanel';
-import { makeReferenceDealer } from './testFixtures';
+import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 
 const state = {
   ...createBaseGameState(0),
@@ -59,5 +59,78 @@ describe('DistributionPanel hiring entry point', () => {
 
     expect(screen.getByRole('dialog', { name: 'Hire seller for Slot 2' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Hire seller for Slot 2' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Captain card rename control', () => {
+  const captain = makeReferenceCaptain({ id: 'captain-rename', name: 'Captain Rename' });
+
+  const renderCaptainPanel = (
+    overrides: Partial<typeof state> = {},
+    onRenameCaptain = vi.fn(),
+  ) => {
+    render(
+      <DistributionPanel
+        {...panelProps}
+        onRenameCaptain={onRenameCaptain}
+        state={{
+          ...state,
+          activeDealers: [null, { ...captain, id: 'captain-assigned', name: 'Assigned Captain' }],
+          captains: [captain, { ...captain, id: 'captain-assigned', name: 'Assigned Captain' }],
+          ...overrides,
+        }}
+      />,
+    );
+    return onRenameCaptain;
+  };
+
+  it('shows a rename button for assigned and unassigned Captain cards', () => {
+    renderCaptainPanel();
+
+    expect(screen.getByRole('button', { name: 'Rename Captain Rename' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rename Assigned Captain' })).toBeInTheDocument();
+  });
+
+  it('opens the current name, commits a trimmed name, and closes the editor', async () => {
+    const user = userEvent.setup();
+    const onRenameCaptain = renderCaptainPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
+    expect(input).toHaveValue('Captain Rename');
+
+    await user.clear(input);
+    await user.type(input, '  Nightshade  ');
+    await user.keyboard('{Enter}');
+
+    expect(onRenameCaptain).toHaveBeenCalledWith('captain-rename', 'Nightshade');
+    expect(screen.queryByRole('textbox', { name: 'Name for Captain Rename' })).not.toBeInTheDocument();
+  });
+
+  it('cancels with Escape without renaming', async () => {
+    const user = userEvent.setup();
+    const onRenameCaptain = renderCaptainPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
+    await user.clear(input);
+    await user.type(input, 'Temporary');
+    await user.keyboard('{Escape}');
+
+    expect(onRenameCaptain).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: 'Name for Captain Rename' })).not.toBeInTheDocument();
+  });
+
+  it('rejects a whitespace-only name when the editor loses focus', async () => {
+    const user = userEvent.setup();
+    const onRenameCaptain = renderCaptainPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Rename Captain Rename' }));
+    const input = screen.getByRole('textbox', { name: 'Name for Captain Rename' });
+    await user.clear(input);
+    await user.type(input, '   ');
+    await user.tab();
+
+    expect(onRenameCaptain).not.toHaveBeenCalled();
   });
 });
