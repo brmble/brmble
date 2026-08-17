@@ -11,6 +11,7 @@ import { TalentLedger } from './TalentLedger';
 type DealerHiringModalProps = {
   state: GameState;
   slotIndex: number;
+  rosterOnly?: boolean;
   onHireSeller: (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => void;
   onRefreshDealers: () => void;
   onRenameCaptain: (captainId: string, name: string) => void;
@@ -25,17 +26,20 @@ function CaptainCandidate({
   captain,
   slotIndex,
   onHire,
+  canHire,
   onRename,
   onViewTalents,
 }: {
   captain: Captain;
   slotIndex: number;
   onHire: () => void;
+  canHire: boolean;
   onRename: (name: string) => void;
   onViewTalents: () => void;
 }) {
   const [name, setName] = useState(captain.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelBlurRef = useRef(false);
   const commit = () => {
     const trimmed = name.trim();
     if (trimmed) {
@@ -56,10 +60,24 @@ function CaptainCandidate({
           value={name}
           aria-label={`Name for ${captain.name}`}
           onChange={(event) => setName(event.target.value)}
-          onBlur={commit}
+          onBlur={() => {
+            if (cancelBlurRef.current) {
+              cancelBlurRef.current = false;
+              return;
+            }
+            commit();
+          }}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') { commit(); inputRef.current?.blur(); }
-            if (event.key === 'Escape') { setName(captain.name); inputRef.current?.blur(); }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              inputRef.current?.blur();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              cancelBlurRef.current = true;
+              setName(captain.name);
+              inputRef.current?.blur();
+            }
           }}
         />
       </label>
@@ -78,9 +96,11 @@ function CaptainCandidate({
           View talents
         </button>
       </div>
-      <button type="button" className={styles.buyButton} onClick={onHire}>
-        Hire {captain.name} to Slot {slotIndex + 1}
-      </button>
+      {canHire ? (
+        <button type="button" className={styles.buyButton} onClick={onHire}>
+          Hire {captain.name} to Slot {slotIndex + 1}
+        </button>
+      ) : null}
     </article>
   );
 }
@@ -88,6 +108,7 @@ function CaptainCandidate({
 export function DealerHiringModal({
   state,
   slotIndex,
+  rosterOnly = false,
   onHireSeller,
   onRefreshDealers,
   onRenameCaptain,
@@ -116,43 +137,53 @@ export function DealerHiringModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const title = rosterOnly ? 'Unassigned Captains' : `Hire seller for Slot ${slotIndex + 1}`;
+
   return (
-    <div className={styles.dealerHiringBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      className="modal-overlay"
+      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
       <div
         ref={dialogRef}
-        className={styles.dealerHiringModal}
+        className={`glass-panel animate-slide-up ${styles.dealerHiringModal}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="dealer-hiring-title"
         tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
       >
-        <div className={styles.dealerHiringHeader}>
+        <div className={`modal-header ${styles.dealerHiringHeader}`}>
           <div>
-            <span className={styles.label}>Open seller slot</span>
-            <h2 id="dealer-hiring-title" className="heading-title modal-title">Hire seller for Slot {slotIndex + 1}</h2>
+            <span className={styles.label}>{rosterOnly ? 'Captain roster' : 'Open seller slot'}</span>
+            <h2 id="dealer-hiring-title" className="heading-title modal-title">{title}</h2>
           </div>
-          <button type="button" className={styles.modalCloseButton} aria-label="Close hiring modal" onClick={onClose}>
+          <button type="button" className="modal-close" aria-label="Close hiring modal" onClick={onClose}>
             <Icon name="x" size={18} />
           </button>
         </div>
-        <div className={styles.hiringDealerGrid}>
-          {state.availableDealers.map((dealer) => (
-            <article key={dealer.id} className={styles.dealerCard}>
-              <h3 className={styles.dealerName}>{dealer.name}</h3>
-              <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} maxStars={5} />
-              <DealerRating label="Margin" multiplier={dealer.marginMultiplier} maxStars={5} />
-              <div className={styles.metricRow}><span>Product</span><strong>{getProductDefinition(dealer.selling).name}</strong></div>
-              <button type="button" className={styles.buyButton} onClick={() => { onHireSeller(dealer.id, slotIndex, 'dealer'); onClose(); }}>
-                Hire {dealer.name} to Slot {slotIndex + 1}
+        {!rosterOnly ? (
+          <>
+            <div className={styles.hiringDealerGrid}>
+              {state.availableDealers.map((dealer) => (
+                <article key={dealer.id} className={styles.dealerCard}>
+                  <h3 className={styles.dealerName}>{dealer.name}</h3>
+                  <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} maxStars={5} />
+                  <DealerRating label="Margin" multiplier={dealer.marginMultiplier} maxStars={5} />
+                  <div className={styles.metricRow}><span>Product</span><strong>{getProductDefinition(dealer.selling).name}</strong></div>
+                  <button type="button" className={styles.buyButton} onClick={() => { onHireSeller(dealer.id, slotIndex, 'dealer'); onClose(); }}>
+                    Hire {dealer.name} to Slot {slotIndex + 1}
+                  </button>
+                </article>
+              ))}
+            </div>
+            <div className={styles.dealerHiringActions}>
+              <button type="button" className={styles.unlockButton} disabled={refreshRemainingMs > 0} onClick={onRefreshDealers}>
+                <Icon name="refresh-cw" size={14} /> {formatRefresh(refreshRemainingMs)}
               </button>
-            </article>
-          ))}
-        </div>
-        <div className={styles.dealerHiringActions}>
-          <button type="button" className={styles.unlockButton} disabled={refreshRemainingMs > 0} onClick={onRefreshDealers}>
-            <Icon name="refresh-cw" size={14} /> {formatRefresh(refreshRemainingMs)}
-          </button>
-        </div>
+            </div>
+          </>
+        ) : null}
         <section aria-labelledby="captain-candidates-title">
           <h3 id="captain-candidates-title" className={styles.columnHeader}>Unassigned Captains</h3>
           {unassignedCaptains.length > 0 ? (
@@ -163,6 +194,7 @@ export function DealerHiringModal({
                   captain={captain}
                   slotIndex={slotIndex}
                   onHire={() => { onHireSeller(captain.id, slotIndex, 'captain'); onClose(); }}
+                  canHire={!rosterOnly}
                   onRename={(name) => onRenameCaptain(captain.id, name)}
                   onViewTalents={() => setPreviewCaptainId(captain.id)}
                 />

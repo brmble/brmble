@@ -820,32 +820,6 @@
   color: var(--text-muted);
 }
 
-.modalCloseButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: var(--neond-control-min-height);
-  height: var(--neond-control-min-height);
-  border: var(--border-width-thin) solid var(--glass-border);
-  border-radius: var(--radius-md);
-  background: var(--bg-hover-light);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: var(--text-xl);
-}
-
-.modalCloseButton:hover,
-.modalCloseButton:focus-visible {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-}
-
-.modalCloseButton:focus-visible {
-  outline: var(--border-width-strong) solid var(--accent-primary);
-  outline-offset: var(--space-2xs);
-}
-
 .talentLedgerSummary {
   flex-wrap: wrap;
   padding: var(--space-sm) var(--space-md);
@@ -1201,17 +1175,6 @@
   color: var(--text-primary);
 }
 
-.dealerHiringBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-lg);
-  background: var(--bg-overlay);
-}
-
 .dealerHiringModal {
   display: grid;
   gap: var(--space-md);
@@ -1268,52 +1231,6 @@
   border-radius: var(--radius-xs);
   background: var(--bg-deep);
   color: var(--text-primary);
-}
-
-.captainRecruitmentBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-lg);
-  background: var(--bg-overlay);
-}
-
-.captainRecruitmentDialog {
-  display: grid;
-  gap: var(--space-md);
-  width: min(100%, 520px);
-  padding: var(--space-xl);
-  border: var(--border-width-strong) solid var(--accent-primary);
-  border-radius: var(--radius-lg);
-  background: var(--bg-deep);
-  box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-primary-glow);
-}
-
-.captainRecruitmentDialog form {
-  display: grid;
-  gap: var(--space-lg);
-}
-
-.captainRecruitmentField {
-  display: grid;
-  gap: var(--space-2xs);
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-.captainRecruitmentField input {
-  width: 100%;
-  min-width: 0;
-}
-
-.captainRecruitmentActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-sm);
 }
 
 @media (max-width: 700px) {

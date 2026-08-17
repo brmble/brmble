@@ -171,4 +171,104 @@ describe('DealerHiringModal', () => {
     expect(input).toHaveValue('Nightshade');
     expect(document.activeElement).toBe(input);
   });
+
+  it('commits a Captain rename once when Enter blurs the input', async () => {
+    const user = userEvent.setup();
+    const onRenameCaptain = vi.fn();
+
+    render(
+      <DealerHiringModal
+        state={state}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={onRenameCaptain}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Name for Captain One' });
+    await user.clear(input);
+    await user.type(input, 'Nightshade');
+    await user.keyboard('{Enter}');
+
+    expect(onRenameCaptain).toHaveBeenCalledOnce();
+    expect(onRenameCaptain).toHaveBeenCalledWith('captain-1', 'Nightshade');
+  });
+
+  it('cancels a Captain rename on Escape without committing the draft', async () => {
+    const user = userEvent.setup();
+    const onRenameCaptain = vi.fn();
+
+    render(
+      <DealerHiringModal
+        state={state}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={onRenameCaptain}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Name for Captain One' });
+    await user.clear(input);
+    await user.type(input, 'Temporary');
+    await user.keyboard('{Escape}');
+
+    expect(onRenameCaptain).not.toHaveBeenCalled();
+    expect(input).toHaveValue('Captain One');
+  });
+
+  it('uses the shared modal shell and does not close when its panel is clicked', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    render(
+      <DealerHiringModal
+        state={state}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Hire seller for Slot 1' });
+    expect(dialog).toHaveClass('glass-panel', 'animate-slide-up');
+    expect(dialog.parentElement).toHaveClass('modal-overlay');
+
+    await user.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('announces purchasable nodes as unavailable in a read-only preview', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DealerHiringModal
+        state={{
+          ...state,
+          captains: [makeReferenceCaptain({
+            id: 'captain-1',
+            name: 'Captain One',
+            level: 1,
+            talentPoints: 1,
+            ledgerUnlocked: true,
+          })],
+        }}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'View talents for Captain One' }));
+
+    expect(screen.queryByRole('button', { name: /Margin, 0\/2, available/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Margin, 0\/2, locked/ })).toBeDisabled();
+  });
 });

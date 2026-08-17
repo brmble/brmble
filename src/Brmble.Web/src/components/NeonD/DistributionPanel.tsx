@@ -337,13 +337,24 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
   const occupiedSlotCount = props.state.activeDealers.filter(Boolean).length;
   const firstEmptySlotIndex = props.state.activeDealers.findIndex((seller) => seller === null);
+  const hasUnassignedCaptains = props.state.captains.some(
+    (captain) => !props.state.activeDealers.some((seller) => seller?.id === captain.id),
+  );
   const hiringSummary = `Hire dealers ${occupiedSlotCount}/${props.state.activeDealers.length}`;
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
       <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
       {firstEmptySlotIndex === -1 ? (
-        <div className={styles.label}>{hiringSummary}</div>
+        hasUnassignedCaptains ? (
+          <button
+            type="button"
+            className={styles.unlockButton}
+            onClick={() => setHiringSlotIndex(0)}
+          >
+            View unassigned Captains
+          </button>
+        ) : <div className={styles.label}>{hiringSummary}</div>
       ) : (
         <button
           type="button"
@@ -488,6 +499,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
         <DealerHiringModal
           state={props.state}
           slotIndex={hiringSlotIndex}
+          rosterOnly={firstEmptySlotIndex === -1}
           onHireSeller={props.onHireSeller}
           onRefreshDealers={props.onRefreshDealers}
           onRenameCaptain={props.onRenameCaptain}

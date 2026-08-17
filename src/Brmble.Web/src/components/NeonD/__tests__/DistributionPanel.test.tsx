@@ -46,6 +46,31 @@ describe('DistributionPanel hiring entry point', () => {
     expect(screen.queryByText(/Next refresh in/i)).not.toBeInTheDocument();
   });
 
+  it('keeps an unassigned Captain roster entry point when all slots are occupied', async () => {
+    const user = userEvent.setup();
+    const unassignedCaptain = makeReferenceCaptain({
+      id: 'unassigned-captain',
+      name: 'Captain Five',
+    });
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={{
+          ...state,
+          activeDealers: [makeReferenceDealer({ id: 'hired-dealer', name: 'Hired Dealer' })],
+          captains: [unassignedCaptain],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'View unassigned Captains' }));
+
+    expect(screen.getByRole('dialog', { name: /Unassigned Captains/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Name for Captain Five' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Hire .* to Slot/ })).not.toBeInTheDocument();
+  });
+
   it('uses the capacity summary button to open the first empty slot', async () => {
     const user = userEvent.setup();
     render(

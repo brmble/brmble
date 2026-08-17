@@ -134,10 +134,12 @@ vi.mock('../hooks/useGameEngine', () => ({
 }));
 
 const confirmMock = vi.hoisted(() => vi.fn());
+const promptMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../hooks/usePrompt', async importOriginal => ({
   ...(await importOriginal<typeof import('../../../hooks/usePrompt')>()),
   confirm: confirmMock,
+  prompt: promptMock,
 }));
 
 const createState = (overrides: Partial<GameState> = {}): GameState => {
@@ -182,6 +184,7 @@ beforeEach(() => {
   mockNeonD.setState(createState());
   mockNeonD.resetMocks();
   confirmMock.mockReset();
+  promptMock.mockReset();
 });
 
 it('asks for confirmation before resetting the Neon-D empire', async () => {
@@ -463,6 +466,7 @@ it('shows current cash against the first Captain price', () => {
 it('opens Captain naming before invoking recruitment', async () => {
   const user = userEvent.setup();
   mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+  promptMock.mockResolvedValue('Nightshade');
 
   render(<NeonDGame />);
 
@@ -475,30 +479,28 @@ it('opens Captain naming before invoking recruitment', async () => {
 
   await user.click(hireButton);
 
-  const dialog = screen.getByRole('dialog', { name: 'Name your Captain' });
-  expect(dialog).toBeInTheDocument();
-  const input = within(dialog).getByRole('textbox', { name: 'Captain name' });
-  expect(input).toHaveValue('Captain 1');
-  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
-
-  await user.clear(input);
-  await user.type(input, 'Nightshade');
-  await user.click(within(dialog).getByRole('button', { name: 'Confirm Captain name' }));
+  expect(promptMock).toHaveBeenCalledWith({
+    title: 'Name your Captain',
+    message: 'Give your new Captain a name before recruiting him.',
+    placeholder: 'Captain name',
+    defaultValue: 'Captain 1',
+    confirmLabel: 'Recruit Captain',
+    cancelLabel: 'Cancel',
+  });
 
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Nightshade');
-  expect(screen.queryByRole('dialog', { name: 'Name your Captain' })).not.toBeInTheDocument();
 });
 
 it('cancels Captain naming without invoking recruitment', async () => {
   const user = userEvent.setup();
   mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+  promptMock.mockResolvedValue(null);
 
   render(<NeonDGame />);
   await user.click(screen.getByRole('button', { name: /hire captain/i }));
-  await user.click(screen.getByRole('button', { name: 'Cancel Captain naming' }));
 
   expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
-  expect(screen.queryByRole('dialog', { name: 'Name your Captain' })).not.toBeInTheDocument();
+  expect(promptMock).toHaveBeenCalledOnce();
 });
 
 it('keeps the recruitment panel visible for the next Captain after the first hire', () => {
@@ -1033,13 +1035,10 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
     runEarnings: CAPTAIN_VISIBLE_EARNINGS,
     captains: [],
   });
+  promptMock.mockResolvedValue('Captain 1');
 
   render(<NeonDGame />);
   await user.click(screen.getByRole('button', { name: /hire captain/i }));
-
-  expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
-  expect(screen.getByRole('textbox', { name: 'Captain name' })).toHaveValue('Captain 1');
-  await user.click(screen.getByRole('button', { name: 'Confirm Captain name' }));
 
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Captain 1');
 });
