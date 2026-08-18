@@ -43,6 +43,7 @@ import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
 import { canPurchaseTalent } from '../talents';
 import { getAssignedCaptainIds, isDealer, syncAssignedCaptainSlots } from '../sellers';
+import { createAmsterdamZone } from '../zones';
 import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
@@ -57,12 +58,40 @@ const resetRunPreservingPrestige = (
   captains: Captain[],
   kingpins: number,
   now: number,
-): GameState => ({
-  ...createBaseGameState(now),
-  captains: captains.map((captain) => ({ ...captain, selling: 'weed' })),
-  kingpins,
-  availableDealers: generateCandidatePool(['weed']),
-});
+): GameState => {
+  const base = createBaseGameState(now);
+  const resetCaptains = captains.map((captain) => ({
+    ...captain,
+    selling: 'weed' as const,
+  }));
+
+  if (resetCaptains.length === 0) {
+    return {
+      ...base,
+      captains: [],
+      kingpins,
+      availableDealers: generateCandidatePool(['weed']),
+    };
+  }
+
+  const needsCaptainChoice = resetCaptains.length > 1;
+
+  return {
+    ...base,
+    captains: resetCaptains,
+    kingpins,
+    activeDealers: [],
+    zones: [
+      createAmsterdamZone(
+        needsCaptainChoice ? null : resetCaptains[0].id,
+        1,
+      ),
+    ],
+    dealerTransfers: [],
+    pendingAmsterdamCaptainSelection: needsCaptainChoice,
+    availableDealers: generateCandidatePool(['weed']),
+  };
+};
 
 const advanceThroughTick = (state: GameState, elapsedMs: number, now: number): GameState => {
   let remainingMs = Math.min(Math.max(0, elapsedMs), OFFLINE_CAP_MS);
@@ -436,6 +465,23 @@ export const useGameEngine = () => {
     });
   };
 
+  const assignAmsterdamCaptain = (captainId: string) => {
+    setState((prev) => {
+      if (!prev.pendingAmsterdamCaptainSelection) return prev;
+      if (!prev.captains.some((captain) => captain.id === captainId)) return prev;
+
+      return {
+        ...prev,
+        pendingAmsterdamCaptainSelection: false,
+        zones: prev.zones.map((zone) =>
+          zone.id === 'amsterdam'
+            ? { ...zone, captainId }
+            : zone,
+        ),
+      };
+    });
+  };
+
   const claimCaptainLevel = (captainId: string) => {
     setState((prev) => {
       const captains = prev.captains.map((captain) => {
@@ -536,6 +582,7 @@ export const useGameEngine = () => {
     bulkSellProduct,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    assignAmsterdamCaptain,
     claimCaptainLevel,
     purchaseCaptainTalent,
     promoteCaptain,

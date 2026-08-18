@@ -5,21 +5,27 @@ import {
   MUSCLE_CATALOG,
   NEON_D_SAVE_KEY,
   PRODUCT_CATALOG,
+  ZONE_CITY_CATALOG,
 } from './constants';
 import type {
   Captain,
   Dealer,
+  DealerTransfer,
   EquipmentId,
   GameState,
   MarketEvent,
   OfflineEarningsSummary,
   ProductId,
   ProductState,
+  Zone,
+  ZoneCityId,
+  ZoneDealerSlot,
 } from './types';
 import { isTalentStateValid } from './talents';
+import { createAmsterdamZone } from './zones';
 
 export const NEON_D_SAVE_FORMAT = NEON_D_SAVE_KEY;
-export const NEON_D_SAVE_VERSION = 3;
+export const NEON_D_SAVE_VERSION = 4;
 
 type SaveEnvelope = {
   format: typeof NEON_D_SAVE_FORMAT;
@@ -54,6 +60,7 @@ const PRODUCT_IDS = new Set(PRODUCT_IDS_IN_ORDER);
 const EQUIPMENT_IDS = new Set(EQUIPMENT_CATALOG.map((equipment) => equipment.id));
 const MUSCLE_WORKER_IDS_IN_ORDER = MUSCLE_CATALOG.map((worker) => worker.id);
 const MUSCLE_WORKER_IDS = new Set(MUSCLE_WORKER_IDS_IN_ORDER);
+const ZONE_CITY_IDS = new Set(ZONE_CITY_CATALOG.map((city) => city.id));
 
 function matchesCatalogPrefix(
   values: unknown,
@@ -73,6 +80,10 @@ function isProductId(value: unknown): value is ProductId {
 
 function isEquipmentId(value: unknown): value is EquipmentId {
   return typeof value === 'string' && EQUIPMENT_IDS.has(value as EquipmentId);
+}
+
+function isZoneCityId(value: unknown): value is ZoneCityId {
+  return typeof value === 'string' && ZONE_CITY_IDS.has(value as ZoneCityId);
 }
 
 function isEquipmentIdArray(value: unknown): value is EquipmentId[] {
@@ -129,6 +140,7 @@ function isCaptain(
   if (!hasExactKeys(value, [
     'id', 'name', 'selling', 'equipmentIds', 'personalEarnings',
     'lastLevelUpEarnings', 'level', 'talentPoints', 'talentRanks', 'ledgerUnlocked', 'kingpinAvailable',
+    'zoneBulkSellAvailableAt',
   ])) return false;
   const selling = value.selling;
   if (!isProductId(selling) || !unlockedProducts.includes(selling)) return false;
@@ -138,8 +150,94 @@ function isCaptain(
     && isNonNegativeFiniteNumber(value.personalEarnings)
     && isNonNegativeFiniteNumber(value.lastLevelUpEarnings)
     && value.lastLevelUpEarnings <= value.personalEarnings
+    && isNonNegativeFiniteNumber(value.zoneBulkSellAvailableAt)
     && isTalentStateValid(value as unknown as Captain);
 }
+
+function isZoneDealerSlot(value: unknown, unlockedProducts: readonly string[]): value is ZoneDealerSlot {
+  if (!isObject(value) || !hasExactKeys(value, ['id', 'dealer', 'reservedTransferId'])) return false;
+  return typeof value.id === 'string'
+    && (value.dealer === null || isDealer(value.dealer, unlockedProducts))
+    && (value.reservedTransferId === null || typeof value.reservedTransferId === 'string');
+}
+
+function isZone(value: unknown, unlockedProducts: readonly string[]): value is Zone {
+  if (!isObject(value) || !hasExactKeys(value, ['id', 'displayName', 'captainId', 'dealerSlots', 'perkIds'])) return false;
+  if (!isZoneCityId(value.id) || !Array.isArray(value.dealerSlots) || !Array.isArray(value.perkIds)) return false;
+  const city = ZONE_CITY_CATALOG.find((item) => item.id === value.id);
+  return value.displayName === city?.name
+    && (value.captainId === null || typeof value.captainId === 'string')
+    && value.dealerSlots.every((slot) => isZoneDealerSlot(slot, unlockedProducts))
+    && value.perkIds.every((perkId) => typeof perkId === 'string')
+    && hasUniqueValues(value.dealerSlots.map((slot) => slot.id))
+    && hasUniqueValues(value.perkIds);
+}
+
+function isDealerTransfer(value: unknown, unlockedProducts: readonly string[]): value is DealerTransfer {
+  if (!isObject(value) || !hasExactKeys(value, [
+    'id', 'dealer', 'sourceZoneId', 'sourceSlotId', 'destinationZoneId', 'destinationSlotId', 'completesAt', 'riskResolved',
+  ])) return false;
+  return typeof value.id === 'string'
+    && isDealer(value.dealer, unlockedProducts)
+    && isZoneCityId(value.sourceZoneId)
+    && typeof value.sourceSlotId === 'string'
+    && isZoneCityId(value.destinationZoneId)
+    && typeof value.destinationSlotId === 'string'
+    && isNonNegativeFiniteNumber(value.completesAt)
+    && typeof value.riskResolved === 'boolean';
+}
+
+const isTransferReservationGraphValid = (
+  zones: Zone[],
+  transfers: DealerTransfer[],
+  availableDealers: Dealer[],
+): boolean => {
+  if (!hasUniqueValues(transfers.map((transfer) => transfer.id))) return false;
+
+  const zoneDealerIds = zones.flatMap((zone) => zone.dealerSlots.flatMap((slot) =>
+    slot.dealer ? [slot.dealer.id] : [],
+  ));
+  const travellingDealerIds = transfers.map((transfer) => transfer.dealer.id);
+  const locatedDealerIds = [...zoneDealerIds, ...travellingDealerIds];
+  if (!hasUniqueValues(locatedDealerIds)) return false;
+  if (locatedDealerIds.some((dealerId) => availableDealers.some((dealer) => dealer.id === dealerId))) return false;
+
+  const reservations = zones.flatMap((zone) => zone.dealerSlots.flatMap((slot) =>
+    slot.reservedTransferId === null ? [] : [{ zoneId: zone.id, slotId: slot.id, transferId: slot.reservedTransferId }],
+  ));
+  const transferIds = new Set(transfers.map((transfer) => transfer.id));
+  if (reservations.some((reservation) => !transferIds.has(reservation.transferId))) return false;
+
+  return transfers.every((transfer) => {
+    if (transfer.sourceZoneId === transfer.destinationZoneId) return false;
+    const source = zones.find((zone) => zone.id === transfer.sourceZoneId)
+      ?.dealerSlots.find((slot) => slot.id === transfer.sourceSlotId);
+    const destination = zones.find((zone) => zone.id === transfer.destinationZoneId)
+      ?.dealerSlots.find((slot) => slot.id === transfer.destinationSlotId);
+    const matchingReservations = reservations.filter((reservation) => reservation.transferId === transfer.id);
+    if (!source || !destination) return false;
+
+    return source.dealer === null
+      && destination.dealer === null
+      && source.reservedTransferId === transfer.id
+      && destination.reservedTransferId === transfer.id
+      && matchingReservations.length === 2
+      && matchingReservations.some((reservation) =>
+        reservation.zoneId === transfer.sourceZoneId && reservation.slotId === transfer.sourceSlotId,
+      )
+      && matchingReservations.some((reservation) =>
+        reservation.zoneId === transfer.destinationZoneId && reservation.slotId === transfer.destinationSlotId,
+      );
+  });
+};
+
+const isPendingAmsterdamCaptainSelectionValid = (
+  zones: Zone[],
+  captains: Captain[],
+): boolean => zones.length === 1
+  && zones[0].id === 'amsterdam'
+  && zones[0].captainId === null
+  && captains.length > 1;
 
 function isMarketEvent(
   value: unknown,
@@ -224,6 +322,7 @@ function isGameState(value: unknown): value is GameState {
   if (!hasExactKeys(value, [
     'schemaVersion', 'cash', 'runEarnings', 'respect', 'production', 'unlockedProducts',
     'muscleOwned', 'territoryLevel', 'discountLevel', 'activeDealers', 'availableDealers',
+    'zones', 'dealerTransfers', 'pendingAmsterdamCaptainSelection',
     'lastDealerRefreshAt', 'captains', 'kingpins', 'bulkUnlockedProductIds', 'lastBulkSellAt',
     'activeMarketEvent', 'nextMarketCheckAt', 'nextRiskCheckAt', 'lastEarningsPerSeller',
     'lastTickAt', 'offlineEarningsSummary',
@@ -240,9 +339,18 @@ function isGameState(value: unknown): value is GameState {
   const captains = value.captains;
   if (!Array.isArray(captains)) return false;
 
+  const zones = value.zones;
+  if (!Array.isArray(zones) || !zones.every((zone) => isZone(zone, unlockedProducts))) return false;
+  const dealerTransfers = value.dealerTransfers;
+  if (!Array.isArray(dealerTransfers) || !dealerTransfers.every((transfer) => isDealerTransfer(transfer, unlockedProducts))) return false;
+  if (typeof value.pendingAmsterdamCaptainSelection !== 'boolean') return false;
+
   const territoryLevel = value.territoryLevel;
   if (!isNonNegativeInteger(territoryLevel)) return false;
-  if (activeDealers.length !== territoryLevel + 1) return false;
+  const totalDealerCapacity = zones.length > 0
+    ? zones.reduce((sum, zone) => sum + zone.dealerSlots.length, 0)
+    : activeDealers.length;
+  if (totalDealerCapacity !== territoryLevel + 1) return false;
   if (!activeDealers.every((seller) => seller === null || isDealer(seller, unlockedProducts) || isCaptain(seller, unlockedProducts))) return false;
   if (!availableDealers.every((dealer) => isDealer(dealer, unlockedProducts))) return false;
   if (!captains.every((captain) => isCaptain(captain, unlockedProducts))) return false;
@@ -252,15 +360,23 @@ function isGameState(value: unknown): value is GameState {
     activeSellerRecords.filter((seller): seller is Captain => isCaptain(seller, unlockedProducts)).map((captain) => captain.id),
   );
   const ownedCaptainIds = new Set(captains.map((captain) => captain.id));
+  const zoneIds = zones.map((zone) => zone.id);
+  const assignedCaptainIds = zones.flatMap((zone) => zone.captainId ? [zone.captainId] : []);
   const activeDealerIds = activeSellerRecords
     .filter((seller): seller is Dealer => isDealer(seller, unlockedProducts))
     .map((dealer) => dealer.id);
+  const normalDealerIds = [
+    ...activeDealerIds,
+    ...availableDealers.map((dealer) => dealer.id),
+    ...zones.flatMap((zone) => zone.dealerSlots.flatMap((slot) => slot.dealer ? [slot.dealer.id] : [])),
+    ...dealerTransfers.map((transfer) => transfer.dealer.id),
+  ];
   const activeCaptainRecords = activeSellerRecords
     .filter((seller): seller is Captain => isCaptain(seller, unlockedProducts));
 
   const bulkUnlockedProductIds = value.bulkUnlockedProductIds;
 
-  return value.schemaVersion === 5
+  return value.schemaVersion === 6
     && isNonNegativeFiniteNumber(value.cash)
     && isNonNegativeFiniteNumber(value.runEarnings)
     && isNonNegativeFiniteNumber(value.respect)
@@ -269,8 +385,21 @@ function isGameState(value: unknown): value is GameState {
     && isMuscleOwnedRecord(value.muscleOwned)
     && isNonNegativeInteger(value.discountLevel)
     && hasUniqueValues(activeDealerIds)
-    && hasUniqueValues([...availableDealers.map((dealer) => dealer.id), ...captains.map((captain) => captain.id)])
-    && activeDealerIds.every((id) => !availableDealers.some((dealer) => dealer.id === id || ownedCaptainIds.has(id)))
+    && hasUniqueValues(normalDealerIds)
+    && normalDealerIds.every((id) => !ownedCaptainIds.has(id))
+    && hasUniqueValues(zoneIds)
+    && hasUniqueValues(assignedCaptainIds)
+    && assignedCaptainIds.every((id) => ownedCaptainIds.has(id))
+    && (zones.length !== 0 || captains.length === 0)
+    && (zones.length === 0 || activeDealers.length === 0)
+    && (zones.length === 0 || zones[0]?.id === 'amsterdam')
+    && (value.pendingAmsterdamCaptainSelection
+      ? isPendingAmsterdamCaptainSelectionValid(zones, captains)
+      : zones.every((zone) => zone.captainId !== null))
+    && (zones.length > 0
+      ? isTransferReservationGraphValid(zones, dealerTransfers, availableDealers)
+      : dealerTransfers.length === 0)
+    && hasUniqueValues(captains.map((captain) => captain.id))
     && activeCaptainIds.size === activeCaptainRecords.length
     && [...activeCaptainIds].every((id) => ownedCaptainIds.has(id))
     && activeCaptainRecords.every((activeCaptain) => {
@@ -299,8 +428,8 @@ export function serializeNeonDSave(state: GameState): string {
 }
 
 export function migrateNeonDState(value: unknown): unknown {
-  if (!isObject(value)) return { schemaVersion: 5 };
-  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) {
+  if (!isObject(value)) return { schemaVersion: 6 };
+  if (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6) {
     return value;
   }
 
@@ -332,6 +461,41 @@ export function migrateNeonDState(value: unknown): unknown {
     state = { ...state, schemaVersion: 5, captains };
   }
 
+  if (state.schemaVersion === 5) {
+    const legacyActiveDealers = Array.isArray(state.activeDealers) ? state.activeDealers : [];
+    const captains = Array.isArray(state.captains)
+      ? state.captains.map((captain) => (
+        isObject(captain)
+          ? { ...captain, zoneBulkSellAvailableAt: 0 }
+          : captain
+      ))
+      : [];
+    const normalDealers = legacyActiveDealers.map((seller) => (
+      isObject(seller)
+      && 'volumeMultiplier' in seller
+      && 'marginMultiplier' in seller
+      && !('talentPoints' in seller)
+        ? seller
+        : null
+    ));
+    const zones = captains.length > 0
+      ? [createAmsterdamZone(
+          isObject(captains[0]) && typeof captains[0].id === 'string' ? captains[0].id : null,
+          legacyActiveDealers.length,
+          normalDealers as (Dealer | null)[],
+        )]
+      : [];
+    state = {
+      ...state,
+      schemaVersion: 6,
+      captains,
+      activeDealers: captains.length > 0 ? [] : legacyActiveDealers,
+      zones,
+      dealerTransfers: [],
+      pendingAmsterdamCaptainSelection: false,
+    };
+  }
+
   const captains = Array.isArray(state.captains)
     ? state.captains.map((captain) => (
       isObject(captain) && !('lastLevelUpEarnings' in captain)
@@ -341,7 +505,7 @@ export function migrateNeonDState(value: unknown): unknown {
     : state.captains;
 
   delete state.captainRecruitmentFund;
-  return { ...state, schemaVersion: 5, captains };
+  return { ...state, schemaVersion: 6, captains };
 }
 
 export function parseNeonDSave(text: string): GameState {
@@ -355,7 +519,7 @@ export function parseNeonDSave(text: string): GameState {
   if (!isObject(parsed) || !hasExactKeys(parsed, ['format', 'version', 'state']) || parsed.format !== NEON_D_SAVE_FORMAT) {
     throw new Error('This file is not a Neon-D save.');
   }
-  if (parsed.version !== 2 && parsed.version !== NEON_D_SAVE_VERSION) {
+  if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== NEON_D_SAVE_VERSION) {
     throw new Error('This Neon-D save version is not supported.');
   }
   const state = migrateNeonDState(parsed.state);

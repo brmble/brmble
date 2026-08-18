@@ -23,9 +23,12 @@ describe('Neon-D constants', () => {
     expect(state.activeDealers).toEqual([null]);
     expect(state.respect).toBe(0);
     expect(state.lastTickAt).toBe(1_234);
-    expect(state.schemaVersion).toBe(5);
+    expect(state.schemaVersion).toBe(6);
     expect(state.lastBulkSellAt).toBe(0);
     expect(state.bulkUnlockedProductIds).toEqual([]);
+    expect(state.zones).toEqual([]);
+    expect(state.dealerTransfers).toEqual([]);
+    expect(state.pendingAmsterdamCaptainSelection).toBe(false);
   });
 
   it('locks the aligned 16-product catalog and excludes removed v1 tiers', () => {

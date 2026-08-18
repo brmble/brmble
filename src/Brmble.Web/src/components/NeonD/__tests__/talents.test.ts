@@ -26,6 +26,7 @@ const makeCaptain = (overrides: Partial<Captain> = {}): Captain => ({
   talentRanks: emptyRanks(),
   ledgerUnlocked: true,
   kingpinAvailable: false,
+  zoneBulkSellAvailableAt: 0,
   ...overrides,
   lastLevelUpEarnings: overrides.lastLevelUpEarnings ?? 0,
 });

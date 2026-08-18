@@ -117,6 +117,7 @@ export const createCaptain = (
   talentRanks: { red: [0, 0, 0], yellow: [0, 0, 0], blue: [0, 0, 0] },
   ledgerUnlocked: false,
   kingpinAvailable: false,
+  zoneBulkSellAvailableAt: 0,
 });
 
 export const generateCandidatePool = (

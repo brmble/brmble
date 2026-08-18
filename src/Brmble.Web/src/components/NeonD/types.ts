@@ -101,9 +101,44 @@ export interface Captain {
   talentRanks: TalentRanks;
   ledgerUnlocked: boolean;
   kingpinAvailable: boolean;
+  zoneBulkSellAvailableAt: number;
 }
 
 export type ActiveSeller = Dealer | Captain;
+
+export type ZoneCityId =
+  | 'amsterdam' | 'paris' | 'berlin' | 'london'
+  | 'madrid' | 'rome' | 'prague' | 'vienna'
+  | 'brussels' | 'lisbon' | 'warsaw' | 'copenhagen';
+
+export interface ZoneDealerSlot {
+  id: string;
+  dealer: Dealer | null;
+  reservedTransferId: string | null;
+}
+
+export interface Zone {
+  id: ZoneCityId;
+  displayName: string;
+  captainId: string | null;
+  dealerSlots: ZoneDealerSlot[];
+  perkIds: string[];
+}
+
+export interface DealerTransfer {
+  id: string;
+  dealer: Dealer;
+  sourceZoneId: ZoneCityId;
+  sourceSlotId: string;
+  destinationZoneId: ZoneCityId;
+  destinationSlotId: string;
+  completesAt: number;
+  riskResolved: boolean;
+}
+
+export type DealerSlotTarget =
+  | { kind: 'legacy'; slotIndex: number }
+  | { kind: 'zone'; zoneId: ZoneCityId; slotId: string };
 
 export interface MarketEvent {
   productId: ProductId;
@@ -119,7 +154,7 @@ export interface OfflineEarningsSummary {
 }
 
 export interface GameState {
-  schemaVersion: 5;
+  schemaVersion: 6;
   cash: number;
   runEarnings: number;
   respect: number;
@@ -129,6 +164,9 @@ export interface GameState {
   territoryLevel: number;
   discountLevel: number;
   activeDealers: (Dealer | Captain | null)[];
+  zones: Zone[];
+  dealerTransfers: DealerTransfer[];
+  pendingAmsterdamCaptainSelection: boolean;
   availableDealers: Dealer[];
   lastDealerRefreshAt: number;
   captains: Captain[];
