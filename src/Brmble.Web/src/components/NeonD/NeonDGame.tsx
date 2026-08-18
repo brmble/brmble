@@ -8,13 +8,13 @@ import {
 } from './economy';
 import { getCaptainDefaultName } from './dealers';
 import { MARKET_DURATION_MAX_MS } from './constants';
-import { confirm } from '../../hooks/usePrompt';
+import { confirm, prompt } from '../../hooks/usePrompt';
 import { Icon } from '../Icon/Icon';
 import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
 import { ProductionPanel } from './ProductionPanel';
 import { DistributionPanel } from './DistributionPanel';
-import { CaptainRecruitmentDialog } from './CaptainRecruitmentDialog';
 import { MusclePanel } from './MusclePanel';
+import { AmsterdamCaptainSelectionModal } from './AmsterdamCaptainSelectionModal';
 import styles from './NeonD.module.css';
 
 const formatMoney = (value: number) =>
@@ -48,6 +48,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     buyProductUpgrade,
     buyMuscleWorker,
     buyTerritory,
+    buyDealerCapacity,
+    unlockZone,
+    hireDealer,
     buyDiscount,
     hireSeller,
     refreshDealers,
@@ -61,6 +64,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     bulkSellProduct,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    assignAmsterdamCaptain,
     claimCaptainLevel,
     purchaseCaptainTalent,
     promoteCaptain,
@@ -69,7 +73,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   } = useGameEngine();
   const [importError, setImportError] = useState<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanel>('production');
-  const [isCaptainRecruitmentOpen, setIsCaptainRecruitmentOpen] = useState(false);
+  const [isCaptainManagementOpen, setCaptainManagementOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const sellerIncomePerSecond = Object.values(state.lastEarningsPerSeller)
@@ -83,6 +87,10 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     Math.max(0, Math.floor(state.cash)),
   );
   const captainProgress = captainCost > 0 ? captainProgressValue / captainCost : 0;
+  const amsterdamZone = state.zones.find((zone) => zone.id === 'amsterdam');
+  const amsterdamCaptain = amsterdamZone?.captainId
+    ? state.captains.find((captain) => captain.id === amsterdamZone.captainId) ?? null
+    : null;
   const renderNow = state.lastTickAt;
   const activeMarketEvent = state.activeMarketEvent;
   const activeMarketProduct = activeMarketEvent
@@ -117,6 +125,20 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     });
 
     if (confirmed) fireDealer(dealerId);
+  };
+
+  const handleRecruitCaptain = async () => {
+    const name = await prompt({
+      title: 'Name your Captain',
+      message: 'Give your new Captain a name before recruiting him.',
+      placeholder: 'Captain name',
+      defaultValue: captainDefaultName,
+      confirmLabel: 'Recruit Captain',
+      cancelLabel: 'Cancel',
+    });
+
+    const trimmedName = name?.trim();
+    if (trimmedName) buyCaptain(trimmedName);
   };
 
   const handleExport = () => {
@@ -283,6 +305,15 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           )}
         </div>
         <div className={styles.rightWorkspace} data-testid="distribution-workspace">
+          {amsterdamZone ? (
+            <section className={`glass-panel ${styles.amsterdamZoneSummary}`} aria-labelledby="amsterdam-zone-title">
+              <div>
+                <h3 id="amsterdam-zone-title" className="heading-section">Amsterdam</h3>
+                <span className={styles.amsterdamZoneLabel}>Zone Captain</span>
+              </div>
+              <strong>{amsterdamCaptain?.name ?? 'Captain selection required'}</strong>
+            </section>
+          ) : null}
           {captainVisible && (
             <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
               <div className={styles.captainMilestoneCopy}>
@@ -309,7 +340,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => setIsCaptainRecruitmentOpen(true)}
+                  onClick={() => setCaptainManagementOpen(true)}
                 >
                   Hire Captain
                 </button>
@@ -319,30 +350,28 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           <DistributionPanel
             state={state}
             onHireSeller={hireSeller}
+            onHireDealer={hireDealer}
             onRefreshDealers={refreshDealers}
+            onRecruitCaptain={() => {
+              setCaptainManagementOpen(false);
+              void handleRecruitCaptain();
+            }}
+            onUnlockZone={unlockZone}
+            openCaptainManagement={isCaptainManagementOpen}
+            onCaptainManagementClosed={() => setCaptainManagementOpen(false)}
             onRenameCaptain={renameCaptain}
             fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}
             payDealerBail={payDealerBail}
+            buyDealerCapacity={buyDealerCapacity}
             claimCaptainLevel={claimCaptainLevel}
             purchaseCaptainTalent={purchaseCaptainTalent}
             promoteCaptain={promoteCaptain}
           />
         </div>
       </div>
-
-      {isCaptainRecruitmentOpen && (
-        <CaptainRecruitmentDialog
-          defaultName={captainDefaultName}
-          onClose={() => setIsCaptainRecruitmentOpen(false)}
-          onConfirm={(name) => {
-            buyCaptain(name);
-            setIsCaptainRecruitmentOpen(false);
-          }}
-        />
-      )}
 
       {state.offlineEarningsSummary && (
         <div className="modal-overlay" onClick={dismissOfflineEarningsSummary}>
@@ -376,6 +405,12 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+      {state.pendingAmsterdamCaptainSelection ? (
+        <AmsterdamCaptainSelectionModal
+          captains={state.captains}
+          onConfirm={assignAmsterdamCaptain}
+        />
+      ) : null}
     </div>
   );
 }

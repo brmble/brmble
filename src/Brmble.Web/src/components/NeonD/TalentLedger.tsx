@@ -163,6 +163,7 @@ export function TalentLedger({
                 const definition = getTalentDefinition(path.id, row as 0 | 1 | 2);
                 const currentRanks = captain.talentRanks[path.id][row];
                 const canPurchase = canPurchaseTalent(captain, path.id, row as 0 | 1 | 2);
+                const isAvailable = canPurchase && !readOnly;
                 const isComplete = currentRanks === definition.maxRanks;
                 const requirement = captain.talentPoints === 0
                   ? 'Requires an available talent point'
@@ -175,7 +176,7 @@ export function TalentLedger({
                       type="button"
                       className={`${styles.talentNode} ${isComplete ? styles.talentNodeComplete : ''}`}
                       disabled={readOnly || !canPurchase}
-                      aria-label={`${definition.label}, ${currentRanks}/${definition.maxRanks}, ${canPurchase ? 'available' : isComplete ? 'complete' : `locked. ${requirement}`}`}
+                      aria-label={`${definition.label}, ${currentRanks}/${definition.maxRanks}, ${isAvailable ? 'available' : isComplete ? 'complete' : `locked. ${requirement}`}`}
                       onClick={() => onPurchaseTalent(path.id, row as 0 | 1 | 2)}
                     >
                       <span className={styles.talentNodeLabel}>{definition.label}</span>

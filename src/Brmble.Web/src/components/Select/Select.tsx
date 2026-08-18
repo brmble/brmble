@@ -5,6 +5,7 @@ import './Select.css';
 export interface SelectOption {
   value: string;
   label: string;
+  disabled?: boolean;
 }
 
 interface SelectProps {
@@ -57,8 +58,8 @@ export function Select({ value, onChange, options, disabled, className, placehol
   const open = useCallback(() => {
     if (disabled || options.length === 0) return;
     setIsOpen(true);
-    const idx = options.findIndex(o => o.value === value);
-    setHighlightedIndex(idx >= 0 ? idx : 0);
+    const idx = options.findIndex(o => o.value === value && !o.disabled);
+    setHighlightedIndex(idx >= 0 ? idx : options.findIndex(o => !o.disabled));
   }, [disabled, options, value]);
 
   const close = useCallback(() => {
@@ -68,6 +69,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
   }, []);
 
   const selectOption = useCallback((optionValue: string) => {
+    if (optionsRef.current.find((option) => option.value === optionValue)?.disabled) return;
     onChange(optionValue);
     close();
   }, [onChange, close]);
@@ -85,7 +87,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
 
   useEffect(() => {
     if (isOpen && highlightedIndex >= 0) {
-      optionRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+      optionRefs.current[highlightedIndex]?.scrollIntoView?.({ block: 'nearest' });
     }
   }, [isOpen, highlightedIndex]);
 
@@ -111,7 +113,8 @@ export function Select({ value, onChange, options, disabled, className, placehol
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const opts = optionsRef.current;
-      if (opts.length === 0) {
+      const enabledOptions = opts.filter((option) => !option.disabled);
+      if (enabledOptions.length === 0) {
         if (e.key === 'Escape') { e.preventDefault(); close(); }
         return;
       }
@@ -126,19 +129,33 @@ export function Select({ value, onChange, options, disabled, className, placehol
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setHighlightedIndex(i => (i + 1) % opts.length);
+          setHighlightedIndex(i => {
+            const start = i >= 0 ? i : -1;
+            for (let offset = 1; offset <= opts.length; offset += 1) {
+              const next = (start + offset) % opts.length;
+              if (!opts[next].disabled) return next;
+            }
+            return -1;
+          });
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setHighlightedIndex(i => (i - 1 + opts.length) % opts.length);
+          setHighlightedIndex(i => {
+            const start = i >= 0 ? i : 0;
+            for (let offset = 1; offset <= opts.length; offset += 1) {
+              const next = (start - offset + opts.length) % opts.length;
+              if (!opts[next].disabled) return next;
+            }
+            return -1;
+          });
           break;
         case 'Home':
           e.preventDefault();
-          setHighlightedIndex(0);
+          setHighlightedIndex(opts.findIndex((option) => !option.disabled));
           break;
         case 'End':
           e.preventDefault();
-          setHighlightedIndex(opts.length - 1);
+          setHighlightedIndex(opts.reduce((lastEnabled, option, index) => option.disabled ? lastEnabled : index, -1));
           break;
         case 'Enter':
         case ' ':
@@ -150,7 +167,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
         default:
           if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
             const char = e.key.toLowerCase();
-            const idx = opts.findIndex(o => o.label.toLowerCase().startsWith(char));
+            const idx = opts.findIndex(o => !o.disabled && o.label.toLowerCase().startsWith(char));
             if (idx >= 0) setHighlightedIndex(idx);
           }
       }
@@ -216,6 +233,7 @@ export function Select({ value, onChange, options, disabled, className, placehol
                 role="option"
                 aria-selected={isSelected}
                 className={cls}
+                disabled={option.disabled}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => selectOption(option.value)}
               >

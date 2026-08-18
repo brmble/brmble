@@ -3,31 +3,46 @@ import { EQUIPMENT_CATALOG } from './constants';
 import {
   getBailCost,
   getCaptainRemainingThreshold,
+  getDealerCapacityCost,
   getEquipmentCost,
   getProductDefinition,
   isCaptainLevelUpAvailable,
 } from './economy';
 import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
-import type { Captain, Dealer, EquipmentDefinition, EquipmentId, GameState, ProductId, TalentPathId } from './types';
+import type { Captain, Dealer, DealerSlotTarget, EquipmentDefinition, EquipmentId, GameState, ProductId, TalentPathId, ZoneCityId } from './types';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
 import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences';
 import { TalentLedger } from './TalentLedger';
 import { DealerHiringModal } from './DealerHiringModal';
+import { ZoneUnlockModal } from './ZoneUnlockModal';
 import { isCaptain, isDealer } from './sellers';
+import { getIncomingTransfers, getOutgoingTransfers } from './transfers';
+import {
+  getAvailableZoneDealerSlots,
+  getTotalDealerCapacity,
+  getUnassignedCaptains,
+  getZoneEarningsPerSecond,
+} from './zones';
 
 type DistributionPanelProps = {
   state: GameState;
   onHireSeller: (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => void;
+  onHireDealer: (dealerId: string, target: DealerSlotTarget) => void;
   onRefreshDealers: () => void;
+  onRecruitCaptain: () => void;
+  onUnlockZone: (cityId: ZoneCityId, captainId: string) => void;
+  openCaptainManagement?: boolean;
+  onCaptainManagementClosed?: () => void;
   onRenameCaptain: (captainId: string, name: string) => void;
   fireDealer: (dealerId: string) => void;
   setSellerProduct: (sellerId: string, productId: ProductId, sellerKind: 'dealer' | 'captain') => void;
   buySellerEquipment: (sellerId: string, equipmentId: EquipmentId, sellerKind: 'dealer' | 'captain') => void;
   toggleDealerProtection: (dealerId: string) => void;
   payDealerBail: (dealerId: string) => void;
+  buyDealerCapacity: (zoneId: ZoneCityId) => void;
   claimCaptainLevel: (captainId: string) => void;
   purchaseCaptainTalent: (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => void;
   promoteCaptain: (captainId: string) => void;
@@ -127,7 +142,10 @@ export function DistributionPanel(props: DistributionPanelProps) {
   const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
   const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
   const [ledgerCaptainId, setLedgerCaptainId] = useState<string | null>(null);
-  const [hiringSlotIndex, setHiringSlotIndex] = useState<number | null>(null);
+  const [hiringTarget, setHiringTarget] = useState<DealerSlotTarget | null | undefined>(undefined);
+  const [hiringInitialTab, setHiringInitialTab] = useState<'dealers' | 'captains'>('dealers');
+  const [isZoneUnlockOpen, setZoneUnlockOpen] = useState(false);
+  const [collapsedZoneIds, setCollapsedZoneIds] = useState<Set<ZoneCityId>>(() => new Set());
   const [editingCaptainId, setEditingCaptainId] = useState<string | null>(null);
   const [captainDraftName, setCaptainDraftName] = useState('');
   const talentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -181,6 +199,12 @@ export function DistributionPanel(props: DistributionPanelProps) {
       captainRenameInputRef.current?.select();
     }
   }, [editingCaptainId]);
+
+  useEffect(() => {
+    if (!props.openCaptainManagement) return;
+    setHiringTarget(null);
+    setHiringInitialTab('captains');
+  }, [props.openCaptainManagement]);
 
   const startCaptainRename = (captain: Captain) => {
     setCaptainDraftName(captain.name);
@@ -335,20 +359,241 @@ export function DistributionPanel(props: DistributionPanelProps) {
     );
   };
 
-  const occupiedSlotCount = props.state.activeDealers.filter(Boolean).length;
+  const toggleZoneCollapse = (zoneId: ZoneCityId) => {
+    setCollapsedZoneIds((current) => {
+      const next = new Set(current);
+      if (next.has(zoneId)) next.delete(zoneId);
+      else next.add(zoneId);
+      return next;
+    });
+  };
+
+  const renderZoneDealerCard = (dealer: Dealer, slotIndex: number) => {
+    const isCollapsed = collapsedSellerIds.has(dealer.id);
+    const bodyId = `distribution-body-${dealer.id}`;
+
+    return (
+      <div className={styles.distributionCard} aria-label={`${dealer.name} distribution`}>
+        <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
+          <span className={`${styles.dealerHeaderTitle} ${styles.dealerHeaderTitleWithFavorite}`}>
+            <DealerFavoriteButton
+              dealer={dealer}
+              isFavorite={favoriteDealerIds.has(dealer.id)}
+              onToggle={toggleDealerFavorite}
+            />
+            <span>{dealer.name} ({getProductDefinition(dealer.selling).name})</span>
+          </span>
+          <button
+            type="button"
+            className={styles.cardCollapseButton}
+            aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${dealer.name} distribution`}
+            aria-expanded={!isCollapsed}
+            aria-controls={bodyId}
+            onClick={() => toggleSellerCard(dealer.id)}
+          >
+            <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+          </button>
+        </div>
+        {isCollapsed ? (
+          <div id={bodyId} className={styles.collapsedDealerBody}>
+            <ProductSelect
+              value={dealer.selling}
+              label={`Product for ${dealer.name}`}
+              state={props.state}
+              onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
+            />
+            <div className={styles.collapsedDealerSummary}>
+              <span>Earnings</span>
+              <strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong>
+            </div>
+          </div>
+        ) : (
+          <div id={bodyId} className={styles.dealerBody}>
+            <div className={styles.metricRow}><span>Slot</span><strong>{slotIndex + 1}</strong></div>
+            <ProductSelect
+              value={dealer.selling}
+              label={`Product for ${dealer.name}`}
+              state={props.state}
+              onChange={(productId) => props.setSellerProduct(dealer.id, productId, 'dealer')}
+            />
+            <DealerRating label="Volume" multiplier={dealer.volumeMultiplier} maxStars={5} />
+            <DealerRating label="Margin" multiplier={dealer.marginMultiplier} maxStars={5} />
+            <div className={styles.metricRow}><span>Earnings</span><strong>{dealer.isArrested ? '$0/s' : `${formatMoney(props.state.lastEarningsPerSeller[dealer.id] ?? 0)}/s`}</strong></div>
+            <div className={styles.metricRow}>
+              <span>Status</span>
+              <strong>{dealer.isArrested ? 'Arrested' : dealer.isProtected ? 'Protected -10% income' : 'Unprotected'}</strong>
+            </div>
+            {dealer.isArrested ? (
+              <div className={styles.actionStack}>
+                <button className={styles.buyButton} onClick={() => props.payDealerBail(dealer.id)} disabled={props.state.cash < getBailCost(dealer.earningsPerSecondAtArrest)}>
+                  Pay Bail ({formatMoney(getBailCost(dealer.earningsPerSecondAtArrest))})
+                </button>
+                <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>Fire Dealer</button>
+              </div>
+            ) : (
+              <>
+                <button type="button" className={styles.toggleButtonText} aria-pressed={dealer.isProtected} onClick={() => props.toggleDealerProtection(dealer.id)}>
+                  {dealer.isProtected ? 'Disable protection' : 'Enable protection (-10% income)'}
+                </button>
+                <button type="button" className={styles.equipmentToggle} aria-expanded={expandedEquipmentIds.has(dealer.id)} aria-label={`${expandedEquipmentIds.has(dealer.id) ? 'Collapse' : 'Expand'} equipment for ${dealer.name}`} onClick={() => toggleEquipment(dealer.id)}>
+                  <span>Fixed equipment</span>
+                  <span aria-hidden="true">{expandedEquipmentIds.has(dealer.id) ? '▴' : '▾'}</span>
+                </button>
+                {expandedEquipmentIds.has(dealer.id) ? (
+                  <EquipmentList seller={dealer} sellerKind="dealer" state={props.state} onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')} />
+                ) : null}
+                <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>Fire Dealer</button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderZoneDistribution = () => {
+    const activeDealerCount = props.state.zones.reduce(
+      (sum, zone) => sum + zone.dealerSlots.filter((slot) => slot.dealer).length,
+      0,
+    );
+    const totalCapacity = getTotalDealerCapacity(props.state);
+    const reservedCount = props.state.zones.reduce(
+      (sum, zone) => sum + zone.dealerSlots.filter((slot) => slot.reservedTransferId !== null).length,
+      0,
+    );
+    const hasZoneVacancy = props.state.zones.some((zone) =>
+      zone.dealerSlots.some((slot) => slot.dealer === null && slot.reservedTransferId === null),
+    );
+    const hasUnassignedCaptains = getUnassignedCaptains(props.state).length > 0;
+    const hiringSummary = `Hire dealers ${activeDealerCount}/${totalCapacity}${reservedCount > 0 ? ` · ${reservedCount} reserved` : ''}`;
+
+    return (
+      <>
+        {hasZoneVacancy ? (
+          <button
+            type="button"
+            className={styles.buyButton}
+            onClick={() => { setHiringTarget(null); setHiringInitialTab('dealers'); }}
+          >
+            {hiringSummary}
+          </button>
+        ) : hasUnassignedCaptains ? (
+          <button
+            type="button"
+            className={styles.unlockButton}
+            onClick={() => { setHiringTarget(null); setHiringInitialTab('captains'); }}
+          >
+            View unassigned Captains
+          </button>
+        ) : <div className={styles.label}>{hiringSummary}</div>}
+        <div className={styles.cardStack}>
+          {props.state.zones.map((zone) => {
+            const isCollapsed = collapsedZoneIds.has(zone.id);
+            const captain = zone.captainId
+              ? props.state.captains.find((candidate) => candidate.id === zone.captainId) ?? null
+              : null;
+            const zoneActiveDealerCount = zone.dealerSlots.filter((slot) => slot.dealer).length;
+            const outgoingCount = getOutgoingTransfers(props.state, zone.id).length;
+            const incomingCount = getIncomingTransfers(props.state, zone.id).length;
+            const bodyId = `zone-distribution-body-${zone.id}`;
+
+            return (
+              <article key={zone.id} className={styles.zoneGroup} aria-label={`${zone.displayName} distribution`}>
+                <div className={styles.zoneHeader}>
+                  <strong className={styles.zoneHeaderSummary}>
+                    {zone.displayName.toUpperCase()} · {zone.captainId ? 1 : 0} Captain · {' '}
+                    {zoneActiveDealerCount} / {zone.dealerSlots.length} Dealers
+                    {outgoingCount > 0 ? ` · ${outgoingCount} travelling` : ''}
+                    {incomingCount > 0 ? ` · ${incomingCount} incoming` : ''}
+                  </strong>
+                  <button
+                    type="button"
+                    className={styles.cardCollapseButton}
+                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${zone.displayName} distribution`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={bodyId}
+                    onClick={() => toggleZoneCollapse(zone.id)}
+                  >
+                    <Icon name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={16} />
+                  </button>
+                </div>
+                <div className={styles.zoneEarningsRow}>
+                  <span>Zone earnings</span>
+                  <strong>{formatMoney(getZoneEarningsPerSecond(props.state, zone.id))}/s</strong>
+                </div>
+                {!isCollapsed ? (
+                  <div id={bodyId}>
+                    {captain ? <div className={styles.distributionCard}>{renderCaptainCard(captain)}</div> : null}
+                    {zone.dealerSlots.map((slot, slotIndex) => {
+                      if (slot.dealer) return <div key={slot.id}>{renderZoneDealerCard(slot.dealer, slotIndex)}</div>;
+                      if (slot.reservedTransferId) {
+                        return <div key={slot.id} className={styles.zoneSlotRow}>Transfer reserved</div>;
+                      }
+                      return (
+                        <div key={slot.id} className={styles.zoneSlotRow}>
+                          <span>Dealer spot available</span>
+                          <button type="button" className={styles.buyButton} onClick={() => { setHiringTarget({ kind: 'zone', zoneId: zone.id, slotId: slot.id }); setHiringInitialTab('dealers'); }}>
+                            Hire dealer
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <div className={styles.zoneCapacityAction}>
+                      <button
+                        type="button"
+                        className={styles.unlockButton}
+                        disabled={props.state.respect < getDealerCapacityCost(props.state.territoryLevel)}
+                        onClick={() => props.buyDealerCapacity(zone.id)}
+                      >
+                        Add dealer capacity · {Math.round(getDealerCapacityCost(props.state.territoryLevel)).toLocaleString()} Respect
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </>
+    );
+  };
+
+  const isZoneMode = props.state.zones.length > 0;
+  const zoneVacancies = getAvailableZoneDealerSlots(props.state);
+  const occupiedSlotCount = isZoneMode
+    ? getTotalDealerCapacity(props.state) - zoneVacancies.length
+    : props.state.activeDealers.filter(Boolean).length;
+  const totalSlotCount = isZoneMode ? getTotalDealerCapacity(props.state) : props.state.activeDealers.length;
   const firstEmptySlotIndex = props.state.activeDealers.findIndex((seller) => seller === null);
-  const hiringSummary = `Hire dealers ${occupiedSlotCount}/${props.state.activeDealers.length}`;
+  const hasUnassignedCaptains = (isZoneMode
+    ? getUnassignedCaptains(props.state)
+    : props.state.captains.filter((captain) => !props.state.activeDealers.some((seller) => seller?.id === captain.id))).length > 0;
+  const hasDealerVacancy = isZoneMode ? zoneVacancies.length > 0 : firstEmptySlotIndex !== -1;
+  const hiringSummary = `Hire dealers ${occupiedSlotCount}/${totalSlotCount}`;
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
       <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
-      {firstEmptySlotIndex === -1 ? (
-        <div className={styles.label}>{hiringSummary}</div>
+      {isZoneMode ? renderZoneDistribution() : (
+      <>
+      {!hasDealerVacancy ? (
+        hasUnassignedCaptains ? (
+          <button
+            type="button"
+            className={styles.unlockButton}
+            onClick={() => { setHiringTarget(null); setHiringInitialTab('captains'); }}
+          >
+            View unassigned Captains
+          </button>
+        ) : <div className={styles.label}>{hiringSummary}</div>
       ) : (
         <button
           type="button"
           className={styles.buyButton}
-          onClick={() => setHiringSlotIndex(firstEmptySlotIndex)}
+          onClick={() => {
+            setHiringTarget(isZoneMode ? null : { kind: 'legacy', slotIndex: firstEmptySlotIndex });
+            setHiringInitialTab('dealers');
+          }}
         >
           {hiringSummary}
         </button>
@@ -483,27 +728,35 @@ export function DistributionPanel(props: DistributionPanelProps) {
           </article>
           );
         })}
-
-        {props.state.captains
-          .filter((captain) => !props.state.activeDealers.some((seller) => isCaptain(seller) && seller.id === captain.id))
-          .map((captain) => (
-            <article
-              key={captain.id}
-              className={`${styles.distributionCard} ${styles.captainCard}`}
-              aria-label={`${captain.name} distribution`}
-            >
-              {renderCaptainCard(captain)}
-            </article>
-          ))}
       </div>
-      {hiringSlotIndex !== null ? (
+      </>
+      )}
+      {hiringTarget !== undefined ? (
         <DealerHiringModal
           state={props.state}
-          slotIndex={hiringSlotIndex}
+          slotIndex={hiringTarget?.kind === 'legacy' ? hiringTarget.slotIndex : 0}
+          target={hiringTarget}
+          initialTab={hiringInitialTab}
           onHireSeller={props.onHireSeller}
+          onHireDealer={props.onHireDealer}
           onRefreshDealers={props.onRefreshDealers}
+          onRecruitCaptain={props.onRecruitCaptain}
+          onUnlockZone={() => { setHiringTarget(undefined); setZoneUnlockOpen(true); }}
           onRenameCaptain={props.onRenameCaptain}
-          onClose={() => setHiringSlotIndex(null)}
+          onClose={() => {
+            setHiringTarget(undefined);
+            props.onCaptainManagementClosed?.();
+          }}
+        />
+      ) : null}
+      {isZoneUnlockOpen ? (
+        <ZoneUnlockModal
+          state={props.state}
+          onConfirm={(cityId, captainId) => {
+            props.onUnlockZone(cityId, captainId);
+            setZoneUnlockOpen(false);
+          }}
+          onClose={() => setZoneUnlockOpen(false)}
         />
       ) : null}
     </section>
