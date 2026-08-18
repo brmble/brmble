@@ -154,13 +154,13 @@ export const getEquipmentCost = (equipmentId: EquipmentId, sellerKind: 'dealer' 
   return getEquipmentDefinition(equipmentId).baseCost * sellerMultiplier * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainCost = (state: Pick<GameState, 'captains' | 'discountLevel'>) => {
+export const getCaptainCost = (state: Pick<GameState, 'captains'>) => {
   const captainCount = state.captains.length;
   const baseCost = captainCount < CAPTAIN_COSTS.length
     ? CAPTAIN_COSTS[captainCount]
     : CAPTAIN_COSTS[CAPTAIN_COSTS.length - 1]
       + (captainCount - CAPTAIN_COSTS.length + 1) * CAPTAIN_COST_INCREMENT;
-  return baseCost * getDiscountMultiplier(state.discountLevel);
+  return baseCost;
 };
 
 export const getRecruitmentRefreshMs = (kingpins: number) => Math.max(

@@ -498,26 +498,25 @@ describe('useGameEngine', () => {
     )).toBe(true);
   });
 
-  it('charges the next Captain from the owned-count schedule before discount', () => {
+  it('requires the undiscounted next Captain cost despite an active discount', () => {
     const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
       personalEarnings: 0,
     });
-    const expectedCost = 10_000_000 * 0.9;
+    const expectedCost = 10_000_000;
 
     const { result } = renderSeededGame({
-      cash: expectedCost,
+      cash: expectedCost - 1,
       runEarnings: 7_500_000,
       captains: [existingCaptain],
       kingpins: 1,
       discountLevel: 1,
     });
 
-    expect(getCaptainCost(result.current.state)).toBeCloseTo(expectedCost);
+    expect(getCaptainCost(result.current.state)).toBe(expectedCost);
     act(() => result.current.buyCaptain('Captain 2'));
-    expect(result.current.state.captains).toHaveLength(2);
-    expect(result.current.state.cash).toBe(100);
+    expect(result.current.state.captains).toHaveLength(1);
   });
 
   it('promotes a Captain by fully resetting the run and retaining the Kingpin prestige', () => {

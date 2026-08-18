@@ -159,13 +159,13 @@ describe('Neon-D economy formulas', () => {
     expect(getCaptainCost(state)).toBe(25_000_000);
   });
 
-  it('ignores Kingpins and preserves Captain price discounts', () => {
+  it('ignores Kingpins and discounts when pricing Captains', () => {
     const state = createBaseGameState(0);
     state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
     state.kingpins = 3;
     state.discountLevel = 1;
 
-    expect(getCaptainCost(state)).toBe(10_000_000 * 0.9);
+    expect(getCaptainCost(state)).toBe(10_000_000);
   });
 
   it('reduces recruitment refresh by one second per Kingpin to a one-second floor', () => {
