@@ -9,7 +9,19 @@ import {
   sellBulkOverflow,
 } from '../simulation';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
-import type { Dealer } from '../types';
+import { createAmsterdamZone } from '../zones';
+import type { Dealer, Zone } from '../types';
+
+const createParisZone = (
+  captainId: string | null,
+  dealer: Dealer | null = null,
+): Zone => ({
+  id: 'paris',
+  displayName: 'Paris',
+  captainId,
+  dealerSlots: [{ id: 'paris-slot-0', dealer, reservedTransferId: null }],
+  perkIds: [],
+});
 
 describe('deterministic production', () => {
   it('does not simulate or show a summary for less than 30 seconds away', () => {
@@ -188,6 +200,120 @@ describe('deterministic production', () => {
     expect(next.lastEarningsPerSeller.d1).toBeCloseTo(12.6);
   });
 
+  it('sells for an Amsterdam Captain and dealer and records both visible earnings', () => {
+    const state = createBaseGameState(0);
+    const captain = makeReferenceCaptain({ id: 'captain-amsterdam' });
+    const dealer = makeReferenceDealer({ id: 'dealer-amsterdam' });
+    state.production.weed.stock = 100;
+    state.captains = [captain];
+    state.activeDealers = [];
+    state.zones = [createAmsterdamZone(captain.id, 1, [dealer])];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+
+    expect(next.lastEarningsPerSeller['captain-amsterdam'])
+      .toBeCloseTo(1.75 * 3 * 4.2 * 1.75);
+    expect(next.lastEarningsPerSeller['dealer-amsterdam'])
+      .toBeCloseTo(3 * 4.2);
+    expect(Object.keys(next.lastEarningsPerSeller).sort()).toEqual([
+      'captain-amsterdam',
+      'dealer-amsterdam',
+    ]);
+  });
+
+  it('applies only the local Paris Captain leadership to a Paris dealer', () => {
+    const state = createBaseGameState(0);
+    const amsterdamCaptain = makeReferenceCaptain({
+      id: 'captain-amsterdam',
+      level: 9,
+      talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+    });
+    const parisCaptain = makeReferenceCaptain({
+      id: 'captain-paris',
+      level: 9,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+    });
+    const parisDealer = makeReferenceDealer({
+      id: 'dealer-paris',
+      equipmentIds: ['iphone6Plus'],
+    });
+    state.unlockedProducts = ['weed', 'mushrooms'];
+    state.production.weed.stock = 100;
+    state.production.mushrooms.stock = 100;
+    state.captains = [amsterdamCaptain, parisCaptain];
+    state.activeDealers = [];
+    state.zones = [
+      createAmsterdamZone(amsterdamCaptain.id),
+      createParisZone(parisCaptain.id, parisDealer),
+    ];
+
+    const next = advanceDeterministicState(state, 1, 1_000);
+    const mainRate = 3 * 1.08;
+    const margin = 1.06;
+    const secondaryRate = mainRate * (0.10 + 0.02);
+    const expectedParisDealerEarnings =
+      mainRate * 4.2 * margin + secondaryRate * 6 * margin;
+
+    expect(next.lastEarningsPerSeller['dealer-paris'])
+      .toBeCloseTo(expectedParisDealerEarnings);
+  });
+
+  it('keeps covered protected dealer income at the unprotected baseline', () => {
+    const makeState = (isProtected: boolean) => {
+      const state = createBaseGameState(0);
+      const captain = makeReferenceCaptain({
+        id: 'captain-coverage',
+        level: 9,
+        talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+        ledgerUnlocked: true,
+      });
+      const dealer = makeReferenceDealer({ id: 'dealer-covered', isProtected });
+      state.production.weed.stock = 100;
+      state.captains = [captain];
+      state.activeDealers = [];
+      state.zones = [createAmsterdamZone(captain.id, 1, [dealer])];
+      return state;
+    };
+
+    const unprotected = advanceDeterministicState(makeState(false), 1, 1_000);
+    const covered = advanceDeterministicState(makeState(true), 1, 1_000);
+
+    expect(covered.lastEarningsPerSeller['dealer-covered'])
+      .toBeCloseTo(unprotected.lastEarningsPerSeller['dealer-covered']);
+  });
+
+  it('omits a travelling dealer from zone demand and visible earnings', () => {
+    const state = createBaseGameState(0);
+    const travellingDealer = makeReferenceDealer({ id: 'dealer-travelling' });
+    state.production.weed.stock = 100;
+    state.activeDealers = [travellingDealer];
+    state.zones = [{
+      ...createAmsterdamZone(null),
+      dealerSlots: [{
+        id: 'amsterdam-slot-0',
+        dealer: null,
+        reservedTransferId: 'transfer-1',
+      }],
+    }];
+    state.dealerTransfers = [{
+      id: 'transfer-1',
+      dealer: travellingDealer,
+      sourceZoneId: 'paris',
+      sourceSlotId: 'paris-slot-0',
+      destinationZoneId: 'amsterdam',
+      destinationSlotId: 'amsterdam-slot-0',
+      completesAt: 120_000,
+      riskResolved: false,
+    }];
+
+    expect(getProductSalesRates(state).weed).toBe(0);
+    const next = advanceDeterministicState(state, 1, 1_000);
+    expect(next.lastEarningsPerSeller['dealer-travelling']).toBeUndefined();
+    expect(next.cash).toBe(state.cash);
+  });
+
   it('does not roll arrest risk before $30k run earnings', () => {
     const state = createBaseGameState(0);
     state.runEarnings = 29_999;
@@ -223,6 +349,26 @@ describe('deterministic production', () => {
 
     const next = applyDueRiskCheck(state, 30_000, () => 0);
     expect((next.activeDealers[0] as Dealer | null)?.isArrested).toBe(false);
+  });
+
+  it('targets arrest risk only at active dealers in zone slots', () => {
+    const state = createBaseGameState(0);
+    const legacyDealer = makeReferenceDealer({ id: 'legacy-dealer' });
+    const zoneDealer = makeReferenceDealer({ id: 'zone-dealer' });
+    state.runEarnings = 30_000;
+    state.activeDealers = [legacyDealer];
+    state.zones = [createAmsterdamZone(null, 1, [zoneDealer])];
+    state.lastEarningsPerSeller = { 'legacy-dealer': 99, 'zone-dealer': 20 };
+    state.nextRiskCheckAt = 30_000;
+
+    const next = applyDueRiskCheck(state, 30_000, () => 0);
+
+    expect((next.activeDealers[0] as Dealer).isArrested).toBe(false);
+    expect(next.zones[0].dealerSlots[0].dealer).toMatchObject({
+      id: 'zone-dealer',
+      isArrested: true,
+      earningsPerSecondAtArrest: 20,
+    });
   });
 
   it('protected income is exactly 90 percent of the same unprotected sale', () => {
@@ -275,18 +421,19 @@ describe('deterministic production', () => {
     expect(getProductSalesRates(state).weed).toBe(0);
   });
 
-  it('mirrors Captain earnings back into the assigned Captain slot', () => {
+  it('keeps Captain earnings authoritative without mirroring into legacy slots', () => {
     const state = createBaseGameState(0);
     const ownedCaptain = makeReferenceCaptain({ id: 'captain-threshold' });
     state.production.weed.producersOwned = 100;
     state.captains = [ownedCaptain];
     state.activeDealers = [{ ...ownedCaptain, personalEarnings: 0 }];
+    state.zones = [createAmsterdamZone(ownedCaptain.id)];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
     expect(next.captains[0].personalEarnings).toBeGreaterThan(0);
     expect((next.activeDealers[0] as typeof ownedCaptain).personalEarnings)
-      .toBe(next.captains[0].personalEarnings);
+      .toBe(0);
   });
 
   it('allocates Captain demand before normal dealer demand when stock is scarce', () => {
@@ -312,16 +459,20 @@ describe('deterministic production', () => {
     expect(getProductSalesRates(state).weed).toBeCloseTo(3 + 5.25);
   });
 
-  it('does not sell for an owned Captain until the Captain is assigned to a slot', () => {
+  it('does not sell for an owned Captain until the Captain is assigned to a zone', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 100;
-    state.captains = [makeReferenceCaptain({ id: 'unassigned-captain' })];
+    const assignedCaptain = makeReferenceCaptain({ id: 'assigned-captain' });
+    const unassignedCaptain = makeReferenceCaptain({ id: 'unassigned-captain' });
+    state.captains = [assignedCaptain, unassignedCaptain];
+    state.activeDealers = [];
+    state.zones = [createAmsterdamZone(assignedCaptain.id)];
 
     const next = advanceDeterministicState(state, 1, 1_000);
 
     expect(next.lastEarningsPerSeller['unassigned-captain']).toBeUndefined();
-    expect(next.captains[0].personalEarnings).toBe(0);
-    expect(next.cash).toBe(state.cash);
+    expect(next.captains[1].personalEarnings).toBe(0);
+    expect(next.lastEarningsPerSeller['assigned-captain']).toBeGreaterThan(0);
   });
 });
 

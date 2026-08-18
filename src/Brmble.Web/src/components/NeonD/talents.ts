@@ -1,4 +1,9 @@
-import { CAPTAIN_LEVEL_THRESHOLDS, TALENT_RANK_SPLITS } from './constants';
+import {
+  CAPTAIN_LEVEL_THRESHOLDS,
+  TALENT_RANK_SPLITS,
+  ZONE_LEADERSHIP_CAPS,
+  ZONE_LEADERSHIP_PER_RANK,
+} from './constants';
 import type { Captain, SellerBonuses, TalentNodeDefinition, TalentPathId, TalentRanks, TalentStat } from './types';
 
 const PATH_STATS: Record<TalentPathId, readonly TalentStat[]> = {
@@ -52,6 +57,46 @@ export function getTalentBonus(talentRanks: TalentRanks): SellerBonuses {
     secondarySalesBonus: Number(bonuses.secondarySalesBonus.toFixed(10)),
   };
 }
+
+export const getZoneLeadershipBonuses = (captain: Captain): SellerBonuses => {
+  const totals: SellerBonuses = {
+    marginBonus: 0,
+    volumeBonus: 0,
+    secondarySalesBonus: 0,
+  };
+
+  for (const path of PATHS) {
+    for (const row of [0, 1, 2] as const) {
+      const definition = getTalentDefinition(path, row);
+      const ranks = captain.talentRanks[path][row];
+
+      if (definition.stat === 'margin') {
+        totals.marginBonus += ranks * ZONE_LEADERSHIP_PER_RANK.marginBonus;
+      }
+      if (definition.stat === 'volume') {
+        totals.volumeBonus += ranks * ZONE_LEADERSHIP_PER_RANK.volumeBonus;
+      }
+      if (definition.stat === 'secondarySales') {
+        totals.secondarySalesBonus += ranks * ZONE_LEADERSHIP_PER_RANK.secondarySalesBonus;
+      }
+    }
+  }
+
+  return {
+    marginBonus: Math.min(totals.marginBonus, ZONE_LEADERSHIP_CAPS.marginBonus),
+    volumeBonus: Math.min(totals.volumeBonus, ZONE_LEADERSHIP_CAPS.volumeBonus),
+    secondarySalesBonus: Math.min(
+      totals.secondarySalesBonus,
+      ZONE_LEADERSHIP_CAPS.secondarySalesBonus,
+    ),
+  };
+};
+
+export const hasProtectionCoverage = (captain: Captain) =>
+  captain.talentRanks.red[2] === 4;
+
+export const hasZoneBulkSaleTalent = (captain: Captain) =>
+  captain.talentRanks.yellow[2] === 4;
 
 export function canPurchaseTalent(captain: Captain, path: TalentPathId, row: 0 | 1 | 2): boolean {
   if (!captain.ledgerUnlocked || !isTalentStateValid(captain)) return false;

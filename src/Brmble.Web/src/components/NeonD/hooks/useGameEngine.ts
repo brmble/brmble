@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useInterval } from './useInterval';
 import { usePersistedGameState } from './usePersistedGameState';
-import type { ActiveSeller, Captain, Dealer, EquipmentId, GameState, MuscleWorkerId, ProductId, TalentPathId } from '../types';
+import type {
+  ActiveSeller,
+  Captain,
+  DealerSlotTarget,
+  EquipmentId,
+  GameState,
+  MuscleWorkerId,
+  ProductId,
+  TalentPathId,
+  ZoneCityId,
+} from '../types';
 import {
   BULK_UNLOCK_COST,
   createBaseGameState,
@@ -9,6 +19,7 @@ import {
   OFFLINE_CAP_MS,
   PRODUCT_CATALOG,
   RESEARCH_REVEAL_RATIO,
+  ZONE_CITY_CATALOG,
 } from '../constants';
 import {
   getProductDefinition,
@@ -18,9 +29,11 @@ import {
   getEquipmentCost,
   getBailCost,
   getCaptainCost,
+  getDealerCapacityCost,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
+  getZoneUnlockCost,
   getRecruitmentRefreshMs,
   isProductFullyUpgraded,
   isCaptainVisible,
@@ -42,8 +55,14 @@ import {
 import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
 import { canPurchaseTalent } from '../talents';
-import { getAssignedCaptainIds, isDealer, syncAssignedCaptainSlots } from '../sellers';
-import { createAmsterdamZone } from '../zones';
+import { getAssignedCaptainIds as getAssignedCaptainSlotIds } from '../sellers';
+import {
+  createAmsterdamZone,
+  findActiveDealer,
+  getAssignedCaptainIds,
+  removeActiveDealer,
+  updateActiveDealer,
+} from '../zones';
 import { NEON_D_CARD_PREFERENCES_KEY } from './usePersistedCardPreferences';
 
 const createInitialGameState = (): GameState => {
@@ -90,6 +109,17 @@ const resetRunPreservingPrestige = (
     dealerTransfers: [],
     pendingAmsterdamCaptainSelection: needsCaptainChoice,
     availableDealers: generateCandidatePool(['weed']),
+  };
+};
+
+const replenishDealerPool = (state: GameState, dealerId: string): GameState => {
+  const remaining = state.availableDealers.filter((dealer) => dealer.id !== dealerId);
+  return {
+    ...state,
+    availableDealers: [
+      ...remaining,
+      generateNormalDealer(state.unlockedProducts),
+    ].slice(0, 3),
   };
 };
 
@@ -213,6 +243,7 @@ export const useGameEngine = () => {
 
   const buyTerritory = () => {
     setState((prev) => {
+      if (prev.zones.length > 0) return prev;
       const cost = getTerritoryCost(prev.territoryLevel);
       if (prev.respect < cost) return prev;
 
@@ -238,40 +269,129 @@ export const useGameEngine = () => {
     });
   };
 
-  const hireSeller = (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => {
+  const unlockZone = (cityId: ZoneCityId, captainId: string) => {
     setState((prev) => {
-      if (slotIndex < 0 || slotIndex >= prev.activeDealers.length) return prev;
-      if (prev.activeDealers[slotIndex] !== null) return prev;
+      if (prev.zones.length === 0 || prev.pendingAmsterdamCaptainSelection) return prev;
+      if (prev.zones.some((zone) => zone.id === cityId)) return prev;
 
-      let seller: ActiveSeller | null = null;
-      if (sellerKind === 'dealer') {
-        seller = prev.availableDealers.find((dealer) => dealer.id === sellerId) ?? null;
-      } else {
-        const assignedCaptainIds = getAssignedCaptainIds(prev.activeDealers);
-        if (assignedCaptainIds.has(sellerId)) return prev;
-        seller = prev.captains.find((captain) => captain.id === sellerId) ?? null;
-      }
-      if (!seller) return prev;
+      const city = ZONE_CITY_CATALOG.find((candidate) => candidate.id === cityId);
+      if (!city) return prev;
 
-      const activeDealers = [...prev.activeDealers];
-      activeDealers[slotIndex] = seller;
-      if (sellerKind === 'captain') return { ...prev, activeDealers };
+      const assigned = getAssignedCaptainIds(prev);
+      if (assigned.has(captainId)) return prev;
+      if (!prev.captains.some((captain) => captain.id === captainId)) return prev;
 
-      const remaining = prev.availableDealers.filter((dealer) => dealer.id !== sellerId);
+      const cost = getZoneUnlockCost(prev);
+      if (prev.respect < cost) return prev;
 
       return {
         ...prev,
-        activeDealers,
-        availableDealers: [
-          ...remaining,
-          generateNormalDealer(prev.unlockedProducts),
-        ].slice(0, 3),
+        respect: prev.respect - cost,
+        zones: [
+          ...prev.zones,
+          {
+            id: city.id,
+            displayName: city.name,
+            captainId,
+            dealerSlots: [],
+            perkIds: [],
+          },
+        ],
       };
     });
   };
 
-  const hireDealer = (dealerId: string, slotIndex: number) => {
-    hireSeller(dealerId, slotIndex, 'dealer');
+  const buyDealerCapacity = (zoneId: ZoneCityId) => {
+    setState((prev) => {
+      if (prev.zones.length === 0) return prev;
+      const cost = getDealerCapacityCost(prev.territoryLevel);
+      if (prev.respect < cost) return prev;
+
+      const zone = prev.zones.find((candidate) => candidate.id === zoneId);
+      if (!zone) return prev;
+
+      const nextSlotIndex = zone.dealerSlots.length;
+      return {
+        ...prev,
+        respect: prev.respect - cost,
+        territoryLevel: prev.territoryLevel + 1,
+        zones: prev.zones.map((candidate) =>
+          candidate.id === zoneId
+            ? {
+              ...candidate,
+              dealerSlots: [
+                ...candidate.dealerSlots,
+                {
+                  id: `${zoneId}-slot-${nextSlotIndex}`,
+                  dealer: null,
+                  reservedTransferId: null,
+                },
+              ],
+            }
+            : candidate,
+        ),
+      };
+    });
+  };
+
+  const hireDealer = (dealerId: string, target: DealerSlotTarget | number) => {
+    const resolvedTarget: DealerSlotTarget = typeof target === 'number'
+      ? { kind: 'legacy', slotIndex: target }
+      : target;
+
+    setState((prev) => {
+      const dealer = prev.availableDealers.find((candidate) => candidate.id === dealerId);
+      if (!dealer) return prev;
+
+      if (resolvedTarget.kind === 'legacy') {
+        if (prev.zones.length > 0) return prev;
+        if (resolvedTarget.slotIndex < 0 || resolvedTarget.slotIndex >= prev.activeDealers.length) return prev;
+        if (prev.activeDealers[resolvedTarget.slotIndex] !== null) return prev;
+
+        const activeDealers = [...prev.activeDealers];
+        activeDealers[resolvedTarget.slotIndex] = dealer;
+        return replenishDealerPool({ ...prev, activeDealers }, dealerId);
+      }
+
+      if (prev.zones.length === 0) return prev;
+      const targetZone = prev.zones.find((zone) => zone.id === resolvedTarget.zoneId);
+      const targetSlot = targetZone?.dealerSlots.find((slot) => slot.id === resolvedTarget.slotId);
+      if (!targetSlot || targetSlot.dealer || targetSlot.reservedTransferId) return prev;
+
+      const zones = prev.zones.map((zone) =>
+        zone.id !== resolvedTarget.zoneId
+          ? zone
+          : {
+            ...zone,
+            dealerSlots: zone.dealerSlots.map((slot) =>
+              slot.id === resolvedTarget.slotId ? { ...slot, dealer } : slot,
+            ),
+          },
+      );
+
+      return replenishDealerPool({ ...prev, zones }, dealerId);
+    });
+  };
+
+  const hireSeller = (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => {
+    if (sellerKind === 'dealer') {
+      hireDealer(sellerId, { kind: 'legacy', slotIndex });
+      return;
+    }
+
+    setState((prev) => {
+      if (slotIndex < 0 || slotIndex >= prev.activeDealers.length) return prev;
+      if (prev.activeDealers[slotIndex] !== null) return prev;
+
+      const assignedCaptainIds = getAssignedCaptainSlotIds(prev.activeDealers);
+      if (assignedCaptainIds.has(sellerId)) return prev;
+      const seller: ActiveSeller | null = prev.captains.find((captain) => captain.id === sellerId) ?? null;
+      if (!seller) return prev;
+
+      const activeDealers = [...prev.activeDealers];
+      activeDealers[slotIndex] = seller;
+      return { ...prev, activeDealers };
+    });
   };
 
   const refreshDealers = () => {
@@ -290,24 +410,17 @@ export const useGameEngine = () => {
     const trimmedName = name.trim();
     if (!trimmedName) return;
     setState((prev) => {
-      const captains = prev.captains.map((captain) =>
-        captain.id === captainId ? { ...captain, name: trimmedName } : captain,
-      );
       return {
         ...prev,
-        captains,
-        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+        captains: prev.captains.map((captain) =>
+          captain.id === captainId ? { ...captain, name: trimmedName } : captain,
+        ),
       };
     });
   };
 
   const fireDealer = (dealerId: string) => {
-    setState((prev) => ({
-      ...prev,
-      activeDealers: prev.activeDealers.map((dealer) =>
-        isDealer(dealer) && dealer.id === dealerId ? null : dealer,
-      ),
-    }));
+    setState((prev) => ({ ...prev, ...removeActiveDealer(prev, dealerId) }));
   };
 
   const setSellerProduct = (
@@ -321,19 +434,15 @@ export const useGameEngine = () => {
       if (sellerKind === 'dealer') {
         return {
           ...prev,
-          activeDealers: prev.activeDealers.map((dealer) =>
-            isDealer(dealer) && dealer.id === sellerId ? { ...dealer, selling: productId } : dealer,
-          ),
+          ...updateActiveDealer(prev, sellerId, (dealer) => ({ ...dealer, selling: productId })),
         };
       }
 
-      const captains = prev.captains.map((captain) =>
-        captain.id === sellerId ? { ...captain, selling: productId } : captain,
-      );
       return {
         ...prev,
-        captains,
-        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+        captains: prev.captains.map((captain) =>
+          captain.id === sellerId ? { ...captain, selling: productId } : captain,
+        ),
       };
     });
   };
@@ -345,7 +454,7 @@ export const useGameEngine = () => {
   ) => {
     setState((prev) => {
       const seller = sellerKind === 'dealer'
-        ? prev.activeDealers.find((dealer): dealer is Dealer => isDealer(dealer) && dealer.id === sellerId) ?? null
+        ? findActiveDealer(prev, sellerId)
         : prev.captains.find((captain) => captain.id === sellerId) ?? null;
 
       if (!seller || seller.equipmentIds.includes(equipmentId)) return prev;
@@ -357,24 +466,21 @@ export const useGameEngine = () => {
         return {
           ...prev,
           cash: prev.cash - cost,
-          activeDealers: prev.activeDealers.map((dealer) =>
-            isDealer(dealer) && dealer.id === sellerId
-              ? { ...dealer, equipmentIds: [...dealer.equipmentIds, equipmentId] }
-              : dealer,
-          ),
+          ...updateActiveDealer(prev, sellerId, (dealer) => ({
+            ...dealer,
+            equipmentIds: [...dealer.equipmentIds, equipmentId],
+          })),
         };
       }
 
-      const captains = prev.captains.map((captain) =>
-        captain.id === sellerId
-          ? { ...captain, equipmentIds: [...captain.equipmentIds, equipmentId] }
-          : captain,
-      );
       return {
         ...prev,
         cash: prev.cash - cost,
-        captains,
-        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
+        captains: prev.captains.map((captain) =>
+          captain.id === sellerId
+            ? { ...captain, equipmentIds: [...captain.equipmentIds, equipmentId] }
+            : captain,
+        ),
       };
     });
   };
@@ -382,19 +488,16 @@ export const useGameEngine = () => {
   const toggleDealerProtection = (dealerId: string) => {
     setState((prev) => ({
       ...prev,
-      activeDealers: prev.activeDealers.map((dealer) =>
-        isDealer(dealer) && dealer.id === dealerId
-          ? { ...dealer, isProtected: !dealer.isProtected }
-          : dealer,
-      ),
+      ...updateActiveDealer(prev, dealerId, (dealer) => ({
+        ...dealer,
+        isProtected: !dealer.isProtected,
+      })),
     }));
   };
 
   const payDealerBail = (dealerId: string) => {
     setState((prev) => {
-      const dealer = prev.activeDealers.find((candidate): candidate is Dealer =>
-        isDealer(candidate) && candidate.id === dealerId,
-      );
+      const dealer = findActiveDealer(prev, dealerId);
       if (!dealer || !dealer.isArrested) return prev;
 
       const cost = getBailCost(dealer.earningsPerSecondAtArrest);
@@ -403,16 +506,12 @@ export const useGameEngine = () => {
       return {
         ...prev,
         cash: prev.cash - cost,
-        activeDealers: prev.activeDealers.map((candidate) =>
-          isDealer(candidate) && candidate.id === dealerId
-            ? {
-              ...candidate,
-              isArrested: false,
-              isProtected: false,
-              earningsPerSecondAtArrest: 0,
-            }
-            : candidate,
-        ),
+        ...updateActiveDealer(prev, dealerId, (candidate) => ({
+          ...candidate,
+          isArrested: false,
+          isProtected: false,
+          earningsPerSecondAtArrest: 0,
+        })),
       };
     });
   };
@@ -505,7 +604,6 @@ export const useGameEngine = () => {
       return {
         ...prev,
         captains,
-        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
       };
     });
   };
@@ -531,7 +629,6 @@ export const useGameEngine = () => {
       return {
         ...prev,
         captains,
-        activeDealers: syncAssignedCaptainSlots(prev.activeDealers, captains),
       };
     });
   };
@@ -568,6 +665,8 @@ export const useGameEngine = () => {
     buyProductUpgrade,
     buyMuscleWorker,
     buyTerritory,
+    unlockZone,
+    buyDealerCapacity,
     buyDiscount,
     hireSeller,
     hireDealer,

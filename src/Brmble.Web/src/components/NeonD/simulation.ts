@@ -31,7 +31,15 @@ import {
 } from './constants';
 import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
-import { isCaptain, isDealer, syncAssignedCaptainSlots } from './sellers';
+import {
+  getZoneLeadershipBonuses,
+  hasProtectionCoverage,
+} from './talents';
+import {
+  getActiveCaptainEntries,
+  getActiveDealerEntries,
+  updateActiveDealer,
+} from './zones';
 
 type SaleDemand = {
   sellerId: string;
@@ -111,13 +119,26 @@ export const applyMarketClock = (
 };
 
 const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
-  state.activeDealers.flatMap((dealer) => {
-    if (!isDealer(dealer) || dealer.isArrested) return [];
+  getActiveDealerEntries(state).flatMap((entry) => {
+    const dealer = entry.dealer;
+    if (dealer.isArrested) return [];
 
     const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);
-    const mainRate = getNormalDealerMainSaleRate(dealer);
-    const protectionMultiplier = dealer.isProtected ? PROTECTION_INCOME_MULTIPLIER : 1;
-    const marginMultiplier = getDealerMarginMultiplier(dealer);
+    const captain = entry.zoneId
+      ? getActiveCaptainEntries(state)
+          .find((captainEntry) => captainEntry.zoneId === entry.zoneId)?.captain ?? null
+      : null;
+    const leadership = captain
+      ? getZoneLeadershipBonuses(captain)
+      : { marginBonus: 0, volumeBonus: 0, secondarySalesBonus: 0 };
+    const mainRate = getNormalDealerMainSaleRate(dealer, leadership);
+    const protectionMultiplier =
+      dealer.isProtected && captain && hasProtectionCoverage(captain)
+        ? 1
+        : dealer.isProtected
+          ? PROTECTION_INCOME_MULTIPLIER
+          : 1;
+    const marginMultiplier = getDealerMarginMultiplier(dealer, leadership);
     const demands: SaleDemand[] = [{
       sellerId: dealer.id,
       productId: dealer.selling,
@@ -128,7 +149,7 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
 
     buildSecondaryDemands(
       mainRate,
-      bonuses.secondarySalesBonus,
+      bonuses.secondarySalesBonus + leadership.secondarySalesBonus,
       dealer.selling,
       state.unlockedProducts,
     ).forEach((unitsPerSecond, productId) => {
@@ -145,9 +166,7 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
   });
 
 const buildCaptainDemands = (state: GameState): SaleDemand[] =>
-  state.activeDealers.flatMap((seller) => {
-    if (!isCaptain(seller)) return [];
-    const captain = state.captains.find((ownedCaptain) => ownedCaptain.id === seller.id) ?? seller;
+  getActiveCaptainEntries(state).flatMap(({ captain }) => {
     const bonuses = getCaptainBonuses(captain);
     const mainRate = getCaptainMainSaleRate(captain);
     const marginMultiplier = getCaptainMarginMultiplier(captain);
@@ -224,28 +243,26 @@ export const applyDueRiskCheck = (
     return { ...state, nextRiskCheckAt };
   }
 
-  const eligibleSlots = state.activeDealers
-    .map((dealer, index) => ({ dealer, index }))
-    .filter(({ dealer }) => isDealer(dealer) && !dealer.isArrested);
+  const eligibleDealers = getActiveDealerEntries(state)
+    .filter(({ dealer }) => !dealer.isArrested);
 
-  if (eligibleSlots.length === 0) {
+  if (eligibleDealers.length === 0) {
     return { ...state, nextRiskCheckAt };
   }
 
-  const selected = eligibleSlots[Math.floor(rng() * eligibleSlots.length)];
-  if (!isDealer(selected.dealer) || selected.dealer.isProtected) {
+  const selected = eligibleDealers[Math.floor(rng() * eligibleDealers.length)].dealer;
+  if (selected.isProtected) {
     return { ...state, nextRiskCheckAt };
   }
 
-  const activeDealers = [...state.activeDealers];
-  activeDealers[selected.index] = {
-    ...selected.dealer,
+  const updated = updateActiveDealer(state, selected.id, (dealer) => ({
+    ...dealer,
     isArrested: true,
     earningsPerSecondAtArrest:
-      state.lastEarningsPerSeller[selected.dealer.id] ?? 0,
-  };
+      state.lastEarningsPerSeller[dealer.id] ?? 0,
+  }));
 
-  return { ...state, activeDealers, nextRiskCheckAt };
+  return { ...state, ...updated, nextRiskCheckAt };
 };
 
 export const advanceDeterministicState = (
@@ -258,9 +275,8 @@ export const advanceDeterministicState = (
   const production = { ...state.production };
   const lastEarningsPerSeller = Object.fromEntries(
     [
-      ...state.activeDealers
-        .filter((seller) => isDealer(seller) || isCaptain(seller))
-        .map((dealer) => dealer.id),
+      ...getActiveDealerEntries(state).map(({ dealer }) => dealer.id),
+      ...getActiveCaptainEntries(state).map(({ captain }) => captain.id),
     ].map((sellerId) => [sellerId, 0]),
   ) as Record<string, number>;
   const earnedAcrossSpanBySeller = Object.fromEntries(
@@ -311,7 +327,6 @@ export const advanceDeterministicState = (
     production,
     respect: state.respect + getRespectPerSecond(state) * seconds,
     captains,
-    activeDealers: syncAssignedCaptainSlots(state.activeDealers, captains),
     lastEarningsPerSeller,
     lastTickAt: now,
   };

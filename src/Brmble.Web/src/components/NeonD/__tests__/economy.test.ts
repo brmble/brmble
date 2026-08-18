@@ -7,6 +7,7 @@ import {
   getCaptainLevelProgress,
   getCaptainLevelRequirement,
   getCaptainRemainingThreshold,
+  getDealerCapacityCost,
   getDiscountCost,
   getDiscountMultiplier,
   getEquipmentCost,
@@ -17,6 +18,7 @@ import {
   getRecruitmentRefreshRemainingMs,
   getRespectPerSecond,
   getTerritoryCost,
+  getZoneUnlockCost,
   getVisibleProductIds,
   isBulkSellingVisible,
   isCaptainVisible,
@@ -25,6 +27,7 @@ import {
   isRiskActive,
 } from '../economy';
 import { makeReferenceCaptain } from './testFixtures';
+import { createAmsterdamZone } from '../zones';
 
 describe('Neon-D economy formulas', () => {
   it('prices producers with exponential ownership growth and global discount', () => {
@@ -94,16 +97,59 @@ describe('Neon-D economy formulas', () => {
     expect(getDiscountMultiplier(2)).toBeCloseTo(0.81);
   });
 
-  it('applies Captain and Kingpin Respect bonuses', () => {
+  it('prices additional zones only by expansion level', () => {
+    const oneZone = createBaseGameState(0);
+    oneZone.zones = [createAmsterdamZone('captain-1')];
+    oneZone.activeDealers = [];
+
+    const twoZones = {
+      ...oneZone,
+      zones: [
+        ...oneZone.zones,
+        { id: 'paris' as const, displayName: 'Paris', captainId: 'captain-2', dealerSlots: [], perkIds: [] },
+      ],
+    };
+
+    expect(getZoneUnlockCost(oneZone)).toBe(100);
+    expect(getZoneUnlockCost(twoZones)).toBe(300);
+  });
+
+  it('keeps dealer capacity pricing on the existing global territory curve', () => {
+    expect(getDealerCapacityCost(0)).toBe(getTerritoryCost(0));
+    expect(getDealerCapacityCost(3)).toBe(getTerritoryCost(3));
+  });
+
+  it('applies only assigned Captain and Kingpin Respect bonuses', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     expect(getRespectPerSecond(state)).toBeCloseTo(1);
-    state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
-    expect(getRespectPerSecond(state)).toBeCloseTo(2);
-    state.captains[0].level = 10;
-    expect(getRespectPerSecond(state)).toBeCloseTo(7);
+    state.captains = [
+      makeReferenceCaptain({ id: 'captain-assigned', level: 2 }),
+      makeReferenceCaptain({ id: 'captain-unassigned', level: 10 }),
+    ];
+    state.zones = [createAmsterdamZone('captain-assigned')];
+    state.activeDealers = [];
+    expect(getRespectPerSecond(state)).toBeCloseTo(3);
     state.kingpins = 1;
-    expect(getRespectPerSecond(state)).toBeCloseTo(8);
+    expect(getRespectPerSecond(state)).toBeCloseTo(4);
+  });
+
+  it('preserves legacy zero-zone active Captain Respect bonuses', () => {
+    const state = createBaseGameState(0);
+    const captain = makeReferenceCaptain({ id: 'legacy-captain', level: 2 });
+    state.muscleOwned.hoodRat = 1;
+    state.captains = [captain];
+    state.activeDealers = [captain];
+
+    expect(getRespectPerSecond(state)).toBeCloseTo(3);
+  });
+
+  it('ignores an owned but inactive Captain for zero-zone Respect', () => {
+    const state = createBaseGameState(0);
+    state.muscleOwned.hoodRat = 1;
+    state.captains = [makeReferenceCaptain({ id: 'inactive-captain', level: 10 })];
+
+    expect(getRespectPerSecond(state)).toBeCloseTo(1);
   });
 
   it('returns the amount still needed for the current Captain next level', () => {

@@ -58,16 +58,23 @@ export const getCaptainMainSaleRate = (captain: Captain) =>
 export const getCaptainMarginMultiplier = (captain: Captain) =>
   CAPTAIN_BASE_MARGIN_MULTIPLIER * (1 + getCaptainBonuses(captain).marginBonus);
 
-export const getNormalDealerMainSaleRate = (dealer: Dealer) => {
+export const getNormalDealerMainSaleRate = (
+  dealer: Dealer,
+  leadership: SellerBonuses = { marginBonus: 0, volumeBonus: 0, secondarySalesBonus: 0 },
+) => {
   const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);
   return dealer.volumeMultiplier *
-    (1 + bonuses.volumeBonus) *
+    (1 + bonuses.volumeBonus + leadership.volumeBonus) *
     MAIN_SALE_UNITS_PER_VOLUME;
 };
 
-export const getDealerMarginMultiplier = (dealer: Dealer) => {
+export const getDealerMarginMultiplier = (
+  dealer: Dealer,
+  leadership: SellerBonuses = { marginBonus: 0, volumeBonus: 0, secondarySalesBonus: 0 },
+) => {
   const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);
-  return dealer.marginMultiplier * (1 + bonuses.marginBonus);
+  return dealer.marginMultiplier *
+    (1 + bonuses.marginBonus + leadership.marginBonus);
 };
 
 export const buildSecondaryDemands = (

@@ -18,8 +18,11 @@ import {
   RESEARCH_REVEAL_RATIO,
   TERRITORY_BASE_COST,
   TERRITORY_GROWTH,
+  ZONE_UNLOCK_BASE_COST,
+  ZONE_UNLOCK_GROWTH,
 } from './constants';
 import type { EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId } from './types';
+import { getActiveCaptainEntries, getAssignedCaptainIds } from './zones';
 
 export const getProductDefinition = (productId: ProductId): ProductDefinition => {
   const definition = PRODUCT_CATALOG.find((product) => product.id === productId);
@@ -79,6 +82,11 @@ export const getVisibleProductIds = (state: GameState): ProductId[] => {
 };
 
 export const getTerritoryCost = (level: number) => TERRITORY_BASE_COST * Math.pow(TERRITORY_GROWTH, level);
+export const getDealerCapacityCost = (purchases: number) => getTerritoryCost(purchases);
+export const getZoneUnlockCost = (state: Pick<GameState, 'zones'>) => {
+  const additionalZonesAlreadyOpen = Math.max(0, state.zones.length - 1);
+  return ZONE_UNLOCK_BASE_COST * Math.pow(ZONE_UNLOCK_GROWTH, additionalZonesAlreadyOpen);
+};
 export const getDiscountCost = (level: number) => DISCOUNT_BASE_COST * Math.pow(DISCOUNT_GROWTH, level);
 
 export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, discountLevel: number) => {
@@ -134,7 +142,12 @@ export const getCaptainRemainingThreshold = (
 export const getCaptainLevel = getCaptainEligibleLevel;
 
 export const getRespectMultiplier = (state: GameState) => {
-  const captainBonus = state.captains.reduce(
+  const assigned = state.zones.length === 0
+    ? new Set(getActiveCaptainEntries(state).map(({ captain }) => captain.id))
+    : getAssignedCaptainIds(state);
+  const captainBonus = state.captains
+    .filter((captain) => assigned.has(captain.id))
+    .reduce(
     (sum, captain) => sum + 1 + captain.level * 0.5,
     0,
   );
