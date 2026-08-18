@@ -173,6 +173,29 @@ describe('useGameEngine', () => {
     expect(result.current.state.production.weed.stock).toBe(500);
   });
 
+  it('sells a Captain zone bulk overflow through the engine action', () => {
+    const captain = makeReferenceCaptain({
+      id: 'hook-bulk-captain',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const base = createBaseGameState(0);
+    const { result } = renderSeededGame({
+      captains: [captain],
+      activeDealers: [],
+      zones: [createAmsterdamZone(captain.id)],
+      production: {
+        ...base.production,
+        weed: { ...base.production.weed, stock: 1_500 },
+      },
+    });
+
+    act(() => result.current.captainZoneBulkSell(captain.id));
+
+    expect(result.current.state.production.weed.stock).toBe(500);
+    expect(result.current.state.captains[0].zoneBulkSellAvailableAt).toBeGreaterThan(1_000);
+  });
+
   it('does not simulate or show a summary for less than 30 seconds away on mount', () => {
     const now = Date.now();
     const base = createBaseGameState(now);
@@ -502,6 +525,27 @@ describe('useGameEngine', () => {
     expect(result.current.state.zones[0].captainId).toBeNull();
     expect(result.current.state.pendingAmsterdamCaptainSelection).toBe(true);
     expect(result.current.state.dealerTransfers).toEqual([]);
+  });
+
+  it('preserves Captain zone bulk cooldowns across a later Captain reset', () => {
+    const existing = makeReferenceCaptain({
+      id: 'cooldown-captain',
+      zoneBulkSellAvailableAt: 99_000,
+    });
+    const { result } = renderSeededGame({
+      cash: 10_000_000,
+      runEarnings: 7_500_000,
+      captains: [existing],
+      activeDealers: [],
+      zones: [createAmsterdamZone(existing.id)],
+    });
+
+    act(() => result.current.buyCaptain('New Captain'));
+
+    act(() => result.current.assignAmsterdamCaptain(existing.id));
+
+    expect(result.current.state.captains.find((captain) => captain.id === existing.id)?.zoneBulkSellAvailableAt)
+      .toBe(99_000);
   });
 
   it('assigns one owned Captain to Amsterdam and leaves the others unassigned', () => {
@@ -1206,5 +1250,57 @@ describe('useGameEngine', () => {
     act(() => result.current.fireDealer(dealer.id));
 
     expect(result.current.state.zones[0].dealerSlots[0].dealer).toBeNull();
+  });
+
+  it('starts and resolves a dealer transfer through the engine tick', () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-0000-0000-000000000002');
+    const dealer = makeReferenceDealer({ id: 'engine-traveller' });
+    const captain = makeReferenceCaptain({ id: 'engine-captain' });
+    const { result } = renderSeededGame({
+      activeDealers: [],
+      captains: [captain],
+      zones: [
+        createAmsterdamZone(captain.id, 1, [dealer]),
+        { id: 'paris', displayName: 'Paris', captainId: null, dealerSlots: [{ id: 'paris-slot-0', dealer: null, reservedTransferId: null }], perkIds: [] },
+      ],
+      lastTickAt: 1_000,
+    });
+
+    act(() => result.current.transferDealer(dealer.id, 'paris', 'paris-slot-0'));
+    expect(result.current.state.dealerTransfers).toHaveLength(1);
+    expect(result.current.state.zones[0].dealerSlots[0].dealer).toBeNull();
+
+    act(() => vi.advanceTimersByTime(120_000));
+
+    expect(result.current.state.dealerTransfers).toEqual([]);
+    expect(result.current.state.zones[1].dealerSlots[0].dealer?.id).toBe(dealer.id);
+  });
+
+  it('clears travelling dealers and reservations during a Captain soft reset', () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-0000-0000-000000000003');
+    const dealer = makeReferenceDealer({ id: 'reset-traveller' });
+    const captain = makeReferenceCaptain({ id: 'reset-captain' });
+    const { result } = renderSeededGame({
+      cash: 10_000_000,
+      runEarnings: 7_500_000,
+      activeDealers: [],
+      captains: [captain],
+      zones: [
+        createAmsterdamZone(captain.id, 1, [dealer]),
+        { id: 'paris', displayName: 'Paris', captainId: null, dealerSlots: [{ id: 'paris-slot-0', dealer: null, reservedTransferId: null }], perkIds: [] },
+      ],
+    });
+
+    act(() => result.current.transferDealer(dealer.id, 'paris', 'paris-slot-0'));
+    expect(result.current.state.dealerTransfers).toHaveLength(1);
+
+    act(() => result.current.buyCaptain('Reset Captain'));
+
+    expect(result.current.state.activeDealers).toEqual([]);
+    expect(result.current.state.dealerTransfers).toEqual([]);
+    expect(result.current.state.zones).toHaveLength(1);
+    expect(result.current.state.zones[0].dealerSlots).toEqual([
+      { id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null },
+    ]);
   });
 });

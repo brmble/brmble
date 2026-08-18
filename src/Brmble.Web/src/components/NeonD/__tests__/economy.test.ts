@@ -7,6 +7,8 @@ import {
   getCaptainLevelProgress,
   getCaptainLevelRequirement,
   getCaptainRemainingThreshold,
+  getCaptainZoneBulkRemainingMs,
+  canCaptainZoneBulkSell,
   getDealerCapacityCost,
   getDiscountCost,
   getDiscountMultiplier,
@@ -28,6 +30,7 @@ import {
 } from '../economy';
 import { makeReferenceCaptain } from './testFixtures';
 import { createAmsterdamZone } from '../zones';
+import type { Captain } from '../types';
 
 describe('Neon-D economy formulas', () => {
   it('prices producers with exponential ownership growth and global discount', () => {
@@ -117,6 +120,37 @@ describe('Neon-D economy formulas', () => {
   it('keeps dealer capacity pricing on the existing global territory curve', () => {
     expect(getDealerCapacityCost(0)).toBe(getTerritoryCost(0));
     expect(getDealerCapacityCost(3)).toBe(getTerritoryCost(3));
+  });
+
+  it('reports Captain zone bulk readiness and remaining cooldown', () => {
+    const captain = makeReferenceCaptain({ id: 'bulk-ready', zoneBulkSellAvailableAt: 10_000 });
+    const state = createBaseGameState(0);
+    state.captains = [captain];
+    state.zones = [createAmsterdamZone(captain.id)];
+    state.production.weed.stock = 1_500;
+
+    expect(getCaptainZoneBulkRemainingMs(captain, 4_000)).toBe(6_000);
+    expect(getCaptainZoneBulkRemainingMs(captain, 10_000)).toBe(0);
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
+
+    const readyCaptain: Captain = {
+      ...captain,
+      zoneBulkSellAvailableAt: 0,
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    };
+    state.captains[0] = readyCaptain;
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(true);
+
+    state.captains[0] = {
+      ...readyCaptain,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 3], blue: [0, 0, 0] },
+    };
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
+
+    state.captains[0] = readyCaptain;
+    state.zones = [createAmsterdamZone(null)];
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
   });
 
   it('applies only assigned Captain and Kingpin Respect bonuses', () => {

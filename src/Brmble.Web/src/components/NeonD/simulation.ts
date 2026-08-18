@@ -14,6 +14,7 @@ import {
 } from './dealers';
 import {
   AUTO_BULK_RETAIN_STOCK,
+  CAPTAIN_ZONE_BULK_COOLDOWN_MS,
   BULK_SELL_COOLDOWN_MS,
   BULK_VALUE_MULTIPLIER,
   MARKET_CHECK_INTERVAL_MS,
@@ -34,12 +35,15 @@ import type { GameState, ProductId } from './types';
 import {
   getZoneLeadershipBonuses,
   hasProtectionCoverage,
+  hasZoneBulkSaleTalent,
 } from './talents';
 import {
   getActiveCaptainEntries,
   getActiveDealerEntries,
+  getAssignedCaptainIds,
   updateActiveDealer,
 } from './zones';
+import { resolveDueDealerTransfers } from './transfers';
 
 type SaleDemand = {
   sellerId: string;
@@ -57,9 +61,19 @@ export const sellBulkOverflow = (
   const hasPreviousBulkSale = state.lastBulkSellAt > 0;
   if (hasPreviousBulkSale && now - state.lastBulkSellAt < BULK_SELL_COOLDOWN_MS) return state;
 
+  const sold = sellOverflowAtBulkValue(state, productId);
+  return sold
+    ? { ...sold, lastBulkSellAt: now }
+    : state;
+};
+
+const sellOverflowAtBulkValue = (
+  state: GameState,
+  productId: ProductId,
+): GameState | null => {
   const stock = state.production[productId].stock;
   const unitsToSell = Math.max(0, stock - AUTO_BULK_RETAIN_STOCK);
-  if (unitsToSell <= 0) return state;
+  if (unitsToSell <= 0) return null;
 
   const earned =
     unitsToSell *
@@ -70,7 +84,6 @@ export const sellBulkOverflow = (
     ...state,
     cash: state.cash + earned,
     runEarnings: state.runEarnings + earned,
-    lastBulkSellAt: now,
     production: {
       ...state.production,
       [productId]: {
@@ -78,6 +91,33 @@ export const sellBulkOverflow = (
         stock: AUTO_BULK_RETAIN_STOCK,
       },
     },
+  };
+};
+
+export const sellCaptainZoneBulkOverflow = (
+  state: GameState,
+  captainId: string,
+  now: number,
+): GameState => {
+  if (!getAssignedCaptainIds(state).has(captainId)) return state;
+
+  const captain = state.captains.find((candidate) => candidate.id === captainId);
+  if (!captain || !hasZoneBulkSaleTalent(captain)) return state;
+  if (now < captain.zoneBulkSellAvailableAt) return state;
+
+  const sold = sellOverflowAtBulkValue(state, captain.selling);
+  if (!sold) return state;
+
+  return {
+    ...sold,
+    captains: sold.captains.map((candidate) =>
+      candidate.id === captainId
+        ? {
+          ...candidate,
+          zoneBulkSellAvailableAt: now + CAPTAIN_ZONE_BULK_COOLDOWN_MS,
+        }
+        : candidate,
+    ),
   };
 };
 
@@ -332,15 +372,56 @@ export const advanceDeterministicState = (
   };
 };
 
+const advanceOfflineWithTransfers = (
+  state: GameState,
+  simulatedMs: number,
+  rng: () => number = Math.random,
+): GameState => {
+  let advanced = resolveDueDealerTransfers(state, state.lastTickAt, rng);
+  let cursor = advanced.lastTickAt;
+  const endAt = cursor + simulatedMs;
+
+  while (cursor < endAt) {
+    const nextTransferAt = advanced.dealerTransfers
+      .map((transfer) => transfer.completesAt)
+      .filter((completesAt) => completesAt > cursor)
+      .sort((a, b) => a - b)[0];
+    const boundary = Math.min(endAt, nextTransferAt ?? endAt);
+    const seconds = Math.max(0, boundary - cursor) / 1_000;
+
+    if (seconds > 0) {
+      const wholeSeconds = Math.floor(seconds);
+      const fractionalSeconds = seconds - wholeSeconds;
+      if (wholeSeconds > 0) {
+        advanced = advanceDeterministicState(
+          advanced,
+          wholeSeconds,
+          boundary - fractionalSeconds * 1_000,
+        );
+      }
+      if (fractionalSeconds > 0) {
+        advanced = advanceDeterministicState(advanced, fractionalSeconds, boundary);
+      }
+    }
+
+    advanced = resolveDueDealerTransfers(advanced, boundary, rng);
+    cursor = boundary;
+  }
+
+  return advanced;
+};
+
 export const applyOfflineProgress = (
   state: GameState,
   now: number,
+  rng: () => number = Math.random,
 ): GameState => {
   const actualAwayMs = Math.max(0, now - state.lastTickAt);
 
   if (actualAwayMs < OFFLINE_MIN_AWAY_MS) {
+    const resolved = resolveDueDealerTransfers(state, now, rng);
     return {
-      ...state,
+      ...resolved,
       lastTickAt: now,
       offlineEarningsSummary: null,
     };
@@ -354,23 +435,7 @@ export const applyOfflineProgress = (
     activeMarketEvent: null,
     offlineEarningsSummary: null,
   };
-  const wholeSeconds = Math.floor(simulatedMs / 1000);
-  if (wholeSeconds > 0) {
-    advanced = advanceDeterministicState(
-      advanced,
-      wholeSeconds,
-      advanced.lastTickAt + wholeSeconds * 1_000,
-    );
-  }
-
-  const fractionalSeconds = (simulatedMs % 1_000) / 1_000;
-  if (fractionalSeconds > 0) {
-    advanced = advanceDeterministicState(
-      advanced,
-      fractionalSeconds,
-      advanced.lastTickAt + fractionalSeconds * 1_000,
-    );
-  }
+  advanced = advanceOfflineWithTransfers(advanced, simulatedMs, rng);
 
   return {
     ...advanced,

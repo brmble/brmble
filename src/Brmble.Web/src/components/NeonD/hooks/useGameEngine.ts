@@ -50,11 +50,13 @@ import {
   advanceDeterministicState,
   applyMarketClock,
   getProductSalesRates,
+  sellCaptainZoneBulkOverflow,
   sellBulkOverflow,
 } from '../simulation';
 import { migrateNeonDState } from '../saveFormat';
 import { applyDueRiskCheck } from '../simulation';
 import { canPurchaseTalent } from '../talents';
+import { resolveDueDealerTransfers, startDealerTransfer } from '../transfers';
 import { getAssignedCaptainIds as getAssignedCaptainSlotIds } from '../sellers';
 import {
   createAmsterdamZone,
@@ -132,6 +134,7 @@ const advanceThroughTick = (state: GameState, elapsedMs: number, now: number): G
     const stepMs = Math.min(1_000, remainingMs);
     cursor += stepMs;
     advanced = advanceDeterministicState(advanced, stepMs / 1_000, cursor);
+    advanced = resolveDueDealerTransfers(advanced, cursor);
     advanced = applyRecruitmentClock(advanced, cursor);
     advanced = applyMarketClock(advanced, cursor);
     advanced = applyDueRiskCheck(advanced, cursor);
@@ -535,6 +538,24 @@ export const useGameEngine = () => {
     setState((prev) => sellBulkOverflow(prev, productId, Date.now()));
   };
 
+  const captainZoneBulkSell = (captainId: string) => {
+    setState((prev) => sellCaptainZoneBulkOverflow(prev, captainId, Date.now()));
+  };
+
+  const transferDealer = (
+    dealerId: string,
+    destinationZoneId: ZoneCityId,
+    destinationSlotId: string,
+  ) => {
+    setState((prev) => startDealerTransfer(
+      prev,
+      dealerId,
+      destinationZoneId,
+      destinationSlotId,
+      Date.now(),
+    ));
+  };
+
   const dismissOfflineEarningsSummary = () => {
     setState((prev) => ({
       ...prev,
@@ -679,6 +700,8 @@ export const useGameEngine = () => {
     payDealerBail,
     unlockBulkSelling,
     bulkSellProduct,
+    captainZoneBulkSell,
+    transferDealer,
     dismissOfflineEarningsSummary,
     buyCaptain,
     assignAmsterdamCaptain,

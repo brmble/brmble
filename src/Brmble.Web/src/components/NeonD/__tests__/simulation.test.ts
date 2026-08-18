@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { createBaseGameState } from '../constants';
+import { CAPTAIN_ZONE_BULK_COOLDOWN_MS, createBaseGameState } from '../constants';
 import {
   advanceDeterministicState,
   applyOfflineProgress,
   applyDueRiskCheck,
   applyMarketClock,
   getProductSalesRates,
+  sellCaptainZoneBulkOverflow,
   sellBulkOverflow,
 } from '../simulation';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 import { createAmsterdamZone } from '../zones';
+import { resolveDueDealerTransfers, startDealerTransfer } from '../transfers';
 import type { Dealer, Zone } from '../types';
 
 const createParisZone = (
@@ -24,6 +26,89 @@ const createParisZone = (
 });
 
 describe('deterministic production', () => {
+  it('keeps a travelling dealer out of online sales until the transfer completes', () => {
+    const dealer = makeReferenceDealer({ id: 'travelling-online' });
+    const state = createBaseGameState(0);
+    state.production.weed.stock = 10_000;
+    state.activeDealers = [];
+    state.zones = [
+      createAmsterdamZone('captain-amsterdam', 1, [dealer]),
+      createParisZone('captain-paris'),
+    ];
+    state.lastEarningsPerSeller[dealer.id] = 12.6;
+
+    const started = startDealerTransfer(state, dealer.id, 'paris', 'paris-slot-0', 0);
+    const travelling = advanceDeterministicState(started, 60, 60_000);
+
+    expect(travelling.cash).toBe(state.cash);
+    expect(travelling.lastEarningsPerSeller[dealer.id]).toBeUndefined();
+    expect(travelling.dealerTransfers).toHaveLength(1);
+
+    const arrived = resolveDueDealerTransfers(travelling, 120_000, () => 1);
+    const selling = advanceDeterministicState(arrived, 60, 180_000);
+
+    expect(selling.cash).toBeGreaterThan(state.cash);
+    expect(selling.lastEarningsPerSeller[dealer.id]).toBeGreaterThan(0);
+  });
+
+  it('earns only after arrival when offline progress crosses a transfer completion', () => {
+    const dealer = makeReferenceDealer({ id: 'travelling-offline' });
+    const state = createBaseGameState(0);
+    state.production.weed.stock = 10_000;
+    state.activeDealers = [];
+    state.zones = [
+      createAmsterdamZone('captain-amsterdam', 1, [dealer]),
+      createParisZone('captain-paris'),
+    ];
+
+    const started = startDealerTransfer(state, dealer.id, 'paris', 'paris-slot-0', 0);
+    const next = applyOfflineProgress(started, 300_000, () => 1);
+
+    expect(next.cash - state.cash).toBeCloseTo(12.6 * 180);
+    expect(next.zones[1].dealerSlots[0].dealer?.id).toBe(dealer.id);
+    expect(next.dealerTransfers).toEqual([]);
+  });
+
+  it('resolves expired transfer equipment risk once during offline load', () => {
+    const dealer = makeReferenceDealer({
+      id: 'travelling-risk',
+      equipmentIds: ['baseballBat', 'bicycle', 'iphone6Plus'],
+    });
+    const state = createBaseGameState(0);
+    state.production.weed.stock = 10_000;
+    state.activeDealers = [];
+    state.zones = [
+      createAmsterdamZone('captain-amsterdam', 1, [dealer]),
+      createParisZone('captain-paris'),
+    ];
+    const started = startDealerTransfer(state, dealer.id, 'paris', 'paris-slot-0', 0);
+    const rng = vi.fn(() => 1);
+
+    const next = applyOfflineProgress(started, 180_000, rng);
+
+    expect(rng).toHaveBeenCalledTimes(3);
+    expect(next.dealerTransfers).toEqual([]);
+    expect(next.zones[1].dealerSlots[0].dealer?.equipmentIds).toEqual(dealer.equipmentIds);
+  });
+
+  it('resolves a transfer due during a short offline absence without simulating earnings', () => {
+    const dealer = makeReferenceDealer({ id: 'short-away-traveller' });
+    const state = createBaseGameState(0);
+    state.activeDealers = [];
+    state.zones = [
+      createAmsterdamZone('captain-amsterdam', 1, [dealer]),
+      createParisZone('captain-paris'),
+    ];
+    const started = startDealerTransfer(state, dealer.id, 'paris', 'paris-slot-0', 0);
+    started.lastTickAt = 120_000;
+
+    const next = applyOfflineProgress(started, 125_000, () => 1);
+
+    expect(next.zones[1].dealerSlots[0].dealer?.id).toBe(dealer.id);
+    expect(next.dealerTransfers).toEqual([]);
+    expect(next.offlineEarningsSummary).toBeNull();
+  });
+
   it('does not simulate or show a summary for less than 30 seconds away', () => {
     const state = createBaseGameState(0);
     state.production.weed.producersOwned = 1;
@@ -152,6 +237,97 @@ describe('deterministic production', () => {
 
     expect(next).toBe(state);
     expect(next.lastBulkSellAt).toBe(0);
+  });
+
+  it('lets a deep-yellow Captain sell overflow without the product bulk unlock', () => {
+    const captain = makeReferenceCaptain({
+      id: 'bulk-captain',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const state = createBaseGameState(0);
+    state.captains = [captain];
+    state.zones = [createAmsterdamZone(captain.id)];
+    state.production.weed.stock = 1_500;
+
+    const next = sellCaptainZoneBulkOverflow(state, captain.id, 10_000);
+
+    expect(next.production.weed.stock).toBe(500);
+    expect(next.cash - state.cash).toBeCloseTo(1_000 * 4.2 * 0.90);
+    expect(next.captains[0].zoneBulkSellAvailableAt)
+      .toBe(10_000 + CAPTAIN_ZONE_BULK_COOLDOWN_MS);
+    expect(next.bulkUnlockedProductIds).toEqual([]);
+  });
+
+  it('shares stock across Captains and applies each Captain cooldown independently', () => {
+    const first = makeReferenceCaptain({
+      id: 'bulk-first',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const second = makeReferenceCaptain({
+      id: 'bulk-second',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const state = createBaseGameState(0);
+    state.captains = [first, second];
+    state.zones = [createAmsterdamZone(first.id), createParisZone(second.id)];
+    state.production.weed.stock = 1_500;
+
+    const sold = sellCaptainZoneBulkOverflow(state, first.id, 10_000);
+    sold.production.weed.stock = 1_500;
+    const secondSold = sellCaptainZoneBulkOverflow(sold, second.id, 10_000);
+
+    expect(secondSold).not.toBe(sold);
+    expect(secondSold.production.weed.stock).toBe(500);
+    expect(secondSold.captains[1].zoneBulkSellAvailableAt)
+      .toBe(10_000 + CAPTAIN_ZONE_BULK_COOLDOWN_MS);
+    expect(secondSold.captains[0].zoneBulkSellAvailableAt)
+      .toBe(10_000 + CAPTAIN_ZONE_BULK_COOLDOWN_MS);
+  });
+
+  it('leaves Captain zone bulk state unchanged without surplus or during cooldown', () => {
+    const captain = makeReferenceCaptain({
+      id: 'bulk-blocked',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const state = createBaseGameState(0);
+    state.captains = [captain];
+    state.zones = [createAmsterdamZone(captain.id)];
+
+    expect(sellCaptainZoneBulkOverflow(state, captain.id, 10_000)).toBe(state);
+
+    state.production.weed.stock = 1_500;
+    const sold = sellCaptainZoneBulkOverflow(state, captain.id, 10_000);
+    const blocked = sellCaptainZoneBulkOverflow(sold, captain.id, 10_001);
+
+    expect(blocked).toBe(sold);
+    expect(blocked.captains[0].zoneBulkSellAvailableAt)
+      .toBe(10_000 + CAPTAIN_ZONE_BULK_COOLDOWN_MS);
+  });
+
+  it('keeps Captain and manual product bulk cooldowns independent', () => {
+    const captain = makeReferenceCaptain({
+      id: 'bulk-independent',
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    });
+    const state = createBaseGameState(0);
+    state.captains = [captain];
+    state.zones = [createAmsterdamZone(captain.id)];
+    state.production.weed.stock = 1_500;
+    state.bulkUnlockedProductIds = ['weed'];
+
+    const captainSold = sellCaptainZoneBulkOverflow(state, captain.id, 10_000);
+    captainSold.production.weed.stock = 1_500;
+    const manualSold = sellBulkOverflow(captainSold, 'weed', 10_000);
+
+    expect(manualSold.production.weed.stock).toBe(500);
+    expect(manualSold.lastBulkSellAt).toBe(10_000);
+    expect(manualSold.captains[0].zoneBulkSellAvailableAt)
+      .toBe(10_000 + CAPTAIN_ZONE_BULK_COOLDOWN_MS);
   });
 
   it('does not automatically bulk sell stock above 1500g', () => {

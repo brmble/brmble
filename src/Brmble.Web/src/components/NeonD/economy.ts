@@ -1,5 +1,6 @@
 import {
   BAIL_EARNINGS_SECONDS,
+  AUTO_BULK_RETAIN_STOCK,
   BULK_VISIBLE_EARNINGS,
   CAPTAIN_COST_INCREMENT,
   CAPTAIN_COSTS,
@@ -21,8 +22,9 @@ import {
   ZONE_UNLOCK_BASE_COST,
   ZONE_UNLOCK_GROWTH,
 } from './constants';
-import type { EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId } from './types';
+import type { Captain, EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId } from './types';
 import { getActiveCaptainEntries, getAssignedCaptainIds } from './zones';
+import { hasZoneBulkSaleTalent } from './talents';
 
 export const getProductDefinition = (productId: ProductId): ProductDefinition => {
   const definition = PRODUCT_CATALOG.find((product) => product.id === productId);
@@ -86,6 +88,22 @@ export const getDealerCapacityCost = (purchases: number) => getTerritoryCost(pur
 export const getZoneUnlockCost = (state: Pick<GameState, 'zones'>) => {
   const additionalZonesAlreadyOpen = Math.max(0, state.zones.length - 1);
   return ZONE_UNLOCK_BASE_COST * Math.pow(ZONE_UNLOCK_GROWTH, additionalZonesAlreadyOpen);
+};
+export const getCaptainZoneBulkRemainingMs = (
+  captain: Pick<Captain, 'zoneBulkSellAvailableAt'>,
+  now: number,
+) => Math.max(0, captain.zoneBulkSellAvailableAt - now);
+
+export const canCaptainZoneBulkSell = (
+  state: GameState,
+  captainId: string,
+  now: number,
+) => {
+  if (!getAssignedCaptainIds(state).has(captainId)) return false;
+  const captain = state.captains.find((candidate) => candidate.id === captainId);
+  if (!captain || !hasZoneBulkSaleTalent(captain)) return false;
+  if (getCaptainZoneBulkRemainingMs(captain, now) > 0) return false;
+  return state.production[captain.selling].stock > AUTO_BULK_RETAIN_STOCK;
 };
 export const getDiscountCost = (level: number) => DISCOUNT_BASE_COST * Math.pow(DISCOUNT_GROWTH, level);
 
