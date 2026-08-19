@@ -104,6 +104,7 @@ import {
   workspaceReducer,
 } from './workspace/workspaceState';
 import { conversationKey } from './workspace/conversation';
+import { suppressOpenConversations } from './workspace/unreadOwnership';
 import { ConversationTabStrip, type ConversationTabItem } from './components/ConversationTabStrip/ConversationTabStrip';
 import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
 import { activityChannelMatchesPresence, channelActivityRoomName, parseChannelActivityRoomName } from './workspace/activityPresence';
@@ -1814,6 +1815,27 @@ function App() {
       return { ...contact, unreadCount: unread.notificationCount };
     });
   }, [dmStore.contacts, matrixClient?.dmRoomMap, unreadTracker]);
+
+  // Every conversation that currently owns a tab. A tab owns its own unread badge, so
+  // these conversations are suppressed from the sidebar and the DM contact list.
+  const openConversationKeys = useMemo(
+    () => new Set(workspace.tabs.map(conversationKey)),
+    [workspace.tabs],
+  );
+
+  // The contact list copy goes quiet for contacts that are already open as a tab.
+  // `dmContactsWithUnreads` stays unsuppressed: it feeds the tabs and the aggregates.
+  const sidebarDmContacts = useMemo(() => {
+    const visible = suppressOpenConversations(
+      new Map(dmContactsWithUnreads.map(contact => [contact.id, contact.unreadCount])),
+      openConversationKeys,
+      id => `dm:${id}`,
+    );
+    return dmContactsWithUnreads.map(contact => {
+      const unreadCount = visible.get(contact.id) ?? 0;
+      return unreadCount === contact.unreadCount ? contact : { ...contact, unreadCount };
+    });
+  }, [dmContactsWithUnreads, openConversationKeys]);
 
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
@@ -4355,6 +4377,13 @@ const handleConnect = (serverData: SavedServer) => {
     return map;
   }, [channels, matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
+  // The sidebar copy goes quiet for channels that are already open as a tab.
+  // `channelUnreads` stays unsuppressed: it feeds the tabs and the aggregates.
+  const sidebarChannelUnreads = useMemo(
+    () => suppressOpenConversations(channelUnreads, openConversationKeys, id => `channel:${id}`),
+    [channelUnreads, openConversationKeys],
+  );
+
   useEffect(() => {
     if (screenShareError) {
       console.error('Screen share error:', screenShareError);
@@ -5144,7 +5173,7 @@ const handleConnect = (serverData: SavedServer) => {
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
-          channelUnreads={channelUnreads}
+          channelUnreads={sidebarChannelUnreads}
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
@@ -5209,7 +5238,7 @@ const handleConnect = (serverData: SavedServer) => {
 
         {connected && (
           <DMContactList
-            contacts={dmContactsWithUnreads}
+            contacts={sidebarDmContacts}
             selectedUserId={dmStore.selectedContact?.id ?? null}
             onSelectContact={(id: string) => {
               dmStore.selectContact(id);
