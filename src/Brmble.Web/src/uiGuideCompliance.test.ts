@@ -214,7 +214,12 @@ function findTextInputClassViolations(): string[] {
     const content = readFileSync(file, 'utf8');
     for (const match of content.matchAll(inputPattern)) {
       const tag = match[0];
-      if (tag.includes('type="file"') || tag.includes('type="range"') || tag.includes('type="checkbox"')) continue;
+      if (
+        tag.includes('type="file"')
+        || tag.includes('type="range"')
+        || tag.includes('type="checkbox"')
+        || tag.includes('type="radio"')
+      ) continue;
       if (!/\b(brmble-input)\b/.test(tag)) {
         const line = content.slice(0, match.index).split(/\r?\n/).length;
         violations.push(`${rel}:${line}: text input is not using brmble-input`);

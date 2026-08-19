@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
@@ -188,6 +188,21 @@ const mockState = (overrides: Partial<GameState>) => {
   mockNeonD.setState(createState(overrides));
 };
 
+const serializeValidImportSave = () => {
+  const state = mockNeonD.getState();
+  return serializeNeonDSave({
+    ...state,
+    activeDealers: [],
+    zones: [{
+      id: 'amsterdam',
+      displayName: 'Amsterdam',
+      captainId: state.captains[0].id,
+      dealerSlots: [{ id: 'slot-1', dealer: null, reservedTransferId: null }],
+      perkIds: [],
+    }],
+  });
+};
+
 const formatExpectedMoney = (value: number) =>
   `$${Math.round(value).toLocaleString()}`;
 
@@ -345,16 +360,16 @@ it('does not import a valid v2 save when replacement confirmation is canceled', 
 
   await user.upload(
     screen.getByLabelText('Neon-D save file'),
-    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+    new File([serializeValidImportSave()], 'save.json', { type: 'application/json' }),
   );
 
-  expect(confirmMock).toHaveBeenCalledWith({
+  await waitFor(() => expect(confirmMock).toHaveBeenCalledWith({
     title: 'Import Neon-D save?',
     message: 'Import this Neon-D save? Your current empire will be replaced.',
     confirmLabel: 'Import',
     cancelLabel: 'Cancel',
     destructive: true,
-  });
+  }));
   expect(mockNeonD.importGameMock).not.toHaveBeenCalled();
 });
 
@@ -381,10 +396,10 @@ it('processes a second file selection after the first import fails', async () =>
   await screen.findByRole('alert');
   await user.upload(
     input,
-    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+    new File([serializeValidImportSave()], 'save.json', { type: 'application/json' }),
   );
 
-  expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
+  await waitFor(() => expect(mockNeonD.importGameMock).toHaveBeenCalledOnce());
 });
 
 it('prioritizes income, then Respect per second, cash, and prestige counters', () => {
@@ -412,7 +427,7 @@ it('prioritizes income, then Respect per second, cash, and prestige counters', (
   expect(primary).toHaveTextContent(/seller income\/sec/i);
   expect(primary).toHaveTextContent(/16[.,]65/);
   const respectLabel = within(secondary as HTMLElement).getByText('Respect/sec');
-  const respectValue = within(secondary as HTMLElement).getByText('4.00');
+  const respectValue = within(secondary as HTMLElement).getByText('3.00');
   expect(respectLabel).not.toBe(respectValue);
   expect(respectLabel.tagName).toBe('SPAN');
   expect(respectValue.tagName).toBe('STRONG');

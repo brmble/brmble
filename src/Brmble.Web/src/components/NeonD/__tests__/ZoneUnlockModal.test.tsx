@@ -16,7 +16,7 @@ const availableCaptain = makeReferenceCaptain({
 
 const state = {
   ...createBaseGameState(0),
-  respect: 1_000,
+  respect: 1_500,
   captains: [assignedCaptain, availableCaptain],
   zones: [{
     id: 'amsterdam' as const,
@@ -80,7 +80,7 @@ describe('ZoneUnlockModal', () => {
     expect(screen.queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Close Available Captain talent ledger' }));
 
-    await user.click(screen.getByRole('button', { name: /Open Paris for 100 Respect/ }));
+    await user.click(screen.getByRole('button', { name: /Open Paris for 1[.,]500 Respect/ }));
     expect(onConfirm).toHaveBeenCalledWith('paris', 'captain-available');
     expect(onClose).not.toHaveBeenCalled();
   });
