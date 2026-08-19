@@ -71,6 +71,21 @@
   box-sizing: border-box;
 }
 
+/* Screen-reader-only text: visually hidden, still in the accessibility tree.
+   Use for supplementary text that must extend an element's accessible name
+   without hiding the element's other visible content (badges, counts). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 html, body {
   margin: 0;
   padding: 0;

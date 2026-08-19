@@ -759,6 +759,27 @@ Rules:
 7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
 8. Rich preview confirmations still use the single App-owned prompt host; never mount a second host for feature-specific content
 
+### Screen-Reader-Only Text (`.sr-only`)
+
+Reference: `src/Brmble.Web/src/index.css`
+
+Use the global `.sr-only` utility for text that must reach assistive technology but not the
+screen — for example marking which item is the current one. Prefer it over `aria-label` on any
+element that also carries visible dynamic content (unread counts, mention badges, status
+chips): `aria-label` **replaces** the whole accessible name and silences those badges.
+
+Because the accessible name is the concatenation of inline children **without separators**, do
+not rely on a leading space inside the `.sr-only` span (it is trimmed). Instead repeat the label
+inside the `.sr-only` span and mark the visible copy `aria-hidden="true"`:
+
+```tsx
+<span className={styles.text} aria-hidden="true">{label}</span>
+<span className="sr-only">{`${label} (you are here)`}</span>
+```
+
+Do not add per-component visually-hidden helpers, and never use `display: none` or
+`visibility: hidden` for this — both remove the text from the accessibility tree.
+
 ### Form Inputs
 
 | Element | Class / Component | Notes |
