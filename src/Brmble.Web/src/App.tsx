@@ -706,6 +706,18 @@ export function canOpenChannelChat(channelId: string | undefined, channels: Chan
   return channel?.canOpenChat !== false;
 }
 
+// A paint session belongs to the voice channel the user joined, not the channel they
+// happen to be viewing. Browsing elsewhere must not tear the canvas down.
+export function shouldKeepPaintSession(input: {
+  connectionStatus: string;
+  sessionChannelId: string | undefined;
+  joinedChannelId: string | null;
+}): boolean {
+  if (input.connectionStatus !== 'connected') return false;
+  if (input.joinedChannelId === null || input.joinedChannelId === SERVER_ROOT_CHANNEL_ID) return false;
+  return input.sessionChannelId === input.joinedChannelId;
+}
+
 export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
@@ -1376,14 +1388,10 @@ function App() {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
 
+  // Switching the viewed channel invalidates any in-flight paint preparation, but it
+  // deliberately does NOT end an active session — sessions belong to the joined channel.
   useEffect(() => {
     invalidatePaintPreparation();
-    if (!activePaintSessionId) return;
-    if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
-      activePaintSessionIdRef.current = null;
-      setActivePaintSessionId(null);
-      activePaintChannelIdRef.current = undefined;
-    }
   }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
 
   useEffect(() => {
@@ -1678,6 +1686,21 @@ function App() {
   const selfVoiceChannelId = joinedChannelId === null || joinedChannelId === SERVER_ROOT_CHANNEL_ID
     ? undefined
     : Number(joinedChannelId);
+
+  // Survival guard: an active paint session ends only when the connection drops or the
+  // user leaves/changes the voice channel that owns it. Viewing another channel is fine.
+  useEffect(() => {
+    if (!activePaintSessionId) return;
+    if (!shouldKeepPaintSession({
+      connectionStatus,
+      sessionChannelId: activePaintChannelIdRef.current,
+      joinedChannelId,
+    })) {
+      activePaintSessionIdRef.current = null;
+      setActivePaintSessionId(null);
+      activePaintChannelIdRef.current = undefined;
+    }
+  }, [activePaintSessionId, connectionStatus, joinedChannelId]);
   const activeConversation = selectActiveConversation(workspace);
   const activeChannelChatId = activeConversation?.kind === 'channel'
     ? activeConversation.channelId
@@ -4806,7 +4829,7 @@ const handleConnect = (serverData: SavedServer) => {
   }, []);
   const handleOpenPaint = useCallback((sessionId: string) => {
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = currentChannelId;
+    activePaintChannelIdRef.current = joinedChannelId ?? undefined;
     activePaintSessionIdRef.current = sessionId;
     setActivePaintSessionId(sessionId);
   }, [currentChannelId, invalidatePaintPreparation]);
@@ -4868,7 +4891,7 @@ const handleConnect = (serverData: SavedServer) => {
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             invalidatePaintPreparation();
-            activePaintChannelIdRef.current = currentChannelId;
+            activePaintChannelIdRef.current = joinedChannelId ?? undefined;
             activePaintSessionIdRef.current = sessionId;
             setActivePaintSessionId(sessionId);
             closePaintSetup();
