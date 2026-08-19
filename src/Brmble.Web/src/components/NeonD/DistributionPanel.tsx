@@ -28,7 +28,6 @@ import {
   getAvailableZoneDealerSlots,
   getActiveDealerEntries,
   getTotalDealerCapacity,
-  getUnassignedCaptains,
   getZoneEarningsPerSecond,
 } from './zones';
 
@@ -515,30 +514,15 @@ export function DistributionPanel(props: DistributionPanelProps) {
   };
 
   const renderZoneDistribution = () => {
-    const hasZoneVacancy = props.state.zones.some((zone) =>
-      zone.dealerSlots.some((slot) => slot.dealer === null && slot.reservedTransferId === null),
-    );
-    const hasUnassignedCaptains = getUnassignedCaptains(props.state).length > 0;
-
     return (
       <>
-        {hasZoneVacancy ? (
-          <button
-            type="button"
-            className={styles.buyButton}
-            onClick={() => { setHiringTarget(null); setHiringInitialTab('dealers'); }}
-          >
-            {hiringSummary}
-          </button>
-        ) : hasUnassignedCaptains ? (
-          <button
-            type="button"
-            className={styles.unlockButton}
-            onClick={() => { setHiringTarget(null); setHiringInitialTab('captains'); }}
-          >
-            View unassigned Captains
-          </button>
-        ) : <div className={styles.label}>{hiringSummary}</div>}
+        <button
+          type="button"
+          className={styles.buyButton}
+          onClick={() => { setHiringTarget(null); setHiringInitialTab('dealers'); }}
+        >
+          {hiringSummary}
+        </button>
         <div className={styles.zoneCardStack}>
           {props.state.zones.map((zone) => {
             const isCollapsed = collapsedZoneIds.has(zone.id);

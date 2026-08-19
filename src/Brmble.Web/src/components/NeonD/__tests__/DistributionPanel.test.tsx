@@ -142,6 +142,38 @@ describe('DistributionPanel hiring entry point', () => {
     expect(within(management).getByRole('button', { name: 'Recruit Captain' })).toBeInTheDocument();
   });
 
+  it('keeps Captain recruitment reachable when all zone dealer slots and Captains are assigned', async () => {
+    const user = userEvent.setup();
+    const captain = makeReferenceCaptain({ id: 'assigned-captain', name: 'Assigned Captain' });
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={{
+          ...state,
+          captains: [captain],
+          zones: [{
+            id: 'amsterdam',
+            displayName: 'Amsterdam',
+            captainId: captain.id,
+            dealerSlots: [{
+              id: 'amsterdam-slot-1',
+              dealer: makeReferenceDealer({ id: 'zone-dealer', name: 'Zone Dealer' }),
+              reservedTransferId: null,
+            }],
+            perkIds: [],
+          }],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
+
+    const management = screen.getByRole('dialog', { name: /Distribution hiring/ });
+    await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+    expect(within(management).getByRole('button', { name: 'Recruit Captain' })).toBeInTheDocument();
+  });
+
   it('uses the capacity summary button to open the first empty slot', async () => {
     const user = userEvent.setup();
     render(
