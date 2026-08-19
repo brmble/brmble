@@ -99,6 +99,7 @@ import {
 } from './workspace/workspaceState';
 import { conversationKey } from './workspace/conversation';
 import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
+import { activityChannelMatchesPresence, channelActivityRoomName } from './workspace/activityPresence';
 import { loadConversationTabs, saveConversationTabs } from './workspace/conversationStorage';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
@@ -513,7 +514,7 @@ export async function toggleLocalScreenShare({
   }
 
   try {
-    const started = await startSharing(`channel-${voiceChannelId}`);
+    const started = await startSharing(channelActivityRoomName(String(voiceChannelId)));
     if (!started) {
       return;
     }
@@ -714,8 +715,7 @@ export function shouldKeepPaintSession(input: {
   joinedChannelId: string | null;
 }): boolean {
   if (input.connectionStatus !== 'connected') return false;
-  if (input.joinedChannelId === null || input.joinedChannelId === SERVER_ROOT_CHANNEL_ID) return false;
-  return input.sessionChannelId === input.joinedChannelId;
+  return activityChannelMatchesPresence(input.joinedChannelId, input.sessionChannelId);
 }
 
 export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
@@ -4462,8 +4462,9 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
-    setDiscoveryTarget({ roomName: `channel-${channelId}`, requestId });
-    bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}`, requestId });
+    const roomName = channelActivityRoomName(channelId);
+    setDiscoveryTarget({ roomName, requestId });
+    bridge.send('livekit.checkActiveShare', { roomName, requestId });
   }, [setDiscoveryTarget]);
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
