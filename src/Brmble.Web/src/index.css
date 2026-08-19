@@ -34,6 +34,8 @@
   --neond-arrow-width: var(--space-xs);
   --neond-arrow-height: var(--space-sm);
   --neond-modal-max-width: 26.25rem;
+  --conversation-tab-min-width: 4.5rem;
+  --conversation-tab-max-width: 12rem;
   --neond-talent-ledger-max-width: calc(var(--neond-panel-max-width) + var(--neond-panel-max-width) + var(--neond-grid-gap));
 
   /* Transitions */
