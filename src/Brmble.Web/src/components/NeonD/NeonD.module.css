@@ -301,7 +301,7 @@
 
 .zoneCardStack {
   display: grid;
-  gap: var(--space-sm);
+  gap: calc(var(--space-sm) * 3);
 }
 
 .zoneGroup {
