@@ -286,10 +286,9 @@ vi.mock('./components/ErrorBoundary', () => ({
 }));
 
 vi.mock('./components/Header/Header', () => ({
-  Header: ({ onLeaveVoice, onToggleScreenShare, onToggleDM }: {
+  Header: ({ onLeaveVoice, onToggleScreenShare }: {
     onLeaveVoice?: () => void;
     onToggleScreenShare?: () => void;
-    onToggleDM?: () => void;
   }) => React.createElement(React.Fragment, null,
     React.createElement('button', {
       type: 'button',
@@ -300,11 +299,6 @@ vi.mock('./components/Header/Header', () => ({
       type: 'button',
       'data-testid': 'header-toggle-screen-share',
       onClick: onToggleScreenShare,
-    }),
-    React.createElement('button', {
-      type: 'button',
-      'data-testid': 'header-toggle-messages',
-      onClick: onToggleDM,
     }),
   ),
 }));
@@ -374,10 +368,10 @@ vi.mock('./components/CloseDialog/CloseDialog', () => ({ CloseDialog: () => null
 vi.mock('./components/OnboardingWizard/OnboardingWizard', () => ({ OnboardingWizard: () => null }));
 vi.mock('./components/Version/Version', () => ({ Version: () => null }));
 vi.mock('./components/ZoomIndicator/ZoomIndicator', () => ({ ZoomIndicator: () => null }));
-const dmContactListProps = vi.hoisted(() => ({ current: { visible: false } }));
+const dmContactListProps = vi.hoisted(() => ({ current: { rendered: false } }));
 vi.mock('./components/DMContactList/DMContactList', () => ({
-  DMContactList: (props: { visible: boolean }) => {
-    dmContactListProps.current = props;
+  DMContactList: () => {
+    dmContactListProps.current = { rendered: true };
     return null;
   },
 }));
@@ -613,7 +607,8 @@ describe('active share discovery', () => {
   });
 
 
-  it('does not collapse Messages for local sharing alone', async () => {
+  // The Messages panel is permanently visible now; local sharing must not remove it.
+  it('keeps the Messages panel mounted for local sharing alone', async () => {
     screenShareState.isSharing = true;
     const view = render(React.createElement(App));
 
@@ -626,7 +621,7 @@ describe('active share discovery', () => {
       });
     });
 
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+    await waitFor(() => expect(dmContactListProps.current.rendered).toBe(true));
     expect(screenShareState.remoteWatchCount).toBe(0);
     view.unmount();
   });

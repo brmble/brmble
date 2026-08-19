@@ -22,6 +22,8 @@
 
   /* Layout */
   --sidebar-width: 340px;
+  --dm-panel-width: 260px;
+  --dm-rail-width: 48px;
   --header-height: 60px;
   --border-width-thin: 1px;
   --border-width-strong: 2px;

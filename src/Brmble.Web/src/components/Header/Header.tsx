@@ -7,9 +7,6 @@ import './Header.css';
 
 interface HeaderProps {
   username?: string;
-  onToggleDM?: () => void;
-  dmActive?: boolean;
-  unreadDMCount?: number;
   onOpenSettings: () => void;
   onOpenAudioSettings?: () => void;
   onAvatarClick?: () => void;
@@ -39,7 +36,7 @@ interface HeaderProps {
   activePaintSessionId?: string | null;
 }
 
-export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, isMaximized, onStartPaint, canStartPaint, activePaintSessionId }: HeaderProps) {
+export function Header({ username, onOpenSettings, onOpenAudioSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, onToggleGame, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, isMaximized, onStartPaint, canStartPaint, activePaintSessionId }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
@@ -59,9 +56,6 @@ export function Header({ username, onToggleDM, dmActive, unreadDMCount, onOpenSe
         )}
         <UserPanel
           username={username}
-          onToggleDM={onToggleDM}
-          dmActive={dmActive}
-          unreadDMCount={unreadDMCount}
           onOpenSettings={onOpenSettings}
           onOpenAudioSettings={onOpenAudioSettings}
           onAvatarClick={onAvatarClick}

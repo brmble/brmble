@@ -781,6 +781,32 @@ Rules:
 7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
 8. Rich preview confirmations still use the single App-owned prompt host; never mount a second host for feature-specific content
 
+### Permanently Visible User Panel Pattern
+
+Reference: `src/Brmble.Web/src/components/DMContactList/DMContactList.tsx`,
+`DMContactList.css`, `App.tsx` (`.app-body`), `App.css`
+
+`.app-body` is a static three-column workspace: sidebar | main content | user panel
+(`DMContactList`). The user panel is **permanently visible** whenever the client is
+connected. It is not a reading surface — clicking a contact opens a conversation tab.
+
+Rules:
+1. There is no visibility state, no toggle control, and no `visible` prop. Do not
+   reintroduce `messagesPanelExpanded`, a Header/UserPanel DM toggle button, or any
+   activity-driven auto-collapse (screen share, game, remote watching).
+2. Below `60rem` the panel narrows to a compact rail. That collapse is **presentation
+   only**: driven by a CSS media query on viewport width alone. No reducer state, no
+   JavaScript, not user-toggleable.
+3. Widths come from `--dm-panel-width` and `--dm-rail-width` in `:root` (`index.css`).
+4. Unread counts render unconditionally and stay visible in the rail (absolutely
+   positioned on the contact entry). Never gate a badge on panel width.
+5. Text that is the accessible name of a control must be visually hidden with the
+   `.sr-only` technique in the rail, never `display: none`. Do not use `aria-label`
+   on a contact entry — it would replace the accessible name and silence the unread
+   badge (see the `.sr-only` section).
+6. The panel is rendered only while connected, so it never appears on the
+   server-list, onboarding, connecting, or disconnected screens.
+
 ### Screen-Reader-Only Text (`.sr-only`)
 
 Reference: `src/Brmble.Web/src/index.css`

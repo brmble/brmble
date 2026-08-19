@@ -1740,7 +1740,6 @@ function App() {
   // The single ChatPanel renders whatever the active tab points at, so this is a
   // semantic "the open conversation is a DM" flag, not a slide-visibility flag.
   const activeConversationIsDm = activeConversation?.kind === 'dm';
-  const messagesPanelExpanded = connected;
   const activeDmContactId = activeConversation?.kind === 'dm'
     ? activeConversation.contactId
     : null;
@@ -1763,10 +1762,6 @@ function App() {
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
   }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
-
-  // Opening a conversation no longer leaves game mode: an active match owns the main
-  // panel until it ends, and the idle game is closed by its own control.
-  const toggleMessagesPanel = useCallback(() => {}, []);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -2955,7 +2950,6 @@ function App() {
       toggleMute: 'mute',
       toggleMuteDeafen: 'deaf',
       toggleLeaveVoice: 'leave',
-      toggleDmScreen: 'dm',
       toggleScreenShare: 'screen',
     };
 
@@ -2972,12 +2966,6 @@ function App() {
       if (d?.action) {
         const btn = ACTION_TO_BTN[d.action];
         if (btn) setHotkeyPressedBtn(prev => prev === btn ? null : prev);
-      }
-    };
-
-    const onToggleDmScreen = () => {
-      if (connectionStatusRef.current === 'connected') {
-        toggleMessagesPanel();
       }
     };
 
@@ -3208,7 +3196,6 @@ function App() {
     bridge.on('voice.moderation', onVoiceModeration);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
-    bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('voice.toggleScreenShare', onToggleScreenShare);
     bridge.on('game.toggle', onToggleGame);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
@@ -3294,7 +3281,6 @@ function App() {
       bridge.off('voice.loss', onVoiceLoss);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
-      bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('voice.toggleScreenShare', onToggleScreenShare);
       bridge.off('game.toggle', onToggleGame);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
@@ -5081,9 +5067,6 @@ const handleConnect = (serverData: SavedServer) => {
       <ErrorBoundary label="Header">
       <Header
         username={username}
-        onToggleDM={connected ? toggleMessagesPanel : undefined}
-        dmActive={messagesPanelExpanded}
-        unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
         onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
         onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -5134,7 +5117,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
       )}
       
-      <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
+      <div className="app-body">
         <ErrorBoundary label="Sidebar">
         <Sidebar
           channels={channels}
@@ -5179,7 +5162,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
         </ErrorBoundary>
         
-        <main className={`main-content workspace-conversation ${messagesPanelExpanded ? 'workspace-conversation--with-panel' : ''}`}>
+        <main className="main-content workspace-conversation">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
               <ServerList onConnect={handleServerConnect} connectDisabled={brokenCertInfo != null && !brokenCertInfo.hasHealthyFallback} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
@@ -5241,8 +5224,6 @@ const handleConnect = (serverData: SavedServer) => {
                 });
               }
             }}
-            onToggleVisibility={toggleMessagesPanel}
-            visible={messagesPanelExpanded}
           />
         )}
       </div>

@@ -453,27 +453,6 @@ describe('DM route Matrix isolation', () => {
     });
   });
 
-  it('routes DMContactList visibility through the shared Messages panel toggle', () => {
-    renderConnectedApp();
-
-    expect(mockValues.dmContactListProps?.onToggleVisibility).toBe(mockValues.headerProps?.onToggleDM);
-  });
-
-  it('resets the Messages panel when reconnecting', async () => {
-    renderConnectedApp();
-    act(() => {
-      (mockValues.headerProps?.onToggleDM as () => void)();
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
-    });
-
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
-
-    act(() => {
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
-    });
-
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
-  });
 
   it('returns to channel chat and clears Matrix DM routing after reconnecting with a retained selection', async () => {
     mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
@@ -549,7 +528,10 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
-  it('updates the unread DM badge without leaving the foreground channel', async () => {
+  // The Header no longer carries an aggregate DM badge � the permanently visible
+  // Messages panel shows per-contact unread counts. The surviving aggregate consumer is
+  // the native taskbar badge, so that is what this asserts.
+  it('updates the taskbar DM badge without leaving the foreground channel', async () => {
     const view = renderConnectedApp();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
@@ -557,7 +539,10 @@ describe('DM route Matrix isolation', () => {
     mockValues.unreadTracker.totalDmUnreadCount = 3;
     view.rerenderApp();
 
-    await waitFor(() => expect(mockValues.headerProps?.unreadDMCount).toBe(3));
+    await waitFor(() => expect(bridge.send).toHaveBeenCalledWith(
+      'notification.badge',
+      expect.objectContaining({ unreadDMs: true }),
+    ));
     expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
@@ -585,7 +570,7 @@ describe('DM route Matrix isolation', () => {
     mockValues.unreadTracker.getMarkerTimestamp.mockReturnValue(1234);
     view.rerenderApp();
 
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
+    await waitFor(() => expect(mockValues.unreadTracker.getRoomUnread).toHaveBeenCalledWith('!val:example.com'));
     expect(mockValues.unreadTracker.markRoomRead).not.toHaveBeenCalledWith('!val:example.com', '$latest-dm-event');
   });
 
@@ -614,13 +599,13 @@ describe('DM route Matrix isolation', () => {
       });
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
     }],
-  ])('does not reserve Messages panel space on the %s screen', async (_label, enterScreen) => {
+  ])('does not render the Messages panel on the %s screen', async (_label, enterScreen) => {
     renderDisconnectedApp();
 
     act(() => enterScreen());
 
     await waitFor(() => {
-      expect(document.querySelector('.workspace-conversation')).not.toHaveClass('workspace-conversation--with-panel');
+      expect(document.querySelector('.app-body')).toBeInTheDocument();
     });
     expect(mockValues.dmContactListProps).toBeUndefined();
   });
