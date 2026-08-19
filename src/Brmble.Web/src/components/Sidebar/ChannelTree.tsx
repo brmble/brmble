@@ -17,6 +17,7 @@ import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import { getOrderedChildChannels, sortChannels } from '../../utils/channelOrder';
+import { channelActivityRoomName } from '../../workspace/activityPresence';
 import './ChannelTree.css';
 
 interface User {
@@ -439,7 +440,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                       e.preventDefault();
                       setContextMenu({ x: e.clientX, y: e.clientY, userId: String(user.session), userName: user.name, isSelf: !!user.self, channelId: channel.id });
                     }}
-                    onDoubleClick={isRemoteSharer ? () => onWatchScreenShare?.(`channel-${channel.id}`, share?.userId, share?.matrixUserId) : undefined}
+                    onDoubleClick={isRemoteSharer ? () => onWatchScreenShare?.(channelActivityRoomName(String(channel.id)), share?.userId, share?.matrixUserId) : undefined}
                   >
                     <span className="user-status-area">
                       {user.deafened && (
@@ -472,7 +473,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
                               if (isWatchingRemoteShare) {
                                 onStopWatching?.(share.userId);
                               } else {
-                                onWatchScreenShare?.(`channel-${channel.id}`, share.userId, share.matrixUserId);
+                                onWatchScreenShare?.(channelActivityRoomName(String(channel.id)), share.userId, share.matrixUserId);
                               }
                             }}
                             aria-label={`${isWatchingRemoteShare ? 'Watching' : 'Watch'} screen share from ${user.name}`}
@@ -621,7 +622,7 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
 onClick: () => {
                 const channelId = contextMenu.channelId ?? currentChannelId;
                 const share = activeShares?.find(s => s.sessionId === Number(contextMenu.userId));
-                onWatchScreenShare?.(`channel-${channelId}`, share?.userId, share?.matrixUserId);
+                onWatchScreenShare?.(channelActivityRoomName(String(channelId)), share?.userId, share?.matrixUserId);
               },
             }] : []),
             ...(!contextMenu.isSelf && onStartDM ? [{

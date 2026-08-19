@@ -99,7 +99,7 @@ import {
 } from './workspace/workspaceState';
 import { conversationKey } from './workspace/conversation';
 import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
-import { activityChannelMatchesPresence, channelActivityRoomName } from './workspace/activityPresence';
+import { activityChannelMatchesPresence, channelActivityRoomName, parseChannelActivityRoomName } from './workspace/activityPresence';
 import { loadConversationTabs, saveConversationTabs } from './workspace/conversationStorage';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
@@ -483,9 +483,13 @@ export function shouldClearLocalShareStartPending({
   return isLocalShareStartPending && (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0);
 }
 
-export function canWatchShareFromChannel(currentChannelId: string | undefined, shareRoomName: string): boolean {
-  if (!currentChannelId || currentChannelId === 'server-root') return false;
-  return shareRoomName === `channel-${currentChannelId}`;
+/**
+ * You may watch a share only while standing in the channel that owns it. The channel
+ * you are *browsing* is irrelevant — this mirrors the publish gate, which is also
+ * bound to presence.
+ */
+export function canWatchShareFromChannel(joinedChannelId: string | null, shareRoomName: string): boolean {
+  return activityChannelMatchesPresence(joinedChannelId, parseChannelActivityRoomName(shareRoomName));
 }
 
 export async function toggleLocalScreenShare({
@@ -4414,7 +4418,8 @@ const handleConnect = (serverData: SavedServer) => {
     const onRemoteShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
-      const voiceChannelId = selfUser?.channelId;
+      // Keyed to presence, exactly like the watch gate and the publish gate.
+      const joinedChannelId = selectJoinedChannelId(usersRef.current);
       // Only show notification for other users' shares in our channel.
       // Prefer the session id to identify self; when the server payload omits
       // it, fall back to matching the Matrix identity so the broadcaster does
@@ -4425,8 +4430,7 @@ const handleConnect = (serverData: SavedServer) => {
         ? d.sessionId === selfUser.session
         : (selfMatrixUserId != null && d.matrixUserId != null && d.matrixUserId === selfMatrixUserId);
       if (
-        voiceChannelId != null &&
-        d.roomName === `channel-${voiceChannelId}` &&
+        activityChannelMatchesPresence(joinedChannelId, parseChannelActivityRoomName(d.roomName)) &&
         !isSelfShare &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
@@ -4469,8 +4473,10 @@ const handleConnect = (serverData: SavedServer) => {
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
-  // Check for active screen shares when switching channels.
-  // Depends ONLY on currentChannelId: the other collaborators (notifQueue and
+  // Check for active screen shares when the user's presence moves.
+  // Discovery follows the JOINED channel, not the browsed one, so that browsing
+  // elsewhere never tears down or hides your own channel's share.
+  // Depends ONLY on joinedChannelId: the other collaborators (notifQueue and
   // requestActiveShareDiscovery) are accessed via refs so their
   // identity churn — notably notifQueue changing on every register/unregister —
   // does not re-run this effect and wipe a freshly shown screen-share
@@ -4478,9 +4484,9 @@ const handleConnect = (serverData: SavedServer) => {
   useEffect(() => {
     setScreenShareNotification(null);
     notifQueueRef.current.unregister('screen-share');
-    requestActiveShareDiscoveryRef.current?.(currentChannelId);
+    requestActiveShareDiscoveryRef.current?.(joinedChannelId ?? undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentChannelId]);
+  }, [joinedChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousWorkspaceConnectionStatusRef.current;
@@ -4616,7 +4622,7 @@ const handleConnect = (serverData: SavedServer) => {
       ?? null;
     const actualRoomName = share?.roomName ?? roomName;
 
-    if (!canWatchShareFromChannel(currentChannelId, actualRoomName)) {
+    if (!canWatchShareFromChannel(joinedChannelId, actualRoomName)) {
       return;
     }
 
@@ -4624,7 +4630,7 @@ const handleConnect = (serverData: SavedServer) => {
     void Promise.resolve(connectAsViewer(actualRoomName, userId, matrixUserId ?? share?.matrixUserId)).catch(err => {
       updateStatus('livekit', { state: 'disconnected', error: err instanceof Error ? err.message : 'Failed to connect as viewer' });
     });
-  }, [activeShares, connectAsViewer, currentChannelId, updateStatus]);
+  }, [activeShares, connectAsViewer, joinedChannelId, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);

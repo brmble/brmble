@@ -552,7 +552,7 @@ describe('shouldClearLocalShareStartPending', () => {
 });
 
 describe('canWatchShareFromChannel', () => {
-  it('blocks watch attempts when current channel does not match share room', () => {
+  it('blocks watch attempts when the JOINED channel does not match the share room', () => {
     expect(canWatchShareFromChannel('server-root', 'channel-1')).toBe(false);
     expect(canWatchShareFromChannel('2', 'channel-1')).toBe(false);
     expect(canWatchShareFromChannel('1', 'channel-1')).toBe(true);
@@ -675,13 +675,16 @@ describe('active share discovery', () => {
 
     const cleanupCallsBeforeChannelSelection = vi.mocked(disconnectViewer).mock.calls.length;
     act(() => view.getByTestId('sidebar-select-channel-2').click());
-    await waitFor(() => expect(getActiveShareRequests()).toHaveLength(2));
 
     expect(disconnectViewer.mock.calls.length).toBe(cleanupCallsBeforeChannelSelection);
+    // Merely BROWSING another channel is not a presence move, so it must not
+    // re-run share discovery: the only discovery is still the one for the
+    // joined channel from connect.
+    expect(getActiveShareRequests()).toHaveLength(1);
     const channelTwoDiscoveryCall = vi.mocked(bridge.send).mock.calls
       .map(([type, payload], index) => ({ type, payload, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
       .find(call => call.type === 'livekit.checkActiveShare' && (call.payload as { roomName?: string }).roomName === 'channel-2');
-    expect(channelTwoDiscoveryCall).toBeDefined();
+    expect(channelTwoDiscoveryCall).toBeUndefined();
 
     screenShareState.pendingViewerShares = [];
     screenShareState.remoteWatchCount = 0;
@@ -1199,7 +1202,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'idle', error: undefined });
   });
 
-  it('notification watch does not connect as viewer from root selected channel', async () => {
+  it('notification watch still connects as viewer while browsing the server root', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -1223,9 +1226,9 @@ describe('active share discovery', () => {
       });
     });
 
-    // Browse the server root while still connected to voice channel 1: the share
-    // notification is raised against the voice channel, but Watch is refused
-    // because the viewed channel is root.
+    // Browse the server root while still JOINED to voice channel 1. Watching
+    // follows presence, not selection, so the share in your own channel stays
+    // watchable while you look around.
     act(() => {
       view.getByTestId('sidebar-select-server').click();
     });
@@ -1245,12 +1248,11 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(connectAsViewer).not.toHaveBeenCalled();
-    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+    expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('notification watch does not connect as viewer from the wrong selected channel', async () => {
-    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+  it('does not connect as viewer for a share in a channel the user has moved out of', async () => {
     screenShareState.activeShares = [{
       roomName: 'channel-1',
       userName: 'Alice',
@@ -1276,22 +1278,18 @@ describe('active share discovery', () => {
       });
     });
 
+    // A real presence move: the gate is keyed to where you are standing, and
+    // presence is the source of truth for that.
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
-    });
-
-    act(() => {
-      bridge.emit('livekit.screenShareStarted', {
-        roomName: 'channel-1',
-        userName: 'Alice',
-        userId: 42,
-        matrixUserId: '@alice:example.com',
-        sessionId: 2,
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
       });
     });
 
     await act(async () => {
-      view.getByText('Watch').click();
+      view.getByTestId('sidebar-watch-share').click();
       await Promise.resolve();
     });
 
@@ -1570,8 +1568,14 @@ describe('active share discovery', () => {
 
     vi.mocked(notifQueue.unregister).mockClear();
 
+    // Presence is the source of truth for "switching channels" now, so the
+    // fixture must move the self user too.
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
@@ -1655,6 +1659,10 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     await waitFor(() => {
@@ -1663,7 +1671,7 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 0, name: 'Root' });
-      // The viewed channel now follows presence for root moves.
+      // Discovery follows presence, so root moves must land in presence too.
       bridge.emit('voice.usersChanged', {
         changed: [{ session: 7, name: 'TestUser', self: true, channelId: 0 }],
         removed: [],
@@ -1708,6 +1716,10 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     await waitFor(() => {
