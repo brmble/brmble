@@ -102,6 +102,29 @@ All visual properties must come from CSS custom properties. Two layers exist:
 | `padding: 1rem` | `padding: var(--space-md)` |
 | `box-shadow: 0 8px 32px rgba(0,0,0,0.4)` | `box-shadow: var(--shadow-elevated)` |
 
+### Text On An Accent Fill
+
+When text or an icon sits on a filled accent background (`--accent-primary`,
+`--accent-success`, unread/mention badges, the active conversation tab), its colour is
+**`var(--bg-deep)`**. This is the established convention across `ChatPanel.css`,
+`ChannelTree.css`, `ConversationTabStrip.module.css` and `NeonD.module.css`. There is no
+`--text-on-accent` token — do not invent one, and do not hardcode white.
+
+### Phantom Tokens (do not copy)
+
+These names appear in older code and in AI-generated CSS but are **defined nowhere**. A
+`var()` on them resolves to nothing, so the declaration silently does nothing:
+
+| Phantom (not real) | Use instead |
+|---|---|
+| `--radius-pill` | `--radius-lg` (or `--radius-full` for a true circle) |
+| `--bg-subtle` | `--bg-surface` |
+| `--text-on-accent` | `--bg-deep` (see above) |
+| `--font-size-xs` | `--text-xs` |
+
+Before using any token, confirm it exists in `index.css` (`:root`) or
+`themes/_template.css`. Font-size tokens are `--text-*`, never `--font-size-*`.
+
 ---
 
 ## 3. Heading System
@@ -203,6 +226,53 @@ stable `storageKey` so the 20-80% split persists locally.
 The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer drags must release
 their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
 duplicate this listener lifecycle in a consumer.
+
+The main panel has **exactly one** split, keyed `brmble-main-split` (channel activity above,
+conversation below). No component may introduce a second splitter inside the main panel. See the
+Main Panel Region Pattern.
+
+### Main Panel Region Pattern
+
+Reference: `src/Brmble.Web/src/components/MainPanel/MainPanel.tsx`,
+`workspace/mainPanelMode.ts`, `components/ChannelActivityRegion/ChannelActivityRegion.tsx`,
+`App.tsx`
+
+Rules:
+1. The main panel has exactly two modes. In `game` mode a single game surface fills it
+   entirely — no activity chips, no tab strip, no chat. In `split` mode the channel
+   activity region sits above the conversation region, separated by one
+   `VerticalSplitPane` keyed `brmble-main-split`.
+2. Game mode is entered by **participating** in a game, never by spectating one. Opening
+   the solo idle game is participation.
+3. The channel activity region is bound to the joined voice channel and to nothing else.
+   It never renders at server root, and never renders when the channel has no activity —
+   in that case the panel has no upper pane and no divider.
+4. The activity region stages exactly one activity. Chips list everything live; the first
+   activity to appear takes the stage, later arrivals never steal it, and an explicit chip
+   click always wins.
+5. A backgrounded screen share stays subscribed for a 10-second grace period, then
+   unsubscribes. Watched list, order, focus, receive quality, room membership and local
+   publishing are never changed by staging.
+6. No component may introduce a second splitter inside the main panel.
+
+### Conversation Tab Strip Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`ConversationTabStrip.module.css`, `workspace/` conversation tab state
+
+Rules:
+1. The strip is a single `role="tablist"`. The home tab is first, is derived from the
+   joined voice channel, has no close control, and is pinned outside the scroll container.
+2. Moving voice channel **replaces** the home tab. A browsed tab for the new channel is
+   absorbed rather than duplicated. Presence never creates history.
+3. Only an explicit click to read a channel or a user creates a tab, and every such click
+   creates a permanent tab. There are no preview tabs.
+4. Overflow shrinks labels to `--conversation-tab-min-width` with ellipsis, then scrolls
+   horizontally.
+5. An open conversation's unread badge lives on its tab; its sidebar row or contact entry
+   shows nothing. Aggregate counts are computed **before** suppression.
+6. Tabs persist per server and are validated on restore. The home tab is never restored
+   from storage.
 
 ### Conversation Region Pattern
 

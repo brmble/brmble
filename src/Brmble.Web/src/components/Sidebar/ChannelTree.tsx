@@ -314,10 +314,10 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
           className={`channel-row ${isCurrentChannel ? 'current' : ''}${isJoinedChannel ? ' channel-row--joined' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
-          // The left accent bar must not be the only signal. There is no `.sr-only`
-          // utility in this codebase, so the suffix goes on the accessible name rather
-          // than inventing a new visually-hidden CSS pattern.
-          aria-label={isJoinedChannel ? `${channel.name} (you are here)` : undefined}
+          // The left accent bar must not be the only signal. The "(you are here)" suffix
+          // is carried by a `.sr-only` span below, not `aria-label` — this row also holds
+          // visible dynamic content (user count, unread badges) that `aria-label` would
+          // silence. See the `.sr-only` section of docs/UI_GUIDE.md.
           tabIndex={0}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
@@ -369,7 +369,10 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
               <Icon name="folder" size={14} />
             )}
           </span>
-          <span className="channel-name">{channel.name}</span>
+          <span className="channel-name" aria-hidden={isJoinedChannel ? true : undefined}>{channel.name}</span>
+          {isJoinedChannel && (
+            <span className="sr-only">{`${channel.name} (you are here)`}</span>
+          )}
           {channel.users.length > 0 && (
             <Tooltip content={(sortByNamePerChannel[channel.id] ?? false) ? 'Sort by join order' : 'Sort alphabetically'}>
             <button
