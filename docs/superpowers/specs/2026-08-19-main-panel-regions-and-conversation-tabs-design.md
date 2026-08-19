@@ -128,13 +128,17 @@ A tab strip above a single `ChatPanel` instance.
 
 **Accessibility.** `role="tablist"` with roving tabindex and arrow-key navigation; close controls reachable from the keyboard. This replaces `.content-slider`, so the 400ms slide transition that `ChatPanel` scroll restoration currently has to outlast is removed.
 
-**Persistence.** Tabs are session-only and reset to home on disconnect.
+**Persistence.** Open tabs are persisted and restored across reconnects and app restarts, scoped per server so that switching servers does not resurrect another server's conversations.
+
+Restore is validated, never trusted. The home tab is always recomputed from the current `joinedChannelId` and is never restored from storage. A restored channel tab is dropped if the channel no longer exists or `canOpenChannelChat` now returns `false`; a restored DM tab is dropped if the contact no longer resolves. A malformed or unparseable stored value resets the strip to home rather than failing. The active conversation is restored only if its tab survived validation, otherwise activation falls back to home.
 
 ### 5. DM merge and the right panel
 
 `.content-slider` and its two `.content-slide` children are deleted. One `ChatPanel` instance renders whatever `activeConversation` points at, channel or DM.
 
 `DMContactList` becomes permanently visible alongside the channel tree, exactly as the left sidebar is, and ceases to be a reading surface — clicking a contact opens a tab. Its `visible` prop, expand/collapse control, and visibility-driven focus effects are removed. `dmStore.selectedContact` collapses into the tab model, taking `foregroundDmContact` and `foregroundDmMessages` with it; those exist only to keep an outgoing slide rendering during a transition that no longer occurs.
+
+Below a defined narrow-width breakpoint the right panel collapses to a compact rail so the conversation region stays usable. This collapse is presentation-only and driven by width alone: it is not user-toggleable, holds no reducer state, and must not resurrect the `messagesPanelExpanded` model or any activity-driven auto-collapse. Unread counts remain visible in the collapsed form.
 
 ---
 
@@ -146,8 +150,10 @@ New tokens are required for stage minimum height and tab minimum width. No hardc
 
 ## Testing
 
-- Reducer tests covering every tab operation, home retarget, absorb-on-retarget, close-neighbour selection, and server-root behaviour.
+- Reducer tests covering every tab operation, home retarget, absorb-on-retarget, close-neighbour selection, invalidation, and server-root behaviour.
+- Persistence tests covering round-trip save and restore, per-server scoping, and every rejection path: missing channel, revoked `canOpenChannelChat`, unresolved DM contact, malformed stored value, and fallback activation.
 - Tab strip component tests for shrink, scroll, close, unread and mention badges, and keyboard navigation.
+- Right panel tests for the width-driven collapsed rail, asserting unread counts survive and that no toggle state is reintroduced.
 - `VerticalSplitPane` consumer tests for the single main-panel split, including the removal of the old keys.
 - Screen-share tests for grace-period unsubscribe, restoration, and reconciliation of shares that ended while hidden, asserting that watched list, focus, quality, room membership and local publishing are untouched.
 - Game mode tests confirming Neon-D and an active Deathroll or RPS match take the full main panel.
@@ -157,7 +163,7 @@ New tokens are required for stage minimum height and tab minimum width. No hardc
 
 The change runs through the centre of `App.tsx`, which is 5,545 lines and owns nearly all affected state. The agreed mitigation is strict internal ordering within the single PR: the state model and rebinds land and go green before any layout moves, then the regions, then the tab strip and DM merge.
 
-Removing `DMContactList`'s collapse behaviour permanently widens the app's minimum comfortable width. Responsive behaviour at narrow widths must be verified, including Classic and Retro Terminal themes.
+Removing `DMContactList`'s user-facing collapse widens the app's minimum comfortable width. The width-driven rail mitigates this, but responsive behaviour must be verified across breakpoints, including Classic and Retro Terminal themes.
 
 ## Decisions recorded
 
@@ -169,8 +175,9 @@ Removing `DMContactList`'s collapse behaviour permanently widens the app's minim
 | DMs in the strip | Yes; content-slider removed |
 | Home tab on channel move | Replaced, not demoted |
 | Game participation | Fills the entire main panel |
-| Right user panel | Always visible; toggle removed |
+| Right user panel | Always visible; toggle removed; width-driven rail when narrow |
 | Preview tabs | No; every click opens a permanent tab |
 | Backgrounded share | Grace period, then unsubscribe |
 | Unread badges | Tab wins once the conversation is open |
+| Tab persistence | Persisted per server, validated on restore |
 | PR shape | One PR, strictly ordered internally |
