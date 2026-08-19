@@ -49,7 +49,7 @@ const mocks = vi.hoisted(() => {
     activeShare: null, activeShares: [], watchingShare: null, watchingShares: [], pendingViewerShares: [], remoteWatchCount: 0,
     isViewerConnectPending: false, focusedShare: null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null,
     remoteVideoEls: new Map(), roomQuality: undefined, shareQualities: new Map(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
+    disconnectViewer: vi.fn(), setRemoteScreenSharesHidden: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
   return { ids, gameState, duelQueue, notificationQueue, sidebarProps, headerProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
 });

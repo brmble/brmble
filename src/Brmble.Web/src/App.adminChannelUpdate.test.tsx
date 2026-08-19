@@ -89,7 +89,7 @@ const mockValues = vi.hoisted(() => {
     shareQualities: new Map(),
     addWatchingShare: vi.fn(),
     removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(),
+    disconnectViewer: vi.fn(), setRemoteScreenSharesHidden: vi.fn(),
     connectAsViewer: vi.fn(),
     handleScreenShareServiceUnavailable: vi.fn(),
   };

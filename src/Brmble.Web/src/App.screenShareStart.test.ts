@@ -202,6 +202,7 @@ vi.mock('./hooks/useScreenShare', () => ({
     disconnectViewer,
     connectAsViewer,
     isViewerConnectPending: screenShareState.isViewerConnectPending,
+    setRemoteScreenSharesHidden: vi.fn(),
     };
   },
 }));

@@ -23,7 +23,6 @@ import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
 import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
 import { PaintSessionView } from './components/Paint/PaintSessionView';
-import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
@@ -47,6 +46,9 @@ import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
+import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
+import { ScreenShareGrid } from './components/ScreenShareGrid';
+import { selectStage, type ChannelActivityKind } from './workspace/channelActivity';
 import { selectMainPanelMode } from './workspace/mainPanelMode';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
@@ -4057,7 +4059,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, setRemoteScreenSharesHidden, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -4067,16 +4069,16 @@ const handleConnect = (serverData: SavedServer) => {
   handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
 
   const hasPendingViewerShares = pendingViewerShares.length > 0;
+  const handleCloseWatchedShare = useCallback(
+    (share: ShareInfo) => disconnectViewer(share.userId),
+    [disconnectViewer],
+  );
+  // ChatPanel keeps only what the detached `'new-window'` overlay needs; the in-app
+  // viewer lives in the channel activity region.
   const screenShareViewerProps = {
     watchingShares,
-    focusedShare,
     remoteVideoEls,
-    roomQuality,
-    shareQualities,
-    viewerQualities,
-    onFocusShare: setFocusedShare,
-    onCloseShare: (share: ShareInfo) => disconnectViewer(share.userId),
-    onViewerQualityChange: setViewerQuality,
+    onCloseShare: handleCloseWatchedShare,
     screenShareViewerMode: screenShareSettings.viewerMode,
   };
 
@@ -4860,6 +4862,82 @@ const handleConnect = (serverData: SavedServer) => {
       : null;
   const mainPanelMode = selectMainPanelMode({ idleGameOpen: showGame, participatingMatchId });
 
+  // The activity region is scoped to the channel the user is *in*, not the one being
+  // browsed, so its label follows presence.
+  const joinedChannelName = useMemo(
+    () => channels.find(channel => String(channel.id) === joinedChannelId)?.name ?? '',
+    [channels, joinedChannelId],
+  );
+  const hasWatchableShare = screenShareSettings.viewerMode === 'in-app'
+    && watchingShares.length > 0
+    && remoteVideoEls.size > 0;
+  const availableActivities = useMemo<ChannelActivityKind[]>(() => {
+    const kinds: ChannelActivityKind[] = [];
+    if (hasWatchableShare) kinds.push('screen-share');
+    if (activePaintSessionId) kinds.push('paint');
+    return kinds;
+  }, [hasWatchableShare, activePaintSessionId]);
+
+  const [explicitActivity, setExplicitActivity] = useState<ChannelActivityKind | null>(null);
+  const previousStageRef = useRef<ChannelActivityKind | null>(null);
+  const stage = selectStage({
+    available: availableActivities,
+    explicit: explicitActivity,
+    previous: previousStageRef.current,
+  });
+  useEffect(() => { previousStageRef.current = stage; }, [stage]);
+
+  useEffect(() => {
+    setRemoteScreenSharesHidden(stage !== 'screen-share');
+  }, [stage, setRemoteScreenSharesHidden]);
+
+  // Both of the old per-surface splits are gone; the main panel owns the only one left.
+  useEffect(() => {
+    localStorage.removeItem('brmble-paint-split');
+    localStorage.removeItem('brmble-screenshare-split');
+  }, []);
+
+  const activityRegion = joinedChannelId !== null
+    && joinedChannelId !== SERVER_ROOT_CHANNEL_ID
+    && availableActivities.length > 0
+    ? (
+      <ErrorBoundary label="ChannelActivityRegion">
+        <ChannelActivityRegion
+          channelName={joinedChannelName}
+          activities={availableActivities.map(kind => ({
+            kind,
+            label: kind === 'screen-share' ? 'Screen share' : 'Paint',
+          }))}
+          stage={stage}
+          onSelect={setExplicitActivity}
+        >
+          {stage === 'screen-share' ? (
+            <ScreenShareGrid
+              watchingShares={watchingShares}
+              focusedShare={focusedShare}
+              videoElements={remoteVideoEls}
+              roomQuality={roomQuality}
+              shareQualities={shareQualities}
+              viewerQualities={viewerQualities}
+              onFocus={setFocusedShare}
+              onClose={handleCloseWatchedShare}
+              onViewerQualityChange={setViewerQuality}
+            />
+          ) : stage === 'paint' && activePaintSessionId ? (
+            <PaintSessionView
+              key={activePaintSessionId}
+              sessionId={activePaintSessionId}
+              matrixClient={matrixClient.client}
+              channelRoomMap={matrixCredentials?.roomMap}
+              onClose={handleClosePaint}
+            />
+          ) : null}
+        </ChannelActivityRegion>
+      </ErrorBoundary>
+    )
+    : null;
+
+
   const gameSurface = participatingMatchId !== null ? (
     <GameSurface>
       {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
@@ -5021,25 +5099,12 @@ const handleConnect = (serverData: SavedServer) => {
           ) : connectionStatus === 'connected' ? (
             <MainPanel
               mode={mainPanelMode}
-              activityRegion={null}
+              activityRegion={activityRegion}
               gameSurface={gameSurface}
               conversationRegion={(
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
                 <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
-                    <VerticalSplitPane
-                      top={activePaintSessionId ? (
-                        <PaintSessionView
-                          key={activePaintSessionId}
-                          sessionId={activePaintSessionId}
-                          matrixClient={matrixClient.client}
-                          channelRoomMap={matrixCredentials?.roomMap}
-                          onClose={handleClosePaint}
-                        />
-                      ) : null}
-                      storageKey="brmble-paint-split"
-                      label="Resize paint and channel chat"
-                    >
                       <ChatPanel
                         channelId={currentChannelId || undefined}
                         channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
@@ -5070,7 +5135,6 @@ const handleConnect = (serverData: SavedServer) => {
                           ? { onUseAsPaintBackground: handleUseAsPaintBackground }
                           : {})}
                       />
-                    </VerticalSplitPane>
                   </ErrorBoundary>
                 </div>
                 <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
