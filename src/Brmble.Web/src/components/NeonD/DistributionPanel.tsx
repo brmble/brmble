@@ -270,7 +270,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
     const isEditing = editingCaptainId === captain.id;
     const renameEditorId = `captain-rename-${captain.id}`;
     const title = slotIndex === undefined
-      ? `${captain.name} (${getProductDefinition(captain.selling).name})`
+      ? `♛ ${captain.name} (${getProductDefinition(captain.selling).name})`
       : `♛ ${captain.name} · Captain · Slot ${slotIndex + 1}`;
 
     return (
