@@ -86,7 +86,7 @@ describe('DealerTransferModal', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm transfer' }));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onConfirm).toHaveBeenCalledWith('paris', 'paris-slot-1');
+    expect(onConfirm).toHaveBeenCalledWith('transfer-dealer', 'paris', 'paris-slot-1');
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /cancel transfer/i })).not.toBeInTheDocument();
   });

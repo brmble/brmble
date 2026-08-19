@@ -326,7 +326,43 @@ describe('DistributionPanel zone groups', () => {
   it('offers a transfer action for an active zone dealer when another zone has an available slot', () => {
     renderZonePanel();
 
-    expect(screen.getByRole('button', { name: 'Transfer dealer' })).toBeInTheDocument();
+    const dealerCard = screen.getByLabelText('Amsterdam Dealer distribution');
+    expect(within(dealerCard).getByRole('button', { name: 'Transfer dealer' })).toBeInTheDocument();
+  });
+
+  it('starts a transfer into the exact vacant Rome slot while keeping hiring available', async () => {
+    const user = userEvent.setup();
+    const transferDealer = vi.fn();
+    const zoneState = createZoneState();
+    zoneState.zones = [
+      {
+        id: 'amsterdam',
+        displayName: 'Amsterdam',
+        captainId: amsterdamCaptain.id,
+        dealerSlots: [{ id: 'amsterdam-slot-1', dealer: amsterdamDealer, reservedTransferId: null }],
+        perkIds: [],
+      },
+      {
+        id: 'rome',
+        displayName: 'Rome',
+        captainId: null,
+        dealerSlots: [{ id: 'rome-slot-1', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      },
+    ];
+
+    render(<DistributionPanel {...panelProps} transferDealer={transferDealer} state={zoneState} />);
+
+    const rome = screen.getByRole('article', { name: 'Rome distribution' });
+    expect(within(rome).getByRole('button', { name: 'Hire dealer' })).toBeInTheDocument();
+
+    await user.click(within(rome).getByRole('button', { name: 'Transfer dealer' }));
+
+    await user.click(screen.getByRole('combobox', { name: 'Dealer to transfer' }));
+    await user.click(screen.getByRole('option', { name: 'Amsterdam Dealer · Amsterdam' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm transfer' }));
+
+    expect(transferDealer).toHaveBeenCalledWith('amsterdam-dealer', 'rome', 'rome-slot-1');
   });
 
   it('keeps the transfer action visible but disabled for an arrested zone dealer', () => {
@@ -360,7 +396,8 @@ describe('DistributionPanel zone groups', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Transfer dealer' })).toBeDisabled();
+    const dealerCard = screen.getByLabelText('Test Dealer distribution');
+    expect(within(dealerCard).getByRole('button', { name: 'Transfer dealer' })).toBeDisabled();
   });
 
   it('shows pending transfers in both expanded zones while keeping reserved slots unavailable', async () => {

@@ -167,6 +167,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
   const [hiringInitialTab, setHiringInitialTab] = useState<'dealers' | 'captains'>('dealers');
   const [isZoneUnlockOpen, setZoneUnlockOpen] = useState(false);
   const [transferDealerId, setTransferDealerId] = useState<string | null>(null);
+  const [transferDestination, setTransferDestination] = useState<{ zoneId: ZoneCityId; slotId: string } | null>(null);
   const [collapsedZoneIds, setCollapsedZoneIds] = useState<Set<ZoneCityId>>(() => new Set());
   const [editingCaptainId, setEditingCaptainId] = useState<string | null>(null);
   const [captainDraftName, setCaptainDraftName] = useState('');
@@ -603,6 +604,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
                           <button type="button" className={styles.buyButton} onClick={() => { setHiringTarget({ kind: 'zone', zoneId: zone.id, slotId: slot.id }); setHiringInitialTab('dealers'); }}>
                             Hire dealer
                           </button>
+                          <button type="button" className={styles.unlockButton} onClick={() => setTransferDestination({ zoneId: zone.id, slotId: slot.id })}>
+                            Transfer dealer
+                          </button>
                         </div>
                       );
                     })}
@@ -841,11 +845,22 @@ export function DistributionPanel(props: DistributionPanelProps) {
           state={props.state}
           dealer={transferEntry.dealer}
           sourceZoneId={transferEntry.zoneId}
-          onConfirm={(destinationZoneId, destinationSlotId) => {
-            props.transferDealer(transferEntry.dealer.id, destinationZoneId, destinationSlotId);
+          onConfirm={(dealerId, destinationZoneId, destinationSlotId) => {
+            props.transferDealer(dealerId, destinationZoneId, destinationSlotId);
             setTransferDealerId(null);
           }}
           onClose={() => setTransferDealerId(null)}
+        />
+      ) : null}
+      {transferDestination ? (
+        <DealerTransferModal
+          state={props.state}
+          destination={transferDestination}
+          onConfirm={(dealerId, destinationZoneId, destinationSlotId) => {
+            props.transferDealer(dealerId, destinationZoneId, destinationSlotId);
+            setTransferDestination(null);
+          }}
+          onClose={() => setTransferDestination(null)}
         />
       ) : null}
     </section>
