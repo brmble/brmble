@@ -280,6 +280,30 @@ describe('DistributionPanel zone groups', () => {
     expect(within(amsterdam).queryByText('Transfer reserved')).not.toBeInTheDocument();
   });
 
+  it('collapses and expands a normal dealer card inside a zone', async () => {
+    const user = userEvent.setup();
+    renderZonePanel();
+
+    const dealerCard = screen.getByLabelText('Amsterdam Dealer distribution');
+    const collapseButton = within(dealerCard).getByRole('button', {
+      name: 'Collapse Amsterdam Dealer distribution',
+    });
+
+    await user.click(collapseButton);
+
+    expect(within(dealerCard).getByRole('button', {
+      name: 'Expand Amsterdam Dealer distribution',
+    })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dealerCard).queryByText('Volume')).not.toBeInTheDocument();
+    expect(within(dealerCard).getByText('Earnings')).toBeInTheDocument();
+
+    await user.click(within(dealerCard).getByRole('button', {
+      name: 'Expand Amsterdam Dealer distribution',
+    }));
+
+    expect(within(dealerCard).getByText('Volume')).toBeInTheDocument();
+  });
+
   it('opens hiring for the exact local zone slot and purchases local capacity', async () => {
     const user = userEvent.setup();
     const buyDealerCapacity = renderZonePanel();

@@ -1,10 +1,8 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import {
-  getCaptainCost,
   getProductDefinition,
   getRespectPerSecond,
-  isCaptainVisible,
 } from './economy';
 import { getCaptainDefaultName } from './dealers';
 import { MARKET_DURATION_MAX_MS } from './constants';
@@ -81,14 +79,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
   const sellerIncomePerSecond = Object.values(state.lastEarningsPerSeller)
     .reduce((sum, value) => sum + value, 0);
   const respectPerSecond = getRespectPerSecond(state);
-  const captainVisible = isCaptainVisible(state);
-  const captainCost = getCaptainCost(state);
   const captainDefaultName = getCaptainDefaultName(state.captains.length + state.kingpins + 1);
-  const captainProgressValue = Math.min(
-    captainCost,
-    Math.max(0, Math.floor(state.cash)),
-  );
-  const captainProgress = captainCost > 0 ? captainProgressValue / captainCost : 0;
   const amsterdamZone = state.zones.find((zone) => zone.id === 'amsterdam');
   const amsterdamCaptain = amsterdamZone?.captainId
     ? state.captains.find((captain) => captain.id === amsterdamZone.captainId) ?? null
@@ -316,39 +307,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
               <strong>{amsterdamCaptain?.name ?? 'Captain selection required'}</strong>
             </section>
           ) : null}
-          {captainVisible && (
-            <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
-              <div className={styles.captainMilestoneCopy}>
-                <span id="captain-milestone-title" className={styles.metricLabel}>Next Captain — Cash saved:</span>
-                <strong>{formatMoney(captainProgressValue)} / {formatMoney(captainCost)}</strong>
-              </div>
-              <div className={styles.captainProgressBlock}>
-                <div
-                  className={styles.captainProgressTrack}
-                  role="progressbar"
-                  aria-label="Captain recruitment fund"
-                  aria-valuemin={0}
-                  aria-valuemax={captainCost}
-                  aria-valuenow={captainProgressValue}
-                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(captainCost)}`}
-                >
-                  <span
-                    className={styles.captainProgressFill}
-                    style={{ width: `${captainProgress * 100}%` }}
-                  />
-                </div>
-              </div>
-              {captainProgressValue >= captainCost && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setCaptainManagementOpen(true)}
-                >
-                  Hire Captain
-                </button>
-              )}
-            </section>
-          )}
           <DistributionPanel
             state={state}
             onHireSeller={hireSeller}

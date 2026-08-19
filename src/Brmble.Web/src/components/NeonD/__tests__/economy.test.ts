@@ -113,8 +113,8 @@ describe('Neon-D economy formulas', () => {
       ],
     };
 
-    expect(getZoneUnlockCost(oneZone)).toBe(100);
-    expect(getZoneUnlockCost(twoZones)).toBe(300);
+    expect(getZoneUnlockCost(oneZone)).toBe(1_500);
+    expect(getZoneUnlockCost(twoZones)).toBe(7_800);
   });
 
   it('keeps dealer capacity pricing on the existing global territory curve', () => {

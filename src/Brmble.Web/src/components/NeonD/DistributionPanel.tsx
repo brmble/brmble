@@ -178,9 +178,12 @@ export function DistributionPanel(props: DistributionPanelProps) {
       ...props.state.activeDealers
         .filter((seller): seller is Dealer | Captain => seller !== null)
         .map((seller) => seller.id),
+      ...props.state.zones.flatMap((zone) =>
+        zone.dealerSlots.flatMap((slot) => slot.dealer ? [slot.dealer.id] : []),
+      ),
       ...props.state.captains.map((captain) => captain.id),
     ],
-    [props.state.activeDealers, props.state.captains],
+    [props.state.activeDealers, props.state.captains, props.state.zones],
   );
   const [collapsedSellerIds, toggleSellerCard] = usePersistedCardPreferences(knownSellerIds);
 

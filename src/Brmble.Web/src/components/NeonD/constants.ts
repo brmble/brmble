@@ -58,8 +58,6 @@ export const ZONE_CITY_CATALOG = [
   { id: 'warsaw', name: 'Warsaw' },
   { id: 'copenhagen', name: 'Copenhagen' },
 ] as const;
-export const ZONE_UNLOCK_BASE_COST = 100;
-export const ZONE_UNLOCK_GROWTH = 3;
 export const DEALER_TRANSFER_DURATION_MS = 2 * 60 * 1000;
 export const DEALER_TRANSFER_EQUIPMENT_LOSS_CHANCE = 0.50;
 export const CAPTAIN_ZONE_BULK_COOLDOWN_MS = 3 * 60 * 60 * 1000;

@@ -805,7 +805,7 @@ describe('useGameEngine', () => {
   it('does not unlock a zone without an unassigned Captain', () => {
     const captain = makeReferenceCaptain({ id: 'captain-1' });
     const { result } = renderSeededGame({
-      respect: 500,
+      respect: 2_000,
       captains: [captain],
       activeDealers: [],
       zones: [createAmsterdamZone(captain.id)],
@@ -814,7 +814,7 @@ describe('useGameEngine', () => {
     act(() => result.current.unlockZone('paris', captain.id));
 
     expect(result.current.state.zones).toEqual([createAmsterdamZone(captain.id)]);
-    expect(result.current.state.respect).toBe(500);
+    expect(result.current.state.respect).toBe(2_000);
   });
 
   it('does not unlock a zone without enough Respect', () => {
@@ -857,7 +857,7 @@ describe('useGameEngine', () => {
     const amsterdamCaptain = makeReferenceCaptain({ id: 'captain-1' });
     const parisCaptain = makeReferenceCaptain({ id: 'captain-2' });
     const { result } = renderSeededGame({
-      respect: 500,
+      respect: 2_000,
       captains: [amsterdamCaptain, parisCaptain],
       activeDealers: [],
       zones: [createAmsterdamZone(amsterdamCaptain.id)],
@@ -865,7 +865,7 @@ describe('useGameEngine', () => {
 
     act(() => result.current.unlockZone('paris', parisCaptain.id));
 
-    expect(result.current.state.respect).toBe(400);
+    expect(result.current.state.respect).toBe(500);
     expect(result.current.state.zones[1]).toMatchObject({
       id: 'paris',
       displayName: 'Paris',
