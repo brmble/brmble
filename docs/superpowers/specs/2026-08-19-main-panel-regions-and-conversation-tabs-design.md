@@ -72,7 +72,9 @@ Added: `JOINED_CHANNEL_CHANGED`, `OPEN_CONVERSATION`, `CLOSE_CONVERSATION`, `ACT
 
 **Rebinds.** Paint survival, share watching and discovery, and challenge-menu eligibility all move to `joinedChannelId`. The sidebar renders two distinct signals: an active-conversation highlight and a separate presence marker for the joined channel.
 
-**Server root.** At `channelId === 0` / `'server-root'` there is no channel chat. No home tab exists in that state; the strip contains only browsed tabs, and may be empty.
+**Server root.** Being at `channelId === 0` / `'server-root'` counts as not being in any channel. The channel activity region therefore never renders at root, which matches `canWatchShareFromChannel` already returning `false` there (`App.tsx:478`) and paint already requiring a non-zero voice channel (`App.tsx:4650`).
+
+The home tab still exists at root and shows the root chat, which is always readable and sendable (`canOpenChannelChat` and `canSendToChannelChat` both return `true` for `'server-root'`, `App.tsx:696` and `App.tsx:703`). Note this conversation is not Matrix-backed — `getChannelMatrixRoomId` returns `null` for root (`App.tsx:719`) and its messages live in the local store under the `'server-root'` key. It therefore has no unread badge source, and the badge is simply absent rather than zero.
 
 ### 2. Main panel modes
 
