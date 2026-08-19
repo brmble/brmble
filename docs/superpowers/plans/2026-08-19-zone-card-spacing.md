@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Use `var(--space-sm)` for the zone-card gap.
+- Use `calc(var(--space-sm) * 3)` for the zone-card gap (36px at the current token scale).
 - Leave legacy `.cardStack` spacing unchanged.
 - Do not change game state, behavior, accessibility semantics, or card contents.
 
@@ -51,7 +51,7 @@ Immediately after the existing `.cardStack` rule, add:
 ```css
 .zoneCardStack {
   display: grid;
-  gap: var(--space-sm);
+  gap: calc(var(--space-sm) * 3);
 }
 ```
 
