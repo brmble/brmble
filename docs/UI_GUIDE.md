@@ -204,6 +204,28 @@ The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer 
 their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
 duplicate this listener lifecycle in a consumer.
 
+### Conversation Region Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`App.tsx` (`.conversation-region`), `App.css`
+
+The main panel's conversation slot is a single `.conversation-region` column: a
+`ConversationTabStrip` above **one** `ChatPanel`. There is no second, hidden chat panel and
+no sliding transform — the active tab decides which conversation the one panel renders.
+
+Rules:
+1. Never render more than one `ChatPanel`. Channel and DM prop sets are selected by the
+   active conversation's kind, not rendered side by side.
+2. Do not reintroduce `aria-hidden` / `inert` conversation slides or a transform-based
+   route transition. Nothing is mounted-but-hidden, so there is nothing to mark inert.
+3. Every tab must have a visible label. A channel whose name cannot be resolved falls back
+   to its channel id.
+4. The "you are here" (home) tab is the joined voice channel and follows presence; it is
+   not closeable and is never persisted. Use the `.sr-only` pattern for its suffix.
+5. Root chat (`'server-root'`) is not Matrix-backed and therefore has no unread source. It
+   must render **no** badge, not a zero.
+6. Presence and unread signals live on the tab, not in the `.chat-header`.
+
 ### Minigame Panel Pattern
 
 Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,

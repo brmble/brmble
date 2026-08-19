@@ -132,6 +132,12 @@ describe('DM route Matrix isolation', () => {
       expect(mockValues.channelChatPanelProps
         ?.onUseAsPaintBackground).toEqual(expect.any(Function));
     });
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+
+    await waitFor(() => expect(mockValues.dmChatPanelProps).toBeDefined());
     expect(mockValues.dmChatPanelProps)
       .not.toHaveProperty('onUseAsPaintBackground');
   });
@@ -414,7 +420,10 @@ describe('DM route Matrix isolation', () => {
 
     renderConnectedApp();
 
-    expect(mockValues.dmChatPanelProps?.messages).toEqual([]);
+    // With one tab-driven ChatPanel there is no DM panel at all while a channel is
+    // active, so stale DM messages have nowhere to leak to.
+    expect(mockValues.dmChatPanelProps).toBeUndefined();
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('requests channel chat access when the active non-root channel is missing from roomMap', async () => {
@@ -479,20 +488,21 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('channel-chat-panel')).not.toBeInTheDocument());
 
     act(() => {
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
     });
 
     await waitFor(() => expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith(null));
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('lands on channel chat after connecting', async () => {
     renderConnectedApp();
 
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.getByTestId('channel-chat-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
     await waitFor(() => expect(mockValues.matrixClient.setActiveChannel).toHaveBeenCalledWith(null));
   });
 
@@ -504,43 +514,19 @@ describe('DM route Matrix isolation', () => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
 
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
 
     mockValues.screenShare.remoteWatchCount = 1;
     view.rerenderApp();
     await waitFor(() => {
-      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+      expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument();
     });
 
     mockValues.screenShare.remoteWatchCount = 0;
     view.rerenderApp();
     await waitFor(() => {
-      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+      expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument();
     });
-  });
-
-  it('marks inactive conversation slides inert as well as aria-hidden', async () => {
-    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
-    const view = renderConnectedApp();
-
-    act(() => {
-      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
-    });
-
-    await waitFor(() => {
-      const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
-      expect(channelSlide).toHaveAttribute('aria-hidden', 'true');
-      expect(channelSlide).toHaveAttribute('inert');
-      expect(dmSlide).toHaveAttribute('aria-hidden', 'false');
-      expect(dmSlide).not.toHaveAttribute('inert');
-    });
-
-    act(() => view.getByTestId('sidebar-select-channel').click());
-    const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
-    expect(channelSlide).toHaveAttribute('aria-hidden', 'false');
-    expect(channelSlide).not.toHaveAttribute('inert');
-    expect(dmSlide).toHaveAttribute('aria-hidden', 'true');
-    expect(dmSlide).toHaveAttribute('inert');
   });
 
   it('falls back to the channel foreground when a selected conversation closes during a remote watch', async () => {
@@ -550,7 +536,7 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
 
     mockValues.screenShare.remoteWatchCount = 1;
     view.rerenderApp();
@@ -560,19 +546,19 @@ describe('DM route Matrix isolation', () => {
     });
 
     expect(mockValues.dmStore.closeDM).toHaveBeenCalledWith('@val:example.com');
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('updates the unread DM badge without leaving the foreground channel', async () => {
     const view = renderConnectedApp();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument());
     mockValues.unreadTracker.totalDmUnreadCount = 3;
     view.rerenderApp();
 
     await waitFor(() => expect(mockValues.headerProps?.unreadDMCount).toBe(3));
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('does not mark a selected Matrix DM as read when a channel is in the foreground', async () => {
@@ -588,11 +574,11 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
     mockValues.unreadTracker.markRoomRead.mockClear();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument());
 
     mockValues.unreadTracker.roomUnreads = new Map([['!val:example.com', { notificationCount: 1 }]]);
     mockValues.unreadTracker.getRoomUnread.mockReturnValue({ notificationCount: 1, highlightCount: 0, fullyReadEventId: null });

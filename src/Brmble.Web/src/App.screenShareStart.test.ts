@@ -613,31 +613,6 @@ describe('active share discovery', () => {
   });
 
 
-  it('keeps the channel foreground while remote watches are active', async () => {
-    const view = render(React.createElement(App));
-
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Work' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-
-    act(() => {
-      view.getByTestId('sidebar-select-channel-2').click();
-    });
-
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
-
-    screenShareState.remoteWatchCount = 1;
-    view.rerender(React.createElement(App));
-
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
-  });
-
-
   it('does not collapse Messages for local sharing alone', async () => {
     screenShareState.isSharing = true;
     const view = render(React.createElement(App));
@@ -691,7 +666,6 @@ describe('active share discovery', () => {
     screenShareState.remoteWatchCount = 0;
     view.rerender(React.createElement(App));
     expect(screenShareState.pendingViewerShares).toEqual([]);
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
   });
 
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {

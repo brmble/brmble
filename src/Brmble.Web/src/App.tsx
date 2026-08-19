@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer, type ComponentProps } from 'react';
 import bridge from './bridge';
 import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap, User } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
@@ -98,11 +98,13 @@ import { useMissedReadyCheck } from './components/Games/useMissedReadyCheck';
 import { estimateText, pairLabel } from './components/Games/duelFormatting';
 import {
   createWorkspaceState,
+  isHomeKey,
   selectActiveConversation,
   selectHomeKey,
   workspaceReducer,
 } from './workspace/workspaceState';
 import { conversationKey } from './workspace/conversation';
+import { ConversationTabStrip, type ConversationTabItem } from './components/ConversationTabStrip/ConversationTabStrip';
 import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
 import { activityChannelMatchesPresence, channelActivityRoomName, parseChannelActivityRoomName } from './workspace/activityPresence';
 import { loadConversationTabs, saveConversationTabs } from './workspace/conversationStorage';
@@ -1735,30 +1737,28 @@ function App() {
   });
   selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
-  const showDmConversation = activeConversation?.kind === 'dm';
-  // Kept as the strict negation of the DM flag so the channel slide stays visible
-  // (and focusable) before any conversation exists — e.g. the connection screens.
-  const showChannelConversation = !showDmConversation;
-  const isDmMode = showDmConversation;
+  // The single ChatPanel renders whatever the active tab points at, so this is a
+  // semantic "the open conversation is a DM" flag, not a slide-visibility flag.
+  const activeConversationIsDm = activeConversation?.kind === 'dm';
   const messagesPanelExpanded = connected;
-  const foregroundDmContactId = activeConversation?.kind === 'dm'
+  const activeDmContactId = activeConversation?.kind === 'dm'
     ? activeConversation.contactId
     : null;
-  const foregroundDmContact = foregroundDmContactId
-    ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
-      ?? (dmStore.selectedContact?.id === foregroundDmContactId ? dmStore.selectedContact : null)
+  const activeDmContact = activeDmContactId
+    ? dmStore.contacts.find(contact => contact.id === activeDmContactId)
+      ?? (dmStore.selectedContact?.id === activeDmContactId ? dmStore.selectedContact : null)
     : null;
-  const foregroundDmMessages = foregroundDmContact != null && foregroundDmContact.id === dmStore.selectedContact?.id
+  const activeDmMessages = activeDmContact != null && activeDmContact.id === dmStore.selectedContact?.id
     ? dmStore.messages
     : [];
-  const selectedDmIsMumble = foregroundDmContact?.isEphemeral === true;
-  const activeDmMatrixContactId = foregroundDmContactId && !selectedDmIsMumble
-    ? foregroundDmContactId
+  const selectedDmIsMumble = activeDmContact?.isEphemeral === true;
+  const activeDmMatrixContactId = activeDmContactId && !selectedDmIsMumble
+    ? activeDmContactId
     : null;
 
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(isDmMode ? null : permittedActiveMatrixChannelId);
-  }, [isDmMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
+    matrixClient.setActiveChannel(activeConversationIsDm ? null : permittedActiveMatrixChannelId);
+  }, [activeConversationIsDm, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
@@ -1770,7 +1770,7 @@ function App() {
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (isDmMode) {
+    if (activeConversationIsDm) {
       return activeDmMatrixContactId && matrixClient?.dmRoomMap
         ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
         : null;
@@ -1780,7 +1780,7 @@ function App() {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [isDmMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [activeConversationIsDm, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
@@ -3479,7 +3479,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
+    const selection = getChannelSelectionOutcome(channelId, channels, activeConversationIsDm ? 'dm' : 'channels');
     if (selection) {
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
@@ -4519,10 +4519,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (channels.length === 0 || joinedChannelId === null) return;
     if (restoredForServerRef.current === serverAddress) return;
     restoredForServerRef.current = serverAddress;
-    const restored = loadConversationTabs(serverAddress, conversation =>
-      conversation.kind === 'dm'
-        ? true
-        : canOpenChannelChat(conversation.channelId, channels));
+    const restored = loadConversationTabs(serverAddress, conversation => {
+      if (conversation.kind === 'dm') return true;
+      // A persisted tab for a channel this server no longer has is invalid. This is
+      // stricter than `canOpenChannelChat`, which deliberately treats an unknown
+      // channel as permitted for legacy servers that omit the flag.
+      if (conversation.channelId !== 'server-root'
+        && !channels.some(channel => String(channel.id) === conversation.channelId)) return false;
+      return canOpenChannelChat(conversation.channelId, channels);
+    });
     dispatchWorkspace({ type: 'RESTORE_CONVERSATIONS', conversations: restored });
   }, [connected, serverAddress, channels, joinedChannelId]);
 
@@ -4704,7 +4709,7 @@ const handleConnect = (serverData: SavedServer) => {
       prevDMUserIdRef.current = selectedId;
     }
 
-    if (!selectedId || !foregroundDmContact) {
+    if (!selectedId || !activeDmContact) {
       if (dmChanged) setDmDividerTs(null);
       return;
     }
@@ -4748,7 +4753,7 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
+  }, [activeDmMatrixContactId, activeDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
   const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
@@ -4896,6 +4901,98 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.removeItem('brmble-paint-split');
     localStorage.removeItem('brmble-screenshare-split');
   }, []);
+
+  // One tab per open conversation. Labels resolve from the channel list or the DM
+  // contact list; an unresolvable channel falls back to its id so a tab is never blank.
+  const conversationTabItems = useMemo<ConversationTabItem[]>(() => (
+    workspace.tabs.map(conversation => {
+      const key = conversationKey(conversation);
+      const isHome = isHomeKey(workspace, key);
+      if (conversation.kind === 'channel') {
+        // Root chat is not Matrix-backed, so it has no unread source and shows no badge.
+        const unread = channelUnreads.get(conversation.channelId);
+        const label = conversation.channelId === 'server-root'
+          ? (serverLabel || 'Server')
+          : channels.find(channel => String(channel.id) === conversation.channelId)?.name
+            ?? conversation.channelId;
+        return {
+          conversation,
+          key,
+          label,
+          isHome,
+          unreadCount: unread?.notificationCount ?? 0,
+          mentionCount: unread?.highlightCount ?? 0,
+        };
+      }
+      const contact = dmContactsWithUnreads.find(candidate => candidate.id === conversation.contactId);
+      return {
+        conversation,
+        key,
+        label: contact?.displayName ?? conversation.contactId,
+        isHome,
+        unreadCount: contact?.unreadCount ?? 0,
+        mentionCount: 0,
+      };
+    })
+  ), [workspace, channels, serverLabel, channelUnreads, dmContactsWithUnreads]);
+
+  // One ChatPanel renders the active tab. This picks which prop set feeds it; the
+  // channel and DM shapes are otherwise unchanged.
+  const chatPanelPropsForActiveConversation: ComponentProps<typeof ChatPanel> = activeConversationIsDm
+    ? {
+      channelId: activeDmContact ? `dm-${activeDmContact.id}` : undefined,
+      channelName: activeDmContact?.displayName ?? '',
+      messages: activeDmMessages,
+      currentUsername: username,
+      onSendMessage: dmStore.sendMessage,
+      isDM: true,
+      matrixClient: activeDmContact && !selectedDmIsMumble ? matrixClient.client : null,
+      matrixRoomId: activeDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null,
+      readMarkerTs: activeDmContact && !selectedDmIsMumble ? dmDividerTs : null,
+      ...screenShareViewerProps,
+      users,
+      disabled: activeDmContact?.isEphemeral === true && activeDmContact.mumbleSessionId == null,
+      topNotice: selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined,
+      onMessageContextMenu: handleChatMessageContextMenu,
+      onCopyToClipboard: handleCopyToClipboard,
+      currentUserMatrixId: activeDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined,
+      onToggleReaction: activeDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined,
+      typingIndicatorText: activeDmContact && !selectedDmIsMumble ? matrixClient.activeTypingText : undefined,
+      typingTargetId: activeDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined,
+      onTypingStart: activeDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined,
+      onTypingStop: activeDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined,
+      paintSessionStatuses,
+    }
+    : {
+      channelId: currentChannelId || undefined,
+      channelName: currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName,
+      messages: channelChatMessages,
+      currentUsername: username,
+      onSendMessage: handleSendMessage,
+      onDismissMessage: handleDismissMessage,
+      matrixClient: matrixClient.client,
+      matrixRoomId: channelMatrixRoomId,
+      readMarkerTs: channelDividerTs,
+      ...screenShareViewerProps,
+      users,
+      disabled: !canSendActiveChannelChat,
+      topNotice: channelChatAccessNotice ?? brmbleServiceChatNotice,
+      onMessageContextMenu: handleChatMessageContextMenu,
+      onCopyToClipboard: handleCopyToClipboard,
+      currentUserMatrixId: matrixCredentials?.userId,
+      onToggleReaction: handleToggleChannelReaction,
+      typingIndicatorText: matrixClient.activeTypingText,
+      typingTargetId: activeChannelId ?? undefined,
+      onTypingStart: matrixClient.startTyping,
+      onTypingStop: matrixClient.stopTyping,
+      currentUserId: selfSession,
+      paintSessionStatuses,
+      onJoinPaint: handleJoinPaint,
+      onOpenPaint: handleOpenPaint,
+      ...(canStartPaint && !activePaintSessionId
+        ? { onUseAsPaintBackground: handleUseAsPaintBackground }
+        : {}),
+    };
 
   const activityRegion = joinedChannelId !== null
     && joinedChannelId !== SERVER_ROOT_CHANNEL_ID
@@ -5102,69 +5199,16 @@ const handleConnect = (serverData: SavedServer) => {
               activityRegion={activityRegion}
               gameSurface={gameSurface}
               conversationRegion={(
-              <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
-                <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
-                  <ErrorBoundary label="ChatPanel:Channel">
-                      <ChatPanel
-                        channelId={currentChannelId || undefined}
-                        channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                        messages={channelChatMessages}
-                        currentUsername={username}
-                        onSendMessage={handleSendMessage}
-                        onDismissMessage={handleDismissMessage}
-                        matrixClient={matrixClient.client}
-                        matrixRoomId={channelMatrixRoomId}
-                        readMarkerTs={channelDividerTs}
-                        {...(showChannelConversation ? screenShareViewerProps : {})}
-                        users={users}
-                        disabled={!canSendActiveChannelChat}
-                        topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
-                        onMessageContextMenu={handleChatMessageContextMenu}
-                        onCopyToClipboard={handleCopyToClipboard}
-                        currentUserMatrixId={matrixCredentials?.userId}
-                        onToggleReaction={handleToggleChannelReaction}
-                        typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
-                        typingTargetId={activeChannelId ?? undefined}
-                        onTypingStart={matrixClient.startTyping}
-                        onTypingStop={matrixClient.stopTyping}
-                        currentUserId={selfSession}
-                        paintSessionStatuses={paintSessionStatuses}
-                        onJoinPaint={handleJoinPaint}
-                        onOpenPaint={handleOpenPaint}
-                        {...(canStartPaint && !activePaintSessionId
-                          ? { onUseAsPaintBackground: handleUseAsPaintBackground }
-                          : {})}
-                      />
-                  </ErrorBoundary>
-                </div>
-                <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
-                  <ErrorBoundary label="ChatPanel:DM">
-                   <ChatPanel
-                    channelId={foregroundDmContact ? `dm-${foregroundDmContact.id}` : undefined}
-                    channelName={foregroundDmContact?.displayName ?? ''}
-                    messages={foregroundDmMessages}
-                    currentUsername={username}
-                    onSendMessage={dmStore.sendMessage}
-                    isDM={true}
-                    matrixClient={foregroundDmContact && !selectedDmIsMumble ? matrixClient.client : null}
-                    matrixRoomId={foregroundDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null}
-                    readMarkerTs={foregroundDmContact && !selectedDmIsMumble ? dmDividerTs : null}
-                    {...(showDmConversation ? screenShareViewerProps : {})}
-                    users={users}
-                    disabled={foregroundDmContact?.isEphemeral === true && foregroundDmContact.mumbleSessionId == null}
-                    topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
-                    onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={foregroundDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined}
-                    onToggleReaction={foregroundDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined}
-                    typingIndicatorText={foregroundDmContact && !selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
-                    typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
-                    onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
-                    onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
-                    paintSessionStatuses={paintSessionStatuses}
-                  />
-                  </ErrorBoundary>
-                </div>
+              <div className="conversation-region">
+                <ConversationTabStrip
+                  tabs={conversationTabItems}
+                  activeKey={workspace.activeKey}
+                  onActivate={key => dispatchWorkspace({ type: 'ACTIVATE_CONVERSATION', key })}
+                  onClose={key => dispatchWorkspace({ type: 'CLOSE_CONVERSATION', key })}
+                />
+                <ErrorBoundary label="ChatPanel">
+                  <ChatPanel {...chatPanelPropsForActiveConversation} />
+                </ErrorBoundary>
               </div>
               )}
             />
