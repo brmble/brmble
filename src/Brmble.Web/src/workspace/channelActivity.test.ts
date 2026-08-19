@@ -14,6 +14,10 @@ describe('selectStage', () => {
     expect(selectStage({ available: ['screen-share', 'paint'], explicit: null, previous: 'screen-share' })).toBe('screen-share');
   });
 
+  it('keeps the staged activity even when it is not first in the list', () => {
+    expect(selectStage({ available: ['screen-share', 'paint'], explicit: null, previous: 'paint' })).toBe('paint');
+  });
+
   it('honours an explicit choice', () => {
     expect(selectStage({ available: ['screen-share', 'paint'], explicit: 'paint', previous: 'screen-share' })).toBe('paint');
   });

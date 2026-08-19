@@ -25,6 +25,7 @@
   --header-height: 60px;
   --border-width-thin: 1px;
   --border-width-strong: 2px;
+  --activity-stage-min-height: 8rem;
   --neond-grid-gap: var(--space-md);
   --neond-grid-max-width: 80rem;
   --neond-panel-max-width: 35rem;

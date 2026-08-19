@@ -1,0 +1,60 @@
+.region {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-sm);
+  background: var(--bg-elevated);
+  flex: none;
+}
+
+.channelName {
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  gap: var(--space-2xs);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chip {
+  padding: var(--space-2xs) var(--space-xs);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.chip:hover {
+  background: var(--bg-hover);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.chipActive {
+  background: var(--accent-primary);
+  color: var(--bg-deep);
+}
+
+.stage {
+  flex: 1;
+  min-height: var(--activity-stage-min-height);
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
