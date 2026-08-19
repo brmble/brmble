@@ -348,7 +348,7 @@ describe('DistributionPanel zone groups', () => {
     expect(within(paris).getByText('PARIS · 0 Captain · 0 / 1 Dealers')).toBeInTheDocument();
     expect(within(amsterdam).getByText('Zone earnings')).toBeInTheDocument();
     expect(within(amsterdam).getByText('$150/s')).toBeInTheDocument();
-    expect(within(amsterdam).getByText('♛ Amsterdam Captain (Weed)')).toBeInTheDocument();
+    expect(within(amsterdam).getByText('Amsterdam Captain (Weed)')).toBeInTheDocument();
     expect(screen.getByText('Hire dealers 1/4 · 1 reserved')).toBeInTheDocument();
 
     const content = amsterdam.textContent ?? '';

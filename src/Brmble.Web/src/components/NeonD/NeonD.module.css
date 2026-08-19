@@ -1,4 +1,8 @@
 .container {
+  --neond-icon-button-size: 1.625rem;
+  --neond-talent-lane-max-width: 12rem;
+  --neond-hiring-modal-max-width: 60rem;
+  --neond-hiring-card-min-width: 13.75rem;
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-body);
@@ -703,8 +707,8 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: var(--neond-icon-button-size);
+  height: var(--neond-icon-button-size);
   padding: 0;
   border: 0;
   border-radius: var(--radius-xs);
@@ -723,8 +727,8 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: var(--neond-icon-button-size);
+  height: var(--neond-icon-button-size);
   padding: 0;
   border: 0;
   border-radius: var(--radius-xs);
@@ -1048,7 +1052,7 @@
   display: grid;
   gap: var(--space-2xs);
   width: 100%;
-  max-width: 12rem;
+  max-width: var(--neond-talent-lane-max-width);
   justify-self: center;
   color: var(--talent-lane-accent);
   text-align: center;
@@ -1062,7 +1066,7 @@
 
 .talentNodeSlot {
   display: grid;
-  grid-template-columns: minmax(0, 12rem);
+  grid-template-columns: minmax(0, var(--neond-talent-lane-max-width));
   justify-content: center;
   justify-items: stretch;
   gap: var(--space-2xs);
@@ -1351,7 +1355,7 @@
 .dealerHiringModal {
   display: grid;
   gap: var(--space-md);
-  width: min(100%, 960px);
+  width: min(100%, var(--neond-hiring-modal-max-width));
   max-height: calc(100vh - var(--space-2xl));
   overflow: auto;
   padding: var(--space-xl);
@@ -1382,7 +1386,7 @@
 }
 
 .hiringCaptainGrid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--neond-hiring-card-min-width), 1fr));
 }
 
 .hiringCaptainCard {
@@ -1483,8 +1487,8 @@
 
 .collapsedDealerBody {
   display: grid;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-sm);
 }
 
 .collapsedDealerSummary {

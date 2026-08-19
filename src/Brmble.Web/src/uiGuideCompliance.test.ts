@@ -77,6 +77,8 @@ const focusedCssTokenFiles = [
   'components/ServerList/ServerList.css',
 ].map((file) => join(sourceRoot, ...file.split('/')));
 
+const neonDCssFile = join(sourceRoot, 'components', 'NeonD', 'NeonD.module.css');
+
 function collectFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const fullPath = join(dir, entry);
@@ -111,6 +113,24 @@ function findViolations(pattern: RegExp, allowList: string[] = [], files: string
         violations.push(`${rel}:${index + 1}: ${trimmed}`);
       }
     });
+  }
+
+  return violations;
+}
+
+function findNativeTitleViolations(): string[] {
+  const violations: string[] = [];
+  const titlePattern = /<[a-z][^>]*\stitle\s*=\s*(?:"[\s\S]*?"|'[\s\S]*?'|\{[\s\S]*?\})/g;
+
+  for (const file of componentFilesToScan) {
+    const rel = toPosix(relative(sourceRoot, file));
+    if (titleAttributeAllowList.includes(rel)) continue;
+
+    const content = readFileSync(file, 'utf8');
+    for (const match of content.matchAll(titlePattern)) {
+      const line = content.slice(0, match.index).split(/\r?\n/).length;
+      violations.push(`${rel}:${line}: ${match[0].replace(/\s+/g, ' ').trim()}`);
+    }
   }
 
   return violations;
@@ -200,7 +220,9 @@ function findSettingsPatternViolations(): string[] {
 
 function findFocusedCssTokenViolations(): string[] {
   const timingPattern = /(?:transition|animation):[^;]*(?:\d+(?:\.\d+)?m?s)\b|animation-duration:\s*\d+(?:\.\d+)?m?s\b|font-size:\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?em|\d+(?:\.\d+)?rem)\b|font-family:\s*var\([^;]+,[^)]+\)|(?:^|\s)(?:padding|gap|margin-top|margin-bottom|bottom|top|right):\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?rem)\b|border-radius:\s*(?:\d+(?:\.\d+)?px\b|[^;]*\d+(?:\.\d+)?px)|box-shadow:[^;]*\d+(?:\.\d+)?px|filter:\s*drop-shadow\([^)]*\d+(?:\.\d+)?px|backdrop-filter:\s*blur\(\d+(?:\.\d+)?px\)/g;
-  return findViolations(timingPattern, [], focusedCssTokenFiles);
+  const neonDPattern = /(?:^|\s)(?:width|height|max-width|max-height|padding|gap|margin-top|margin-bottom|bottom|top|right):\s*(?:[^;]*\d+(?:\.\d+)?(?:px|rem))\b|grid-template-columns:\s*[^;]*\d+(?:\.\d+)?(?:px|rem)\b/g;
+  const neonDViolations = findViolations(neonDPattern, [], [neonDCssFile]);
+  return [...findViolations(timingPattern, [], focusedCssTokenFiles), ...neonDViolations];
 }
 
 function findTextInputClassViolations(): string[] {
@@ -271,7 +293,7 @@ describe('UI guide compliance', () => {
   });
 
   test('component code does not use emoji or glyph icons in UI text', () => {
-    expect(findViolations(/[\u{1F300}-\u{1FAFF}]|[★☆×🔄🔒]/gu, glyphAllowList)).toEqual([]);
+    expect(findViolations(/[\u{1F300}-\u{1FAFF}]|[★☆×🔄🔒♛▴▾]/gu, glyphAllowList)).toEqual([]);
   });
 
   test('static visual styles live in CSS classes instead of inline style props', () => {
@@ -287,7 +309,7 @@ describe('UI guide compliance', () => {
   });
 
   test('tooltips use Tooltip instead of native title attributes', () => {
-    expect(findViolations(/<[^>]+\stitle=("[^"]+"|\{[^}]+\})/g, titleAttributeAllowList)).toEqual([]);
+    expect(findNativeTitleViolations()).toEqual([]);
   });
 
   test('forms use shared Select instead of native select elements', () => {

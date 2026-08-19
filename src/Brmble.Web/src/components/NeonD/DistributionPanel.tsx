@@ -121,7 +121,7 @@ const EquipmentList = ({
   onBuy: (equipmentId: EquipmentId) => void;
 }) => (
   <div className={styles.equipmentList}>
-    <h5 className={styles.subheading}>Fixed equipment</h5>
+    <h4 className={`heading-label ${styles.subheading}`}>Fixed equipment</h4>
     {EQUIPMENT_CATALOG.map((item) => {
       const owned = seller.equipmentIds.includes(item.id);
       const cost = getEquipmentCost(item.id, sellerKind, state.discountLevel);
@@ -271,13 +271,13 @@ export function DistributionPanel(props: DistributionPanelProps) {
     const isEditing = editingCaptainId === captain.id;
     const renameEditorId = `captain-rename-${captain.id}`;
     const title = slotIndex === undefined
-      ? `♛ ${captain.name} (${getProductDefinition(captain.selling).name})`
-      : `♛ ${captain.name} · Captain · Slot ${slotIndex + 1}`;
+      ? `${captain.name} (${getProductDefinition(captain.selling).name})`
+      : `${captain.name} · Captain · Slot ${slotIndex + 1}`;
 
     return (
       <>
         <div className={`${styles.dealerHeader} ${styles.collapsibleDealerHeader}`}>
-          <span className={styles.dealerHeaderTitle}>{title}</span>
+          <span className={styles.dealerHeaderTitle}><Icon name="crown" size={14} /> {title}</span>
           <div className={styles.cardHeaderActions}>
             <button
               type="button"
@@ -357,7 +357,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
             )}
             <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + captain.level * 0.5) * 100)}%</strong></div>
             <div className={styles.zoneLeadershipSummary}>
-              <h5 className={styles.subheading}>Zone leadership</h5>
+              <h4 className={`heading-label ${styles.subheading}`}>Zone leadership</h4>
               <div className={styles.metricRow}><span>Street influence</span><strong>+{Math.round(zoneLeadership.marginBonus * 100)}%</strong></div>
               <div className={styles.metricRow}><span>Delivery network</span><strong>+{Math.round(zoneLeadership.volumeBonus * 100)}%</strong></div>
               <div className={styles.metricRow}><span>Side hustle network</span><strong>+{Math.round(zoneLeadership.secondarySalesBonus * 100)}%</strong></div>
@@ -491,7 +491,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                 </button>
                 <button type="button" className={styles.equipmentToggle} aria-expanded={expandedEquipmentIds.has(dealer.id)} aria-label={`${expandedEquipmentIds.has(dealer.id) ? 'Collapse' : 'Expand'} equipment for ${dealer.name}`} onClick={() => toggleEquipment(dealer.id)}>
                   <span>Fixed equipment</span>
-                  <span aria-hidden="true">{expandedEquipmentIds.has(dealer.id) ? '▴' : '▾'}</span>
+                  <Icon name={expandedEquipmentIds.has(dealer.id) ? 'chevron-up' : 'chevron-down'} size={14} />
                 </button>
                 {expandedEquipmentIds.has(dealer.id) ? (
                   <EquipmentList seller={dealer} sellerKind="dealer" state={props.state} onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')} />
@@ -634,7 +634,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
-      <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
+      <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={`heading-section ${styles.distributionColumnHeader}`} tabIndex={-1}>Distribution</h3>
       {isZoneMode ? renderZoneDistribution() : (
       <>
       <button
@@ -749,7 +749,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                         onClick={() => toggleEquipment(dealer.id)}
                       >
                         <span>Fixed equipment</span>
-                        <span aria-hidden="true">{expandedEquipmentIds.has(dealer.id) ? '▴' : '▾'}</span>
+                        <Icon name={expandedEquipmentIds.has(dealer.id) ? 'chevron-up' : 'chevron-down'} size={14} />
                       </button>
                       {expandedEquipmentIds.has(dealer.id) ? (
                         <EquipmentList

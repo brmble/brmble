@@ -60,7 +60,7 @@ export function ZoneUnlockModal({ state, onConfirm, onClose }: ZoneUnlockModalPr
         </label>
         {selectedCaptain ? (
           <article className={`${styles.dealerCard} ${styles.zoneCaptainPreview}`}>
-            <h3 className={styles.dealerName}>♛ {selectedCaptain.name}</h3>
+            <h3 className={styles.dealerName}><Icon name="crown" size={14} /> {selectedCaptain.name}</h3>
             <DealerRating label="Volume" multiplier={getCaptainMainSaleRate(selectedCaptain) / 3} maxStars={6} />
             <DealerRating label="Margin" multiplier={getCaptainMarginMultiplier(selectedCaptain)} maxStars={6} />
             <div className={styles.metricRow}><span>Product</span><strong>{getProductDefinition(selectedCaptain.selling).name}</strong></div>

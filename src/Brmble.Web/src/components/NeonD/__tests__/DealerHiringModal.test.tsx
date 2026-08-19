@@ -169,7 +169,7 @@ describe('DealerHiringModal', () => {
     expect(screen.getByRole('dialog', { name: 'Distribution hiring' })).toBeInTheDocument();
     expect(screen.getAllByRole('article')).toHaveLength(3);
     await user.click(screen.getByRole('tab', { name: 'Captains' }));
-    expect(screen.getByText('♛')).toBeInTheDocument();
+    expect(screen.getByText('Captain One')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Volume: 1.75x' }).querySelectorAll('[data-star-state="full"]')).toHaveLength(6);
     expect(screen.getByText('Level 2')).toBeInTheDocument();
 

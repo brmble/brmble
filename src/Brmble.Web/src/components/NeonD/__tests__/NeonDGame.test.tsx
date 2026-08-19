@@ -1139,7 +1139,7 @@ it('collapses Captain cards independently while retaining product and earnings c
   await user.click(collapseFirst);
 
   expect(within(firstCard).getByRole('button', { name: 'Expand Captain One distribution' })).toHaveAttribute('aria-expanded', 'false');
-  expect(within(firstCard).getByText('♛ Captain One · Captain · Slot 1')).toBeInTheDocument();
+  expect(within(firstCard).getByText('Captain One · Captain · Slot 1')).toBeInTheDocument();
   expect(within(firstCard).getByText('$13/s')).toBeInTheDocument();
   expect(within(firstCard).getByRole('combobox', { name: 'Product for Captain One' })).toBeInTheDocument();
   expect(within(firstCard).queryByRole('img', { name: /Volume:/ })).not.toBeInTheDocument();

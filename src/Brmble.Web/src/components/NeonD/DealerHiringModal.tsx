@@ -49,7 +49,7 @@ function CaptainCandidate({ captain, onRename, onViewTalents }: {
 
   return (
     <article className={`${styles.dealerCard} ${styles.hiringCaptainCard}`}>
-      <h4 className={styles.dealerName}><span aria-label="Captain crown">♛</span> {captain.name}</h4>
+      <h4 className={styles.dealerName}><Icon name="crown" size={14} /> {captain.name}</h4>
       <label className={styles.captainRenameField}>
         <span>Name</span>
         <input

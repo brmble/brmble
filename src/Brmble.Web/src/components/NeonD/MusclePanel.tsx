@@ -27,7 +27,7 @@ export function MusclePanel(props: MusclePanelProps) {
 
   return (
     <section className={styles.panel} aria-labelledby="neond-muscle-heading">
-      <h3 id="neond-muscle-heading" className={styles.columnHeader}>Muscle / Respect</h3>
+      <h3 id="neond-muscle-heading" className={`heading-section ${styles.columnHeader}`}>Muscle / Respect</h3>
       <div className={styles.prestigeSummary}>
         <span>Respect: {Math.floor(props.state.respect).toLocaleString()}</span>
         <strong>Respect/sec: {respectPerSecond.toFixed(2)}</strong>
@@ -61,7 +61,7 @@ export function MusclePanel(props: MusclePanelProps) {
             >
               <div className={styles.muscleWorkerDetails}>
                 <div className={styles.muscleWorkerHeading}>
-                  <h4 id={headingId} className={styles.productTitle}>{worker.name}</h4>
+                  <h4 id={headingId} className={`heading-label ${styles.productTitle}`}>{worker.name}</h4>
                   <span>Owned {owned.toLocaleString()}</span>
                 </div>
                 <div className={styles.muscleWorkerMetrics}>
