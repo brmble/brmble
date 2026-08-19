@@ -4913,6 +4913,7 @@ const handleConnect = (serverData: SavedServer) => {
           channels={channels}
           users={users}
           currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
+          joinedChannelId={selfVoiceChannelId}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
           onSelectServer={handleSelectServer}

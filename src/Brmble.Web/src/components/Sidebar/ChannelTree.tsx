@@ -55,7 +55,14 @@ interface ChannelWithUsers extends Channel {
 interface ChannelTreeProps {
   channels: Channel[];
   users: User[];
+  /** The channel whose conversation is being read. Purely a view concern. */
   currentChannelId?: number;
+  /**
+   * The channel the local user's voice is actually in. `undefined` while unjoined or at
+   * server root — see `workspace/activityPresence.ts`, whose null/server-root guard is
+   * discharged by the caller when it narrows the string id down to this numeric prop.
+   */
+  joinedChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
@@ -99,7 +106,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, joinedChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -284,6 +291,9 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     const isFolder = channel.children.length > 0;
     const isExpanded = expandedChannels.has(channel.id);
     const isCurrentChannel = currentChannelId === channel.id;
+    // Independent of isCurrentChannel: a row can be both the conversation you are reading
+    // and the channel you are standing in.
+    const isJoinedChannel = joinedChannelId != null && joinedChannelId === channel.id;
     const unreadInfo = channelUnreads?.get(String(channel.id));
     const hasUnread = ((unreadInfo?.notificationCount ?? 0) + (unreadInfo?.highlightCount ?? 0)) > 0;
     const lockIconName = channel.isEnterRestricted || channel.hasPasswordRestriction
@@ -301,9 +311,13 @@ export function ChannelTree({ channels, users, currentChannelId, onJoinChannel, 
     return (
       <div key={channel.id} className={`channel-item${pendingChannelAction !== null ? ' channel-item--pending' : ''}`} data-level={level} data-channel-id={channel.id}>
         <div 
-          className={`channel-row ${isCurrentChannel ? 'current' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
+          className={`channel-row ${isCurrentChannel ? 'current' : ''}${isJoinedChannel ? ' channel-row--joined' : ''}${hasUnread ? ' channel-row--unread' : ''}${channel.users.length === 0 && !hasUnread ? ' channel-row--empty' : ''}${isFolder ? ' is-folder' : ''}${dropTargetChannel === channel.id ? ' channel-row--drop-target' : ''}${isChannelActive(channel.id) ? ' channel-row--context-active' : ''}`}
           style={{ paddingLeft: `calc(16px + ${level * 20}px)` }}
           role="button"
+          // The left accent bar must not be the only signal. There is no `.sr-only`
+          // utility in this codebase, so the suffix goes on the accessible name rather
+          // than inventing a new visually-hidden CSS pattern.
+          aria-label={isJoinedChannel ? `${channel.name} (you are here)` : undefined}
           tabIndex={0}
           onClick={() => handleChannelClick(channel.id)}
           onDoubleClick={pendingChannelAction === null ? () => onJoinChannel(channel.id) : undefined}
@@ -636,9 +650,13 @@ onClick: () => {
             ...(() => {
               if (contextMenu.isSelf || !onChallengeDeathroll || !onChallengeRps) return [];
               const target = users.find(u => u.session === parseInt(contextMenu.userId));
+              // DuelOrchestrator rejects a challenge unless both players are in the same
+              // voice channel, so the entry is gated on where you actually are, not on
+              // whichever conversation you happen to be reading.
               const eligible = !!target?.isBrmbleClient
                 && contextMenu.channelId != null
-                && contextMenu.channelId === currentChannelId;
+                && joinedChannelId != null
+                && contextMenu.channelId === joinedChannelId;
               if (!eligible) return [];
               return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps, {
                 committedSessions: committedDuelSessions,
