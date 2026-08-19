@@ -204,23 +204,32 @@ The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer 
 their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
 duplicate this listener lifecycle in a consumer.
 
-### Minigame Modal Pattern
+### Minigame Panel Pattern
 
 Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,
-`components/Games/RpsModal.tsx`, `RpsModal.module.css`
+`components/Games/RpsModal.tsx`, `RpsModal.module.css`, `components/Games/GameSurface.tsx`
 
-Real-time minigame modals (e.g. Deathroll, Rock Paper Scissors) reuse the shared modal shell —
-global `div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
-`h2.heading-title.modal-title` — and add game-specific content styling via a colocated
-CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
+A minigame the local player is participating in — and the result of the one that just
+finished — **owns the whole main panel**. It is not a dialog: there is no
+`div.modal-overlay`, no click-outside dismissal, no focus trap and no `role="dialog"`.
+App composes the panel with `<MainPanel>` (`components/MainPanel/MainPanel.tsx`), whose
+mode comes from `selectMainPanelMode` (`workspace/mainPanelMode.ts`); the board is
+centered in the panel by the `<GameSurface>` wrapper. The idle Neon-D game uses the same
+main-panel slot and is closed by its own close control. Chat, paint and screen share stay
+mounted underneath and simply reappear when the panel returns to `split`.
 
-Each game gets its **own** modal component (Deathroll and RPS do not share a body). The
-`view` prop is the generic `GameView` union from `useGameState`; each modal narrows it to its
+The board itself still reuses the shared card shell — `.glass-panel.animate-slide-up`,
+`.modal-close`, `.modal-header`, `h2.heading-title.modal-title` — and adds game-specific
+content styling via a colocated CSS module (`*.module.css`). Do not build a bespoke
+positioning system, and do not put a live match back behind an overlay.
+
+Each game gets its **own** board component (Deathroll and RPS do not share a body). The
+`view` prop is the generic `GameView` union from `useGameState`; each one narrows it to its
 own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
-modal to render from `activeMatch?.gameType ?? ended?.gameType`.
+board to render from `activeMatch?.gameType ?? ended?.gameType`.
 
 Rules:
-1. Reuse the shared modal shell classes above; only game-board content (player rows,
+1. Reuse the shared card shell classes above; only game-board content (player rows,
    stat tiles, countdown bar, pick buttons, result banner) lives in the CSS module.
 2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
    `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
@@ -248,9 +257,10 @@ Rules:
    short token-styled `3…2…1` countdown in the status area, then reveal the updated
    score, `lastRound`, and — only after the countdown — the end result banner. Gate this
    with local state (the raw `view` prop is the source of truth; a `display` copy lags
-   during the reveal). Key the modal on the match id in App so this reveal state resets
-   between matches.
-7. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
+   during the reveal). Key the board on the match id in App so this reveal state resets
+   between matches — and keep the live match and its result in the **same** mount site, or
+   the reveal state is destroyed by a remount the moment `game.ended` nulls the view.
+7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
 ### Minigame Invite Pattern
@@ -352,9 +362,9 @@ Rematch **requests** from the result modal are locked client-side on `sourceMatc
 Ready/Accept are locked, because `outgoingRematch` only arrives after the server answers. The lock
 releases on a correlated `requestRematch` error or when the completed match changes.
 
-Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
-**Rematch** action beside **Close**. A pending request disables that action and leaves the result
-modal open.
+Completed Deathroll and Rock Paper Scissors participant result panels place a secondary
+**Rematch** action beside **Close**. A pending request disables that action and leaves the
+result panel open.
 
 #### Duel queue confirmation
 

@@ -45,6 +45,9 @@ import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
+import { GameSurface } from './components/Games/GameSurface';
+import { MainPanel } from './components/MainPanel/MainPanel';
+import { selectMainPanelMode } from './workspace/mainPanelMode';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
 import { collectCommittedSessions } from './components/Games/committedSessions';
@@ -1759,9 +1762,9 @@ function App() {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
   }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
 
-  const toggleMessagesPanel = useCallback(() => {
-    setShowGame(false);
-  }, []);
+  // Opening a conversation no longer leaves game mode: an active match owns the main
+  // panel until it ends, and the idle game is closed by its own control.
+  const toggleMessagesPanel = useCallback(() => {}, []);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -3479,7 +3482,6 @@ const handleConnect = (serverData: SavedServer) => {
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
-      setShowGame(false);
 
       dispatchWorkspace({
         type: 'OPEN_CONVERSATION',
@@ -4847,6 +4849,56 @@ const handleConnect = (serverData: SavedServer) => {
     setActivePaintSessionId(null);
   }, [invalidatePaintPreparation]);
 
+  // A game the local player is participating in — or the result of the one that just
+  // finished — owns the whole main panel; it is not a dialog. The idle NeonD game does
+  // the same. `activeMatch` becomes null on `game.ended`, and `ended` is cleared by
+  // dismissing the result, so the panel returns to `split` on its own with no exit effect.
+  const participatingMatchId = gameState.activeMatch
+    ? String(gameState.activeMatch.matchId)
+    : gameState.ended
+      ? String(gameState.ended.matchId)
+      : null;
+  const mainPanelMode = selectMainPanelMode({ idleGameOpen: showGame, participatingMatchId });
+
+  const gameSurface = participatingMatchId !== null ? (
+    <GameSurface>
+      {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
+        <RpsModal
+          key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
+          resolveName={resolveGamePlayerName}
+          onPick={(pick) => gameState.sendAction({ pick })}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+          rematchPending={rematchPending}
+        />
+      ) : (
+        <DeathrollModal
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
+          resolveName={resolveGamePlayerName}
+          onRoll={gameState.roll}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+          rematchPending={rematchPending}
+        />
+      )}
+    </GameSurface>
+  ) : showGame ? (
+    <NeonDGame onClose={() => setShowGame(false)} />
+  ) : null;
+
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
       <WindowResizeHandles />
@@ -4967,9 +5019,11 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            showGame && !activePaintSessionId ? (
-              <NeonDGame onClose={() => setShowGame(false)} />
-            ) : (
+            <MainPanel
+              mode={mainPanelMode}
+              activityRegion={null}
+              gameSurface={gameSurface}
+              conversationRegion={(
               <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
                 <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
                   <ErrorBoundary label="ChatPanel:Channel">
@@ -5048,7 +5102,8 @@ const handleConnect = (serverData: SavedServer) => {
                   </ErrorBoundary>
                 </div>
               </div>
-            )
+              )}
+            />
           ) : (
             <ConnectionState
               connectionStatus={connectionStatus}
@@ -5157,41 +5212,6 @@ const handleConnect = (serverData: SavedServer) => {
         onMinimize={handleCloseMinimize}
         onQuit={handleCloseQuit}
       />
-
-      {(gameState.activeMatch || gameState.ended) && (
-        (gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-          <RpsModal
-            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
-            view={gameState.view}
-            ended={gameState.ended}
-            myUserId={selfSession}
-            turnDeadline={gameState.turnDeadline}
-            turnWindowMs={gameState.turnWindowMs}
-            penalty={gameState.penalty}
-            resolveName={resolveGamePlayerName}
-            onPick={(pick) => gameState.sendAction({ pick })}
-            onForfeit={confirmForfeit}
-            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={rematchPending}
-          />
-        ) : (
-          <DeathrollModal
-            view={gameState.view}
-            ended={gameState.ended}
-            myUserId={selfSession}
-            turnDeadline={gameState.turnDeadline}
-            turnWindowMs={gameState.turnWindowMs}
-            penalty={gameState.penalty}
-            resolveName={resolveGamePlayerName}
-            onRoll={gameState.roll}
-            onForfeit={confirmForfeit}
-            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={rematchPending}
-          />
-        )
-      )}
 
       {selectedDuelSnapshot && (
         <DuelQueueModal
