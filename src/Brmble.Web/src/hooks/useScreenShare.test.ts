@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useScreenShare, type ScreenShareSettings } from './useScreenShare';
+import { useScreenShare, REMOTE_HIDE_GRACE_MS, type ScreenShareSettings, type ViewerQuality } from './useScreenShare';
 import bridge from '../bridge';
 
 const roomEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -109,6 +109,7 @@ vi.mock('livekit-client', () => ({
     ConnectionQualityChanged: 'connectionQualityChanged',
     TrackSubscribed: 'trackSubscribed',
     TrackUnsubscribed: 'trackUnsubscribed',
+    TrackPublished: 'trackPublished',
   },
   ConnectionQuality: {
     Excellent: 'excellent',
@@ -149,9 +150,126 @@ const liveKitToken = (token: string, url = 'ws://localhost/livekit') => {
   return { token, url, requestId };
 };
 
+// --- Shared fixtures for remote screen-share publications ---------------------------
+// Bridge handlers captured by identity so helpers can emit bridge events without each
+// test wiring up its own bridge.on implementation.
+const bridgeHandlers = new Map<string, (data: unknown) => void>();
+const captureBridgeHandlers = () => {
+  (bridge.on as ReturnType<typeof vi.fn>).mockImplementation((type: string, handler: (data: unknown) => void) => {
+    bridgeHandlers.set(type, handler);
+  });
+};
+
+const remoteIdentities = new Map<number, string>([[10, '@alice:test'], [20, '@bob:test']]);
+const identityFor = (userId: number) => remoteIdentities.get(userId) ?? `@user${userId}:test`;
+
+type MockScreenSharePublication = {
+  trackSid: string;
+  kind: string;
+  source: string;
+  setSubscribed: ReturnType<typeof vi.fn>;
+  setVideoQuality: ReturnType<typeof vi.fn>;
+  track: { kind: string; source: string; attach: ReturnType<typeof vi.fn>; detach: ReturnType<typeof vi.fn> };
+};
+
+const screenSharePublications = new Map<number, MockScreenSharePublication>();
+
+const publicationFor = (userId: number): MockScreenSharePublication => {
+  const pub = screenSharePublications.get(userId);
+  if (!pub) {
+    throw new Error(`no mock screen-share publication registered for user ${userId}`);
+  }
+  return pub;
+};
+
+const registerRemotePublisher = (userId: number) => {
+  const identity = identityFor(userId);
+  const pub: MockScreenSharePublication = {
+    trackSid: `sid-screen-${userId}`,
+    kind: 'video',
+    source: 'screen_share',
+    setSubscribed: vi.fn(),
+    setVideoQuality: vi.fn(),
+    track: {
+      kind: 'video',
+      source: 'screen_share',
+      attach: vi.fn(() => document.createElement('video')),
+      detach: vi.fn(),
+    },
+  };
+  screenSharePublications.set(userId, pub);
+  mockRoom.remoteParticipants.set(identity, {
+    identity,
+    connectionQuality: 'good',
+    trackPublications: new Map([[pub.trackSid, pub]]),
+  });
+  return pub;
+};
+
+const participantFor = (userId: number) => mockRoom.remoteParticipants.get(identityFor(userId));
+
+const emitTrackPublished = (userId: number, source: string) => {
+  const pub = publicationFor(userId);
+  pub.source = source;
+  emitRoomEvent('trackPublished', pub, participantFor(userId));
+};
+
+const emitTrackUnsubscribed = (userId: number) => {
+  const pub = publicationFor(userId);
+  emitRoomEvent('trackUnsubscribed', pub.track, pub, participantFor(userId));
+};
+
+const emitScreenShareStopped = (userId: number) => {
+  bridgeHandlers.get('livekit.screenShareStopped')?.({ roomName: 'channel-1', userId });
+};
+
+/**
+ * A hook rendered as BOTH a local publisher and a viewer watching one remote share,
+ * with focus and an explicit receive quality applied. Built from the same primitives
+ * the rest of this file uses rather than duplicating connection scaffolding.
+ */
+const connectedViewerAndPublisher = async ({ focusedUserId, quality }: { focusedUserId: number; quality: ViewerQuality }) => {
+  captureBridgeHandlers();
+  const identity = identityFor(focusedUserId);
+  registerRemotePublisher(focusedUserId);
+
+  const rendered = renderHook(() => useScreenShare());
+  const { result } = rendered;
+
+  await act(async () => {
+    const promise = result.current.startSharing('channel-1');
+    bridgeHandlers.get('livekit.token')?.(liveKitToken('jwt'));
+    await promise;
+  });
+
+  act(() => {
+    bridgeHandlers.get('livekit.screenShareStarted')?.({
+      roomName: 'channel-1',
+      userName: 'alice',
+      userId: focusedUserId,
+      matrixUserId: identity,
+    });
+  });
+
+  await act(async () => {
+    const promise = result.current.connectAsViewer('channel-1', focusedUserId, identity);
+    bridgeHandlers.get('livekit.token')?.(liveKitToken('jwt'));
+    await promise;
+  });
+
+  act(() => {
+    result.current.setFocusedShare(result.current.watchingShares[0] ?? null);
+    result.current.setViewerQuality(focusedUserId, quality);
+  });
+
+  return rendered;
+};
+
 describe('useScreenShare', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    bridgeHandlers.clear();
+    screenSharePublications.clear();
     mockRoom.state = undefined;
     mockRoom.startAudio.mockResolvedValue(undefined);
     mockRoom.remoteParticipants.clear();
@@ -3774,6 +3892,130 @@ describe('useScreenShare', () => {
 
       expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalled();
       expect(mockScreenShareSender.setParameters).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('grace-period hide for backgrounded remote shares', () => {
+    it('keeps a hidden share subscribed during the grace period', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS - 1); });
+
+      expect(publicationFor(10).setSubscribed).not.toHaveBeenCalledWith(false);
+    });
+
+    it('unsubscribes once the grace period elapses', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+
+      expect(publicationFor(10).setSubscribed).toHaveBeenCalledWith(false);
+    });
+
+    it('cancels the pending unsubscribe when the share returns to the stage', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS - 1); });
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+
+      expect(publicationFor(10).setSubscribed).not.toHaveBeenCalledWith(false);
+    });
+
+    it('preserves viewer state while hidden and after restoring', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+
+      expect(result.current.viewerQualities.get(10)).toBe('medium');
+      expect(result.current.focusedShare?.userId).toBe(10);
+      expect(result.current.watchingShares).toHaveLength(1);
+      expect(mockRoom.disconnect).not.toHaveBeenCalled();
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
+      expect(result.current.isSharing).toBe(true);
+
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+
+      expect(result.current.viewerQualities.get(10)).toBe('medium');
+      expect(result.current.focusedShare?.userId).toBe(10);
+      expect(result.current.watchingShares).toHaveLength(1);
+      expect(publicationFor(10).setSubscribed).toHaveBeenLastCalledWith(true);
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
+      expect(result.current.isSharing).toBe(true);
+    });
+
+    it('drops a share that ended while hidden instead of resubscribing to it', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      publicationFor(10).setSubscribed.mockClear();
+
+      act(() => { emitScreenShareStopped(10); });
+
+      // screenShare.stopped is authoritative: logical state goes immediately, hidden or not.
+      expect(result.current.watchingShares).toHaveLength(0);
+
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+
+      expect(result.current.watchingShares).toHaveLength(0);
+      expect(publicationFor(10).setSubscribed).not.toHaveBeenCalledWith(true);
+    });
+
+    it('immediately unsubscribes a share published while hidden', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      act(() => { emitTrackPublished(10, 'screen_share'); });
+
+      expect(publicationFor(10).setSubscribed).toHaveBeenLastCalledWith(false);
+    });
+
+    it('clears the pending timer on unmount', async () => {
+      vi.useFakeTimers();
+      const { result, unmount } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      unmount();
+
+      expect(() => vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS)).not.toThrow();
+      expect(publicationFor(10).setSubscribed).not.toHaveBeenCalledWith(false);
+    });
+
+    // The flagged hazard: a TrackUnsubscribed we caused ourselves, delivered late and
+    // stamped by a superseded hide generation, must not tear down logical viewer state.
+    it('ignores a delayed stale-generation TrackUnsubscribed for a deliberately hidden share', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      // Generation N: hide and let the grace elapse so we stamp + unsubscribe.
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      // Generations N+1 / N+2: restore, then hide and elapse again.
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+
+      // Only now does the unsubscribe event from generation N arrive.
+      act(() => { emitTrackUnsubscribed(10); });
+
+      expect(result.current.watchingShares).toHaveLength(1);
+      expect(result.current.watchingShares[0].userId).toBe(10);
+      expect(result.current.focusedShare?.userId).toBe(10);
+      expect(result.current.viewerQualities.get(10)).toBe('medium');
+      expect(mockRoom.disconnect).not.toHaveBeenCalled();
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
     });
   });
 });
