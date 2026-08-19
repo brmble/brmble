@@ -299,6 +299,11 @@
   gap: var(--space-xs);
 }
 
+.zoneCardStack {
+  display: grid;
+  gap: var(--space-sm);
+}
+
 .zoneGroup {
   overflow: hidden;
   border: var(--border-width-thin) solid var(--glass-border);

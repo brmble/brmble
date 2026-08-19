@@ -537,7 +537,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
             View unassigned Captains
           </button>
         ) : <div className={styles.label}>{hiringSummary}</div>}
-        <div className={styles.cardStack}>
+        <div className={styles.zoneCardStack}>
           {props.state.zones.map((zone) => {
             const isCollapsed = collapsedZoneIds.has(zone.id);
             const captain = zone.captainId
