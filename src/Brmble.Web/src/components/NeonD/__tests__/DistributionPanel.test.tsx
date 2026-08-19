@@ -32,6 +32,8 @@ const panelProps = {
   claimCaptainLevel: vi.fn(),
   purchaseCaptainTalent: vi.fn(),
   promoteCaptain: vi.fn(),
+  captainZoneBulkSell: vi.fn(),
+  transferDealer: vi.fn(),
 };
 
 describe('DistributionPanel hiring entry point', () => {
@@ -294,5 +296,221 @@ describe('DistributionPanel zone groups', () => {
 
     await user.click(within(amsterdam).getByRole('button', { name: /Add dealer capacity/ }));
     expect(buyDealerCapacity).toHaveBeenCalledWith('amsterdam');
+  });
+
+  it('offers a transfer action for an active zone dealer when another zone has an available slot', () => {
+    renderZonePanel();
+
+    expect(screen.getByRole('button', { name: 'Transfer dealer' })).toBeInTheDocument();
+  });
+
+  it('keeps the transfer action visible but disabled for an arrested zone dealer', () => {
+    const arrestedDealer = makeReferenceDealer({
+      id: 'arrested-zone-dealer',
+      isArrested: true,
+      earningsPerSecondAtArrest: 10,
+    });
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={{
+          ...createZoneState(),
+          zones: [
+            {
+              id: 'amsterdam',
+              displayName: 'Amsterdam',
+              captainId: null,
+              dealerSlots: [{ id: 'amsterdam-slot-1', dealer: arrestedDealer, reservedTransferId: null }],
+              perkIds: [],
+            },
+            {
+              id: 'paris',
+              displayName: 'Paris',
+              captainId: null,
+              dealerSlots: [{ id: 'paris-slot-1', dealer: null, reservedTransferId: null }],
+              perkIds: [],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Transfer dealer' })).toBeDisabled();
+  });
+
+  it('shows pending transfers in both expanded zones while keeping reserved slots unavailable', async () => {
+    const user = userEvent.setup();
+    const travellingDealer = makeReferenceDealer({ id: 'travelling-dealer', name: 'Travelling Dealer' });
+    const transferState: GameState = {
+      ...createZoneState(),
+      lastTickAt: 30_000,
+      dealerTransfers: [{
+        id: 'amsterdam-paris',
+        dealer: travellingDealer,
+        sourceZoneId: 'amsterdam',
+        sourceSlotId: 'amsterdam-slot-1',
+        destinationZoneId: 'paris',
+        destinationSlotId: 'paris-slot-1',
+        completesAt: 120_000,
+        riskResolved: false,
+      }],
+      zones: [
+        {
+          id: 'amsterdam',
+          displayName: 'Amsterdam',
+          captainId: amsterdamCaptain.id,
+          dealerSlots: [{ id: 'amsterdam-slot-1', dealer: null, reservedTransferId: 'amsterdam-paris' }],
+          perkIds: [],
+        },
+        {
+          id: 'paris',
+          displayName: 'Paris',
+          captainId: null,
+          dealerSlots: [{ id: 'paris-slot-1', dealer: null, reservedTransferId: 'amsterdam-paris' }],
+          perkIds: [],
+        },
+      ],
+      lastEarningsPerSeller: { [amsterdamCaptain.id]: 100, [travellingDealer.id]: 0 },
+    };
+
+    render(<DistributionPanel {...panelProps} state={transferState} />);
+
+    const amsterdam = screen.getByRole('article', { name: 'Amsterdam distribution' });
+    const paris = screen.getByRole('article', { name: 'Paris distribution' });
+    expect(within(amsterdam).getByText(/AMSTERDAM · 1 Captain · 0 \/ 1 Dealers · 1 travelling/)).toBeInTheDocument();
+    expect(within(paris).getByText(/PARIS · 0 Captain · 0 \/ 1 Dealers · 1 incoming/)).toBeInTheDocument();
+    expect(within(amsterdam).getByText('Travelling Dealer travelling to Paris')).toBeInTheDocument();
+    expect(within(paris).getByText('Incoming: Travelling Dealer')).toBeInTheDocument();
+    expect(screen.getAllByText('1m 30s')).toHaveLength(2);
+    expect(screen.getByText('Hire dealers 0/2 · 2 reserved')).toBeInTheDocument();
+    expect(screen.queryByText('Travelling Dealer (Weed)')).not.toBeInTheDocument();
+    expect(within(amsterdam).getByText('$100/s')).toBeInTheDocument();
+    expect(within(amsterdam).queryByRole('button', { name: 'Hire dealer' })).not.toBeInTheDocument();
+    expect(within(paris).queryByRole('button', { name: 'Hire dealer' })).not.toBeInTheDocument();
+
+    await user.click(within(amsterdam).getByRole('button', { name: 'Collapse Amsterdam distribution' }));
+
+    expect(within(amsterdam).queryByText('Travelling Dealer travelling to Paris')).not.toBeInTheDocument();
+    expect(within(amsterdam).getByText(/1 travelling/)).toBeInTheDocument();
+  });
+});
+
+describe('DistributionPanel Captain zone leadership', () => {
+  const makeBulkSaleState = (
+    captainOverrides: Parameters<typeof makeReferenceCaptain>[0] = {},
+    options: {
+      lastTickAt?: number;
+      secondCaptain?: Parameters<typeof makeReferenceCaptain>[0];
+      weedStock?: number;
+    } = {},
+  ): GameState => {
+    const captain = makeReferenceCaptain({
+      id: 'bulk-captain',
+      name: 'Bulk Captain',
+      level: 10,
+      talentPoints: 0,
+      talentRanks: { red: [2, 3, 4], yellow: [2, 3, 4], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+      kingpinAvailable: true,
+      ...captainOverrides,
+    });
+    const secondCaptain = options.secondCaptain
+      ? makeReferenceCaptain({
+        id: 'second-bulk-captain',
+        name: 'Second Bulk Captain',
+        level: 10,
+        talentPoints: 0,
+        talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+        ledgerUnlocked: true,
+        kingpinAvailable: true,
+        ...options.secondCaptain,
+      })
+      : null;
+    const baseState = createBaseGameState(0);
+
+    return {
+      ...baseState,
+      lastTickAt: options.lastTickAt ?? 0,
+      activeDealers: [],
+      captains: secondCaptain ? [captain, secondCaptain] : [captain],
+      zones: [
+        {
+          id: 'amsterdam',
+          displayName: 'Amsterdam',
+          captainId: captain.id,
+          dealerSlots: [],
+          perkIds: [],
+        },
+        ...(secondCaptain ? [{
+          id: 'paris' as const,
+          displayName: 'Paris',
+          captainId: secondCaptain.id,
+          dealerSlots: [],
+          perkIds: [],
+        }] : []),
+      ],
+      production: {
+        ...baseState.production,
+        weed: { ...baseState.production.weed, stock: options.weedStock ?? 1_500 },
+      },
+    };
+  };
+
+  it('shows zone leadership effects and leaves bulk selling hidden until the final yellow rank', () => {
+    const captain = makeReferenceCaptain({
+      talentRanks: { red: [2, 3, 4], yellow: [2, 3, 3], blue: [0, 0, 0] },
+    });
+    render(<DistributionPanel {...panelProps} captainZoneBulkSell={vi.fn()} state={makeBulkSaleState(captain)} />);
+
+    expect(screen.getByText('Street influence')).toBeInTheDocument();
+    expect(screen.getByText('Delivery network')).toBeInTheDocument();
+    expect(screen.getByText('Side hustle network')).toBeInTheDocument();
+    expect(screen.getByText('Protection coverage')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sell Weed bulk' })).not.toBeInTheDocument();
+  });
+
+  it('enables the Captain bulk action only when there is surplus stock and uses the current product name', async () => {
+    const user = userEvent.setup();
+    const captainZoneBulkSell = vi.fn();
+    const { rerender } = render(
+      <DistributionPanel {...panelProps} captainZoneBulkSell={captainZoneBulkSell} state={makeBulkSaleState()} />,
+    );
+
+    const bulkButton = screen.getByRole('button', { name: 'Sell Weed bulk' });
+    expect(bulkButton).toBeEnabled();
+    await user.click(bulkButton);
+    expect(captainZoneBulkSell).toHaveBeenCalledWith('bulk-captain');
+
+    rerender(
+      <DistributionPanel {...panelProps} captainZoneBulkSell={vi.fn()} state={makeBulkSaleState({}, { weedStock: 500 })} />,
+    );
+    expect(screen.getByRole('button', { name: 'Sell Weed bulk' })).toBeDisabled();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+
+    const cocaineState = makeBulkSaleState({ selling: 'cocaine' });
+    cocaineState.unlockedProducts = [...cocaineState.unlockedProducts, 'cocaine'];
+    rerender(<DistributionPanel {...panelProps} captainZoneBulkSell={vi.fn()} state={cocaineState} />);
+    expect(screen.getByRole('button', { name: 'Sell Cocaine bulk' })).toBeInTheDocument();
+  });
+
+  it('shows each Captain\'s own bulk cooldown after a sale', () => {
+    render(
+      <DistributionPanel
+        {...panelProps}
+        captainZoneBulkSell={vi.fn()}
+        state={makeBulkSaleState(
+          { zoneBulkSellAvailableAt: 90_000 },
+          { lastTickAt: 30_000, secondCaptain: { zoneBulkSellAvailableAt: 45_000 } },
+        )}
+      />,
+    );
+
+    const amsterdam = screen.getByRole('article', { name: 'Amsterdam distribution' });
+    const paris = screen.getByRole('article', { name: 'Paris distribution' });
+    expect(within(amsterdam).getByText('1m')).toBeInTheDocument();
+    expect(within(paris).getByText('15s')).toBeInTheDocument();
+    expect(within(amsterdam).getByRole('button', { name: 'Sell Weed bulk' })).toBeDisabled();
+    expect(within(paris).getByRole('button', { name: 'Sell Weed bulk' })).toBeDisabled();
   });
 });

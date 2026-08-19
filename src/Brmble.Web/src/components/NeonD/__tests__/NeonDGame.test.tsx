@@ -40,6 +40,7 @@ const mockNeonD = vi.hoisted(() => {
   const claimCaptainLevelMock = vi.fn();
   const purchaseCaptainTalentMock = vi.fn();
   const promoteCaptainMock = vi.fn();
+  const transferDealerMock = vi.fn();
   const resetGameMock = vi.fn();
   const importGameMock = vi.fn();
   let state: GameState;
@@ -69,6 +70,7 @@ const mockNeonD = vi.hoisted(() => {
     claimCaptainLevelMock,
     purchaseCaptainTalentMock,
     promoteCaptainMock,
+    transferDealerMock,
     resetGameMock,
     importGameMock,
     getState: () => state,
@@ -101,6 +103,7 @@ const mockNeonD = vi.hoisted(() => {
         claimCaptainLevelMock,
         purchaseCaptainTalentMock,
         promoteCaptainMock,
+        transferDealerMock,
         resetGameMock,
         importGameMock,
       ].forEach((mock) => mock.mockReset());
@@ -132,6 +135,7 @@ const mockNeonD = vi.hoisted(() => {
       claimCaptainLevel: claimCaptainLevelMock,
       purchaseCaptainTalent: purchaseCaptainTalentMock,
       promoteCaptain: promoteCaptainMock,
+      transferDealer: transferDealerMock,
       resetGame: resetGameMock,
       importGame: importGameMock,
     }),
@@ -1408,4 +1412,37 @@ it('shows bail and fire actions for arrested dealers and keeps their compact sum
   expect(within(arrestedCard).queryByText('Status')).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /pay bail/i })).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /fire dealer/i })).not.toBeInTheDocument();
+});
+
+it('confirms a zone dealer transfer through the game engine', async () => {
+  const user = userEvent.setup();
+  const dealer = makeReferenceDealer({ id: 'zone-transfer-dealer', name: 'Zone Transfer Dealer' });
+  mockState({
+    zones: [
+      {
+        id: 'amsterdam',
+        displayName: 'Amsterdam',
+        captainId: null,
+        dealerSlots: [{ id: 'amsterdam-slot-1', dealer, reservedTransferId: null }],
+        perkIds: [],
+      },
+      {
+        id: 'paris',
+        displayName: 'Paris',
+        captainId: null,
+        dealerSlots: [{ id: 'paris-slot-1', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      },
+    ],
+  });
+
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Transfer dealer' }));
+  await user.click(screen.getByRole('combobox', { name: 'Transfer destination' }));
+  await user.click(screen.getByRole('option', { name: 'Paris · Slot 1' }));
+  await user.click(screen.getByRole('button', { name: 'Confirm transfer' }));
+
+  expect(mockNeonD.transferDealerMock).toHaveBeenCalledWith('zone-transfer-dealer', 'paris', 'paris-slot-1');
+  expect(screen.queryByRole('dialog', { name: /Transfer Zone Transfer Dealer/ })).not.toBeInTheDocument();
 });

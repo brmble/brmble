@@ -33,6 +33,16 @@ export function getTalentDefinition(path: TalentPathId, row: 0 | 1 | 2): TalentN
   };
 }
 
+export const getTalentSpecialEffect = (
+  path: TalentPathId,
+  row: 0 | 1 | 2,
+  nextRank: number,
+): string | null => {
+  if (path === 'red' && row === 2 && nextRank === 4) return 'Protection coverage';
+  if (path === 'yellow' && row === 2 && nextRank === 4) return 'Unlock Zone bulk sale';
+  return null;
+};
+
 export function getSpentTalentPoints(talentRanks: TalentRanks): number {
   return PATHS.reduce((spent, path) => spent + talentRanks[path].reduce((sum, ranks) => sum + ranks, 0), 0);
 }

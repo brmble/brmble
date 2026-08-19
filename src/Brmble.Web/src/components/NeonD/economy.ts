@@ -32,7 +32,7 @@ export const getProductDefinition = (productId: ProductId): ProductDefinition =>
   return definition;
 };
 
-const getEquipmentDefinition = (equipmentId: EquipmentId) => {
+export const getEquipmentDefinition = (equipmentId: EquipmentId) => {
   const definition = EQUIPMENT_CATALOG.find((item) => item.id === equipmentId);
   if (!definition) throw new Error(`Unknown Neon-D equipment: ${equipmentId}`);
   return definition;

@@ -68,6 +68,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     claimCaptainLevel,
     purchaseCaptainTalent,
     promoteCaptain,
+    captainZoneBulkSell,
+    transferDealer,
     resetGame,
     importGame,
   } = useGameEngine();
@@ -369,6 +371,8 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             claimCaptainLevel={claimCaptainLevel}
             purchaseCaptainTalent={purchaseCaptainTalent}
             promoteCaptain={promoteCaptain}
+            captainZoneBulkSell={captainZoneBulkSell}
+            transferDealer={transferDealer}
           />
         </div>
       </div>

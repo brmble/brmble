@@ -6,7 +6,9 @@ import {
   getDealerCapacityCost,
   getEquipmentCost,
   getProductDefinition,
+  getCaptainZoneBulkRemainingMs,
   isCaptainLevelUpAvailable,
+  canCaptainZoneBulkSell,
 } from './economy';
 import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
@@ -17,11 +19,14 @@ import styles from './NeonD.module.css';
 import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences';
 import { TalentLedger } from './TalentLedger';
 import { DealerHiringModal } from './DealerHiringModal';
+import { DealerTransferModal } from './DealerTransferModal';
 import { ZoneUnlockModal } from './ZoneUnlockModal';
 import { isCaptain, isDealer } from './sellers';
 import { getIncomingTransfers, getOutgoingTransfers } from './transfers';
+import { getZoneLeadershipBonuses, hasProtectionCoverage, hasZoneBulkSaleTalent } from './talents';
 import {
   getAvailableZoneDealerSlots,
+  getActiveDealerEntries,
   getTotalDealerCapacity,
   getUnassignedCaptains,
   getZoneEarningsPerSecond,
@@ -46,9 +51,25 @@ type DistributionPanelProps = {
   claimCaptainLevel: (captainId: string) => void;
   purchaseCaptainTalent: (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => void;
   promoteCaptain: (captainId: string) => void;
+  captainZoneBulkSell: (captainId: string) => void;
+  transferDealer: (dealerId: string, destinationZoneId: ZoneCityId, destinationSlotId: string) => void;
 };
 
 const formatMoney = (value: number) => `$${Math.round(value).toLocaleString()}`;
+
+const formatTransferRemaining = (remainingMs: number) => {
+  const totalSeconds = Math.ceil(Math.max(0, remainingMs) / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+};
+
+const formatDuration = (remainingMs: number) => {
+  const totalSeconds = Math.ceil(Math.max(0, remainingMs) / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m${seconds > 0 ? ` ${seconds}s` : ''}` : `${seconds}s`;
+};
 
 const formatEquipmentEffect = (equipmentId: EquipmentId) => {
   const effect = EQUIPMENT_CATALOG.find((item) => item.id === equipmentId)
@@ -145,6 +166,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
   const [hiringTarget, setHiringTarget] = useState<DealerSlotTarget | null | undefined>(undefined);
   const [hiringInitialTab, setHiringInitialTab] = useState<'dealers' | 'captains'>('dealers');
   const [isZoneUnlockOpen, setZoneUnlockOpen] = useState(false);
+  const [transferDealerId, setTransferDealerId] = useState<string | null>(null);
   const [collapsedZoneIds, setCollapsedZoneIds] = useState<Set<ZoneCityId>>(() => new Set());
   const [editingCaptainId, setEditingCaptainId] = useState<string | null>(null);
   const [captainDraftName, setCaptainDraftName] = useState('');
@@ -229,6 +251,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
       captain.lastLevelUpEarnings,
     );
     const bonuses = getCaptainBonuses(captain);
+    const zoneLeadership = getZoneLeadershipBonuses(captain);
+    const bulkSaleTalentUnlocked = hasZoneBulkSaleTalent(captain);
+    const remainingMs = getCaptainZoneBulkRemainingMs(captain, props.state.lastTickAt);
     const volumeMultiplier = getCaptainMainSaleRate(captain) / 3;
     const marginMultiplier = getCaptainMarginMultiplier(captain);
     const isCollapsed = collapsedSellerIds.has(captain.id);
@@ -327,6 +352,19 @@ export function DistributionPanel(props: DistributionPanelProps) {
               <div className={styles.kingpinBadge}>All Captain levels claimed</div>
             )}
             <div className={styles.metricRow}><span>Respect bonus</span><strong>+{Math.round((1 + captain.level * 0.5) * 100)}%</strong></div>
+            <div className={styles.zoneLeadershipSummary}>
+              <h5 className={styles.subheading}>Zone leadership</h5>
+              <div className={styles.metricRow}><span>Street influence</span><strong>+{Math.round(zoneLeadership.marginBonus * 100)}%</strong></div>
+              <div className={styles.metricRow}><span>Delivery network</span><strong>+{Math.round(zoneLeadership.volumeBonus * 100)}%</strong></div>
+              <div className={styles.metricRow}><span>Side hustle network</span><strong>+{Math.round(zoneLeadership.secondarySalesBonus * 100)}%</strong></div>
+              <div className={styles.metricRow}><span>Protection coverage</span><strong>{hasProtectionCoverage(captain) ? 'Active' : 'Locked'}</strong></div>
+              {bulkSaleTalentUnlocked ? (
+                <div className={styles.metricRow}>
+                  <span>Zone bulk cooldown</span>
+                  <strong>{remainingMs > 0 ? formatDuration(remainingMs) : 'Ready'}</strong>
+                </div>
+              ) : null}
+            </div>
             <div className={styles.actionStack}>
               {levelUpAvailable ? (
                 <button type="button" className={styles.buyButton} onClick={() => props.claimCaptainLevel(captain.id)}>
@@ -343,6 +381,16 @@ export function DistributionPanel(props: DistributionPanelProps) {
               >
                 Talents{captain.talentPoints > 0 ? ` (${captain.talentPoints} point${captain.talentPoints === 1 ? '' : 's'})` : ''}
               </button>
+              {bulkSaleTalentUnlocked ? (
+                <button
+                  type="button"
+                  className={styles.buyButton}
+                  disabled={!canCaptainZoneBulkSell(props.state, captain.id, props.state.lastTickAt)}
+                  onClick={() => props.captainZoneBulkSell(captain.id)}
+                >
+                  Sell {getProductDefinition(captain.selling).name} bulk
+                </button>
+              ) : null}
             </div>
           </div>
         )}
@@ -368,9 +416,11 @@ export function DistributionPanel(props: DistributionPanelProps) {
     });
   };
 
-  const renderZoneDealerCard = (dealer: Dealer, slotIndex: number) => {
+  const renderZoneDealerCard = (dealer: Dealer, slotIndex: number, sourceZoneId: ZoneCityId) => {
     const isCollapsed = collapsedSellerIds.has(dealer.id);
     const bodyId = `distribution-body-${dealer.id}`;
+    const availableDestinationSlots = getAvailableZoneDealerSlots(props.state)
+      .filter((slot) => slot.zoneId !== sourceZoneId);
 
     return (
       <div className={styles.distributionCard} aria-label={`${dealer.name} distribution`}>
@@ -445,6 +495,14 @@ export function DistributionPanel(props: DistributionPanelProps) {
                 <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>Fire Dealer</button>
               </>
             )}
+            <button
+              type="button"
+              className={styles.unlockButton}
+              disabled={availableDestinationSlots.length === 0 || dealer.isArrested}
+              onClick={() => setTransferDealerId(dealer.id)}
+            >
+              Transfer dealer
+            </button>
           </div>
         )}
       </div>
@@ -452,20 +510,10 @@ export function DistributionPanel(props: DistributionPanelProps) {
   };
 
   const renderZoneDistribution = () => {
-    const activeDealerCount = props.state.zones.reduce(
-      (sum, zone) => sum + zone.dealerSlots.filter((slot) => slot.dealer).length,
-      0,
-    );
-    const totalCapacity = getTotalDealerCapacity(props.state);
-    const reservedCount = props.state.zones.reduce(
-      (sum, zone) => sum + zone.dealerSlots.filter((slot) => slot.reservedTransferId !== null).length,
-      0,
-    );
     const hasZoneVacancy = props.state.zones.some((zone) =>
       zone.dealerSlots.some((slot) => slot.dealer === null && slot.reservedTransferId === null),
     );
     const hasUnassignedCaptains = getUnassignedCaptains(props.state).length > 0;
-    const hiringSummary = `Hire dealers ${activeDealerCount}/${totalCapacity}${reservedCount > 0 ? ` · ${reservedCount} reserved` : ''}`;
 
     return (
       <>
@@ -493,8 +541,10 @@ export function DistributionPanel(props: DistributionPanelProps) {
               ? props.state.captains.find((candidate) => candidate.id === zone.captainId) ?? null
               : null;
             const zoneActiveDealerCount = zone.dealerSlots.filter((slot) => slot.dealer).length;
-            const outgoingCount = getOutgoingTransfers(props.state, zone.id).length;
-            const incomingCount = getIncomingTransfers(props.state, zone.id).length;
+            const outgoingTransfers = getOutgoingTransfers(props.state, zone.id);
+            const incomingTransfers = getIncomingTransfers(props.state, zone.id);
+            const outgoingCount = outgoingTransfers.length;
+            const incomingCount = incomingTransfers.length;
             const bodyId = `zone-distribution-body-${zone.id}`;
 
             return (
@@ -523,9 +573,24 @@ export function DistributionPanel(props: DistributionPanelProps) {
                 </div>
                 {!isCollapsed ? (
                   <div id={bodyId}>
+                    {outgoingTransfers.map((transfer) => {
+                      const destination = props.state.zones.find((candidate) => candidate.id === transfer.destinationZoneId);
+                      return destination ? (
+                        <div key={transfer.id} className={styles.transferRow}>
+                          <span>{transfer.dealer.name} travelling to {destination.displayName}</span>
+                          <strong>{formatTransferRemaining(transfer.completesAt - props.state.lastTickAt)}</strong>
+                        </div>
+                      ) : null;
+                    })}
+                    {incomingTransfers.map((transfer) => (
+                      <div key={transfer.id} className={styles.transferRow}>
+                        <span>Incoming: {transfer.dealer.name}</span>
+                        <strong>{formatTransferRemaining(transfer.completesAt - props.state.lastTickAt)}</strong>
+                      </div>
+                    ))}
                     {captain ? <div className={styles.distributionCard}>{renderCaptainCard(captain)}</div> : null}
                     {zone.dealerSlots.map((slot, slotIndex) => {
-                      if (slot.dealer) return <div key={slot.id}>{renderZoneDealerCard(slot.dealer, slotIndex)}</div>;
+                      if (slot.dealer) return <div key={slot.id}>{renderZoneDealerCard(slot.dealer, slotIndex, zone.id)}</div>;
                       if (slot.reservedTransferId) {
                         return <div key={slot.id} className={styles.zoneSlotRow}>Transfer reserved</div>;
                       }
@@ -560,16 +625,25 @@ export function DistributionPanel(props: DistributionPanelProps) {
 
   const isZoneMode = props.state.zones.length > 0;
   const zoneVacancies = getAvailableZoneDealerSlots(props.state);
-  const occupiedSlotCount = isZoneMode
-    ? getTotalDealerCapacity(props.state) - zoneVacancies.length
+  const activeDealerCount = isZoneMode
+    ? getActiveDealerEntries(props.state).length
     : props.state.activeDealers.filter(Boolean).length;
+  const reservedSlotCount = isZoneMode
+    ? props.state.zones.reduce(
+      (sum, zone) => sum + zone.dealerSlots.filter((slot) => slot.reservedTransferId !== null).length,
+      0,
+    )
+    : 0;
   const totalSlotCount = isZoneMode ? getTotalDealerCapacity(props.state) : props.state.activeDealers.length;
   const firstEmptySlotIndex = props.state.activeDealers.findIndex((seller) => seller === null);
   const hasUnassignedCaptains = (isZoneMode
     ? getUnassignedCaptains(props.state)
     : props.state.captains.filter((captain) => !props.state.activeDealers.some((seller) => seller?.id === captain.id))).length > 0;
   const hasDealerVacancy = isZoneMode ? zoneVacancies.length > 0 : firstEmptySlotIndex !== -1;
-  const hiringSummary = `Hire dealers ${occupiedSlotCount}/${totalSlotCount}`;
+  const hiringSummary = `Hire dealers ${activeDealerCount}/${totalSlotCount}${reservedSlotCount > 0 ? ` · ${reservedSlotCount} reserved` : ''}`;
+  const transferEntry = transferDealerId === null
+    ? null
+    : getActiveDealerEntries(props.state).find((entry) => entry.dealer.id === transferDealerId) ?? null;
 
   return (
     <section className={styles.panel} aria-labelledby="neond-distribution-heading">
@@ -757,6 +831,18 @@ export function DistributionPanel(props: DistributionPanelProps) {
             setZoneUnlockOpen(false);
           }}
           onClose={() => setZoneUnlockOpen(false)}
+        />
+      ) : null}
+      {transferEntry?.zoneId && transferEntry.slotId ? (
+        <DealerTransferModal
+          state={props.state}
+          dealer={transferEntry.dealer}
+          sourceZoneId={transferEntry.zoneId}
+          onConfirm={(destinationZoneId, destinationSlotId) => {
+            props.transferDealer(transferEntry.dealer.id, destinationZoneId, destinationSlotId);
+            setTransferDealerId(null);
+          }}
+          onClose={() => setTransferDealerId(null)}
         />
       ) : null}
     </section>
