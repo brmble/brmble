@@ -47,6 +47,7 @@ type DistributionPanelProps = {
   buySellerEquipment: (sellerId: string, equipmentId: EquipmentId, sellerKind: 'dealer' | 'captain') => void;
   toggleDealerProtection: (dealerId: string) => void;
   payDealerBail: (dealerId: string) => void;
+  buyTerritory: () => void;
   buyDealerCapacity: (zoneId: ZoneCityId) => void;
   claimCaptainLevel: (captainId: string) => void;
   purchaseCaptainTalent: (captainId: string, path: TalentPathId, row: 0 | 1 | 2) => void;
@@ -631,7 +632,6 @@ export function DistributionPanel(props: DistributionPanelProps) {
   };
 
   const isZoneMode = props.state.zones.length > 0;
-  const zoneVacancies = getAvailableZoneDealerSlots(props.state);
   const activeDealerCount = isZoneMode
     ? getActiveDealerEntries(props.state).length
     : props.state.activeDealers.filter(Boolean).length;
@@ -643,10 +643,6 @@ export function DistributionPanel(props: DistributionPanelProps) {
     : 0;
   const totalSlotCount = isZoneMode ? getTotalDealerCapacity(props.state) : props.state.activeDealers.length;
   const firstEmptySlotIndex = props.state.activeDealers.findIndex((seller) => seller === null);
-  const hasUnassignedCaptains = (isZoneMode
-    ? getUnassignedCaptains(props.state)
-    : props.state.captains.filter((captain) => !props.state.activeDealers.some((seller) => seller?.id === captain.id))).length > 0;
-  const hasDealerVacancy = isZoneMode ? zoneVacancies.length > 0 : firstEmptySlotIndex !== -1;
   const hiringSummary = `Hire dealers ${activeDealerCount}/${totalSlotCount}${reservedSlotCount > 0 ? ` · ${reservedSlotCount} reserved` : ''}`;
   const transferEntry = transferDealerId === null
     ? null
@@ -657,28 +653,16 @@ export function DistributionPanel(props: DistributionPanelProps) {
       <h3 ref={distributionHeadingRef} id="neond-distribution-heading" className={styles.distributionColumnHeader} tabIndex={-1}>Distribution</h3>
       {isZoneMode ? renderZoneDistribution() : (
       <>
-      {!hasDealerVacancy ? (
-        hasUnassignedCaptains ? (
-          <button
-            type="button"
-            className={styles.unlockButton}
-            onClick={() => { setHiringTarget(null); setHiringInitialTab('captains'); }}
-          >
-            View unassigned Captains
-          </button>
-        ) : <div className={styles.label}>{hiringSummary}</div>
-      ) : (
-        <button
-          type="button"
-          className={styles.buyButton}
-          onClick={() => {
-            setHiringTarget(isZoneMode ? null : { kind: 'legacy', slotIndex: firstEmptySlotIndex });
-            setHiringInitialTab('dealers');
-          }}
-        >
-          {hiringSummary}
-        </button>
-      )}
+      <button
+        type="button"
+        className={styles.buyButton}
+        onClick={() => {
+          setHiringTarget({ kind: 'legacy', slotIndex: firstEmptySlotIndex === -1 ? 0 : firstEmptySlotIndex });
+          setHiringInitialTab('dealers');
+        }}
+      >
+        {hiringSummary}
+      </button>
 
       <div className={styles.cardStack}>
         {props.state.activeDealers.map((seller, slotIndex) => {
@@ -821,6 +805,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
           onHireSeller={props.onHireSeller}
           onHireDealer={props.onHireDealer}
           onRefreshDealers={props.onRefreshDealers}
+          onBuyTerritory={props.buyTerritory}
           onRecruitCaptain={props.onRecruitCaptain}
           onUnlockZone={() => { setHiringTarget(undefined); setZoneUnlockOpen(true); }}
           onRenameCaptain={props.onRenameCaptain}

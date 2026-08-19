@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createBaseGameState } from '../constants';
 import { DistributionPanel } from '../DistributionPanel';
@@ -28,6 +29,7 @@ const panelProps = {
   buySellerEquipment: vi.fn(),
   toggleDealerProtection: vi.fn(),
   payDealerBail: vi.fn(),
+  buyTerritory: vi.fn(),
   buyDealerCapacity: vi.fn(),
   claimCaptainLevel: vi.fn(),
   purchaseCaptainTalent: vi.fn(),
@@ -37,7 +39,8 @@ const panelProps = {
 };
 
 describe('DistributionPanel hiring entry point', () => {
-  it('shows plain capacity text without the refresh countdown when all slots are occupied', () => {
+  it('keeps a filled legacy roster clickable so the hiring menu can manage capacity', async () => {
+    const user = userEvent.setup();
     render(
       <DistributionPanel
         {...panelProps}
@@ -48,9 +51,69 @@ describe('DistributionPanel hiring entry point', () => {
       />,
     );
 
-    expect(screen.getByText('Hire dealers 1/1')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Hire dealers 1/1' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
+
+    expect(screen.getByRole('dialog', { name: 'Hire seller for Slot 1' })).toBeInTheDocument();
+  });
+
+  it('shows and purchases legacy capacity in the filled-roster hiring dialog', async () => {
+    const user = userEvent.setup();
+    const buyTerritory = vi.fn();
+    render(
+      <DistributionPanel
+        {...panelProps}
+        buyTerritory={buyTerritory}
+        state={{
+          ...state,
+          respect: 500,
+          activeDealers: [makeReferenceDealer({ id: 'hired-dealer', name: 'Hired Dealer' })],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
+
+    await user.click(screen.getByRole('button', { name: 'Territory 0 · Capacity 1 - 500 Respect' }));
+
+    expect(buyTerritory).toHaveBeenCalledOnce();
     expect(screen.queryByText(/Next refresh in/i)).not.toBeInTheDocument();
+  });
+
+  it('uses the newly purchased legacy slot without reopening hiring', async () => {
+    const user = userEvent.setup();
+    const onHireDealer = vi.fn();
+    const initialState: GameState = {
+      ...state,
+      respect: 500,
+      activeDealers: [makeReferenceDealer({ id: 'hired-dealer', name: 'Hired Dealer' })],
+    };
+
+    function LegacyCapacityHarness() {
+      const [gameState, setGameState] = useState(initialState);
+      return (
+        <DistributionPanel
+          {...panelProps}
+          state={gameState}
+          onHireDealer={onHireDealer}
+          buyTerritory={() => setGameState((current) => ({
+            ...current,
+            respect: current.respect - 500,
+            territoryLevel: current.territoryLevel + 1,
+            activeDealers: [...current.activeDealers, null],
+          }))}
+        />
+      );
+    }
+
+    render(<LegacyCapacityHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
+    expect(screen.getAllByRole('button', { name: 'Hire Test Dealer' })[0]).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Territory 0 · Capacity 1 - 500 Respect' }));
+    await user.click(screen.getAllByRole('button', { name: 'Hire Test Dealer to Slot 2' })[0]);
+
+    expect(onHireDealer).toHaveBeenCalledWith('candidate-1', { kind: 'legacy', slotIndex: 1 });
   });
 
   it('keeps an unassigned Captain roster entry point when all slots are occupied', async () => {
@@ -71,7 +134,7 @@ describe('DistributionPanel hiring entry point', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'View unassigned Captains' }));
+    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
 
     const management = screen.getByRole('dialog', { name: /Distribution hiring/ });
     await user.click(within(management).getByRole('tab', { name: 'Captains' }));

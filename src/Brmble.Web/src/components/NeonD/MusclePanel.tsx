@@ -5,7 +5,6 @@ import {
   getDiscountMultiplier,
   getMuscleWorkerCost,
   getRespectPerSecond,
-  getTerritoryCost,
 } from './economy';
 import { getCollapsedMuscleWorkers } from './muscleVisibility';
 import type { GameState, MuscleWorkerId } from './types';
@@ -14,7 +13,6 @@ import styles from './NeonD.module.css';
 type MusclePanelProps = {
   state: GameState;
   buyMuscleWorker: (workerId: MuscleWorkerId) => void;
-  buyTerritory: () => void;
   buyDiscount: () => void;
 };
 
@@ -35,15 +33,6 @@ export function MusclePanel(props: MusclePanelProps) {
         <strong>Respect/sec: {respectPerSecond.toFixed(2)}</strong>
       </div>
       <div className={styles.muscleActionGrid}>
-        {props.state.zones.length === 0 ? (
-          <button
-            className={styles.unlockButton}
-            onClick={props.buyTerritory}
-            disabled={props.state.respect < getTerritoryCost(props.state.territoryLevel)}
-          >
-            Territory {props.state.territoryLevel} · Capacity {props.state.activeDealers.length} - {Math.round(getTerritoryCost(props.state.territoryLevel)).toLocaleString()} Respect
-          </button>
-        ) : <div className={styles.label}>Dealer capacity is expanded inside each zone.</div>}
         <button
           className={styles.unlockButton}
           onClick={props.buyDiscount}

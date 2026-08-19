@@ -730,7 +730,20 @@ it('moves dealer capacity purchases into the active zone and removes the ambiguo
   await user.click(screen.getByRole('tab', { name: 'Muscle' }));
   expect(screen.queryByRole('button', { name: /^Territory / })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /^Discount / })).toBeInTheDocument();
-  expect(screen.getByText('Dealer capacity is expanded inside each zone.')).toBeInTheDocument();
+  expect(screen.queryByText('Dealer capacity is expanded inside each zone.')).not.toBeInTheDocument();
+});
+
+it('keeps legacy dealer capacity out of the Muscle tab', async () => {
+  const user = userEvent.setup();
+  mockState({ zones: [], activeDealers: [null] });
+
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('tab', { name: 'Muscle' }));
+
+  expect(screen.queryByRole('button', { name: /^Territory / })).not.toBeInTheDocument();
+  expect(screen.queryByText('Dealer capacity is expanded inside each zone.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Discount / })).toBeInTheDocument();
 });
 
 it('uses compact Muscle rows and a two-column progression action grid', () => {

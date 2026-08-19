@@ -292,7 +292,6 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <MusclePanel
               state={state}
               buyMuscleWorker={buyMuscleWorker}
-              buyTerritory={buyTerritory}
               buyDiscount={buyDiscount}
             />
           )}
@@ -325,6 +324,7 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}
             payDealerBail={payDealerBail}
+            buyTerritory={buyTerritory}
             buyDealerCapacity={buyDealerCapacity}
             claimCaptainLevel={claimCaptainLevel}
             purchaseCaptainTalent={purchaseCaptainTalent}

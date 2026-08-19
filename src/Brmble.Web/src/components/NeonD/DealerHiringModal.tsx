@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DealerRating } from './DealerRating';
 import { getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
-import { getCaptainCost, getProductDefinition, getRecruitmentRefreshRemainingMs, isCaptainVisible } from './economy';
+import { getCaptainCost, getProductDefinition, getRecruitmentRefreshRemainingMs, getTerritoryCost, isCaptainVisible } from './economy';
 import type { Captain, DealerSlotTarget, GameState } from './types';
 import { getAvailableZoneDealerSlots, getUnassignedCaptains } from './zones';
 import { Icon } from '../Icon/Icon';
@@ -20,6 +20,7 @@ type DealerHiringModalProps = {
   onHireSeller: (sellerId: string, slotIndex: number, sellerKind: 'dealer' | 'captain') => void;
   onHireDealer?: (dealerId: string, target: DealerSlotTarget) => void;
   onRefreshDealers: () => void;
+  onBuyTerritory?: () => void;
   onRecruitCaptain?: () => void;
   onUnlockZone?: () => void;
   onRenameCaptain: (captainId: string, name: string) => void;
@@ -91,7 +92,7 @@ function CaptainCandidate({ captain, onRename, onViewTalents }: {
 
 export function DealerHiringModal({
   state, slotIndex, target, initialTab, rosterOnly = false, onHireSeller, onHireDealer,
-  onRefreshDealers, onRecruitCaptain, onUnlockZone, onRenameCaptain, onClose,
+  onRefreshDealers, onBuyTerritory, onRecruitCaptain, onUnlockZone, onRenameCaptain, onClose,
 }: DealerHiringModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const captainManagementVisible = isCaptainVisible(state);
@@ -109,9 +110,12 @@ export function DealerHiringModal({
     return { value: `${zoneId}:${slotId}`, label: `${zone.displayName} · Slot ${slotNumber}` };
   });
   const selectedDestination = availableSlots.find(({ zoneId, slotId }) => `${zoneId}:${slotId}` === destination) ?? null;
+  const firstLegacyVacancy = state.activeDealers.findIndex((seller) => seller === null);
   const resolvedTarget: DealerSlotTarget | null = target === undefined
     ? { kind: 'legacy', slotIndex }
-    : target ?? (selectedDestination ? { kind: 'zone', ...selectedDestination } : null);
+    : target?.kind === 'legacy'
+      ? firstLegacyVacancy === -1 ? null : { kind: 'legacy', slotIndex: firstLegacyVacancy }
+      : target ?? (selectedDestination ? { kind: 'zone', ...selectedDestination } : null);
   const unassignedCaptains = isZoneMode
     ? getUnassignedCaptains(state)
     : state.captains.filter((captain) => !state.activeDealers.some((seller) => seller?.id === captain.id));
@@ -177,6 +181,16 @@ export function DealerHiringModal({
               ))}
             </div>
             <div className={styles.dealerHiringActions}>
+              {!isZoneMode && onBuyTerritory ? (
+                <button
+                  type="button"
+                  className={styles.unlockButton}
+                  disabled={state.respect < getTerritoryCost(state.territoryLevel)}
+                  onClick={onBuyTerritory}
+                >
+                  Territory {state.territoryLevel} · Capacity {state.activeDealers.length} - {Math.round(getTerritoryCost(state.territoryLevel)).toLocaleString()} Respect
+                </button>
+              ) : null}
               <button type="button" className={styles.unlockButton} disabled={refreshRemainingMs > 0} onClick={onRefreshDealers}><Icon name="refresh-cw" size={14} /> {formatRefresh(refreshRemainingMs)}</button>
             </div>
           </>
