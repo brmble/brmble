@@ -573,18 +573,6 @@ describe('DM route Matrix isolation', () => {
     expect(mockValues.dmChatPanelProps?.messages).toEqual([]);
   });
 
-  it('uses the Messages panel state for the Header DM control', () => {
-    renderConnectedApp();
-
-    expect(mockValues.headerProps?.dmActive).toBe(true);
-
-    act(() => {
-      (mockValues.headerProps?.onToggleDM as () => void)();
-    });
-
-    expect(mockValues.headerProps?.dmActive).toBe(false);
-  });
-
   it('requests channel chat access when the active non-root channel is missing from roomMap', async () => {
     render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
 
@@ -616,12 +604,6 @@ describe('DM route Matrix isolation', () => {
     renderConnectedApp();
 
     expect(mockValues.dmContactListProps?.onToggleVisibility).toBe(mockValues.headerProps?.onToggleDM);
-
-    act(() => {
-      (mockValues.dmContactListProps?.onToggleVisibility as () => void)();
-    });
-
-    expect(mockValues.headerProps?.dmActive).toBe(false);
   });
 
   it('resets the Messages panel when reconnecting', async () => {
@@ -683,14 +665,12 @@ describe('DM route Matrix isolation', () => {
     mockValues.screenShare.remoteWatchCount = 1;
     view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
     await waitFor(() => {
-      expect(mockValues.headerProps?.dmActive).toBe(false);
       expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
     });
 
     mockValues.screenShare.remoteWatchCount = 0;
     view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
     await waitFor(() => {
-      expect(mockValues.headerProps?.dmActive).toBe(true);
       expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
     });
   });
@@ -766,7 +746,6 @@ describe('DM route Matrix isolation', () => {
 
     mockValues.screenShare.remoteWatchCount = 1;
     view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
 
     act(() => {
       (mockValues.dmContactListProps?.onCloseConversation as (id: string) => void)('@val:example.com');
@@ -820,7 +799,6 @@ describe('DM route Matrix isolation', () => {
     const view = renderConnectedApp();
     mockValues.screenShare.remoteWatchCount = 1;
     view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
     mockValues.screenShare.disconnectViewer.mockClear();
 
     act(() => view.getByTestId('sidebar-select-channel').click());

@@ -91,7 +91,15 @@ import { gameDisplayName } from './utils/games';
 import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
 import { useMissedReadyCheck } from './components/Games/useMissedReadyCheck';
 import { estimateText, pairLabel } from './components/Games/duelFormatting';
-import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
+import {
+  createWorkspaceState,
+  selectActiveConversation,
+  selectHomeKey,
+  workspaceReducer,
+} from './workspace/workspaceState';
+import { conversationKey } from './workspace/conversation';
+import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
+import { loadConversationTabs, saveConversationTabs } from './workspace/conversationStorage';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
 import { prepareChatImagePaintSource } from './utils/chatImagePaintSource';
@@ -1664,6 +1672,17 @@ function App() {
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
   const selectedDmContactIdRef = useRef<string | null>(null);
 
+  const joinedChannelId = selectJoinedChannelId(users);
+  // Thin numeric alias over the single presence derivation. 'server-root' collapses to
+  // undefined, which every consumer already treats the same as the numeric root (0).
+  const selfVoiceChannelId = joinedChannelId === null || joinedChannelId === SERVER_ROOT_CHANNEL_ID
+    ? undefined
+    : Number(joinedChannelId);
+  const activeConversation = selectActiveConversation(workspace);
+  const activeChannelChatId = activeConversation?.kind === 'channel'
+    ? activeConversation.channelId
+    : undefined;
+
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
     activeDmMessages: matrixClient.activeDmMessages,
@@ -1674,8 +1693,8 @@ function App() {
     fetchDMHistory: matrixClient.fetchDMHistory,
     brmbleUsers: brmbleDMUsers,
     isSelectedConversationForeground: () =>
-      workspace.foreground.kind === 'dm' &&
-      workspace.foreground.contactId === selectedDmContactIdRef.current,
+      activeConversation?.kind === 'dm' &&
+      activeConversation.contactId === selectedDmContactIdRef.current,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
@@ -1684,12 +1703,14 @@ function App() {
   });
   selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
-  const showDmConversation = workspace.foreground.kind === 'dm';
+  const showDmConversation = activeConversation?.kind === 'dm';
+  // Kept as the strict negation of the DM flag so the channel slide stays visible
+  // (and focusable) before any conversation exists — e.g. the connection screens.
   const showChannelConversation = !showDmConversation;
   const isDmMode = showDmConversation;
-  const messagesPanelExpanded = connected && workspace.messagesPanelExpanded;
-  const foregroundDmContactId = workspace.foreground.kind === 'dm'
-    ? workspace.foreground.contactId
+  const messagesPanelExpanded = connected;
+  const foregroundDmContactId = activeConversation?.kind === 'dm'
+    ? activeConversation.contactId
     : null;
   const foregroundDmContact = foregroundDmContactId
     ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
@@ -1713,7 +1734,6 @@ function App() {
 
   const toggleMessagesPanel = useCallback(() => {
     setShowGame(false);
-    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
   }, []);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
@@ -1783,6 +1803,10 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  // Ref mirror of the single presence derivation so ref-reading callbacks can use it
+  // without gaining a reactive dependency.
+  const joinedVoiceChannelIdRef = useRef(selfVoiceChannelId);
+  joinedVoiceChannelIdRef.current = selfVoiceChannelId;
   const currentChannelNameRef = useRef(currentChannelName);
   currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
@@ -2153,7 +2177,6 @@ function App() {
       // Registered Mumble users may be placed in their last channel.
       const initialChannelId = d?.channelId ?? 0;
       if (initialChannelId === 0) {
-        setCurrentChannelId('server-root');
         setCurrentChannelName('');
       } else {
         setCurrentChannelId(String(initialChannelId));
@@ -2713,7 +2736,6 @@ function App() {
         }
 
         if (d.channelId === 0) {
-          setCurrentChannelId('server-root');
           setCurrentChannelName('');
         } else {
           setCurrentChannelId(String(d.channelId));
@@ -3367,8 +3389,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleJoinChannel = async (channelId: number) => {
-    const selfVoiceChannelId = users.find(u => u.self)?.channelId;
-    if (selfVoiceChannelId === channelId) {
+    if (joinedChannelId === String(channelId)) {
       return;
     }
     const channel = channels.find(c => c.id === channelId);
@@ -3433,7 +3454,10 @@ const handleConnect = (serverData: SavedServer) => {
       setUnreadCount(0);
       setShowGame(false);
 
-      dispatchWorkspace({ type: 'SELECT_CHANNEL' });
+      dispatchWorkspace({
+        type: 'OPEN_CONVERSATION',
+        conversation: { kind: 'channel', channelId: selection.channelId },
+      });
 
       if (!selection.canOpenChat) return;
     }
@@ -3442,7 +3466,10 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectServer = () => {
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
-    dispatchWorkspace({ type: 'SELECT_CHANNEL' });
+    dispatchWorkspace({
+      type: 'OPEN_CONVERSATION',
+      conversation: { kind: 'channel', channelId: 'server-root' },
+    });
   };
 
   const handleSendMessage = async (content: string, image?: File) => {
@@ -3752,17 +3779,17 @@ const handleConnect = (serverData: SavedServer) => {
     if (user?.isBrmbleClient && user.matrixUserId) {
       // Brmble client → Matrix DM (persistent)
       dmStore.startDM(user.matrixUserId, userName, user.avatarUrl);
-      dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
+      dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.matrixUserId } });
     } else if (user?.certHash) {
       // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
       // Check for existing ephemeral contact first
       const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
       if (existingMumbleContact) {
         dmStore.selectContact(existingMumbleContact.id);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: existingMumbleContact.id } });
       } else {
         dmStore.startMumbleDM(user.certHash, user.session, userName);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.certHash } });
       }
     } else {
       console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3779,15 +3806,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (user) {
       if (user.isBrmbleClient && user.matrixUserId) {
         dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.matrixUserId } });
       } else if (user.certHash) {
         const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
         if (existingMumbleContact) {
           dmStore.selectContact(existingMumbleContact.id);
-          dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
+          dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: existingMumbleContact.id } });
         } else {
           dmStore.startMumbleDM(user.certHash, user.session, sender);
-          dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
+          dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.certHash } });
         }
       } else {
         console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3796,7 +3823,7 @@ const handleConnect = (serverData: SavedServer) => {
       // Fallback: try starting DM by matrixUserId directly for users not in the users list
       if (senderMatrixUserId) {
         dmStore.startDM(senderMatrixUserId, sender, undefined);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: senderMatrixUserId });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: senderMatrixUserId } });
       } else {
         console.warn('[DM] Cannot start DM: user not found');
       }
@@ -4001,7 +4028,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, remoteWatchCount, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -4023,10 +4050,6 @@ const handleConnect = (serverData: SavedServer) => {
     onViewerQualityChange: setViewerQuality,
     screenShareViewerMode: screenShareSettings.viewerMode,
   };
-
-  useEffect(() => {
-    dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
-  }, [remoteWatchCount]);
 
   const handleLiveCompanionChange = useCallback((
     nextCompanion: CompanionSelection,
@@ -4337,7 +4360,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, hasPendingViewerShares, updateStatus]);
 
-  const selfVoiceChannelId = users.find(u => u.self)?.channelId;
   const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
 
   useEffect(() => {
@@ -4441,9 +4463,56 @@ const handleConnect = (serverData: SavedServer) => {
     previousWorkspaceConnectionStatusRef.current = connectionStatus;
 
     if (connectionStatus === 'connected' && previousConnectionStatus !== 'connected') {
-      dispatchWorkspace({ type: 'CONNECTION_WORKSPACE_READY' });
+      dispatchWorkspace({ type: 'WORKSPACE_RESET' });
     }
   }, [connectionStatus]);
+
+  // Presence is the single source of truth for the home tab.
+  useEffect(() => {
+    dispatchWorkspace({ type: 'JOINED_CHANNEL_CHANGED', channelId: joinedChannelId });
+  }, [joinedChannelId]);
+
+  // Restore persisted tabs exactly once per connection, and only once both the
+  // channel roster and our own presence have arrived — restoring earlier would
+  // reject every channel tab as unknown and leave a restored tab active instead
+  // of the joined channel.
+  const restoredForServerRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!connected || !serverAddress) {
+      restoredForServerRef.current = null;
+      return;
+    }
+    if (channels.length === 0 || joinedChannelId === null) return;
+    if (restoredForServerRef.current === serverAddress) return;
+    restoredForServerRef.current = serverAddress;
+    const restored = loadConversationTabs(serverAddress, conversation =>
+      conversation.kind === 'dm'
+        ? true
+        : canOpenChannelChat(conversation.channelId, channels));
+    dispatchWorkspace({ type: 'RESTORE_CONVERSATIONS', conversations: restored });
+  }, [connected, serverAddress, channels, joinedChannelId]);
+
+  // The home tab follows presence, so it is never persisted.
+  useEffect(() => {
+    if (!connected || !serverAddress) return;
+    if (restoredForServerRef.current !== serverAddress) return;
+    const homeKey = selectHomeKey(workspace);
+    saveConversationTabs(serverAddress, workspace.tabs.filter(tab => conversationKey(tab) !== homeKey));
+  }, [connected, serverAddress, workspace.tabs, workspace.joinedChannelId]);
+
+  // Stage one of retiring `currentChannelId`: the tab model owns which channel chat
+  // is shown, and this mirrors it into the still-widely-read state. Task 17 removes it.
+  // Only *transitions* of the active channel tab are mirrored: the voice handlers still
+  // write `currentChannelId` directly, and re-asserting the tab value on every render
+  // would fight them and fire the channel-change effects twice.
+  const mirroredChannelChatIdRef = useRef(activeChannelChatId);
+  useEffect(() => {
+    const previous = mirroredChannelChatIdRef.current;
+    mirroredChannelChatIdRef.current = activeChannelChatId;
+    if (activeChannelChatId === undefined || activeChannelChatId === previous) return;
+    if (activeChannelChatId === currentChannelIdRef.current) return;
+    setCurrentChannelId(activeChannelChatId);
+  }, [activeChannelChatId, setCurrentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -4465,12 +4534,12 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId]);
 
   const handleToggleScreenShare = useCallback(async () => {
-    const selfUser = usersRef.current.find(u => u.self);
+    const joinedVoiceChannelId = joinedVoiceChannelIdRef.current;
     const canUseScreenshare = effectiveLiveKitStateRef.current === 'connected';
-    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && joinedVoiceChannelId != null && joinedVoiceChannelId !== 0;
     const sharingState = isSharing ? 'sharing' : 'notSharing';
     const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
-    const channelState = selfUser?.channelId == null ? 'noSelfChannel' : `channel-${selfUser.channelId}`;
+    const channelState = joinedVoiceChannelId == null ? 'noSelfChannel' : `channel-${joinedVoiceChannelId}`;
     const actionState = shouldStartSharing ? 'canStart' : 'blocked';
 
     try {
@@ -4492,7 +4561,7 @@ const handleConnect = (serverData: SavedServer) => {
     await toggleLocalScreenShare({
       isSharing,
       selfLeftVoice,
-      voiceChannelId: selfUser?.channelId,
+      voiceChannelId: joinedVoiceChannelId,
       liveKitState: liveKitStateRef.current,
       startSharing,
       stopSharing,
@@ -4967,12 +5036,15 @@ const handleConnect = (serverData: SavedServer) => {
             selectedUserId={dmStore.selectedContact?.id ?? null}
             onSelectContact={(id: string) => {
               dmStore.selectContact(id);
-              dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
+              dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: id } });
             }}
             onCloseConversation={(id: string) => {
               dmStore.closeDM(id);
               if (dmStore.selectedContact?.id === id) {
-                dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
+                dispatchWorkspace({
+                  type: 'CONVERSATION_INVALIDATED',
+                  key: conversationKey({ kind: 'dm', contactId: id }),
+                });
               }
             }}
             onToggleVisibility={toggleMessagesPanel}
