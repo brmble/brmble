@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderConnectedApp, resetAppHarness } from './testing/appHarness';
 
@@ -53,5 +53,27 @@ describe('channel activity region', () => {
   it('never renders the activity region at server root', () => {
     renderConnectedApp({ joinedChannelId: 'server-root', watchedShares: [shareFrom(10)] });
     expect(screen.queryByRole('region', { name: /activity/ })).not.toBeInTheDocument();
+  });
+
+  // Hiding a share past the grace period is what makes the hook drop its video elements
+  // (useScreenShare.ts:784). The chip must survive that, or there is no way back.
+  it('keeps offering the screen share chip after the hidden share drops its video element', async () => {
+    const user = userEvent.setup();
+    const { screenShare, rerenderApp } = renderConnectedApp({
+      joinedChannelId: '7',
+      watchedShares: [shareFrom(10)],
+      paintSessionId: 'p1',
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Paint' }));
+    // The grace period elapses: the hook unsubscribes and empties remoteVideoEls while
+    // keeping the share in watchingShares.
+    screenShare.remoteVideoEls = new Map();
+    act(() => { rerenderApp(); });
+
+    expect(screen.getByRole('tab', { name: 'Screen share' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Screen share' }));
+    expect(screenShare.setRemoteScreenSharesHidden).toHaveBeenLastCalledWith(false);
   });
 });

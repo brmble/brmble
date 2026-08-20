@@ -4933,9 +4933,13 @@ const handleConnect = (serverData: SavedServer) => {
     () => channels.find(channel => String(channel.id) === joinedChannelId)?.name ?? '',
     [channels, joinedChannelId],
   );
+  // Availability is a LOGICAL question, so it reads the watched list only. It must not
+  // depend on `remoteVideoEls`: hiding a share past the grace period deliberately empties
+  // that map (useScreenShare.ts), and deriving the chip from it made hiding erase the
+  // only route back to the share. ScreenShareGrid already renders nothing for a share
+  // with no element yet, so the stage stays blank rather than disappearing.
   const hasWatchableShare = screenShareSettings.viewerMode === 'in-app'
-    && watchingShares.length > 0
-    && remoteVideoEls.size > 0;
+    && watchingShares.length > 0;
   const availableActivities = useMemo<ChannelActivityKind[]>(() => {
     const kinds: ChannelActivityKind[] = [];
     if (hasWatchableShare) kinds.push('screen-share');

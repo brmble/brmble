@@ -184,11 +184,23 @@ const publicationFor = (userId: number): MockScreenSharePublication => {
 
 const registerRemotePublisher = (userId: number) => {
   const identity = identityFor(userId);
+  // Real LiveKit does not treat setSubscribed as a no-op: flipping it to false makes the
+  // SFU stop the stream and the client emit TrackUnsubscribed, and flipping it back to
+  // true makes the server redeliver the track and the client emit a FRESH TrackSubscribed.
+  // The previous inert vi.fn() meant no test ever exercised re-delivery, which is exactly
+  // how a share that never comes back could pass review.
   const pub: MockScreenSharePublication = {
     trackSid: `sid-screen-${userId}`,
     kind: 'video',
     source: 'screen_share',
-    setSubscribed: vi.fn(),
+    setSubscribed: vi.fn((subscribed: boolean) => {
+      emitRoomEvent(
+        subscribed ? 'trackSubscribed' : 'trackUnsubscribed',
+        pub.track,
+        pub,
+        mockRoom.remoteParticipants.get(identity),
+      );
+    }),
     setVideoQuality: vi.fn(),
     track: {
       kind: 'video',
@@ -217,6 +229,11 @@ const emitTrackPublished = (userId: number, source: string) => {
 const emitTrackUnsubscribed = (userId: number) => {
   const pub = publicationFor(userId);
   emitRoomEvent('trackUnsubscribed', pub.track, pub, participantFor(userId));
+};
+
+const emitTrackSubscribed = (userId: number) => {
+  const pub = publicationFor(userId);
+  emitRoomEvent('trackSubscribed', pub.track, pub, participantFor(userId));
 };
 
 const emitScreenShareStopped = (userId: number) => {
@@ -4016,6 +4033,37 @@ describe('useScreenShare', () => {
       expect(result.current.viewerQualities.get(10)).toBe('medium');
       expect(mockRoom.disconnect).not.toHaveBeenCalled();
       expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
+    });
+
+    // The Task 13 tests only asserted that setSubscribed(true) was CALLED. That is not
+    // the user-visible contract: what matters is that a video element exists again for
+    // the share, because that element is what the stage renders.
+    it('still has a video element for a share hidden and restored inside the grace period', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+      act(() => { emitTrackSubscribed(10); });
+      expect(result.current.remoteVideoEls.has(10)).toBe(true);
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS - 1); });
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+
+      expect(result.current.remoteVideoEls.has(10)).toBe(true);
+    });
+
+    it('gets a video element back for a share hidden past the grace period and restored', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+      act(() => { emitTrackSubscribed(10); });
+      expect(result.current.remoteVideoEls.has(10)).toBe(true);
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      expect(result.current.remoteVideoEls.has(10)).toBe(false);
+
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+
+      expect(result.current.remoteVideoEls.has(10)).toBe(true);
     });
   });
 });
