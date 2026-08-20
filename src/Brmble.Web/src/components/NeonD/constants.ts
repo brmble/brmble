@@ -22,6 +22,8 @@ export const RISK_ATTEMPT_CHANCE = 0.04;
 export const BAIL_EARNINGS_SECONDS = 95;
 export const TERRITORY_BASE_COST = 500;
 export const TERRITORY_GROWTH = 5.2;
+export const ZONE_NORMAL_DEALER_SLOT_LIMIT = 3;
+export const ZONE_CONCENTRATION_COST_MULTIPLIER = 2.5;
 export const DISCOUNT_BASE_COST = 1_000;
 export const DISCOUNT_GROWTH = 3.8;
 export const DISCOUNT_PRICE_MULTIPLIER = 0.9;
@@ -44,6 +46,33 @@ export const CAPTAIN_BASE_MARGIN_MULTIPLIER = 1.75;
 export const CAPTAIN_EQUIPMENT_PRICE_MULTIPLIER = 4;
 export const OFFLINE_MIN_AWAY_MS = 30_000;
 export const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
+export const ZONE_CITY_CATALOG = [
+  { id: 'amsterdam', name: 'Amsterdam' },
+  { id: 'paris', name: 'Paris' },
+  { id: 'berlin', name: 'Berlin' },
+  { id: 'london', name: 'London' },
+  { id: 'madrid', name: 'Madrid' },
+  { id: 'rome', name: 'Rome' },
+  { id: 'prague', name: 'Prague' },
+  { id: 'vienna', name: 'Vienna' },
+  { id: 'brussels', name: 'Brussels' },
+  { id: 'lisbon', name: 'Lisbon' },
+  { id: 'warsaw', name: 'Warsaw' },
+  { id: 'copenhagen', name: 'Copenhagen' },
+] as const;
+export const DEALER_TRANSFER_DURATION_MS = 2 * 60 * 1000;
+export const DEALER_TRANSFER_EQUIPMENT_LOSS_CHANCE = 0.50;
+export const CAPTAIN_ZONE_BULK_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+export const ZONE_LEADERSHIP_PER_RANK = {
+  marginBonus: 0.02,
+  volumeBonus: 0.02,
+  secondarySalesBonus: 0.01,
+} as const;
+export const ZONE_LEADERSHIP_CAPS = {
+  marginBonus: 0.08,
+  volumeBonus: 0.08,
+  secondarySalesBonus: 0.05,
+} as const;
 
 const toRecord = <K extends string, V>(entries: readonly (readonly [K, V])[]) =>
   Object.fromEntries(entries) as Record<K, V>;
@@ -190,7 +219,7 @@ export const TALENT_RANK_SPLITS: Record<TalentStat, Record<2 | 3 | 4, readonly n
 };
 
 export const createBaseGameState = (now: number): GameState => ({
-  schemaVersion: 5,
+  schemaVersion: 6,
   cash: STARTING_CASH,
   runEarnings: 0,
   respect: 0,
@@ -203,6 +232,9 @@ export const createBaseGameState = (now: number): GameState => ({
   territoryLevel: 0,
   discountLevel: 0,
   activeDealers: [null],
+  zones: [],
+  dealerTransfers: [],
+  pendingAmsterdamCaptainSelection: false,
   availableDealers: [],
   lastDealerRefreshAt: now,
   captains: [],

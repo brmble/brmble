@@ -14,6 +14,7 @@ import {
 } from './dealers';
 import {
   AUTO_BULK_RETAIN_STOCK,
+  CAPTAIN_ZONE_BULK_COOLDOWN_MS,
   BULK_SELL_COOLDOWN_MS,
   BULK_VALUE_MULTIPLIER,
   MARKET_CHECK_INTERVAL_MS,
@@ -31,7 +32,18 @@ import {
 } from './constants';
 import { PRODUCT_CATALOG } from './constants';
 import type { GameState, ProductId } from './types';
-import { isCaptain, isDealer, syncAssignedCaptainSlots } from './sellers';
+import {
+  getZoneLeadershipBonuses,
+  hasProtectionCoverage,
+  hasZoneBulkSaleTalent,
+} from './talents';
+import {
+  getActiveCaptainEntries,
+  getActiveDealerEntries,
+  getAssignedCaptainIds,
+  updateActiveDealer,
+} from './zones';
+import { resolveDueDealerTransfers } from './transfers';
 
 type SaleDemand = {
   sellerId: string;
@@ -49,9 +61,19 @@ export const sellBulkOverflow = (
   const hasPreviousBulkSale = state.lastBulkSellAt > 0;
   if (hasPreviousBulkSale && now - state.lastBulkSellAt < BULK_SELL_COOLDOWN_MS) return state;
 
+  const sold = sellOverflowAtBulkValue(state, productId);
+  return sold
+    ? { ...sold, lastBulkSellAt: now }
+    : state;
+};
+
+const sellOverflowAtBulkValue = (
+  state: GameState,
+  productId: ProductId,
+): GameState | null => {
   const stock = state.production[productId].stock;
   const unitsToSell = Math.max(0, stock - AUTO_BULK_RETAIN_STOCK);
-  if (unitsToSell <= 0) return state;
+  if (unitsToSell <= 0) return null;
 
   const earned =
     unitsToSell *
@@ -62,7 +84,6 @@ export const sellBulkOverflow = (
     ...state,
     cash: state.cash + earned,
     runEarnings: state.runEarnings + earned,
-    lastBulkSellAt: now,
     production: {
       ...state.production,
       [productId]: {
@@ -70,6 +91,33 @@ export const sellBulkOverflow = (
         stock: AUTO_BULK_RETAIN_STOCK,
       },
     },
+  };
+};
+
+export const sellCaptainZoneBulkOverflow = (
+  state: GameState,
+  captainId: string,
+  now: number,
+): GameState => {
+  if (!getAssignedCaptainIds(state).has(captainId)) return state;
+
+  const captain = state.captains.find((candidate) => candidate.id === captainId);
+  if (!captain || !hasZoneBulkSaleTalent(captain)) return state;
+  if (now < captain.zoneBulkSellAvailableAt) return state;
+
+  const sold = sellOverflowAtBulkValue(state, captain.selling);
+  if (!sold) return state;
+
+  return {
+    ...sold,
+    captains: sold.captains.map((candidate) =>
+      candidate.id === captainId
+        ? {
+          ...candidate,
+          zoneBulkSellAvailableAt: now + CAPTAIN_ZONE_BULK_COOLDOWN_MS,
+        }
+        : candidate,
+    ),
   };
 };
 
@@ -111,13 +159,26 @@ export const applyMarketClock = (
 };
 
 const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
-  state.activeDealers.flatMap((dealer) => {
-    if (!isDealer(dealer) || dealer.isArrested) return [];
+  getActiveDealerEntries(state).flatMap((entry) => {
+    const dealer = entry.dealer;
+    if (dealer.isArrested) return [];
 
     const bonuses = getSellerEquipmentBonuses(dealer.equipmentIds);
-    const mainRate = getNormalDealerMainSaleRate(dealer);
-    const protectionMultiplier = dealer.isProtected ? PROTECTION_INCOME_MULTIPLIER : 1;
-    const marginMultiplier = getDealerMarginMultiplier(dealer);
+    const captain = entry.zoneId
+      ? getActiveCaptainEntries(state)
+          .find((captainEntry) => captainEntry.zoneId === entry.zoneId)?.captain ?? null
+      : null;
+    const leadership = captain
+      ? getZoneLeadershipBonuses(captain)
+      : { marginBonus: 0, volumeBonus: 0, secondarySalesBonus: 0 };
+    const mainRate = getNormalDealerMainSaleRate(dealer, leadership);
+    const protectionMultiplier =
+      dealer.isProtected && captain && hasProtectionCoverage(captain)
+        ? 1
+        : dealer.isProtected
+          ? PROTECTION_INCOME_MULTIPLIER
+          : 1;
+    const marginMultiplier = getDealerMarginMultiplier(dealer, leadership);
     const demands: SaleDemand[] = [{
       sellerId: dealer.id,
       productId: dealer.selling,
@@ -128,7 +189,7 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
 
     buildSecondaryDemands(
       mainRate,
-      bonuses.secondarySalesBonus,
+      bonuses.secondarySalesBonus + leadership.secondarySalesBonus,
       dealer.selling,
       state.unlockedProducts,
     ).forEach((unitsPerSecond, productId) => {
@@ -145,9 +206,7 @@ const buildNormalDealerDemands = (state: GameState): SaleDemand[] =>
   });
 
 const buildCaptainDemands = (state: GameState): SaleDemand[] =>
-  state.activeDealers.flatMap((seller) => {
-    if (!isCaptain(seller)) return [];
-    const captain = state.captains.find((ownedCaptain) => ownedCaptain.id === seller.id) ?? seller;
+  getActiveCaptainEntries(state).flatMap(({ captain }) => {
     const bonuses = getCaptainBonuses(captain);
     const mainRate = getCaptainMainSaleRate(captain);
     const marginMultiplier = getCaptainMarginMultiplier(captain);
@@ -224,28 +283,26 @@ export const applyDueRiskCheck = (
     return { ...state, nextRiskCheckAt };
   }
 
-  const eligibleSlots = state.activeDealers
-    .map((dealer, index) => ({ dealer, index }))
-    .filter(({ dealer }) => isDealer(dealer) && !dealer.isArrested);
+  const eligibleDealers = getActiveDealerEntries(state)
+    .filter(({ dealer }) => !dealer.isArrested);
 
-  if (eligibleSlots.length === 0) {
+  if (eligibleDealers.length === 0) {
     return { ...state, nextRiskCheckAt };
   }
 
-  const selected = eligibleSlots[Math.floor(rng() * eligibleSlots.length)];
-  if (!isDealer(selected.dealer) || selected.dealer.isProtected) {
+  const selected = eligibleDealers[Math.floor(rng() * eligibleDealers.length)].dealer;
+  if (selected.isProtected) {
     return { ...state, nextRiskCheckAt };
   }
 
-  const activeDealers = [...state.activeDealers];
-  activeDealers[selected.index] = {
-    ...selected.dealer,
+  const updated = updateActiveDealer(state, selected.id, (dealer) => ({
+    ...dealer,
     isArrested: true,
     earningsPerSecondAtArrest:
-      state.lastEarningsPerSeller[selected.dealer.id] ?? 0,
-  };
+      state.lastEarningsPerSeller[dealer.id] ?? 0,
+  }));
 
-  return { ...state, activeDealers, nextRiskCheckAt };
+  return { ...state, ...updated, nextRiskCheckAt };
 };
 
 export const advanceDeterministicState = (
@@ -258,9 +315,8 @@ export const advanceDeterministicState = (
   const production = { ...state.production };
   const lastEarningsPerSeller = Object.fromEntries(
     [
-      ...state.activeDealers
-        .filter((seller) => isDealer(seller) || isCaptain(seller))
-        .map((dealer) => dealer.id),
+      ...getActiveDealerEntries(state).map(({ dealer }) => dealer.id),
+      ...getActiveCaptainEntries(state).map(({ captain }) => captain.id),
     ].map((sellerId) => [sellerId, 0]),
   ) as Record<string, number>;
   const earnedAcrossSpanBySeller = Object.fromEntries(
@@ -311,21 +367,61 @@ export const advanceDeterministicState = (
     production,
     respect: state.respect + getRespectPerSecond(state) * seconds,
     captains,
-    activeDealers: syncAssignedCaptainSlots(state.activeDealers, captains),
     lastEarningsPerSeller,
     lastTickAt: now,
   };
 };
 
+const advanceOfflineWithTransfers = (
+  state: GameState,
+  simulatedMs: number,
+  rng: () => number = Math.random,
+): GameState => {
+  let advanced = resolveDueDealerTransfers(state, state.lastTickAt, rng);
+  let cursor = advanced.lastTickAt;
+  const endAt = cursor + simulatedMs;
+
+  while (cursor < endAt) {
+    const nextTransferAt = advanced.dealerTransfers
+      .map((transfer) => transfer.completesAt)
+      .filter((completesAt) => completesAt > cursor)
+      .sort((a, b) => a - b)[0];
+    const boundary = Math.min(endAt, nextTransferAt ?? endAt);
+    const seconds = Math.max(0, boundary - cursor) / 1_000;
+
+    if (seconds > 0) {
+      const wholeSeconds = Math.floor(seconds);
+      const fractionalSeconds = seconds - wholeSeconds;
+      if (wholeSeconds > 0) {
+        advanced = advanceDeterministicState(
+          advanced,
+          wholeSeconds,
+          boundary - fractionalSeconds * 1_000,
+        );
+      }
+      if (fractionalSeconds > 0) {
+        advanced = advanceDeterministicState(advanced, fractionalSeconds, boundary);
+      }
+    }
+
+    advanced = resolveDueDealerTransfers(advanced, boundary, rng);
+    cursor = boundary;
+  }
+
+  return advanced;
+};
+
 export const applyOfflineProgress = (
   state: GameState,
   now: number,
+  rng: () => number = Math.random,
 ): GameState => {
   const actualAwayMs = Math.max(0, now - state.lastTickAt);
 
   if (actualAwayMs < OFFLINE_MIN_AWAY_MS) {
+    const resolved = resolveDueDealerTransfers(state, now, rng);
     return {
-      ...state,
+      ...resolved,
       lastTickAt: now,
       offlineEarningsSummary: null,
     };
@@ -339,23 +435,7 @@ export const applyOfflineProgress = (
     activeMarketEvent: null,
     offlineEarningsSummary: null,
   };
-  const wholeSeconds = Math.floor(simulatedMs / 1000);
-  if (wholeSeconds > 0) {
-    advanced = advanceDeterministicState(
-      advanced,
-      wholeSeconds,
-      advanced.lastTickAt + wholeSeconds * 1_000,
-    );
-  }
-
-  const fractionalSeconds = (simulatedMs % 1_000) / 1_000;
-  if (fractionalSeconds > 0) {
-    advanced = advanceDeterministicState(
-      advanced,
-      fractionalSeconds,
-      advanced.lastTickAt + fractionalSeconds * 1_000,
-    );
-  }
+  advanced = advanceOfflineWithTransfers(advanced, simulatedMs, rng);
 
   return {
     ...advanced,

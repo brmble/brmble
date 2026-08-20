@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createBaseGameState } from '../constants';
@@ -16,6 +16,140 @@ const state = {
 };
 
 describe('DealerHiringModal', () => {
+  it('keeps the legacy presentation dealer-only until Captain management is available', () => {
+    render(
+      <DealerHiringModal
+        state={{ ...state, captains: [], runEarnings: 0 }}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('tablist', { name: 'Distribution hiring' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(3);
+  });
+
+  it('shows dealer and Captain management tabs once Captain progression is available', async () => {
+    const user = userEvent.setup();
+    const onRecruitCaptain = vi.fn();
+    const onUnlockZone = vi.fn();
+    const captain = makeReferenceCaptain({ id: 'captain-2', name: 'Captain Two' });
+    const zonedState = {
+      ...state,
+      cash: 10_000_000,
+      captains: [captain],
+      zones: [{
+        id: 'amsterdam' as const,
+        displayName: 'Amsterdam',
+        captainId: null,
+        dealerSlots: [{ id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      }],
+    };
+
+    render(
+      <DealerHiringModal
+        state={zonedState}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+        onRecruitCaptain={onRecruitCaptain}
+        onUnlockZone={onUnlockZone}
+      />,
+    );
+
+    const tablist = screen.getByRole('tablist', { name: 'Distribution hiring' });
+    expect(within(tablist).getByRole('tab', { name: 'Dealers' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Refresh dealers' })).toBeInTheDocument();
+
+    await user.click(within(tablist).getByRole('tab', { name: 'Captains' }));
+
+    expect(screen.getByRole('button', { name: 'Recruit Captain' })).toBeEnabled();
+    expect(screen.getByText('Captain Two')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Recruit Captain' }));
+    await user.click(screen.getByRole('button', { name: 'Open new zone' }));
+    expect(onRecruitCaptain).toHaveBeenCalledOnce();
+    expect(onUnlockZone).toHaveBeenCalledOnce();
+  });
+
+  it('requires a destination for a zone-mode dealer hire opened from the summary', async () => {
+    const user = userEvent.setup();
+    const onHireDealer = vi.fn();
+    const zonedState = {
+      ...state,
+      captains: [],
+      zones: [{
+        id: 'amsterdam' as const,
+        displayName: 'Amsterdam',
+        captainId: null,
+        dealerSlots: [{ id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      }],
+    };
+
+    render(
+      <DealerHiringModal
+        state={zonedState}
+        slotIndex={0}
+        onHireSeller={vi.fn()}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+        onHireDealer={onHireDealer}
+        target={null}
+      />,
+    );
+
+    const hire = screen.getByRole('button', { name: 'Hire Dealer One' });
+    expect(hire).toBeDisabled();
+    await user.click(screen.getByRole('combobox', { name: 'Dealer destination' }));
+    await user.click(screen.getByRole('option', { name: 'Amsterdam · Slot 1' }));
+    expect(hire).toBeEnabled();
+    await user.click(hire);
+    expect(onHireDealer).toHaveBeenCalledWith('dealer-1', {
+      kind: 'zone', zoneId: 'amsterdam', slotId: 'amsterdam-slot-0',
+    });
+  });
+
+  it('uses the exact zone slot target when opened from that slot', async () => {
+    const user = userEvent.setup();
+    const onHireDealer = vi.fn();
+    const zonedState = {
+      ...state,
+      captains: [],
+      zones: [{
+        id: 'paris' as const,
+        displayName: 'Paris',
+        captainId: null,
+        dealerSlots: [{ id: 'paris-slot-1', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      }],
+    };
+
+    render(
+      <DealerHiringModal
+        state={zonedState}
+        slotIndex={0}
+        target={{ kind: 'zone', zoneId: 'paris', slotId: 'paris-slot-1' }}
+        onHireSeller={vi.fn()}
+        onHireDealer={onHireDealer}
+        onRefreshDealers={vi.fn()}
+        onRenameCaptain={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Hire Dealer One' }));
+    expect(onHireDealer).toHaveBeenCalledWith('dealer-1', {
+      kind: 'zone', zoneId: 'paris', slotId: 'paris-slot-1',
+    });
+  });
+
   it('shows three dealers and unassigned Captain candidates with Captain details', async () => {
     const user = userEvent.setup();
     const onHireSeller = vi.fn();
@@ -32,15 +166,15 @@ describe('DealerHiringModal', () => {
       />,
     );
 
-    expect(screen.getByRole('dialog', { name: 'Hire seller for Slot 1' })).toBeInTheDocument();
-    expect(screen.getAllByRole('article')).toHaveLength(4);
-    expect(screen.getByText('♛')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Distribution hiring' })).toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(3);
+    await user.click(screen.getByRole('tab', { name: 'Captains' }));
+    expect(screen.getByText('Captain One')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Volume: 1.75x' }).querySelectorAll('[data-star-state="full"]')).toHaveLength(6);
     expect(screen.getByText('Level 2')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Hire Captain One to Slot 1' }));
-    expect(onHireSeller).toHaveBeenCalledWith('captain-1', 0, 'captain');
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onHireSeller).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('refreshes dealer candidates and closes on Escape', async () => {
@@ -80,7 +214,8 @@ describe('DealerHiringModal', () => {
     expect(screen.getByRole('button', { name: /refresh available in/i })).toBeDisabled();
   });
 
-  it('shows the talent preview button instead of the talent bonus summary', () => {
+  it('shows the talent preview button instead of the talent bonus summary', async () => {
+    const user = userEvent.setup();
     render(
       <DealerHiringModal
         state={{
@@ -101,6 +236,7 @@ describe('DealerHiringModal', () => {
       />,
     );
 
+    await user.click(screen.getByRole('tab', { name: 'Captains' }));
     expect(screen.getByRole('button', { name: 'View talents for Captain One' })).toBeInTheDocument();
     expect(screen.queryByText('+80% margin')).not.toBeInTheDocument();
   });
@@ -121,6 +257,7 @@ describe('DealerHiringModal', () => {
       />,
     );
 
+    await user.click(screen.getByRole('tab', { name: 'Captains' }));
     await user.click(screen.getByRole('button', { name: 'View talents for Captain One' }));
 
     expect(screen.getByRole('heading', { name: /Captain’s Talent Ledger — Captain One/ })).toBeInTheDocument();
@@ -144,6 +281,7 @@ describe('DealerHiringModal', () => {
       <DealerHiringModal
         state={state}
         slotIndex={0}
+        initialTab="captains"
         onHireSeller={vi.fn()}
         onRefreshDealers={vi.fn()}
         onRenameCaptain={vi.fn()}
@@ -159,6 +297,7 @@ describe('DealerHiringModal', () => {
       <DealerHiringModal
         state={state}
         slotIndex={0}
+        initialTab="captains"
         onHireSeller={vi.fn()}
         onRefreshDealers={vi.fn()}
         onRenameCaptain={vi.fn()}
@@ -180,6 +319,7 @@ describe('DealerHiringModal', () => {
       <DealerHiringModal
         state={state}
         slotIndex={0}
+        initialTab="captains"
         onHireSeller={vi.fn()}
         onRefreshDealers={vi.fn()}
         onRenameCaptain={onRenameCaptain}
@@ -204,6 +344,7 @@ describe('DealerHiringModal', () => {
       <DealerHiringModal
         state={state}
         slotIndex={0}
+        initialTab="captains"
         onHireSeller={vi.fn()}
         onRefreshDealers={vi.fn()}
         onRenameCaptain={onRenameCaptain}
@@ -235,7 +376,7 @@ describe('DealerHiringModal', () => {
       />,
     );
 
-    const dialog = screen.getByRole('dialog', { name: 'Hire seller for Slot 1' });
+    const dialog = screen.getByRole('dialog', { name: 'Distribution hiring' });
     expect(dialog).toHaveClass('glass-panel', 'animate-slide-up');
     expect(dialog.parentElement).toHaveClass('modal-overlay');
 
@@ -259,6 +400,7 @@ describe('DealerHiringModal', () => {
           })],
         }}
         slotIndex={0}
+        initialTab="captains"
         onHireSeller={vi.fn()}
         onRefreshDealers={vi.fn()}
         onRenameCaptain={vi.fn()}

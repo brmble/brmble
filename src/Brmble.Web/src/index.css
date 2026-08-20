@@ -30,6 +30,10 @@
   --neond-panel-max-width: 35rem;
   --neond-tabs-max-width: 32.5rem;
   --neond-control-min-height: 2.125rem;
+  --neond-icon-button-size: 1.625rem;
+  --neond-talent-lane-max-width: 12rem;
+  --neond-hiring-modal-max-width: 60rem;
+  --neond-hiring-card-min-width: 13.75rem;
   --neond-arrow-width: var(--space-xs);
   --neond-arrow-height: var(--space-sm);
   --neond-modal-max-width: 26.25rem;

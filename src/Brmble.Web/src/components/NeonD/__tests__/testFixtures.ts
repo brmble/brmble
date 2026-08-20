@@ -29,5 +29,6 @@ export const makeReferenceCaptain = (overrides: Partial<Captain> = {}): Captain 
   },
   ledgerUnlocked: false,
   kingpinAvailable: false,
+  zoneBulkSellAvailableAt: 0,
   ...overrides,
 });

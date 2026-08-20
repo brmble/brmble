@@ -5,7 +5,6 @@ import {
   getDiscountMultiplier,
   getMuscleWorkerCost,
   getRespectPerSecond,
-  getTerritoryCost,
 } from './economy';
 import { getCollapsedMuscleWorkers } from './muscleVisibility';
 import type { GameState, MuscleWorkerId } from './types';
@@ -14,7 +13,6 @@ import styles from './NeonD.module.css';
 type MusclePanelProps = {
   state: GameState;
   buyMuscleWorker: (workerId: MuscleWorkerId) => void;
-  buyTerritory: () => void;
   buyDiscount: () => void;
 };
 
@@ -29,19 +27,12 @@ export function MusclePanel(props: MusclePanelProps) {
 
   return (
     <section className={styles.panel} aria-labelledby="neond-muscle-heading">
-      <h3 id="neond-muscle-heading" className={styles.columnHeader}>Muscle / Respect</h3>
+      <h3 id="neond-muscle-heading" className={`heading-section ${styles.columnHeader}`}>Muscle / Respect</h3>
       <div className={styles.prestigeSummary}>
         <span>Respect: {Math.floor(props.state.respect).toLocaleString()}</span>
         <strong>Respect/sec: {respectPerSecond.toFixed(2)}</strong>
       </div>
       <div className={styles.muscleActionGrid}>
-        <button
-          className={styles.unlockButton}
-          onClick={props.buyTerritory}
-          disabled={props.state.respect < getTerritoryCost(props.state.territoryLevel)}
-        >
-          Territory {props.state.territoryLevel} · Capacity {props.state.activeDealers.length} - {Math.round(getTerritoryCost(props.state.territoryLevel)).toLocaleString()} Respect
-        </button>
         <button
           className={styles.unlockButton}
           onClick={props.buyDiscount}
@@ -70,7 +61,7 @@ export function MusclePanel(props: MusclePanelProps) {
             >
               <div className={styles.muscleWorkerDetails}>
                 <div className={styles.muscleWorkerHeading}>
-                  <h4 id={headingId} className={styles.productTitle}>{worker.name}</h4>
+                  <h4 id={headingId} className={`heading-label ${styles.productTitle}`}>{worker.name}</h4>
                   <span>Owned {owned.toLocaleString()}</span>
                 </div>
                 <div className={styles.muscleWorkerMetrics}>

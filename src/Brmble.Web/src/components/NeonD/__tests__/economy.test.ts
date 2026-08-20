@@ -7,6 +7,9 @@ import {
   getCaptainLevelProgress,
   getCaptainLevelRequirement,
   getCaptainRemainingThreshold,
+  getCaptainZoneBulkRemainingMs,
+  canCaptainZoneBulkSell,
+  getDealerCapacityCost,
   getDiscountCost,
   getDiscountMultiplier,
   getEquipmentCost,
@@ -17,6 +20,8 @@ import {
   getRecruitmentRefreshRemainingMs,
   getRespectPerSecond,
   getTerritoryCost,
+  getZoneDealerCapacityQuote,
+  getZoneUnlockCost,
   getVisibleProductIds,
   isBulkSellingVisible,
   isCaptainVisible,
@@ -25,8 +30,27 @@ import {
   isRiskActive,
 } from '../economy';
 import { makeReferenceCaptain } from './testFixtures';
+import { createAmsterdamZone } from '../zones';
+import type { Captain } from '../types';
 
 describe('Neon-D economy formulas', () => {
+  const getCapacityQuote = (
+    captainCount: number,
+    territoryLevel: number,
+    slotCount: number,
+  ) => {
+    const state = createBaseGameState(0);
+    state.territoryLevel = territoryLevel;
+    state.captains = Array.from({ length: captainCount }, (_, index) =>
+      makeReferenceCaptain({ id: `captain-${index + 1}` }),
+    );
+
+    return getZoneDealerCapacityQuote(
+      state,
+      createAmsterdamZone(state.captains[0]?.id ?? null, slotCount),
+    );
+  };
+
   it('prices producers with exponential ownership growth and global discount', () => {
     expect(getProducerCost('weed', 0, 0)).toBeCloseTo(15);
     expect(getProducerCost('weed', 1, 0)).toBeCloseTo(16.8);
@@ -94,16 +118,146 @@ describe('Neon-D economy formulas', () => {
     expect(getDiscountMultiplier(2)).toBeCloseTo(0.81);
   });
 
-  it('applies Captain and Kingpin Respect bonuses', () => {
+  it('prices additional zones only by expansion level', () => {
+    const oneZone = createBaseGameState(0);
+    oneZone.zones = [createAmsterdamZone('captain-1')];
+    oneZone.activeDealers = [];
+
+    const twoZones = {
+      ...oneZone,
+      zones: [
+        ...oneZone.zones,
+        { id: 'paris' as const, displayName: 'Paris', captainId: 'captain-2', dealerSlots: [], perkIds: [] },
+      ],
+    };
+
+    expect(getZoneUnlockCost(oneZone)).toBe(1_500);
+    expect(getZoneUnlockCost(twoZones)).toBe(7_800);
+  });
+
+  it('keeps dealer capacity pricing on the existing global territory curve', () => {
+    expect(getDealerCapacityCost(0)).toBe(getTerritoryCost(0));
+    expect(getDealerCapacityCost(3)).toBe(getTerritoryCost(3));
+  });
+
+  it('keeps the legacy global dealer-capacity curve unchanged', () => {
+    expect(getDealerCapacityCost(0)).toBe(500);
+    expect(getDealerCapacityCost(1)).toBeCloseTo(2_600);
+    expect(getDealerCapacityCost(2)).toBeCloseTo(13_520);
+    expect(getDealerCapacityCost(3)).toBeCloseTo(70_304);
+  });
+
+  it('keeps zero-Captain zones on the legacy global capacity curve', () => {
+    const quote = getCapacityQuote(0, 2, 3);
+
+    expect(quote.baseCost).toBeCloseTo(13_520);
+    expect(quote.concentrationMultiplier).toBe(1);
+    expect(quote.finalCost).toBeCloseTo(13_520);
+    expect(quote.zoneDealerSlotCount).toBe(3);
+  });
+
+  it('keeps one-Captain Amsterdam on the normal global capacity curve', () => {
+    const quote = getCapacityQuote(1, 2, 3);
+
+    expect(quote.baseCost).toBeCloseTo(13_520);
+    expect(quote.concentrationMultiplier).toBe(1);
+    expect(quote.finalCost).toBeCloseTo(13_520);
+    expect(quote.zoneDealerSlotCount).toBe(3);
+  });
+
+  it('keeps the first three slots normal for a multi-Captain zone', () => {
+    for (const slotCount of [0, 1, 2]) {
+      const quote = getCapacityQuote(2, 4, slotCount);
+      expect(quote.baseCost).toBeCloseTo(getDealerCapacityCost(4));
+      expect(quote.concentrationMultiplier).toBe(1);
+      expect(quote.finalCost).toBeCloseTo(getDealerCapacityCost(4));
+    }
+  });
+
+  it('applies the exact concentration multipliers from the fourth slot onward', () => {
+    expect(getCapacityQuote(2, 2, 3).concentrationMultiplier).toBeCloseTo(2.5);
+    expect(getCapacityQuote(2, 3, 4).concentrationMultiplier).toBeCloseTo(6.25);
+    expect(getCapacityQuote(2, 4, 5).concentrationMultiplier).toBeCloseTo(15.625);
+    expect(getCapacityQuote(2, 5, 6).concentrationMultiplier).toBeCloseTo(39.0625);
+  });
+
+  it('multiplies the current global base by only the expanded zone local surcharge', () => {
+    const concentrated = getCapacityQuote(2, 2, 3);
+    const freshZone = getCapacityQuote(2, 2, 0);
+
+    expect(concentrated.finalCost).toBeCloseTo(13_520 * 2.5);
+    expect(freshZone.finalCost).toBeCloseTo(13_520);
+  });
+
+  it('never counts a Captain position as a dealer slot', () => {
+    const quote = getCapacityQuote(2, 2, 3);
+
+    expect(quote.zoneDealerSlotCount).toBe(3);
+    expect(quote.concentrationMultiplier).toBeCloseTo(2.5);
+  });
+
+  it('reports Captain zone bulk readiness and remaining cooldown', () => {
+    const captain = makeReferenceCaptain({ id: 'bulk-ready', zoneBulkSellAvailableAt: 10_000 });
+    const state = createBaseGameState(0);
+    state.captains = [captain];
+    state.zones = [createAmsterdamZone(captain.id)];
+    state.production.weed.stock = 1_500;
+
+    expect(getCaptainZoneBulkRemainingMs(captain, 4_000)).toBe(6_000);
+    expect(getCaptainZoneBulkRemainingMs(captain, 10_000)).toBe(0);
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
+
+    const readyCaptain: Captain = {
+      ...captain,
+      zoneBulkSellAvailableAt: 0,
+      ledgerUnlocked: true,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    };
+    state.captains[0] = readyCaptain;
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(true);
+
+    state.captains[0] = {
+      ...readyCaptain,
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 3], blue: [0, 0, 0] },
+    };
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
+
+    state.captains[0] = readyCaptain;
+    state.zones = [createAmsterdamZone(null)];
+    expect(canCaptainZoneBulkSell(state, captain.id, 4_000)).toBe(false);
+  });
+
+  it('applies only assigned Captain and Kingpin Respect bonuses', () => {
     const state = createBaseGameState(0);
     state.muscleOwned.hoodRat = 1;
     expect(getRespectPerSecond(state)).toBeCloseTo(1);
-    state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
-    expect(getRespectPerSecond(state)).toBeCloseTo(2);
-    state.captains[0].level = 10;
-    expect(getRespectPerSecond(state)).toBeCloseTo(7);
+    state.captains = [
+      makeReferenceCaptain({ id: 'captain-assigned', level: 2 }),
+      makeReferenceCaptain({ id: 'captain-unassigned', level: 10 }),
+    ];
+    state.zones = [createAmsterdamZone('captain-assigned')];
+    state.activeDealers = [];
+    expect(getRespectPerSecond(state)).toBeCloseTo(3);
     state.kingpins = 1;
-    expect(getRespectPerSecond(state)).toBeCloseTo(8);
+    expect(getRespectPerSecond(state)).toBeCloseTo(4);
+  });
+
+  it('preserves legacy zero-zone active Captain Respect bonuses', () => {
+    const state = createBaseGameState(0);
+    const captain = makeReferenceCaptain({ id: 'legacy-captain', level: 2 });
+    state.muscleOwned.hoodRat = 1;
+    state.captains = [captain];
+    state.activeDealers = [captain];
+
+    expect(getRespectPerSecond(state)).toBeCloseTo(3);
+  });
+
+  it('ignores an owned but inactive Captain for zero-zone Respect', () => {
+    const state = createBaseGameState(0);
+    state.muscleOwned.hoodRat = 1;
+    state.captains = [makeReferenceCaptain({ id: 'inactive-captain', level: 10 })];
+
+    expect(getRespectPerSecond(state)).toBeCloseTo(1);
   });
 
   it('returns the amount still needed for the current Captain next level', () => {
@@ -159,13 +313,13 @@ describe('Neon-D economy formulas', () => {
     expect(getCaptainCost(state)).toBe(25_000_000);
   });
 
-  it('ignores Kingpins and preserves Captain price discounts', () => {
+  it('ignores Kingpins and discounts when pricing Captains', () => {
     const state = createBaseGameState(0);
     state.captains.push(makeReferenceCaptain({ id: 'captain-1' }));
     state.kingpins = 3;
     state.discountLevel = 1;
 
-    expect(getCaptainCost(state)).toBe(10_000_000 * 0.9);
+    expect(getCaptainCost(state)).toBe(10_000_000);
   });
 
   it('reduces recruitment refresh by one second per Kingpin to a one-second floor', () => {

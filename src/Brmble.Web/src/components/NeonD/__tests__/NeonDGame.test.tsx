@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 import { NeonDGame } from '../NeonDGame';
@@ -21,6 +21,7 @@ const mockNeonD = vi.hoisted(() => {
   const buyProductUpgradeMock = vi.fn();
   const buyMuscleWorkerMock = vi.fn();
   const buyTerritoryMock = vi.fn();
+  const buyDealerCapacityMock = vi.fn();
   const buyDiscountMock = vi.fn();
   const hireDealerMock = vi.fn();
   const hireSellerMock = vi.fn();
@@ -35,9 +36,11 @@ const mockNeonD = vi.hoisted(() => {
   const bulkSellProductMock = vi.fn();
   const dismissOfflineEarningsSummaryMock = vi.fn();
   const buyCaptainMock = vi.fn();
+  const assignAmsterdamCaptainMock = vi.fn();
   const claimCaptainLevelMock = vi.fn();
   const purchaseCaptainTalentMock = vi.fn();
   const promoteCaptainMock = vi.fn();
+  const transferDealerMock = vi.fn();
   const resetGameMock = vi.fn();
   const importGameMock = vi.fn();
   let state: GameState;
@@ -48,6 +51,7 @@ const mockNeonD = vi.hoisted(() => {
     buyProductUpgradeMock,
     buyMuscleWorkerMock,
     buyTerritoryMock,
+    buyDealerCapacityMock,
     buyDiscountMock,
     hireDealerMock,
     hireSellerMock,
@@ -62,9 +66,11 @@ const mockNeonD = vi.hoisted(() => {
     bulkSellProductMock,
     dismissOfflineEarningsSummaryMock,
     buyCaptainMock,
+    assignAmsterdamCaptainMock,
     claimCaptainLevelMock,
     purchaseCaptainTalentMock,
     promoteCaptainMock,
+    transferDealerMock,
     resetGameMock,
     importGameMock,
     getState: () => state,
@@ -78,6 +84,7 @@ const mockNeonD = vi.hoisted(() => {
         buyProductUpgradeMock,
         buyMuscleWorkerMock,
         buyTerritoryMock,
+        buyDealerCapacityMock,
         buyDiscountMock,
         hireDealerMock,
         hireSellerMock,
@@ -92,9 +99,11 @@ const mockNeonD = vi.hoisted(() => {
         bulkSellProductMock,
         dismissOfflineEarningsSummaryMock,
         buyCaptainMock,
+        assignAmsterdamCaptainMock,
         claimCaptainLevelMock,
         purchaseCaptainTalentMock,
         promoteCaptainMock,
+        transferDealerMock,
         resetGameMock,
         importGameMock,
       ].forEach((mock) => mock.mockReset());
@@ -106,8 +115,10 @@ const mockNeonD = vi.hoisted(() => {
       buyProductUpgrade: buyProductUpgradeMock,
       buyMuscleWorker: buyMuscleWorkerMock,
       buyTerritory: buyTerritoryMock,
+      buyDealerCapacity: buyDealerCapacityMock,
       buyDiscount: buyDiscountMock,
       hireDealer: hireDealerMock,
+      unlockZone: vi.fn(),
       hireSeller: hireSellerMock,
       refreshDealers: refreshDealersMock,
       renameCaptain: renameCaptainMock,
@@ -120,9 +131,11 @@ const mockNeonD = vi.hoisted(() => {
       bulkSellProduct: bulkSellProductMock,
       dismissOfflineEarningsSummary: dismissOfflineEarningsSummaryMock,
       buyCaptain: buyCaptainMock,
+      assignAmsterdamCaptain: assignAmsterdamCaptainMock,
       claimCaptainLevel: claimCaptainLevelMock,
       purchaseCaptainTalent: purchaseCaptainTalentMock,
       promoteCaptain: promoteCaptainMock,
+      transferDealer: transferDealerMock,
       resetGame: resetGameMock,
       importGame: importGameMock,
     }),
@@ -173,6 +186,21 @@ const createState = (overrides: Partial<GameState> = {}): GameState => {
 
 const mockState = (overrides: Partial<GameState>) => {
   mockNeonD.setState(createState(overrides));
+};
+
+const serializeValidImportSave = () => {
+  const state = mockNeonD.getState();
+  return serializeNeonDSave({
+    ...state,
+    activeDealers: [],
+    zones: [{
+      id: 'amsterdam',
+      displayName: 'Amsterdam',
+      captainId: state.captains[0].id,
+      dealerSlots: [{ id: 'slot-1', dealer: null, reservedTransferId: null }],
+      perkIds: [],
+    }],
+  });
 };
 
 const formatExpectedMoney = (value: number) =>
@@ -332,16 +360,16 @@ it('does not import a valid v2 save when replacement confirmation is canceled', 
 
   await user.upload(
     screen.getByLabelText('Neon-D save file'),
-    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+    new File([serializeValidImportSave()], 'save.json', { type: 'application/json' }),
   );
 
-  expect(confirmMock).toHaveBeenCalledWith({
+  await waitFor(() => expect(confirmMock).toHaveBeenCalledWith({
     title: 'Import Neon-D save?',
     message: 'Import this Neon-D save? Your current empire will be replaced.',
     confirmLabel: 'Import',
     cancelLabel: 'Cancel',
     destructive: true,
-  });
+  }));
   expect(mockNeonD.importGameMock).not.toHaveBeenCalled();
 });
 
@@ -368,10 +396,10 @@ it('processes a second file selection after the first import fails', async () =>
   await screen.findByRole('alert');
   await user.upload(
     input,
-    new File([serializeNeonDSave(mockNeonD.getState())], 'save.json', { type: 'application/json' }),
+    new File([serializeValidImportSave()], 'save.json', { type: 'application/json' }),
   );
 
-  expect(mockNeonD.importGameMock).toHaveBeenCalledOnce();
+  await waitFor(() => expect(mockNeonD.importGameMock).toHaveBeenCalledOnce());
 });
 
 it('prioritizes income, then Respect per second, cash, and prestige counters', () => {
@@ -399,7 +427,7 @@ it('prioritizes income, then Respect per second, cash, and prestige counters', (
   expect(primary).toHaveTextContent(/seller income\/sec/i);
   expect(primary).toHaveTextContent(/16[.,]65/);
   const respectLabel = within(secondary as HTMLElement).getByText('Respect/sec');
-  const respectValue = within(secondary as HTMLElement).getByText('4.00');
+  const respectValue = within(secondary as HTMLElement).getByText('3.00');
   expect(respectLabel).not.toBe(respectValue);
   expect(respectLabel.tagName).toBe('SPAN');
   expect(respectValue.tagName).toBe('STRONG');
@@ -435,7 +463,29 @@ it('hides the Captain recruitment panel before the first Captain threshold', () 
     .not.toHaveTextContent(/captain progress/i);
 });
 
-it('shows current cash against the first Captain price', () => {
+it('keeps Captain progress in Dealer and Captain management', async () => {
+  const user = userEvent.setup();
+  mockState({
+    cash: 1_000_000,
+    runEarnings: CAPTAIN_VISIBLE_EARNINGS,
+    captains: [],
+    activeDealers: [null],
+  });
+
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+
+  expect(within(management).getByText('Next Captain — Cash saved')).toBeInTheDocument();
+  expect(within(management).getByText(
+    `${formatExpectedMoney(1_000_000)} / ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
+  )).toBeInTheDocument();
+  expect(within(management).getByRole('button', { name: 'Recruit Captain' })).toBeDisabled();
+});
+
+it('does not show the Captain progress card on the main screen', () => {
   mockState({
     cash: 1_000_000,
     runEarnings: CAPTAIN_VISIBLE_EARNINGS,
@@ -445,39 +495,27 @@ it('shows current cash against the first Captain price', () => {
   render(<NeonDGame />);
 
   const workspace = screen.getByTestId('distribution-workspace');
-  const progress = within(workspace).getByRole('progressbar', {
-    name: 'Captain recruitment fund',
-  });
-  const milestone = progress.closest('section') as HTMLElement;
 
-  expect(progress).toHaveAttribute('aria-valuemax', String(CAPTAIN_COSTS[0]));
-  expect(progress).toHaveAttribute('aria-valuenow', '1000000');
-  expect(progress).toHaveAttribute(
-    'aria-valuetext',
-    `${formatExpectedMoney(1_000_000)} of ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
-  );
-  expect(within(milestone).getByText(
-    `${formatExpectedMoney(1_000_000)} / ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
-  )).toBeInTheDocument();
-  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
-  expect(within(workspace).queryByRole('spinbutton')).not.toBeInTheDocument();
+  expect(within(workspace).queryByRole('progressbar', {
+    name: 'Captain recruitment fund',
+  })).not.toBeInTheDocument();
+  expect(within(workspace).queryByRole('button', { name: /hire captain/i }))
+    .not.toBeInTheDocument();
+  expect(within(workspace).queryByText(/Next Captain — Cash saved/i))
+    .not.toBeInTheDocument();
 });
 
 it('opens Captain naming before invoking recruitment', async () => {
   const user = userEvent.setup();
-  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [], activeDealers: [null] });
   promptMock.mockResolvedValue('Nightshade');
 
   render(<NeonDGame />);
 
-  const workspace = screen.getByTestId('distribution-workspace');
-  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
-  expect(within(workspace).queryByRole('spinbutton')).not.toBeInTheDocument();
-  const hireButton = within(workspace).getByRole('button', { name: /hire captain/i });
-  expect(hireButton.closest('section')?.nextElementSibling)
-    .toBe(within(workspace).getByRole('region', { name: 'Distribution' }));
-
-  await user.click(hireButton);
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  await user.click(within(management).getByRole('button', { name: 'Recruit Captain' }));
 
   expect(promptMock).toHaveBeenCalledWith({
     title: 'Name your Captain',
@@ -493,48 +531,127 @@ it('opens Captain naming before invoking recruitment', async () => {
 
 it('cancels Captain naming without invoking recruitment', async () => {
   const user = userEvent.setup();
-  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [] });
+  mockState({ cash: CAPTAIN_COSTS[0], runEarnings: 7_500_000, captains: [], activeDealers: [null] });
   promptMock.mockResolvedValue(null);
 
   render(<NeonDGame />);
-  await user.click(screen.getByRole('button', { name: /hire captain/i }));
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  await user.click(within(management).getByRole('button', { name: 'Recruit Captain' }));
 
   expect(mockNeonD.buyCaptainMock).not.toHaveBeenCalled();
   expect(promptMock).toHaveBeenCalledOnce();
 });
 
-it('keeps the recruitment panel visible for the next Captain after the first hire', () => {
+it('assigns a Captain to Amsterdam after the second Captain recruitment reset', async () => {
+  const user = userEvent.setup();
+  const firstCaptain = makeReferenceCaptain({ id: 'captain-first', name: 'First Captain' });
+  mockState({
+    cash: CAPTAIN_COSTS[1],
+    activeDealers: [],
+    captains: [firstCaptain],
+    zones: [{
+      id: 'amsterdam',
+      displayName: 'Amsterdam',
+      captainId: firstCaptain.id,
+      dealerSlots: [{ id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null }],
+      perkIds: [],
+    }],
+  });
+  promptMock.mockResolvedValue('Second Captain');
+  mockNeonD.buyCaptainMock.mockImplementation((name: string) => {
+    const current = mockNeonD.getState();
+    const secondCaptain = makeReferenceCaptain({ id: 'captain-second', name });
+    mockNeonD.setState({
+      ...current,
+      cash: 0,
+      runEarnings: 0,
+      activeDealers: [],
+      captains: [...current.captains, secondCaptain],
+      zones: [{
+        id: 'amsterdam',
+        displayName: 'Amsterdam',
+        captainId: null,
+        dealerSlots: [{ id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      }],
+      pendingAmsterdamCaptainSelection: true,
+    });
+  });
+  mockNeonD.assignAmsterdamCaptainMock.mockImplementation((captainId: string) => {
+    const current = mockNeonD.getState();
+    mockNeonD.setState({
+      ...current,
+      pendingAmsterdamCaptainSelection: false,
+      zones: current.zones.map((zone) => zone.id === 'amsterdam' ? { ...zone, captainId } : zone),
+    });
+  });
+
+  const { rerender } = render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const recruitmentManagement = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(recruitmentManagement).getByRole('tab', { name: 'Captains' }));
+  await user.click(within(recruitmentManagement).getByRole('button', { name: 'Recruit Captain' }));
+  expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Second Captain');
+  rerender(<NeonDGame />);
+
+  expect(screen.getByRole('dialog', { name: 'Choose Amsterdam’s Captain' })).toBeInTheDocument();
+  await user.click(screen.getByRole('radio', { name: /Second Captain/ }));
+  await user.click(screen.getByRole('button', { name: 'Assign Captain to Amsterdam' }));
+  expect(mockNeonD.assignAmsterdamCaptainMock).toHaveBeenCalledWith('captain-second');
+
+  rerender(<NeonDGame />);
+
+  expect(screen.queryByRole('dialog', { name: 'Choose Amsterdam’s Captain' })).not.toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Amsterdam' })).getByText('Second Captain')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  expect(within(management).getByText('First Captain')).toBeInTheDocument();
+});
+
+it('keeps the next Captain progress in Dealer and Captain management after the first hire', async () => {
+  const user = userEvent.setup();
   mockState({
     cash: 0,
     runEarnings: 0,
     captains: [makeReferenceCaptain({ id: 'captain-owned' })],
+    activeDealers: [null],
   });
 
   render(<NeonDGame />);
 
-  const workspace = screen.getByTestId('distribution-workspace');
-  expect(within(workspace).getByText(
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  expect(within(management).getByText(
     `${formatExpectedMoney(0)} / ${formatExpectedMoney(CAPTAIN_COSTS[1])}`,
   )).toBeInTheDocument();
-  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
+  expect(within(management).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
 });
 
-it('shows the exact Captain price and disables hiring when unlocked but unaffordable', () => {
+it('shows the exact Captain price in management when unlocked but unaffordable', async () => {
+  const user = userEvent.setup();
   mockState({
     cash: CAPTAIN_COSTS[0] - 1,
     runEarnings: CAPTAIN_VISIBLE_EARNINGS,
     captains: [],
     kingpins: 0,
     discountLevel: 0,
+    activeDealers: [null],
   });
 
   render(<NeonDGame />);
 
-  const workspace = screen.getByTestId('distribution-workspace');
-  expect(within(workspace).getByText(
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  expect(within(management).getByText(
     `${formatExpectedMoney(CAPTAIN_COSTS[0] - 1)} / ${formatExpectedMoney(CAPTAIN_COSTS[0])}`,
   )).toBeInTheDocument();
-  expect(within(workspace).queryByRole('button', { name: /deposit|withdraw/i })).not.toBeInTheDocument();
+  expect(within(management).queryByRole('button', { name: /Recruit Captain/i })).toBeDisabled();
 });
 
 it('renders Production as the default left tab and keeps Distribution visible', () => {
@@ -605,6 +722,43 @@ it('keeps Muscle compact and reveals every later tier on request', async () => {
   await user.click(screen.getByRole('button', { name: 'Hide later tiers' }));
 
   expect(within(muscleList).queryByRole('listitem', { name: 'Orbital Ion Cannon' })).not.toBeInTheDocument();
+});
+
+it('moves dealer capacity purchases into the active zone and removes the ambiguous Muscle action', async () => {
+  const user = userEvent.setup();
+  mockState({
+    activeDealers: [],
+    zones: [{
+      id: 'amsterdam',
+      displayName: 'Amsterdam',
+      captainId: null,
+      dealerSlots: [{ id: 'amsterdam-slot-1', dealer: null, reservedTransferId: null }],
+      perkIds: [],
+    }],
+  });
+
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: /Add dealer capacity/ }));
+  expect(mockNeonD.buyDealerCapacityMock).toHaveBeenCalledWith('amsterdam');
+
+  await user.click(screen.getByRole('tab', { name: 'Muscle' }));
+  expect(screen.queryByRole('button', { name: /^Territory / })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Discount / })).toBeInTheDocument();
+  expect(screen.queryByText('Dealer capacity is expanded inside each zone.')).not.toBeInTheDocument();
+});
+
+it('keeps legacy dealer capacity out of the Muscle tab', async () => {
+  const user = userEvent.setup();
+  mockState({ zones: [], activeDealers: [null] });
+
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('tab', { name: 'Muscle' }));
+
+  expect(screen.queryByRole('button', { name: /^Territory / })).not.toBeInTheDocument();
+  expect(screen.queryByText('Dealer capacity is expanded inside each zone.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Discount / })).toBeInTheDocument();
 });
 
 it('uses compact Muscle rows and a two-column progression action grid', () => {
@@ -770,15 +924,53 @@ it('keeps production on the left and sales on the right in the card flow', () =>
   expect(css).toMatch(/\.productionSideSales\s*\{[\s\S]*justify-content:\s*flex-end/);
 });
 
-it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment choices', async () => {
+it('shows dealer ratings, protection loss, and opens equipment purchases', async () => {
   const user = userEvent.setup();
   render(<NeonDGame />);
 
   expect(screen.getByRole('img', { name: 'Volume: 1.00x' })).toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Margin: 1.00x' })).toBeInTheDocument();
   expect(screen.getByText(/-10% income/i)).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: /expand equipment for test dealer/i }));
-  expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*\$150/i })).toBeInTheDocument();
+  expect(within(dialog).getByText(/\+10% margin/i)).toBeInTheDocument();
+});
+
+it('keeps owned and unaffordable equipment disabled in the dealer dialog', async () => {
+  const user = userEvent.setup();
+  mockState({
+    cash: 100,
+    activeDealers: [makeReferenceDealer({ id: 'dealer-ui', equipmentIds: ['baseballBat'] })],
+  });
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*Owned/i })).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: /Bicycle.*\$/i })).toBeDisabled();
+});
+
+it('forwards an affordable equipment purchase for the selected dealer', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+  await user.click(screen.getByRole('button', { name: /Bicycle.*\$/i }));
+
+  expect(mockNeonD.buySellerEquipmentMock).toHaveBeenCalledWith('dealer-ui', 'bicycle', 'dealer');
+});
+
+it('closes the dealer equipment dialog', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+  await user.click(screen.getByRole('button', { name: 'Close equipment for Test Dealer' }));
+
+  expect(screen.queryByRole('dialog', { name: 'Equipment for Test Dealer' })).not.toBeInTheDocument();
 });
 
 it('hides main sales from hired and candidate dealer cards', () => {
@@ -914,7 +1106,7 @@ it('keeps hired dealer favorite stars while candidate hiring stays in the modal'
     .toHaveAttribute('aria-pressed', 'false');
 });
 
-it('keeps owned dealer equipment compact while leaving dealer details visible', async () => {
+it('keeps dealer equipment behind the purchase dialog while leaving details visible', async () => {
   const user = userEvent.setup();
   mockState({
     activeDealers: [makeReferenceDealer({ id: 'dealer-ui', isProtected: false })],
@@ -928,17 +1120,13 @@ it('keeps owned dealer equipment compact while leaving dealer details visible', 
   expect(dealer.getByText(/test dealer/i)).toBeInTheDocument();
   expect(dealer.getByText(/volume/i)).toBeInTheDocument();
   expect(dealer.getByText(/unprotected/i)).toBeInTheDocument();
-  expect(dealer.getByRole('button', { name: /expand equipment for test dealer/i })).toBeInTheDocument();
+  expect(dealer.getByRole('button', { name: /buy equipment for test dealer/i })).toBeInTheDocument();
   expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
 
-  await user.click(dealer.getByRole('button', { name: /expand equipment for test dealer/i }));
+  await user.click(dealer.getByRole('button', { name: /buy equipment for test dealer/i }));
 
-  expect(dealer.getByRole('button', { name: /baseball bat/i })).toBeInTheDocument();
-  expect(dealer.getByRole('button', { name: /collapse equipment for test dealer/i })).toBeInTheDocument();
-
-  await user.click(dealer.getByRole('button', { name: /collapse equipment for test dealer/i }));
-
-  expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*\$/i })).toBeInTheDocument();
 });
 
 it('shows talent-derived Captain ratings and hides compatibility equipment controls', () => {
@@ -985,7 +1173,7 @@ it('collapses Captain cards independently while retaining product and earnings c
   await user.click(collapseFirst);
 
   expect(within(firstCard).getByRole('button', { name: 'Expand Captain One distribution' })).toHaveAttribute('aria-expanded', 'false');
-  expect(within(firstCard).getByText('♛ Captain One · Captain · Slot 1')).toBeInTheDocument();
+  expect(within(firstCard).getByText('Captain One · Captain · Slot 1')).toBeInTheDocument();
   expect(within(firstCard).getByText('$13/s')).toBeInTheDocument();
   expect(within(firstCard).getByRole('combobox', { name: 'Product for Captain One' })).toBeInTheDocument();
   expect(within(firstCard).queryByRole('img', { name: /Volume:/ })).not.toBeInTheDocument();
@@ -1034,11 +1222,15 @@ it('shows the Captain prestige controls and invokes buyCaptain', async () => {
     cash: CAPTAIN_COSTS[1],
     runEarnings: CAPTAIN_VISIBLE_EARNINGS,
     captains: [],
+    activeDealers: [null],
   });
   promptMock.mockResolvedValue('Captain 1');
 
   render(<NeonDGame />);
-  await user.click(screen.getByRole('button', { name: /hire captain/i }));
+  await user.click(screen.getByRole('button', { name: 'Hire dealers 0/1' }));
+  const management = screen.getByRole('dialog', { name: 'Distribution hiring' });
+  await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+  await user.click(within(management).getByRole('button', { name: 'Recruit Captain' }));
 
   expect(mockNeonD.buyCaptainMock).toHaveBeenCalledWith('Captain 1');
 });
@@ -1165,7 +1357,7 @@ it('does not show a global Bulk control while still showing Captain progression'
   render(<NeonDGame />);
 
   expect(screen.queryByRole('button', { name: /bulk.*141[.,]592/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /hire captain/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /hire captain/i })).not.toBeInTheDocument();
 });
 
 it('shows the per-product Bulk purchase only after all product upgrades are owned', () => {
@@ -1298,4 +1490,38 @@ it('shows bail and fire actions for arrested dealers and keeps their compact sum
   expect(within(arrestedCard).queryByText('Status')).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /pay bail/i })).not.toBeInTheDocument();
   expect(within(arrestedCard).queryByRole('button', { name: /fire dealer/i })).not.toBeInTheDocument();
+});
+
+it('confirms a zone dealer transfer through the game engine', async () => {
+  const user = userEvent.setup();
+  const dealer = makeReferenceDealer({ id: 'zone-transfer-dealer', name: 'Zone Transfer Dealer' });
+  mockState({
+    zones: [
+      {
+        id: 'amsterdam',
+        displayName: 'Amsterdam',
+        captainId: null,
+        dealerSlots: [{ id: 'amsterdam-slot-1', dealer, reservedTransferId: null }],
+        perkIds: [],
+      },
+      {
+        id: 'paris',
+        displayName: 'Paris',
+        captainId: null,
+        dealerSlots: [{ id: 'paris-slot-1', dealer: null, reservedTransferId: null }],
+        perkIds: [],
+      },
+    ],
+  });
+
+  render(<NeonDGame />);
+
+  const destinationZone = screen.getByRole('article', { name: 'Paris distribution' });
+  await user.click(within(destinationZone).getByRole('button', { name: 'Transfer dealer' }));
+  await user.click(screen.getByRole('combobox', { name: 'Dealer to transfer' }));
+  await user.click(screen.getByRole('option', { name: 'Zone Transfer Dealer · Amsterdam' }));
+  await user.click(screen.getByRole('button', { name: 'Confirm transfer' }));
+
+  expect(mockNeonD.transferDealerMock).toHaveBeenCalledWith('zone-transfer-dealer', 'paris', 'paris-slot-1');
+  expect(screen.queryByRole('dialog', { name: /Transfer Zone Transfer Dealer/ })).not.toBeInTheDocument();
 });

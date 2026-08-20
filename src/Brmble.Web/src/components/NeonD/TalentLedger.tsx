@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from '../Icon/Icon';
 import { getCaptainRemainingThreshold, isCaptainLevelUpAvailable } from './economy';
-import { canPurchaseTalent, getTalentDefinition } from './talents';
+import { canPurchaseTalent, getTalentDefinition, getTalentSpecialEffect } from './talents';
 import type { Captain, TalentPathId } from './types';
 import styles from './NeonD.module.css';
 
@@ -182,7 +182,10 @@ export function TalentLedger({
                       <span className={styles.talentNodeLabel}>{definition.label}</span>
                       <strong>{currentRanks}/{definition.maxRanks}</strong>
                       <span className={styles.talentNodeEffect}>
-                        {definition.rankBonuses.map((bonus) => formatEffect(definition.stat, bonus)).join(' · ')}
+                        {definition.rankBonuses.flatMap((bonus, index) => [
+                          formatEffect(definition.stat, bonus),
+                          getTalentSpecialEffect(path.id, row as 0 | 1 | 2, index + 1),
+                        ]).filter((effect): effect is string => effect !== null).join(' · ')}
                       </span>
                     </button>
                     {row < 2 ? <span className={styles.talentLaneArrow} aria-hidden="true">↓</span> : null}
