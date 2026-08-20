@@ -66,6 +66,26 @@ describe('paintCanvas', () => {
     expect(operations).toContain('fill');
   });
 
+  it('renders a line stroke directly to its final point', () => {
+    const moveTo = vi.fn();
+    const lineTo = vi.fn();
+    const ctx = {
+      beginPath: vi.fn(), moveTo, lineTo, stroke: vi.fn(),
+      set globalCompositeOperation(_value: string) {},
+      set strokeStyle(_value: string) {}, set lineWidth(_value: number) {},
+      lineCap: 'round', lineJoin: 'round',
+    } as unknown as CanvasRenderingContext2D;
+
+    applyPaintStrokeToContext(ctx, 100, 50, {
+      correlationId: 'corr-line', generation: 0, tool: 'line', color: '#ef4444', width: 6,
+      points: [{ x: 0.1, y: 0.2 }, { x: 0.4, y: 0.8 }, { x: 0.9, y: 0.6 }],
+    });
+
+    expect(moveTo).toHaveBeenCalledWith(10, 10);
+    expect(lineTo).toHaveBeenCalledTimes(1);
+    expect(lineTo).toHaveBeenCalledWith(90, 30);
+  });
+
   it('keeps the source layer intact when composing an erased annotation into a PNG', async () => {
     const compositionOperations: string[] = [];
     const annotationOperations: string[] = [];

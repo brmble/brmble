@@ -29,6 +29,12 @@ beforeAll(() => {
 });
 
 describe('MessageInput emoji picker', () => {
+  it('shows a plain monochrome symbol on the emoji trigger', () => {
+    renderMessageInput();
+
+    expect(screen.getByRole('button', { name: 'Insert emoji' })).toHaveTextContent('☺');
+  });
+
   it('opens the picker and renders the supported emoji list', async () => {
     const user = userEvent.setup();
     renderMessageInput();

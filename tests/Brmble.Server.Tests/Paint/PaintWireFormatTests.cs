@@ -53,6 +53,34 @@ public sealed class PaintWireFormatTests
     }
 
     [TestMethod]
+    public async Task StrokeCommitted_SerializesLineToolAsCamelCaseString()
+    {
+        var stroke = new PaintStroke(
+            Guid.Parse("44444444-4444-4444-4444-444444444444"),
+            Guid.Parse("55555555-5555-5555-5555-555555555555"),
+            7,
+            "@alice:test",
+            1,
+            0,
+            PaintTool.Line,
+            "#111827",
+            PaintStrokeWidth.Medium,
+            [new PaintPoint(0.1, 0.2, null), new PaintPoint(0.9, 0.8, null)],
+            true);
+
+        using var json = await BroadcastAndCaptureAsync(new
+        {
+            type = PaintEventNames.StrokeCommitted,
+            sessionId = Guid.Parse("66666666-6666-6666-6666-666666666666"),
+            stroke,
+            revision = 1L,
+            generation = 0L,
+        });
+
+        Assert.AreEqual("line", json.RootElement.GetProperty("stroke").GetProperty("tool").GetString());
+    }
+
+    [TestMethod]
     public async Task PreviewUpdated_SerializesEraserAndWideWidth()
     {
         var input = new PaintStrokeInput(
