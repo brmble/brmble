@@ -1,8 +1,4 @@
 .container {
-  --neond-icon-button-size: 1.625rem;
-  --neond-talent-lane-max-width: 12rem;
-  --neond-hiring-modal-max-width: 60rem;
-  --neond-hiring-card-min-width: 13.75rem;
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-body);
