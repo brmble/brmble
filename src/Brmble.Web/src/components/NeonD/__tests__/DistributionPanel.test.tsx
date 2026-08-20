@@ -137,12 +137,12 @@ describe('DistributionPanel hiring entry point', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Hire dealers 1/1' }));
+    await user.click(screen.getByRole('button', { name: 'View unassigned Captains' }));
 
-    const management = screen.getByRole('dialog', { name: /Distribution hiring/ });
-    await user.click(within(management).getByRole('tab', { name: 'Captains' }));
+    const management = screen.getByRole('dialog', { name: 'Unassigned Captains' });
     expect(within(management).getByText('Captain Five')).toBeInTheDocument();
-    expect(within(management).getByRole('button', { name: 'Recruit Captain' })).toBeInTheDocument();
+    expect(within(management).getByRole('textbox', { name: 'Name for Captain Five' })).toBeInTheDocument();
+    expect(within(management).queryByRole('button', { name: /Hire .* to Slot/ })).not.toBeInTheDocument();
   });
 
   it('keeps Captain recruitment reachable when all zone dealer slots and Captains are assigned', async () => {

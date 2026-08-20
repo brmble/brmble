@@ -14,30 +14,17 @@ import {
 } from '../../utils/paintSourceFile';
 import './PaintSessionSetupModal.css';
 
-type Candidate = { userId: number; name: string };
-type Created = { sessionId: string; matrixRoomId: string; channelId: number };
-type Matrix = Pick<
-  MatrixClient,
-  'getMediaConfig' | 'joinRoom' | 'uploadContent' | 'sendMessage'
->;
+type Created = { sessionId: string; channelId: number };
+type Matrix = Pick<MatrixClient, 'sendMessage'>;
 
 type PaintSessionSetupModalProps = {
   channelId: number;
   channelRoomId: string;
-  candidates: Candidate[];
-  hostUserId: number;
   paintApi: {
-    createSession(input: {
-      channelId: number;
-      participantSessionIds: number[];
-    }): Promise<Created>;
-    leave(sessionId: string): Promise<unknown>;
+    createSession(input: { channelId: number; source: File }): Promise<Created>;
+    end(sessionId: string): Promise<unknown>;
   };
   matrixClient: Matrix;
-  onAttachSource(
-    sessionId: string,
-    sourceEventId: string,
-  ): Promise<unknown>;
   initialSourceFile?: File | null;
   onComplete?: (sessionId: string) => void;
   onClose?: () => void;
@@ -46,10 +33,8 @@ type PaintSessionSetupModalProps = {
 export function PaintSessionSetupModal({
   channelId,
   channelRoomId,
-  candidates,
   paintApi,
   matrixClient,
-  onAttachSource,
   initialSourceFile,
   onComplete,
   onClose,
@@ -58,8 +43,6 @@ export function PaintSessionSetupModal({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sourceRevisionRef = useRef(0);
-  const uploadLimitPromiseRef = useRef<Promise<number | undefined> | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(
     () => initialSourceFile ?? null,
   );
@@ -82,18 +65,6 @@ export function PaintSessionSetupModal({
     cancelRef.current?.focus();
   }, []);
 
-  const getUploadLimit = useCallback(() => {
-    uploadLimitPromiseRef.current ??= matrixClient.getMediaConfig()
-      .then((config) => config['m.upload.size'])
-      .catch(() => {
-        uploadLimitPromiseRef.current = null;
-        throw new Error(
-          'Unable to check this image right now. Try again or choose a file.',
-        );
-      });
-    return uploadLimitPromiseRef.current;
-  }, [matrixClient]);
-
   const stageSource = useCallback(async (
     candidate: File,
     origin: PaintSourceOrigin,
@@ -107,7 +78,6 @@ export function PaintSessionSetupModal({
       const prepared = await preparePaintSourceFile(
         candidate,
         origin,
-        await getUploadLimit(),
       );
       if (revision !== sourceRevisionRef.current) return;
       setFile(prepared);
@@ -129,7 +99,7 @@ export function PaintSessionSetupModal({
         setPreparingSource(false);
       }
     }
-  }, [getUploadLimit, saving]);
+  }, [saving]);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const candidate = event.currentTarget.files?.[0];
@@ -157,6 +127,10 @@ export function PaintSessionSetupModal({
     void stageSource(candidate, 'paste');
   }, [saving, stageSource]);
 
+  const handleClose = useCallback(() => {
+    if (!saving) onClose?.();
+  }, [onClose, saving]);
+
   const start = async () => {
     if (!file) {
       setError('Choose a source image.');
@@ -168,26 +142,10 @@ export function PaintSessionSetupModal({
     let created: Created | null = null;
 
     try {
-      const limit = await getUploadLimit();
-      if (limit && file.size > limit) {
-        throw new Error('The source image exceeds the Matrix upload limit.');
-      }
       created = await paintApi.createSession({
         channelId,
-        participantSessionIds: selected,
+        source: file,
       });
-      await matrixClient.joinRoom(created.matrixRoomId);
-      const uploaded = await matrixClient.uploadContent(file, {
-        type: file.type,
-        name: file.name,
-      });
-      const source = await matrixClient.sendMessage(created.matrixRoomId, {
-        msgtype: MsgType.Image,
-        body: file.name,
-        url: uploaded.content_uri,
-        info: { mimetype: file.type, size: file.size },
-      });
-      await onAttachSource(created.sessionId, source.event_id);
       const invitation = {
         version: 2 as const,
         sessionId: created.sessionId,
@@ -203,7 +161,7 @@ export function PaintSessionSetupModal({
     } catch (reason) {
       if (created) {
         try {
-          await paintApi.leave(created.sessionId);
+          await paintApi.end(created.sessionId);
         } catch {
           // Preserve the setup error; the server-side expiry remains a fallback cleanup.
         }
@@ -219,7 +177,7 @@ export function PaintSessionSetupModal({
   };
 
   return (
-    <div className="modal-overlay" data-testid="paint-setup-overlay" onClick={onClose}>
+    <div className="modal-overlay" data-testid="paint-setup-overlay" onClick={handleClose}>
       <div
         ref={dialogRef}
         className="paint-setup-modal glass-panel animate-slide-up"
@@ -231,7 +189,7 @@ export function PaintSessionSetupModal({
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
-            onClose?.();
+            handleClose();
             return;
           }
           if (event.key !== 'Tab') return;
@@ -252,21 +210,6 @@ export function PaintSessionSetupModal({
             Start collaborative paint
           </h2>
         </div>
-        {candidates.map((candidate) => (
-          <label key={candidate.userId}>
-            <input
-              aria-label={candidate.name}
-              type="checkbox"
-              checked={selected.includes(candidate.userId)}
-              onChange={() => setSelected((value) => (
-                value.includes(candidate.userId)
-                  ? value.filter((id) => id !== candidate.userId)
-                  : [...value, candidate.userId]
-              ))}
-            />
-            {candidate.name}
-          </label>
-        ))}
         <label>
           Source image
           <input
@@ -294,7 +237,7 @@ export function PaintSessionSetupModal({
         )}
         {error && <p role="alert">{error}</p>}
         <div className="paint-setup-footer">
-          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={onClose}>
+          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={handleClose}>
             Cancel
           </button>
           <button

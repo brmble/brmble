@@ -1516,10 +1516,10 @@ it('confirms a zone dealer transfer through the game engine', async () => {
 
   render(<NeonDGame />);
 
-  const dealerCard = screen.getByLabelText('Zone Transfer Dealer distribution');
-  await user.click(within(dealerCard).getByRole('button', { name: 'Transfer dealer' }));
-  await user.click(screen.getByRole('combobox', { name: 'Transfer destination' }));
-  await user.click(screen.getByRole('option', { name: 'Paris · Slot 1' }));
+  const destinationZone = screen.getByRole('article', { name: 'Paris distribution' });
+  await user.click(within(destinationZone).getByRole('button', { name: 'Transfer dealer' }));
+  await user.click(screen.getByRole('combobox', { name: 'Dealer to transfer' }));
+  await user.click(screen.getByRole('option', { name: 'Zone Transfer Dealer · Amsterdam' }));
   await user.click(screen.getByRole('button', { name: 'Confirm transfer' }));
 
   expect(mockNeonD.transferDealerMock).toHaveBeenCalledWith('zone-transfer-dealer', 'paris', 'paris-slot-1');

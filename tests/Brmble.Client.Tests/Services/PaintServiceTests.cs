@@ -71,6 +71,25 @@ public sealed class PaintServiceTests
     }
 
     [TestMethod]
+    public async Task PaintRequest_ForwardsSourceToSessionSourceEndpoint()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        using var key = RSA.Create(2048);
+        using var certificate = new CertificateRequest("CN=paint-test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        Uri? calledUri = null;
+        var service = new PaintService(bridge, () => certificate, () => "https://api.example.com",
+            (_, uri) => { calledUri = uri; return Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, "{\"mimeType\":\"image/png\",\"dataBase64\":\"AQI=\"}", 200, null)); },
+            (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, null, 200, null)));
+        service.RegisterHandlers(bridge);
+
+        using var request = JsonDocument.Parse("""{"requestId":7,"action":"source","sessionId":"11111111-1111-1111-1111-111111111111"}""");
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "paint.request", request.RootElement.Clone());
+
+        Assert.AreEqual("paint/sessions/11111111-1111-1111-1111-111111111111/source", calledUri!.PathAndQuery.TrimStart('/'));
+    }
+
+    [TestMethod]
     public async Task PaintCreate_ReturnsCorrelatedSessionResult()
     {
         var bridge = NativeBridgeTestHarness.Create();
@@ -80,7 +99,7 @@ public sealed class PaintServiceTests
         var service = new PaintService(bridge, () => certificate, () => "https://api.example.com",
             (_, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true, null, 200, null)),
             (_, _, _) => Task.FromResult(new ChannelRequestBridgeHandler.TlsCallResult(true,
-                "{\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"matrixRoomId\":\"!paint:test\"}", 200, null)));
+                "{\"sessionId\":\"11111111-1111-1111-1111-111111111111\",\"channelId\":9}", 200, null)));
         service.RegisterHandlers(bridge);
 
         using var request = JsonDocument.Parse("{ \"channelId\": 9, \"requestId\": 11 }");
@@ -90,7 +109,7 @@ public sealed class PaintServiceTests
         StringAssert.Contains(response.DataJson, "\"requestId\":11");
         StringAssert.Contains(response.DataJson, "\"success\":true");
         StringAssert.Contains(response.DataJson, "sessionId");
-        StringAssert.Contains(response.DataJson, "matrixRoomId");
+        StringAssert.Contains(response.DataJson, "channelId");
     }
 
     [TestMethod]

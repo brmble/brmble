@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageBubble } from './MessageBubble';
 import { ServiceStatusProvider } from '../../hooks/useServiceStatus';
@@ -125,10 +125,44 @@ describe('MessageBubble', () => {
     await user.click(await screen.findByRole('button', { name: 'Join paint' }));
 
     expect(onJoinPaint).toHaveBeenCalledWith('session-1');
-    expect(onOpenPaint).not.toHaveBeenCalled();
+    await waitFor(() => expect(onOpenPaint).toHaveBeenCalledWith('session-1'));
+  });
 
-    await user.click(await screen.findByRole('button', { name: 'Open paint' }));
+  it('refreshes a paint invitation when the current user joins its voice channel', async () => {
+    paint.getSummary.mockReset();
+    paint.getSummary
+      .mockRejectedValueOnce(new Error('not in voice channel'))
+      .mockResolvedValueOnce({
+        sessionId: 'session-1',
+        channelId: 5,
+        hostUserId: 7,
+        status: 'active',
+        canJoin: true,
+        isParticipant: false,
+      });
 
-    expect(onOpenPaint).toHaveBeenCalledWith('session-1');
+    const paintProps = {
+      content: '[brmble-paint]{"version":2,"sessionId":"session-1","channelId":5,"status":"active"}',
+      currentUserId: 8,
+      users: [{ session: 8, name: 'Bob', channelId: 2 }],
+      onJoinPaint: vi.fn(),
+      onOpenPaint: vi.fn(),
+    };
+    const { rerender } = renderBubble(paintProps);
+
+    expect(await screen.findByText('Session is unavailable')).toBeInTheDocument();
+
+    rerender(
+      <ServiceStatusProvider>
+        <MessageBubble
+          {...baseMessage}
+          {...paintProps}
+          users={[{ session: 8, name: 'Bob', channelId: 5 }]}
+        />
+      </ServiceStatusProvider>,
+    );
+
+    await waitFor(() => expect(paint.getSummary).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: 'Join paint' })).toBeEnabled();
   });
 });

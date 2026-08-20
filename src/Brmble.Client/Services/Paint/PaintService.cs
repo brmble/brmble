@@ -31,7 +31,6 @@ internal sealed class PaintService : IService
     public void RegisterHandlers(NativeBridge bridge)
     {
         bridge.RegisterHandler("paint.create", data => PostAsync("paint/sessions", data));
-        bridge.RegisterHandler("paint.attachSource", data => PostSessionAsync(data, "source"));
         bridge.RegisterHandler("paint.join", data => PostSessionAsync(data, "join"));
         bridge.RegisterHandler("paint.leave", data => PostSessionAsync(data, "leave"));
         bridge.RegisterHandler("paint.commitStroke", data => PostSessionAsync(data, "stroke"));
@@ -56,16 +55,19 @@ internal sealed class PaintService : IService
         var action = data.TryGetProperty("action", out var actionValue) ? actionValue.GetString() : null;
         var sessionId = data.TryGetProperty("sessionId", out var sessionValue) ? sessionValue.GetString() : null;
         if (string.IsNullOrWhiteSpace(sessionId)
-            || action is not ("snapshot" or "summary"))
+            || action is not ("snapshot" or "summary" or "source"))
         {
             SendResponse(requestId, false, null, 0, "Invalid paint request action");
             return;
         }
 
         var escapedSessionId = Uri.EscapeDataString(sessionId);
-        var path = action == "summary"
-            ? $"paint/sessions/{escapedSessionId}/summary"
-            : $"paint/sessions/{escapedSessionId}";
+        var path = action switch
+        {
+            "summary" => $"paint/sessions/{escapedSessionId}/summary",
+            "source" => $"paint/sessions/{escapedSessionId}/source",
+            _ => $"paint/sessions/{escapedSessionId}",
+        };
         var result = await CallAsync(cert => _getAsync(cert, new Uri(new Uri(_getApiUrl()!, UriKind.Absolute), path)));
         SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
     }

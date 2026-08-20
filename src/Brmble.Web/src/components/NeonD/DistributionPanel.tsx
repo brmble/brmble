@@ -634,6 +634,13 @@ export function DistributionPanel(props: DistributionPanelProps) {
   const totalSlotCount = isZoneMode ? getTotalDealerCapacity(props.state) : props.state.activeDealers.length;
   const firstEmptySlotIndex = props.state.activeDealers.findIndex((seller) => seller === null);
   const hiringSummary = `Hire dealers ${activeDealerCount}/${totalSlotCount}${reservedSlotCount > 0 ? ` · ${reservedSlotCount} reserved` : ''}`;
+  const hasUnassignedCaptains = isZoneMode
+    ? getUnassignedCaptains(props.state).length > 0
+    : props.state.captains.some(
+      (captain) => !props.state.activeDealers.some((seller) => seller?.id === captain.id),
+    );
+  const hasAvailableDealerSlot = isZoneMode ? activeDealerCount < totalSlotCount : firstEmptySlotIndex !== -1;
+  const showCaptainRoster = !isZoneMode && !hasAvailableDealerSlot && hasUnassignedCaptains;
   const transferEntry = transferDealerId === null
     ? null
     : getActiveDealerEntries(props.state).find((entry) => entry.dealer.id === transferDealerId) ?? null;
@@ -647,11 +654,16 @@ export function DistributionPanel(props: DistributionPanelProps) {
         type="button"
         className={styles.buyButton}
         onClick={() => {
+          if (showCaptainRoster) {
+            setHiringTarget(null);
+            setHiringInitialTab('captains');
+            return;
+          }
           setHiringTarget({ kind: 'legacy', slotIndex: firstEmptySlotIndex === -1 ? 0 : firstEmptySlotIndex });
           setHiringInitialTab('dealers');
         }}
       >
-        {hiringSummary}
+        {showCaptainRoster ? 'View unassigned Captains' : hiringSummary}
       </button>
 
       <div className={styles.cardStack}>
@@ -785,6 +797,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
           slotIndex={hiringTarget?.kind === 'legacy' ? hiringTarget.slotIndex : 0}
           target={hiringTarget}
           initialTab={hiringInitialTab}
+          rosterOnly={showCaptainRoster}
           onHireSeller={props.onHireSeller}
           onHireDealer={props.onHireDealer}
           onRefreshDealers={props.onRefreshDealers}

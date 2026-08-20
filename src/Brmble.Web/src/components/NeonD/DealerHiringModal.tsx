@@ -31,8 +31,11 @@ const formatRefresh = (remainingMs: number) => remainingMs > 0
   ? `Refresh available in ${Math.ceil(remainingMs / 1000)}s`
   : 'Refresh dealers';
 
-function CaptainCandidate({ captain, onRename, onViewTalents }: {
+function CaptainCandidate({ captain, slotIndex, onHire, canHire, onRename, onViewTalents }: {
   captain: Captain;
+  slotIndex: number;
+  onHire: () => void;
+  canHire: boolean;
   onRename: (name: string) => void;
   onViewTalents: () => void;
 }) {
@@ -83,9 +86,17 @@ function CaptainCandidate({ captain, onRename, onViewTalents }: {
       <DealerRating label="Margin" multiplier={getCaptainMarginMultiplier(captain)} maxStars={6} />
       <div className={styles.metricRow}><span>Product</span><strong>{getProductDefinition(captain.selling).name}</strong></div>
       <div className={styles.metricRow}><span>Level</span><strong>Level {captain.level}</strong></div>
-      <button type="button" className={styles.talentPreviewButton} aria-label={`View talents for ${captain.name}`} onClick={onViewTalents}>
-        View talents
-      </button>
+      <div className={styles.metricRow}>
+        <span>Talent</span>
+        <button type="button" className={styles.talentPreviewButton} aria-label={`View talents for ${captain.name}`} onClick={onViewTalents}>
+          View talents
+        </button>
+      </div>
+      {canHire ? (
+        <button type="button" className={styles.buyButton} onClick={onHire}>
+          Hire {captain.name} to Slot {slotIndex + 1}
+        </button>
+      ) : null}
     </article>
   );
 }
@@ -97,7 +108,7 @@ export function DealerHiringModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const captainManagementVisible = isCaptainVisible(state);
   const [activeTab, setActiveTab] = useState<HiringTab>(
-    captainManagementVisible ? (initialTab ?? (rosterOnly ? 'captains' : 'dealers')) : 'dealers',
+    captainManagementVisible ? (rosterOnly ? 'captains' : (initialTab ?? 'dealers')) : 'dealers',
   );
   const [destination, setDestination] = useState('');
   const [previewCaptainId, setPreviewCaptainId] = useState<string | null>(null);
@@ -141,19 +152,21 @@ export function DealerHiringModal({
     onClose();
   };
 
-  const title = captainManagementVisible ? 'Distribution hiring' : `Hire seller for Slot ${slotIndex + 1}`;
+  const title = rosterOnly
+    ? 'Unassigned Captains'
+    : captainManagementVisible ? 'Distribution hiring' : `Hire seller for Slot ${slotIndex + 1}`;
 
   return (
     <div className="modal-overlay" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} className={`glass-panel animate-slide-up ${styles.dealerHiringModal}`} role="dialog" aria-modal="true" aria-labelledby="dealer-hiring-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
         <div className={`modal-header ${styles.dealerHiringHeader}`}>
           <div>
-            <span className={styles.label}>{captainManagementVisible ? 'Dealer and Captain management' : 'Open seller slot'}</span>
+            <span className={styles.label}>{rosterOnly ? 'Captain roster' : captainManagementVisible ? 'Dealer and Captain management' : 'Open seller slot'}</span>
             <h2 id="dealer-hiring-title" className="heading-title modal-title">{title}</h2>
           </div>
           <button type="button" className="modal-close" aria-label="Close hiring modal" onClick={onClose}><Icon name="x" size={18} /></button>
         </div>
-        {captainManagementVisible ? (
+        {captainManagementVisible && !rosterOnly ? (
           <div className={styles.hiringTabs} role="tablist" aria-label="Distribution hiring">
             <button type="button" role="tab" aria-selected={activeTab === 'dealers'} className={styles.hiringTab} onClick={() => setActiveTab('dealers')}>Dealers</button>
             <button type="button" role="tab" aria-selected={activeTab === 'captains'} className={styles.hiringTab} onClick={() => setActiveTab('captains')}>Captains</button>
@@ -206,7 +219,15 @@ export function DealerHiringModal({
             {unassignedCaptains.length > 0 ? (
               <div className={styles.hiringCaptainGrid}>
                 {unassignedCaptains.map((captain) => (
-                  <CaptainCandidate key={captain.id} captain={captain} onRename={(name) => onRenameCaptain(captain.id, name)} onViewTalents={() => setPreviewCaptainId(captain.id)} />
+                  <CaptainCandidate
+                    key={captain.id}
+                    captain={captain}
+                    slotIndex={slotIndex}
+                    onHire={() => { onHireSeller(captain.id, slotIndex, 'captain'); onClose(); }}
+                    canHire={!rosterOnly}
+                    onRename={(name) => onRenameCaptain(captain.id, name)}
+                    onViewTalents={() => setPreviewCaptainId(captain.id)}
+                  />
                 ))}
               </div>
             ) : <p className={styles.label}>All Captains are assigned.</p>}

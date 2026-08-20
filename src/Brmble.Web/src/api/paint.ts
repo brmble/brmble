@@ -6,8 +6,29 @@ let nextRequestId = 1;
 
 export interface CreatedPaintSession {
   sessionId: string;
-  matrixRoomId: string;
   channelId: number;
+}
+
+interface EncodedPaintSource { mimeType: string; dataBase64: string; }
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function encodeSource(source: File): Promise<EncodedPaintSource> {
+  return { mimeType: source.type, dataBase64: bytesToBase64(new Uint8Array(await source.arrayBuffer())) };
 }
 
 interface BridgeResponse {
@@ -88,14 +109,14 @@ function normalizedStroke(stroke: PaintStrokeInput): PaintStrokeInput {
 }
 
 export const paintApi = {
-  async createSession(input: { channelId: number; participantSessionIds: number[] }): Promise<CreatedPaintSession> {
+  async createSession(input: { channelId: number; source: File }): Promise<CreatedPaintSession> {
+    const payload = { channelId: input.channelId, source: await encodeSource(input.source) };
     const created = isWebViewBridgeAvailable()
-      ? await bridgeRequest<Omit<CreatedPaintSession, 'channelId'>>('paint.create', input)
-      : await post<Omit<CreatedPaintSession, 'channelId'>>('/paint/sessions', input);
+      ? await bridgeRequest<Omit<CreatedPaintSession, 'channelId'>>('paint.create', payload)
+      : await post<Omit<CreatedPaintSession, 'channelId'>>('/paint/sessions', payload);
 
     return { ...created, channelId: input.channelId };
   },
-  attachSource: (sessionId: string, sourceEventId: string) => mutate('paint.attachSource', `/paint/sessions/${encodeURIComponent(sessionId)}/source`, { sessionId, sourceEventId }),
   join: (sessionId: string) => mutate('paint.join', `/paint/sessions/${encodeURIComponent(sessionId)}/join`, { sessionId }),
   leave: (sessionId: string) => mutate('paint.leave', `/paint/sessions/${encodeURIComponent(sessionId)}/leave`, { sessionId }),
   commitStroke: (sessionId: string, stroke: PaintStrokeInput) => mutate('paint.commitStroke', `/paint/sessions/${encodeURIComponent(sessionId)}/stroke`, { sessionId, ...normalizedStroke(stroke) }),
@@ -108,6 +129,17 @@ export const paintApi = {
     const response = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
     if (!response.ok) throw new Error(response.statusText || 'Request failed.');
     return response.json() as Promise<PaintSessionSnapshot>;
+  },
+  async getSource(sessionId: string): Promise<Blob> {
+    const response = isWebViewBridgeAvailable()
+      ? await bridgeRequest<EncodedPaintSource>('paint.request', { action: 'source', sessionId })
+      : await (async () => {
+        const result = await fetch(`/paint/sessions/${encodeURIComponent(sessionId)}/source`, { method: 'GET' });
+        if (!result.ok) throw new Error(result.statusText || 'Request failed.');
+        return result.json() as Promise<EncodedPaintSource>;
+      })();
+    const bytes = base64ToBytes(response.dataBase64);
+    return new Blob([bytes.buffer as ArrayBuffer], { type: response.mimeType });
   },
   async getSummary(sessionId: string): Promise<PaintSessionSummary> {
     if (isWebViewBridgeAvailable()) return bridgeRequest<PaintSessionSummary>('paint.request', { action: 'summary', sessionId });

@@ -1,4 +1,4 @@
-import type { PaintSource, PaintStroke, PaintStrokeInput } from '../types/paint';
+import type { PaintStroke, PaintStrokeInput } from '../types/paint';
 
 export function normalizeCanvasPoint(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
   const clamp = (value: number) => Math.min(1, Math.max(0, value));
@@ -35,19 +35,8 @@ export function drawPaintStroke(canvas: HTMLCanvasElement, stroke: PaintStroke):
   if (ctx) applyPaintStrokeToContext(ctx, canvas.width, canvas.height, stroke);
 }
 
-export interface MatrixMediaClient {
-  getAccessToken(): string | null;
-  mxcUrlToHttp(url: string, width?: number, height?: number, resizeMethod?: string, allowDirectLinks?: boolean, allowRedirects?: boolean, useAuthentication?: boolean): string | null;
-}
-
-export async function loadPaintSourceImage(client: MatrixMediaClient, source: PaintSource): Promise<HTMLImageElement> {
-  const accessToken = client.getAccessToken();
-  if (!accessToken) throw new Error('Unable to authenticate Matrix source download.');
-  const url = client.mxcUrlToHttp(source.mxcUrl, undefined, undefined, undefined, false, true, true);
-  if (!url) throw new Error('Unable to resolve Matrix source URL.');
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!response.ok) throw new Error('Unable to download Matrix source image.');
-  const objectUrl = URL.createObjectURL(await response.blob());
+export async function loadPaintSourceImage(source: Blob): Promise<HTMLImageElement> {
+  const objectUrl = URL.createObjectURL(source);
   try {
     const image = new Image();
     image.src = objectUrl;
