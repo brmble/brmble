@@ -4035,6 +4035,29 @@ describe('useScreenShare', () => {
       expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
     });
 
+    // The reviewer's scenario: once our own intentional unsubscribe has echoed back and
+    // we have restored the share, a LATER unsubscribe is genuine (publisher stopped or
+    // the SFU dropped us) and must clean the watcher state up. `screenShare.stopped` is
+    // not guaranteed for every such path — a publisher restarting their capture
+    // unpublishes and republishes without one — so this event has to be honoured.
+    it('cleans up a watched share when a genuine unsubscribe arrives after a hide/restore cycle', async () => {
+      vi.useFakeTimers();
+      const { result } = await connectedViewerAndPublisher({ focusedUserId: 10, quality: 'medium' });
+
+      // Hide past the grace period: we stamp the SID and unsubscribe, and the mock
+      // publication echoes TrackUnsubscribed back exactly as real LiveKit does.
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      // Restore: we are no longer intentionally unsubscribed from anything.
+      act(() => { result.current.setRemoteScreenSharesHidden(false); });
+      expect(result.current.watchingShares).toHaveLength(1);
+
+      // The publisher now genuinely stops, with no screenShare.stopped in between.
+      act(() => { emitTrackUnsubscribed(10); });
+
+      expect(result.current.watchingShares).toHaveLength(0);
+    });
+
     // The Task 13 tests only asserted that setSubscribed(true) was CALLED. That is not
     // the user-visible contract: what matters is that a video element exists again for
     // the share, because that element is what the stage renders.

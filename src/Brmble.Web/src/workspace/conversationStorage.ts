@@ -3,8 +3,14 @@ import { conversationKey, type Conversation } from './conversation';
 const STORAGE_VERSION = 1;
 const STORAGE_PREFIX = 'brmble-conversation-tabs';
 
-export function conversationStorageKey(serverId: string): string {
-  return `${STORAGE_PREFIX}:${serverId}`;
+/**
+ * Key under which one server's conversation tabs are persisted. `serverAddress` is the
+ * address the workspace is connected to — the same value used to key the rest of the
+ * per-server storage helpers. The `brmble-conversation-tabs:<serverAddress>` format is
+ * load-bearing for existing users' saved tabs and must not change.
+ */
+export function conversationStorageKey(serverAddress: string): string {
+  return `${STORAGE_PREFIX}:${serverAddress}`;
 }
 
 function isConversation(value: unknown): value is Conversation {
@@ -27,10 +33,10 @@ function dedupe(conversations: Conversation[]): Conversation[] {
   return result;
 }
 
-export function saveConversationTabs(serverId: string, tabs: Conversation[]): void {
+export function saveConversationTabs(serverAddress: string, tabs: Conversation[]): void {
   try {
     localStorage.setItem(
-      conversationStorageKey(serverId),
+      conversationStorageKey(serverAddress),
       JSON.stringify({ version: STORAGE_VERSION, tabs: dedupe(tabs) }),
     );
   } catch {
@@ -39,12 +45,12 @@ export function saveConversationTabs(serverId: string, tabs: Conversation[]): vo
 }
 
 export function loadConversationTabs(
-  serverId: string,
+  serverAddress: string,
   isValid: (conversation: Conversation) => boolean,
 ): Conversation[] {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(conversationStorageKey(serverId));
+    raw = localStorage.getItem(conversationStorageKey(serverAddress));
   } catch {
     return [];
   }

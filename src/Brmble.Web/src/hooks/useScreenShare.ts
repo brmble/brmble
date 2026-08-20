@@ -375,10 +375,6 @@ export function useScreenShare(
   const hideElapsedRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideGenerationRef = useRef(0);
-  // SIDs we unsubscribed on purpose, stamped with the hide generation that did it.
-  // A TrackUnsubscribed for a stamped SID is OUR OWN event echoing back and must never
-  // remove logical state — see the TrackUnsubscribed handler in bindRoomEvents.
-  const intentionalPublicationGenerationRef = useRef(new Map<string, number>());
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
   onWatchedShareEndedRef.current = onWatchedShareEnded;
@@ -397,24 +393,25 @@ export function useScreenShare(
 
   /**
    * Reset the hide machinery because the room lifecycle restarted. Bumping the
-   * generation orphans any in-flight hide timer, and the intentional-unsubscribe stamps
-   * belong to publications on a room that no longer exists.
+   * generation orphans any in-flight hide timer, and clearing the elapsed flag drops
+   * the "we intend watched publications to be unsubscribed" state along with the room
+   * whose publications it described.
    */
   const resetHideLifecycle = useCallback(() => {
     hideGenerationRef.current += 1;
     hideElapsedRef.current = false;
-    intentionalPublicationGenerationRef.current.clear();
     clearHideTimer();
   }, [clearHideTimer]);
 
-  /** Mark a publication as one WE unsubscribed, then unsubscribe it. */
+  /**
+   * Unsubscribe a publication because we are backgrounding it. While `hiddenRef` and
+   * `hideElapsedRef` are both set we intend every watched screen publication to stay
+   * unsubscribed, which is what the TrackUnsubscribed handler uses to recognise the
+   * resulting events as our own.
+   */
   const unsubscribeIntentionally = useCallback((
-    pub: { trackSid?: string; setSubscribed?: (subscribed: boolean) => void },
-    generation: number,
+    pub: { setSubscribed?: (subscribed: boolean) => void },
   ) => {
-    if (pub.trackSid) {
-      intentionalPublicationGenerationRef.current.set(pub.trackSid, generation);
-    }
     try {
       pub.setSubscribed?.(false);
     } catch {
@@ -776,7 +773,7 @@ export function useScreenShare(
       }
       hideElapsedRef.current = true;
       forEachWatchedScreenPublication((pub, share) => {
-        unsubscribeIntentionally(pub, generation);
+        unsubscribeIntentionally(pub);
         if (pub.source === Track.Source.ScreenShareAudio) {
           detachRemoteAudio(share.userId);
         }
@@ -1066,7 +1063,7 @@ export function useScreenShare(
       // Grace already elapsed: we are hidden and this track arrived anyway. Drop it
       // instead of attaching, so a share published while hidden costs nothing.
       if (hiddenRef.current && hideElapsedRef.current) {
-        unsubscribeIntentionally(pub, hideGenerationRef.current);
+        unsubscribeIntentionally(pub);
         return;
       }
 
@@ -1092,24 +1089,31 @@ export function useScreenShare(
         return;
       }
 
-      // We unsubscribed this publication ourselves to background it. This event is our
-      // own action echoing back — possibly late, and possibly stamped by a hide
-      // generation that has since been superseded. Detach the media, but NEVER remove
-      // logical state: the watched list, focus and receive quality survive untouched,
-      // and no room-teardown path is entered. The stamp is deliberately NOT consumed,
-      // so a duplicate or reordered echo for the same SID is suppressed too; stamps are
-      // cleared wholesale when the room lifecycle resets.
-      if (pub.trackSid && intentionalPublicationGenerationRef.current.has(pub.trackSid)) {
-        try { track.detach(); } catch { /* ignore */ }
-        return;
-      }
-
       const watching = watchingSharesRef.current;
       const matchedShare = watching.find(s => {
         const identity = s.matrixUserId ?? String(s.userId);
         return identity === participant.identity;
       });
       if (!matchedShare) return;
+
+      // While we are hidden past the grace period we have deliberately unsubscribed
+      // every watched screen publication, so this event is our own action echoing back —
+      // possibly late, and possibly caused by a hide generation that has since been
+      // superseded. Detach the media, but NEVER remove logical state: the watched list,
+      // focus and receive quality survive untouched, and no room-teardown path is
+      // entered. The suppression is scoped to that intent rather than remembered per
+      // SID, so it ends the instant we restore: a genuine publisher stop or network
+      // unsubscribe arriving after that is handled normally below.
+      const isScreenSharePublication =
+        pub.source === Track.Source.ScreenShare ||
+        pub.source === Track.Source.ScreenShareAudio ||
+        track.source === Track.Source.ScreenShare ||
+        track.source === Track.Source.ScreenShareAudio;
+      if (hiddenRef.current && hideElapsedRef.current && isScreenSharePublication) {
+        try { track.detach(); } catch { /* ignore */ }
+        return;
+      }
+
       if (
         track.kind === Track.Kind.Video &&
         track.source === Track.Source.ScreenShare
@@ -1143,7 +1147,7 @@ export function useScreenShare(
       const isWatched = watchingSharesRef.current.some(s => (s.matrixUserId ?? String(s.userId)) === participant.identity);
       if (!isWatched) return;
 
-      unsubscribeIntentionally(pub, hideGenerationRef.current);
+      unsubscribeIntentionally(pub);
     });
 
     room.on(RoomEvent.Reconnecting, () => {
