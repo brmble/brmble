@@ -18,8 +18,9 @@ public static class PaintEndpoints
         },
     };
 
-    public sealed record CreatePaintSessionDto(int ChannelId, IReadOnlyList<int>? ParticipantSessionIds);
-    public sealed record AttachPaintSourceDto(string? SourceEventId);
+    public sealed record PaintSourceUploadDto(string? MimeType, string? DataBase64);
+    public sealed record CreatePaintSessionDto(int ChannelId, PaintSourceUploadDto? Source);
+    public sealed record PaintSourceDownloadDto(string MimeType, string DataBase64);
     public sealed record PaintPointDto(double X, double Y, double? Pressure);
     public sealed record PaintStrokeDto(Guid CorrelationId, long Generation, string? Tool, string? Color, int Width, IReadOnlyList<PaintPointDto>? Points);
 
@@ -50,16 +51,17 @@ public static class PaintEndpoints
             {
                 if (!presence.TryGetParticipant(user.UserId, out var host) || host.ChannelId != dto.ChannelId)
                     throw new PaintAuthorizationException("Host must be connected to the requested channel.");
-                var result = await manager.CreateAsync(user.UserId, dto.ParticipantSessionIds ?? [], cancellationToken);
+                var bytes = DecodeSource(dto.Source);
+                var result = await manager.CreateAsync(user.UserId, dto.Source!.MimeType!, bytes, cancellationToken);
                 return Results.Ok(result);
             }, context, certificates, users));
 
-        app.MapPost("/paint/sessions/{id:guid}/source", async (Guid id, HttpContext context,
+        app.MapGet("/paint/sessions/{id:guid}/source", async (Guid id, HttpContext context,
             ICertificateHashExtractor certificates, UserRepository users, PaintSessionManager manager, CancellationToken cancellationToken) =>
-            await ExecuteWithBodyAsync<AttachPaintSourceDto>(async (user, dto) =>
+            await ExecuteAsync(async user =>
             {
-                if (string.IsNullOrWhiteSpace(dto.SourceEventId)) throw new PaintValidationException("sourceEventId is required.");
-                return Results.Ok(await manager.AttachSourceAsync(id, user.UserId, dto.SourceEventId, cancellationToken));
+                var source = await manager.ReadSourceAsync(id, user.UserId, cancellationToken);
+                return Results.Json(new PaintSourceDownloadDto(source.Source.MimeType, Convert.ToBase64String(source.Bytes)), PaintJsonOptions);
             }, context, certificates, users));
 
         app.MapGet("/paint/sessions/{id:guid}/summary", async (Guid id, HttpContext context, ICertificateHashExtractor certificates,
@@ -151,8 +153,6 @@ public static class PaintEndpoints
         {
             PaintNotFoundException => (StatusCodes.Status404NotFound, "SESSION_NOT_FOUND"),
             PaintValidationException => (StatusCodes.Status400BadRequest, "INVALID_REQUEST"),
-            PaintAuthorizationException authorization when authorization.Message.Contains("Matrix paint room", StringComparison.OrdinalIgnoreCase)
-                => (StatusCodes.Status403Forbidden, "MATRIX_MEMBERSHIP_REQUIRED"),
             PaintAuthorizationException authorization when authorization.Message.Contains("Only the host", StringComparison.OrdinalIgnoreCase)
                 => (StatusCodes.Status403Forbidden, "HOST_REQUIRED"),
             PaintAuthorizationException authorization when authorization.Message.Contains("paint channel", StringComparison.OrdinalIgnoreCase)
@@ -175,6 +175,18 @@ public static class PaintEndpoints
     private static IResult Unauthenticated()
         => Results.Json(new { code = "UNAUTHENTICATED", error = "Authentication is required." },
             statusCode: StatusCodes.Status401Unauthorized);
+
+    private const int MaxEncodedSourceChars = ((int)PaintSourceValidator.MaxSourceImageBytes + 2) / 3 * 4;
+
+    private static byte[] DecodeSource(PaintSourceUploadDto? source)
+    {
+        if (source is null || string.IsNullOrWhiteSpace(source.MimeType) || string.IsNullOrWhiteSpace(source.DataBase64))
+            throw new PaintValidationException("source is required.");
+        if (source.DataBase64.Length > MaxEncodedSourceChars)
+            throw new PaintValidationException($"source image exceeds the {PaintSourceValidator.MaxSourceImageBytes} byte limit.");
+        try { return Convert.FromBase64String(source.DataBase64); }
+        catch (FormatException) { throw new PaintValidationException("source image encoding is invalid."); }
+    }
 
     private static async Task<AuthenticatedChannelRequestUser?> ResolveUserAsync(HttpContext context,
         ICertificateHashExtractor certificates, UserRepository users)

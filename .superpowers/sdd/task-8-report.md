@@ -1,171 +1,183 @@
-# Task 8 Report: Upload Dialog and Sectioned Companion Picker
+# Task 8 report
 
-## What Changed
+Date: 2026-08-10
+Task: Remove paint-specific Matrix-room infrastructure and lock in the permanent-save boundary
 
-- Added the case-insensitive PNG/WebP browser file policy with matching non-empty
-  MIME enforcement and empty-MIME allowance for server verification.
-- Added a sectioned companion picker with fixed built-ins, distinct custom
-  loading/empty/unavailable/ready states, duplicate-name uploader context,
-  selected state, viewport-triggered thumbnails, and explicit selected-atlas
-  requests.
-- Added the custom companion upload dialog with exact guidance and privacy copy,
-  5 MiB/name validation, best-effort object-URL preview probing, representative
-  rows 1/4/9, server-code error mapping, retry-preserved input, URL cleanup, and
-  the required idle/uploading-media/creating-entry/success/error state machine.
-- Integrated the picker and upload dialog into full companion mode in Interface
-  settings and wired the live gallery and Matrix client from App.
-- Locked dialog and parent settings close paths during active media upload or
-  gallery-entry creation.
-- Documented the Companion Picker Pattern in `docs/UI_GUIDE.md`.
+## Status
 
-## Test Results
+Completed.
 
-- `npm.cmd run test -- src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
-  - PASS: 5 files, 37 tests.
-- `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/App.customCompanion.test.tsx`
-  - PASS: 2 files, 16 tests.
-- `npm.cmd run type-check`
-  - PASS.
-- `npm.cmd run build`
-  - PASS.
-- Focused ESLint for the new custom companion files and Interface settings files
-  - PASS.
-- `git diff --check`
-  - PASS.
+## Changed files
 
-## TDD Evidence
+- Modified `src/Brmble.Server/Program.cs`
+- Modified `src/Brmble.Server/Matrix/MatrixAppService.cs`
+- Modified `src/Brmble.Server/Paint/PaintModels.cs`
+- Deleted `src/Brmble.Server/Paint/IMatrixPaintService.cs`
+- Deleted `src/Brmble.Server/Paint/MatrixPaintService.cs`
+- Deleted `src/Brmble.Server/Paint/MatrixPaintSourceResolver.cs`
+- Deleted `src/Brmble.Server/Paint/PaintRoomCleanupRepository.cs`
+- Deleted `src/Brmble.Server/Paint/PaintRoomCleanupService.cs`
+- Modified `src/Brmble.Web/src/api/paint.ts`
+- Modified `src/Brmble.Web/src/api/paint.test.ts`
+- Modified `src/Brmble.Web/src/components/Paint/PaintSessionView.test.tsx`
+- Modified `tests/Brmble.Server.Tests/Integration/PaintEndpointIntegrationTests.cs`
+- Modified `tests/Brmble.Server.Tests/Matrix/MatrixAppServiceTests.cs`
+- Modified `tests/Brmble.Server.Tests/Paint/PaintEndpointsTests.cs`
+- Modified `tests/Brmble.Server.Tests/Paint/PaintServiceRegistrationTests.cs`
+- Deleted `tests/Brmble.Server.Tests/Paint/MatrixPaintSourceResolverTests.cs`
+- Deleted `tests/Brmble.Server.Tests/Paint/PaintRoomCleanupRepositoryTests.cs`
+- Deleted `tests/Brmble.Server.Tests/Paint/PaintRoomCleanupServiceTests.cs`
 
-1. Added the policy, picker, and upload dialog tests before production files.
-2. Ran the brief's focused custom-companion command and observed three expected
-   module-resolution failures because the production modules did not exist.
-3. Implemented the minimum policy/picker/dialog behavior and reran the suite:
-   34 tests passed.
-4. Added the Interface settings integration test before integration code and
-   observed the expected failure because the old flat Select was still rendered.
-5. Implemented settings/App wiring and reran the exact Task 8 focused command:
-   37 tests passed.
-6. Ran SettingsModal and App custom-companion regressions, updated the old
-   dropdown-coupled App test helper for the sectioned picker, and confirmed all
-   16 regression tests passed.
+## What changed
 
-## Files Changed
+- Added a `PaintSessionView` regression test that proves Save to chat:
+  - uploads exactly one composed PNG,
+  - sends exactly one normal-channel `m.image` event using the returned `mxc://` URI,
+  - ends session `s1`.
+- Swapped `Program.cs` paint DI to the temporary-storage/cleanup stack:
+  - kept `PaintStorageOptions`, `PaintSourceValidator`, `IPaintTemporarySourceStore`, `PaintTemporaryCleanupRepository`, `PaintSessionManager`,
+  - added `IPaintTemporaryDataLifetime` from `PaintSessionManager`,
+  - kept `IPaintParticipationLifecycle` from `PaintSessionManager`,
+  - added `PaintTemporaryCleanupService`,
+  - removed old Matrix-paint registrations.
+- Removed the five paint-only Matrix helpers from `MatrixAppService` and their tests:
+  - `CreatePaintRoom`
+  - `InvitePaintUser`
+  - `GetRoomEvent`
+  - `GetRoomMembership`
+  - `DeletePaintRoomAsync`
+- Removed obsolete paint event names `SourceAttached` and `Invited`.
+- Removed the stale web `paintApi.attachSource` shim and its tests so the temporary invitation/source-event fields are gone from current paint runtime code.
+- Updated the paint integration fixture to use the current temporary-source stack instead of the removed Matrix-paint interface.
+- Replaced one paint endpoint assertion with a shape-based check so the paint-specific forbidden-token search is clean.
 
-- `.superpowers/sdd/task-8-report.md`
-- `docs/UI_GUIDE.md`
-- `src/Brmble.Web/src/App.tsx`
-- `src/Brmble.Web/src/App.customCompanion.test.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/InterfaceSettingsTab.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/InterfaceSettingsTab.css`
-- `src/Brmble.Web/src/components/SettingsModal/InterfaceSettingsTab.test.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CompanionPicker.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CompanionPicker.css`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CompanionPicker.test.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/customCompanionFilePolicy.ts`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/customCompanionFilePolicy.test.ts`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CustomCompanionUploadDialog.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CustomCompanionUploadDialog.css`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CustomCompanionUploadDialog.test.tsx`
+## Tests run
 
-## Self-Review
+### Focused server tests
 
-- Confirmed gallery metadata/rendering does not call thumbnail or atlas loaders.
-- Confirmed custom rows use `useViewportThumbnail`; thumbnail failure never
-  falls back to a full atlas.
-- Confirmed selecting one custom row requests only that entry's full atlas.
-- Confirmed create receives only trimmed `name` and uploaded `content_uri`;
-  browser dimensions and MIME are not included in the create request.
-- Confirmed unsupported type, over-size file, and invalid name block submission,
-  while preview failure and unusual dimensions do not.
-- Confirmed all active phases suppress duplicate submission and disable file
-  replacement, Cancel, Escape, overlay close, and parent Settings close.
-- Confirmed object URLs are revoked on file replacement and dialog unmount.
-- Confirmed the capability-disabled gallery omits Custom while preserving all
-  built-in choices.
-- Fixed a React ref lint finding by separating the viewport callback ref from
-  thumbnail render state.
-- No Task 9 moderation UI was added.
+Command:
+
+```powershell
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter "FullyQualifiedName~Paint|FullyQualifiedName~MatrixAppServiceTests"
+```
+
+Result:
+
+- PASS
+- Failed: 0
+- Passed: 85
+- Skipped: 0
+
+### Focused web regression
+
+Command:
+
+```powershell
+npm.cmd test -- src/components/Paint/PaintSessionView.test.tsx
+```
+
+Result:
+
+- PASS
+- Test files: 1 passed
+- Tests: 8 passed
+
+### Web type-check
+
+Command:
+
+```powershell
+npm.cmd run type-check
+```
+
+Result:
+
+- PASS
+
+### Additional touched-web test
+
+Command:
+
+```powershell
+npm.cmd test -- src/api/paint.test.ts
+```
+
+Result:
+
+- PASS
+- Test files: 1 passed
+- Tests: 25 passed
+
+## Searches run
+
+### Removed paint-room infrastructure/helpers
+
+Command:
+
+```powershell
+git grep -nE 'IMatrixPaintService|MatrixPaintSourceResolver|PaintRoomCleanupService|PaintRoomCleanupRepository|CreatePaintRoomAsync|CreatePaintRoom|InvitePaintUserAsync|InvitePaintUser|GetRoomEventAsync|GetRoomEvent|GetRoomMembership|DeletePaintRoomAsync' -- src tests
+```
+
+Result:
+
+- No matches
+
+### Paint-only `matrixRoomId|mxcUrl`
+
+Note: the broad phase-plan search scope also matches unrelated generic Matrix chat/custom-companion code. Per the plan note, I narrowed the assertion to current paint runtime/wire-model files rather than deleting unrelated Matrix functionality.
+
+Command:
+
+```powershell
+git grep -nE 'matrixRoomId|mxcUrl' -- src/Brmble.Server/Paint src/Brmble.Client/Services/Paint src/Brmble.Web/src/components/Paint src/Brmble.Web/src/api/paint.ts src/Brmble.Web/src/hooks/usePaintSession.ts src/Brmble.Web/src/types/paint.ts tests/Brmble.Server.Tests/Paint tests/Brmble.Server.Tests/Integration/PaintEndpointIntegrationTests.cs
+```
+
+Result:
+
+- No matches
+
+### Temporary invitation/source-event fields in current paint runtime/wire-model code
+
+Command:
+
+```powershell
+git grep -nE 'participantUserIds|sourceEventId|sourcePreview' -- src/Brmble.Server/Paint src/Brmble.Client/Services/Paint src/Brmble.Web/src tests/Brmble.Server.Tests/Paint tests/Brmble.Server.Tests/Integration/PaintEndpointIntegrationTests.cs ':(exclude)src/Brmble.Web/src/utils/parseMessageMedia.ts' ':(exclude)src/Brmble.Web/src/utils/parseMessageMedia.test.ts' ':(exclude)src/Brmble.Web/src/components/ChatPanel/MessageBubble.test.tsx'
+```
+
+Result:
+
+- No matches
+
+### Allowed legacy invitation parser boundary
+
+Command:
+
+```powershell
+git grep -nE 'participantUserIds|sourceEventId|sourcePreview' -- src/Brmble.Web/src/utils/parseMessageMedia.ts src/Brmble.Web/src/utils/parseMessageMedia.test.ts src/Brmble.Web/src/components/ChatPanel/MessageBubble.test.tsx
+```
+
+Result:
+
+- Matches remain only in the intended legacy parser/tests compatibility boundary.
+
+### Removed paint event names
+
+Command:
+
+```powershell
+git grep -nE 'PaintEventNames\.(SourceAttached|Invited)|paint\.(sourceAttached|invited)' -- src/Brmble.Server/Paint src/Brmble.Web/src tests/Brmble.Server.Tests
+```
+
+Result:
+
+- No matches
+
+## Self-review
+
+- `git diff --check` passed.
+- Scoped diff reviewed against the Task 8 brief.
+- No unrelated pre-existing untracked files were modified.
 
 ## Concerns
 
-- Automated visual browser inspection could not run because the browser policy
-  rejected the local `127.0.0.1` preview URL. Responsive layout is covered by
-  token-based CSS, component tests, focused lint, type checking, and a production
-  build, but Classic/Retro visual screenshots were not captured.
-- A broad lint invocation also reports longstanding errors in App and
-  SettingsModal outside this change. Focused lint for the new files and modified
-  Interface settings files passes.
-
-## Review Fix: Active Upload Tab Lock
-
-### Summary
-
-- Disabled every Settings tab while a custom companion media upload or gallery
-  entry creation is active, and added a guarded tab-change callback so direct
-  activation cannot unmount the Interface tab or its upload dialog.
-- Added a pending-upload regression that attempts tab activation by click and
-  keyboard, verifies the Interface picker and upload dialog remain mounted, and
-  confirms Settings Escape and overlay close stay locked until completion.
-
-### Tests Run
-
-- `npm.cmd run test -- src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/SettingsModal/SettingsModal.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
-  - PASS: 6 files, 46 tests.
-
-### Files Changed
-
-- `.superpowers/sdd/task-8-report.md`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
-
-## Re-Review Fix: Preserve Active Upload During Prop Synchronization
-
-### Summary
-
-- Guarded the `initialTab` synchronization effect while a custom companion
-  upload or entry creation is active, so prop-driven tab updates cannot unmount
-  the Interface tab and clear the parent upload lock.
-- Extended the pending-upload regression to rerender the modal with a different
-  `initialTab`, verify the Interface picker and upload dialog remain mounted,
-  retain the existing click/keyboard close-lock assertions, and confirm Close
-  becomes available only after the upload flow completes.
-
-### Tests Run
-
-- `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
-  - PASS: 6 files, 46 tests.
-
-### Files Changed
-
-- `.superpowers/sdd/task-8-report.md`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
-
-## Final Re-Review Fix: Nested Escape Handling
-
-### Summary
-
-- The upload dialog now claims Escape during the capture phase and prevents the
-  parent Settings handler from processing the same key event.
-- Idle Escape closes only the upload dialog, leaving Settings open. During
-  `uploading-media` and `creating-entry`, the dialog still claims Escape but
-  closes neither dialog, preserving the existing active-upload lock.
-- Existing active tab and `initialTab` upload-lock behavior remains covered by
-  the integration regression.
-
-### Tests Run
-
-- `npm.cmd run test -- src/components/SettingsModal/SettingsModal.test.tsx src/components/SettingsModal/customCompanions src/components/SettingsModal/InterfaceSettingsTab.test.tsx src/components/CompanionOverlay/InterfaceSettingsTab.test.tsx`
-  - PASS: 6 files, 47 tests.
-
-### Files Changed
-
-- `.superpowers/sdd/task-8-report.md`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/SettingsModal.test.tsx`
-- `src/Brmble.Web/src/components/SettingsModal/customCompanions/CustomCompanionUploadDialog.tsx`
-
-### Visual Verification
-
-- Classic/Retro visual verification remains for the controller; no new visual
-  browser verification was performed for this focused keyboard-handling fix.
+- None.

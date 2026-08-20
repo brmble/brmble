@@ -68,7 +68,6 @@ describe('preparePaintSourceFile', () => {
     const result = await preparePaintSourceFile(
       clipboardFile,
       'paste',
-      TEN_MIB,
     );
 
     expect(result).not.toBe(clipboardFile);
@@ -84,7 +83,7 @@ describe('preparePaintSourceFile', () => {
       type: 'image/png',
     });
 
-    await expect(preparePaintSourceFile(selected, 'file', TEN_MIB))
+    await expect(preparePaintSourceFile(selected, 'file'))
       .resolves.toBe(selected);
   });
 
@@ -93,7 +92,7 @@ describe('preparePaintSourceFile', () => {
       type: 'image/jpeg',
     });
 
-    await expect(preparePaintSourceFile(chatImage, 'chat', TEN_MIB))
+    await expect(preparePaintSourceFile(chatImage, 'chat'))
       .resolves.toBe(chatImage);
   });
 
@@ -102,7 +101,6 @@ describe('preparePaintSourceFile', () => {
     await expect(preparePaintSourceFile(
       new File(['pixels'], 'unsupported', { type }),
       'paste',
-      TEN_MIB,
     )).rejects.toThrow(
       'This clipboard image cannot be used. Copy a PNG, JPEG, or WebP image, or choose a file.',
     );
@@ -113,7 +111,6 @@ describe('preparePaintSourceFile', () => {
     await expect(preparePaintSourceFile(
       new File([], 'empty.png', { type: 'image/png' }),
       'paste',
-      TEN_MIB,
     )).rejects.toThrow(
       'This clipboard image cannot be used. Try copying another image or choose a file.',
     );
@@ -130,16 +127,6 @@ describe('preparePaintSourceFile', () => {
       .rejects.toThrow(
         'The selected image is too large to use as a Paint source.',
       );
-  });
-
-  it('uses a smaller Matrix upload limit for pasted images', async () => {
-    await expect(preparePaintSourceFile(
-      new File(['pixels'], 'image.png', { type: 'image/png' }),
-      'paste',
-      1,
-    )).rejects.toThrow(
-      'The pasted image is too large to use as a Paint source.',
-    );
   });
 
   it('uses the Paint byte limit and chat-specific copy for a chat image', async () => {
@@ -161,7 +148,6 @@ describe('preparePaintSourceFile', () => {
     await expect(preparePaintSourceFile(
       new File(['pixels'], 'wide.webp', { type: 'image/webp' }),
       'file',
-      TEN_MIB,
     )).rejects.toThrow(
       'This image is too large. Choose an image no larger than 4096 by 4096 pixels.',
     );
@@ -173,7 +159,6 @@ describe('preparePaintSourceFile', () => {
     await expect(preparePaintSourceFile(
       new File(['broken'], 'broken.png', { type: 'image/png' }),
       'paste',
-      TEN_MIB,
     )).rejects.toThrow(
       'This clipboard image cannot be used. Try copying another image or choose a file.',
     );

@@ -3,7 +3,7 @@ import bridge from '../bridge';
 import { paintApi } from '../api/paint';
 import type { PaintParticipant, PaintPermanentEvent, PaintPreview, PaintSessionSnapshot, PaintStroke, PaintStrokeCommittedEvent, PaintStrokeInput, PaintStrokeUndoneEvent } from '../types/paint';
 
-const EVENTS = ['paint.sourceAttached', 'paint.participantJoined', 'paint.participantLeft', 'paint.previewUpdated', 'paint.strokeCommitted', 'paint.strokeUndone', 'paint.canvasCleared', 'paint.sessionEnded', 'paint.sessionExpired', 'paint.sessionUnavailable'] as const;
+const EVENTS = ['paint.participantJoined', 'paint.participantLeft', 'paint.previewUpdated', 'paint.strokeCommitted', 'paint.strokeUndone', 'paint.canvasCleared', 'paint.sessionEnded', 'paint.sessionExpired', 'paint.sessionUnavailable'] as const;
 
 function previewKey(preview: Pick<PaintPreview, 'authorUserId' | 'correlationId'>): string {
   return `${preview.authorUserId}:${preview.correlationId}`;
@@ -22,8 +22,6 @@ function unavailableSnapshot(sessionId: string, event: PaintPermanentEvent): Pai
     sessionId,
     channelId: 0,
     hostUserId: 0,
-    matrixRoomId: '',
-    sourceEventId: null,
     status: 'unavailable',
     expiresAt: '',
     source: null,
@@ -150,10 +148,6 @@ export function usePaintSession(sessionId: string) {
         setPreviews([]);
         return { ...current, revision: event.revision, generation: event.generation, strokes: [] };
       }),
-      'paint.sourceAttached': data => {
-        const event = data as PaintPermanentEvent & { source: PaintSessionSnapshot['source'] };
-        acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, status: 'active', sourceEventId: event.source?.sourceEventId ?? current.sourceEventId, source: event.source }));
-      },
       'paint.participantJoined': data => {
         const event = data as PaintPermanentEvent & { participant: PaintParticipant };
         acceptPermanent(event, current => ({ ...current, revision: event.revision, generation: event.generation, participants: [...current.participants.filter(item => item.userId !== event.participant.userId), event.participant] }));

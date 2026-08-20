@@ -1,8 +1,6 @@
 using System.Net.Http.Headers;
-using System.Net;
 using System.Text;
 using System.Text.Json;
-using Brmble.Server.Paint;
 using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Matrix;
@@ -11,7 +9,6 @@ public interface IMatrixAppService
 {
     Task SendMessage(string roomId, string displayName, string text);
     Task<string> CreateRoom(string name);
-    Task<string> CreatePaintRoom(string name, IReadOnlyList<string> invitedMatrixUserIds);
     Task<string> CreateCustomCompanionGalleryRoom();
     Task<string> CreateDMRoom(string localpartA, string localpartB);
     Task SetRoomName(string roomId, string name);
@@ -27,13 +24,9 @@ public interface IMatrixAppService
     Task<string?> GetAccountData(string localpart, string eventType);
     Task<string> SendStateEvent(string roomId, string eventType, string stateKey, string jsonContent);
     Task RedactRoomEvent(string roomId, string eventId, string reason);
-    Task InvitePaintUser(string roomId, string matrixUserId);
-    Task<JsonElement> GetRoomEvent(string roomId, string eventId);
-    Task<string?> GetRoomMembership(string roomId, string matrixUserId);
     Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken);
     Task<byte[]> DownloadMedia(string mxcUrl, long maxBytes, CancellationToken cancellationToken)
         => DownloadMedia(mxcUrl, cancellationToken);
-    Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken);
 }
 
 public class MatrixAppService : IMatrixAppService
@@ -41,7 +34,6 @@ public class MatrixAppService : IMatrixAppService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _homeserverUrl;
     private readonly string _appServiceToken;
-    private readonly string? _adminAccessToken;
     private readonly string _botUserId;
     private readonly string _serverDomain;
     private readonly ILogger<MatrixAppService> _logger;
@@ -51,14 +43,9 @@ public class MatrixAppService : IMatrixAppService
         _httpClientFactory = httpClientFactory;
         _homeserverUrl = settings.Value.HomeserverUrl;
         _appServiceToken = settings.Value.AppServiceToken;
-        _adminAccessToken = settings.Value.AdminAccessToken;
         _serverDomain = settings.Value.ServerDomain;
         _botUserId = $"@brmble:{_serverDomain}";
         _logger = logger;
-        if (string.IsNullOrWhiteSpace(_adminAccessToken))
-        {
-            _logger.LogWarning("Matrix admin access token is not configured. Paint room cleanup cannot delete rooms and will be terminal. Configure Matrix__AdminAccessToken.");
-        }
     }
 
     public async Task SendMessage(string roomId, string displayName, string text)
@@ -80,27 +67,6 @@ public class MatrixAppService : IMatrixAppService
         {
             name,
             preset = "private_chat",
-        });
-        var response = await SendRequest(HttpMethod.Post, url, body);
-        var json = JsonSerializer.Deserialize<JsonElement>(response);
-        return json.GetProperty("room_id").GetString()
-            ?? throw new InvalidOperationException("Matrix did not return a room_id");
-    }
-
-    public async Task<string> CreatePaintRoom(string name, IReadOnlyList<string> invitedMatrixUserIds)
-    {
-        var url = $"{_homeserverUrl}/_matrix/client/v3/createRoom";
-        var body = JsonSerializer.Serialize(new
-        {
-            name,
-            preset = "private_chat",
-            invite = invitedMatrixUserIds,
-            initial_state = new object[]
-            {
-                new { type = "m.room.join_rules", content = new { join_rule = "invite" } },
-                new { type = "m.room.history_visibility", content = new { history_visibility = "invited" } },
-                new { type = "m.room.power_levels", content = new { users_default = 0, invite = 50, users = new Dictionary<string, int> { [_botUserId] = 100 } } },
-            },
         });
         var response = await SendRequest(HttpMethod.Post, url, body);
         var json = JsonSerializer.Deserialize<JsonElement>(response);
@@ -404,35 +370,6 @@ public class MatrixAppService : IMatrixAppService
         return SendRequest(HttpMethod.Put, url, body);
     }
 
-    public Task InvitePaintUser(string roomId, string matrixUserId)
-    {
-        return InviteUserToRoom(roomId, matrixUserId);
-    }
-
-    public async Task<JsonElement> GetRoomEvent(string roomId, string eventId)
-    {
-        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/event/{Uri.EscapeDataString(eventId)}";
-        var response = await SendRequest(HttpMethod.Get, url, "{}");
-        return JsonSerializer.Deserialize<JsonElement>(response);
-    }
-
-    public async Task<string?> GetRoomMembership(string roomId, string matrixUserId)
-    {
-        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/state/m.room.member/{Uri.EscapeDataString(matrixUserId)}";
-        try
-        {
-            var response = await SendRequest(HttpMethod.Get, url, "{}");
-            var json = JsonSerializer.Deserialize<JsonElement>(response);
-            return json.TryGetProperty("membership", out var membership)
-                ? membership.GetString()
-                : null;
-        }
-        catch (HttpRequestException)
-        {
-            return null;
-        }
-    }
-
     public Task<byte[]> DownloadMedia(string mxcUrl, CancellationToken cancellationToken)
         => DownloadMedia(mxcUrl, long.MaxValue, cancellationToken);
 
@@ -469,63 +406,8 @@ public class MatrixAppService : IMatrixAppService
         return bytes.ToArray();
     }
 
-    public async Task<MatrixPaintRoomCleanupResult> DeletePaintRoomAsync(string roomId, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(_adminAccessToken))
-        {
-            return new(false, "admin-token-missing", "MATRIX_ADMIN_TOKEN_MISSING", true);
-        }
-
-        var client = _httpClientFactory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Delete, $"{_homeserverUrl}/_synapse/admin/v2/rooms/{Uri.EscapeDataString(roomId)}");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _adminAccessToken);
-
-        try
-        {
-            var response = await client.SendAsync(request, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                return new(true, "admin-delete", null);
-            }
-
-            var error = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (response.StatusCode == HttpStatusCode.NotFound && IsMatrixRoomNotFound(error))
-            {
-                return new(true, "admin-delete-already-absent", null);
-            }
-            return new(false, "failed", string.IsNullOrWhiteSpace(error) ? response.ReasonPhrase : error);
-        }
-        // Shutdown is not a cleanup failure. Reporting it as one would let the caller burn a
-        // retry attempt per host restart and eventually mark the record terminal, leaking the room.
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return new(false, "failed", ex.Message);
-        }
-    }
-
-    private static bool IsMatrixRoomNotFound(string error)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(error);
-            return document.RootElement.TryGetProperty("errcode", out var code)
-                && code.GetString() == "M_NOT_FOUND";
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
     private Task<string> SendRequest(HttpMethod method, string url, string jsonBody, string? actAs = null)
         => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId);
-
-    private Task<string> SendRequestWithCancellation(HttpMethod method, string url, string jsonBody, CancellationToken cancellationToken, string? actAs = null)
-        => SendRequestCore(method, url, jsonBody, actAs ?? _botUserId, cancellationToken);
 
     private async Task<string> SendRequestCore(HttpMethod method, string url, string jsonBody, string? userId, CancellationToken cancellationToken = default)
     {
@@ -551,13 +433,6 @@ public class MatrixAppService : IMatrixAppService
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
-
-    private Task LeaveRoomAsBotAsync(string roomId, CancellationToken cancellationToken)
-    {
-        var url = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/leave";
-        return SendRequestWithCancellation(HttpMethod.Post, url, "{}", cancellationToken);
-    }
-
     private Task InviteUserToRoom(string roomId, string matrixUserId)
     {
         var inviteUrl = $"{_homeserverUrl}/_matrix/client/v3/rooms/{Uri.EscapeDataString(roomId)}/invite";

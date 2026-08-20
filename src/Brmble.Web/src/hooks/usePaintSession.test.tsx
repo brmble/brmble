@@ -20,8 +20,6 @@ function initialSnapshot(overrides: Record<string, unknown> = {}) {
     sessionId,
     channelId: 7,
     hostUserId: 1,
-    matrixRoomId: '!paint:server',
-    sourceEventId: null,
     status: 'pendingSource' as const,
     expiresAt: '2026-07-24T12:00:00.000Z',
     source: null,
@@ -146,25 +144,6 @@ describe('usePaintSession', () => {
     })));
 
     expect(harness.result.current.strokes.map(stroke => stroke.id)).toEqual(['server-1']);
-  });
-
-  it('activates the local session when a source is attached', async () => {
-    const harness = renderPaintSessionHook();
-    await waitFor(() => expect(harness.result.current.snapshot).not.toBeNull());
-
-    act(() => harness.emit('paint.sourceAttached', {
-      sessionId,
-      revision: 1,
-      generation: 0,
-      source: { sourceEventId: 'source-1' },
-    }));
-
-    expect(harness.result.current.snapshot).toMatchObject({
-      status: 'active',
-      revision: 1,
-      sourceEventId: 'source-1',
-      source: { sourceEventId: 'source-1' },
-    });
   });
 
   it('requests a fresh snapshot when a permanent revision gap is detected', async () => {
