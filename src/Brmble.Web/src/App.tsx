@@ -1678,21 +1678,36 @@ function App() {
     return set;
   }, [matrixClient?.dmRoomMap]);
 
+  // The conversation region renders the ACTIVE TAB, so every chat-scoped derivation below
+  // is keyed off the tab model rather than `currentChannelId`. `currentChannelId` tracks
+  // presence-driven navigation for the voice/companion/bridge consumers and can legitimately
+  // disagree with the tab the user is reading; driving the chat from it rendered another
+  // conversation's name, history and permissions.
+  const activeConversation = selectActiveConversation(workspace);
+  const activeChatChannelId = activeConversation?.kind === 'channel'
+    ? activeConversation.channelId
+    : undefined;
+
   // Per-panel Matrix room IDs for scoping mention suggestions
   const channelMatrixRoomId = useMemo(() => {
-    const matrixChannelId = getPermittedMatrixChannelId(currentChannelId, channels);
+    const matrixChannelId = getPermittedMatrixChannelId(activeChatChannelId, channels);
     if (matrixChannelId && matrixCredentials?.roomMap?.[matrixChannelId]) {
       return matrixCredentials.roomMap[matrixChannelId];
     }
     return null;
-  }, [channels, currentChannelId, matrixCredentials?.roomMap]);
+  }, [channels, activeChatChannelId, matrixCredentials?.roomMap]);
 
-  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const channelKey = activeChatChannelId === 'server-root'
+    ? 'server-root'
+    : activeChatChannelId ? `channel-${activeChatChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
   const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
-  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
-    ? currentChannelId
+  // Matrix-scoped view of the same id: the root chat is local-only, so it collapses to
+  // undefined for everything that talks to Matrix. Chat permissions must NOT use this —
+  // they need to see 'server-root', which is readable and writable by everyone.
+  const activeChannelId = activeChatChannelId && activeChatChannelId !== 'server-root'
+    ? activeChatChannelId
     : undefined;
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
   const selectedDmContactIdRef = useRef<string | null>(null);
@@ -1718,10 +1733,6 @@ function App() {
       activePaintChannelIdRef.current = undefined;
     }
   }, [activePaintSessionId, connectionStatus, joinedChannelId]);
-  const activeConversation = selectActiveConversation(workspace);
-  const activeChannelChatId = activeConversation?.kind === 'channel'
-    ? activeConversation.channelId
-    : undefined;
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -3538,7 +3549,9 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSendMessage = async (content: string, image?: File) => {
     if (!username || (!content && !image)) return;
 
-    const channelId = currentChannelId;
+    // Send to the conversation on screen, which is the active tab — the same id the
+    // composer's enabled state and the rendered history were derived from.
+    const channelId = activeChatChannelId;
     if (!channelId) return;
     if (!shouldAllowChannelChatSend(channelId, channelsRef.current, statusesRef.current, brmbleServiceBootstrapPhase)) {
       return;
@@ -3917,12 +3930,16 @@ const handleConnect = (serverData: SavedServer) => {
     brmbleServicesConnectedOnceRef.current,
   );
   const brmbleServiceChatNotice = getBrmbleServiceChatNotice(activeChannelId, statuses, brmbleServiceBootstrapPhase);
-  const canOpenActiveChannelChat = canOpenChannelChat(activeChannelId, channels);
-  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels)
-    || isTemporaryChannelChatActive(activeChannelId, statuses, brmbleServiceBootstrapPhase);
-  const channelChatAccessNotice = activeChannelId && activeChannelId !== 'server-root' && !canOpenActiveChannelChat
+  // Permissions read the FULL chat id, including 'server-root': the root chat is
+  // local-only but every user may read and write it. Collapsing root to undefined here
+  // made canOpen/canSend both false, which emptied the root history and disabled the
+  // composer (it falls back to the "User is offline" placeholder when disabled).
+  const canOpenActiveChannelChat = canOpenChannelChat(activeChatChannelId, channels);
+  const canSendActiveChannelChat = canSendToChannelChat(activeChatChannelId, channels)
+    || isTemporaryChannelChatActive(activeChatChannelId, statuses, brmbleServiceBootstrapPhase);
+  const channelChatAccessNotice = activeChatChannelId && activeChatChannelId !== 'server-root' && !canOpenActiveChannelChat
     ? 'You do not have access to this channel chat.'
-    : activeChannelId && activeChannelId !== 'server-root' && !canSendActiveChannelChat
+    : activeChatChannelId && activeChatChannelId !== 'server-root' && !canSendActiveChannelChat
       ? 'You can read this channel chat, but cannot send messages.'
       : undefined;
   const matrixMessages = activeChannelId
@@ -3945,10 +3962,10 @@ const handleConnect = (serverData: SavedServer) => {
         : messages;
       return [
         ...base,
-        ...optimisticImages.filter(m => m.channelId === currentChannelId),
+        ...optimisticImages.filter(m => m.channelId === activeChatChannelId),
       ];
     },
-    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, activeChatChannelId],
   );
 
   const { Prompt, PromptWithInput } = usePrompt();
@@ -4599,19 +4616,21 @@ const handleConnect = (serverData: SavedServer) => {
     saveConversationTabs(serverAddress, workspace.tabs.filter(tab => conversationKey(tab) !== homeKey));
   }, [connected, serverAddress, workspace.tabs, workspace.joinedChannelId]);
 
-  // Stage one of retiring `currentChannelId`: the tab model owns which channel chat
-  // is shown, and this mirrors it into the still-widely-read state. Task 17 removes it.
+  // The conversation region no longer reads `currentChannelId` — it is driven by
+  // `activeChatChannelId` directly. This mirror survives for the remaining consumers that
+  // still track "which channel chat is on screen" through the legacy state: the sidebar
+  // highlight, the server-chat flag and screen-share discovery.
   // Only *transitions* of the active channel tab are mirrored: the voice handlers still
   // write `currentChannelId` directly, and re-asserting the tab value on every render
   // would fight them and fire the channel-change effects twice.
-  const mirroredChannelChatIdRef = useRef(activeChannelChatId);
+  const mirroredChannelChatIdRef = useRef(activeChatChannelId);
   useEffect(() => {
     const previous = mirroredChannelChatIdRef.current;
-    mirroredChannelChatIdRef.current = activeChannelChatId;
-    if (activeChannelChatId === undefined || activeChannelChatId === previous) return;
-    if (activeChannelChatId === currentChannelIdRef.current) return;
-    setCurrentChannelId(activeChannelChatId);
-  }, [activeChannelChatId, setCurrentChannelId]);
+    mirroredChannelChatIdRef.current = activeChatChannelId;
+    if (activeChatChannelId === undefined || activeChatChannelId === previous) return;
+    if (activeChatChannelId === currentChannelIdRef.current) return;
+    setCurrentChannelId(activeChatChannelId);
+  }, [activeChatChannelId, setCurrentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -4966,6 +4985,15 @@ const handleConnect = (serverData: SavedServer) => {
     localStorage.removeItem('brmble-screenshare-split');
   }, []);
 
+  // One resolver for the name of a channel conversation, shared by the tab label and the
+  // chat header so the two can never disagree. Never returns an empty string: an
+  // unresolvable channel falls back to its id.
+  const resolveChannelChatLabel = useCallback((channelId: string): string => (
+    channelId === 'server-root'
+      ? (serverLabel || 'Server')
+      : channels.find(channel => String(channel.id) === channelId)?.name ?? channelId
+  ), [channels, serverLabel]);
+
   // One tab per open conversation. Labels resolve from the channel list or the DM
   // contact list; an unresolvable channel falls back to its id so a tab is never blank.
   const conversationTabItems = useMemo<ConversationTabItem[]>(() => (
@@ -4975,14 +5003,10 @@ const handleConnect = (serverData: SavedServer) => {
       if (conversation.kind === 'channel') {
         // Root chat is not Matrix-backed, so it has no unread source and shows no badge.
         const unread = channelUnreads.get(conversation.channelId);
-        const label = conversation.channelId === 'server-root'
-          ? (serverLabel || 'Server')
-          : channels.find(channel => String(channel.id) === conversation.channelId)?.name
-            ?? conversation.channelId;
         return {
           conversation,
           key,
-          label,
+          label: resolveChannelChatLabel(conversation.channelId),
           isHome,
           unreadCount: unread?.notificationCount ?? 0,
           mentionCount: unread?.highlightCount ?? 0,
@@ -4998,7 +5022,7 @@ const handleConnect = (serverData: SavedServer) => {
         mentionCount: 0,
       };
     })
-  ), [workspace, channels, serverLabel, channelUnreads, dmContactsWithUnreads]);
+  ), [workspace, resolveChannelChatLabel, channelUnreads, dmContactsWithUnreads]);
 
   // One ChatPanel renders the active tab. This picks which prop set feeds it; the
   // channel and DM shapes are otherwise unchanged.
@@ -5028,8 +5052,8 @@ const handleConnect = (serverData: SavedServer) => {
       paintSessionStatuses,
     }
     : {
-      channelId: currentChannelId || undefined,
-      channelName: currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName,
+      channelId: activeChatChannelId || undefined,
+      channelName: activeChatChannelId ? resolveChannelChatLabel(activeChatChannelId) : '',
       messages: channelChatMessages,
       currentUsername: username,
       onSendMessage: handleSendMessage,

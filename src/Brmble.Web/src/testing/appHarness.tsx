@@ -142,9 +142,14 @@ const harness = vi.hoisted(() => {
     totalCount: 0,
   };
 
+  // Local chat store contents by store key ('server-root', `channel-<id>`, 'no-channel').
+  // Arrays are handed back by identity so a re-render does not invalidate memos.
+  const chatStore = new Map<string, unknown[]>();
+
   return {
     overrides,
     captured,
+    chatStore,
     matrixClient,
     dmStore,
     unreadTracker,
@@ -264,8 +269,12 @@ vi.mock('../components/SettingsModal/SettingsModal', () => ({
 }));
 
 vi.mock('../hooks/useMatrixClient', () => ({ useMatrixClient: () => harness.matrixClient }));
+const EMPTY_CHAT_STORE: unknown[] = [];
 vi.mock('../hooks/useChatStore', () => ({
-  useChatStore: () => ({ messages: [], addMessage: vi.fn() }),
+  useChatStore: (key: string) => ({
+    messages: harness.chatStore.get(key) ?? EMPTY_CHAT_STORE,
+    addMessage: vi.fn(),
+  }),
   addMessageToStore: vi.fn(),
   clearChatStorage: vi.fn(),
   purgeEphemeralMessages: vi.fn(),
@@ -333,6 +342,11 @@ export interface RenderConnectedAppOptions {
   paintSessionId?: string | null;
   /** Conversation tabs seeded into storage before the first render. */
   persistedTabs?: Conversation[];
+  /**
+   * Local (non-Matrix) chat store contents, keyed by store key: `'server-root'` for the
+   * root chat, `channel-<id>` for a channel.
+   */
+  chatStore?: Record<string, unknown[]>;
   /** Per-channel unread counts, keyed by channel id. */
   unreads?: Record<string, { notificationCount: number; highlightCount: number }>;
   serverLabel?: string;
@@ -383,6 +397,7 @@ export function overrideComponent(
 export function resetAppHarness(): void {
   harness.overrides.clear();
   harness.captured.clear();
+  harness.chatStore.clear();
   harness.roomUnreads.clear();
   harness.screenShare.watchingShares = [];
   harness.screenShare.remoteVideoEls = new Map();
@@ -453,6 +468,10 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
   }
 
   harness.dmStore.contacts = toDmContacts(options.dmContacts ?? []);
+
+  for (const [key, storeMessages] of Object.entries(options.chatStore ?? {})) {
+    harness.chatStore.set(key, storeMessages);
+  }
 
   const shares = options.watchedShares ?? [];
   harness.screenShare.watchingShares = shares;

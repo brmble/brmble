@@ -43,7 +43,7 @@ export function ConversationTabStrip({ tabs, activeKey, onActivate, onClose }: C
           if (event.key === 'Delete' && !tab.isHome) { event.preventDefault(); onClose(tab.key); }
         }}
       >
-        <span className={styles.text} aria-hidden={tab.isHome || undefined}>{tab.label}</span>
+        <span className={styles.text} data-testid="conversation-tab-label" aria-hidden={tab.isHome || undefined}>{tab.label}</span>
         {tab.isHome && <span className="sr-only">{`${tab.label} (you are here)`}</span>}
         {tab.mentionCount > 0 && <span className={styles.mention}>@{tab.mentionCount}</span>}
         {tab.mentionCount === 0 && tab.unreadCount > 0 && <span className={styles.unread}>{tab.unreadCount}</span>}

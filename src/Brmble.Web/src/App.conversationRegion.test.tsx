@@ -183,3 +183,94 @@ describe('conversation region', () => {
     expect(badgeCalls[badgeCalls.length - 1]![1]).toMatchObject({ unreadDMs: true });
   });
 });
+
+/** The name rendered in the chat header — the thing the user actually reads. */
+function chatHeaderName(): string {
+  const heading = document.querySelector('.chat-header .heading-section');
+  if (!heading) throw new Error('chat header is not rendered');
+  return heading.textContent ?? '';
+}
+
+/** The label of the currently selected conversation tab, badges stripped. */
+function activeTabLabel(): string {
+  const tab = screen.getAllByRole('tab').find(candidate => candidate.getAttribute('aria-selected') === 'true');
+  if (!tab) throw new Error('no active tab');
+  return within(tab).getByTestId('conversation-tab-label').textContent ?? '';
+}
+
+// The conversation region must render the ACTIVE TAB. It used to be driven by the
+// legacy `currentChannelId`/`currentChannelName` presence state, which only the voice
+// handlers and the sidebar wrote, so activating an already-open tab left the header,
+// the messages and the permissions describing a different conversation.
+describe('conversation region follows the active tab', () => {
+  it('restores the home tab name in the chat header when switching back to it', async () => {
+    const user = userEvent.setup();
+    renderConnectedApp({
+      joinedChannelId: '7',
+      channels: [{ id: 7, name: 'Channel 3' }, { id: 9, name: 'Channel 2' }, { id: 12, name: 'Channel 1' }],
+    });
+    await user.click(screen.getByRole('button', { name: /^Channel 1/ }));
+    await user.click(screen.getByRole('button', { name: /^Channel 2/ }));
+    expect(chatHeaderName()).toBe('Channel 2');
+
+    await user.click(screen.getByRole('tab', { name: /Channel 3 \(you are here\)/ }));
+    expect(chatHeaderName()).toBe('Channel 3');
+
+    await user.click(screen.getByRole('tab', { name: /^Channel 1/ }));
+    expect(chatHeaderName()).toBe('Channel 1');
+  });
+
+  it('keeps the tab label and the chat header in agreement for every tab', async () => {
+    const user = userEvent.setup();
+    renderConnectedApp({
+      joinedChannelId: '7',
+      channels: [{ id: 7, name: 'General' }, { id: 9, name: 'Random' }, { id: 12, name: 'Gaming' }],
+    });
+    await user.click(screen.getByRole('button', { name: /^Random/ }));
+    await user.click(screen.getByRole('button', { name: /^Gaming/ }));
+
+    for (const name of [/General \(you are here\)/, /^Random/, /^Gaming/, /General \(you are here\)/]) {
+      await user.click(screen.getByRole('tab', { name }));
+      expect(chatHeaderName()).toBe(activeTabLabel());
+    }
+  });
+
+  it('follows a voice-driven channel move in the chat header', () => {
+    const { moveSelfToChannel } = renderConnectedApp({
+      joinedChannelId: '7',
+      channels: [{ id: 7, name: 'General' }, { id: 12, name: 'Gaming' }],
+    });
+    expect(chatHeaderName()).toBe('General');
+    moveSelfToChannel(12);
+    expect(chatHeaderName()).toBe('Gaming');
+    expect(chatHeaderName()).toBe(activeTabLabel());
+  });
+});
+
+// Root chat is not Matrix-backed: its history lives in the local chat store under the
+// 'server-root' key and everyone may read and write it.
+describe('server root chat', () => {
+  it('renders the stored root messages', () => {
+    renderConnectedApp({
+      joinedChannelId: 'server-root',
+      serverLabel: 'Brmble',
+      chatStore: {
+        'server-root': [{
+          id: 'm1',
+          channelId: 'server-root',
+          sender: 'Alice',
+          content: 'hello from the root',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+        }],
+      },
+    });
+    expect(screen.getByText('hello from the root')).toBeInTheDocument();
+    expect(screen.queryByText(/No messages yet/i)).not.toBeInTheDocument();
+  });
+
+  it('leaves the composer enabled at the server root', () => {
+    renderConnectedApp({ joinedChannelId: 'server-root', serverLabel: 'Brmble' });
+    expect(screen.queryByPlaceholderText('User is offline')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message #Brmble')).toBeEnabled();
+  });
+});
