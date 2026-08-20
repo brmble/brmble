@@ -29,7 +29,6 @@ export const BINDING_LABELS: Record<string, string> = {
   toggleLeaveVoiceKey: 'Toggle Leave Voice',
   toggleMuteDeafenKey: 'Toggle Mute & Deafen',
   toggleMuteKey: 'Toggle Mute',
-  toggleDMScreenKey: 'Toggle Direct Messages Screen',
   toggleScreenShareKey: 'Toggle Screen Share',
   toggleGameKey: 'Toggle Game Panel',
 };
@@ -200,7 +199,6 @@ export function SettingsModal(props: SettingsModalProps) {
     toggleLeaveVoiceKey: settings.shortcuts.toggleLeaveVoiceKey,
     toggleMuteDeafenKey: settings.shortcuts.toggleMuteDeafenKey,
     toggleMuteKey: settings.shortcuts.toggleMuteKey,
-    toggleDMScreenKey: settings.shortcuts.toggleDMScreenKey,
     toggleScreenShareKey: settings.shortcuts.toggleScreenShareKey,
     toggleGameKey: settings.shortcuts.toggleGameKey,
   }), [settings.audio.pushToTalkKey, settings.shortcuts]);
@@ -330,7 +328,6 @@ export function SettingsModal(props: SettingsModalProps) {
         { action: 'toggleMute', key: shortcuts.toggleMuteKey },
         { action: 'toggleMuteDeafen', key: shortcuts.toggleMuteDeafenKey },
         { action: 'toggleLeaveVoice', key: shortcuts.toggleLeaveVoiceKey },
-        { action: 'toggleDmScreen', key: shortcuts.toggleDMScreenKey },
         { action: 'toggleScreenShare', key: shortcuts.toggleScreenShareKey },
         { action: 'toggleGame', key: shortcuts.toggleGameKey },
       ];
@@ -364,7 +361,6 @@ export function SettingsModal(props: SettingsModalProps) {
           toggleMuteKey: 'toggleMute',
           toggleMuteDeafenKey: 'toggleMuteDeafen',
           toggleLeaveVoiceKey: 'toggleLeaveVoice',
-          toggleDMScreenKey: 'toggleDmScreen',
           toggleScreenShareKey: 'toggleScreenShare',
           toggleGameKey: 'toggleGame',
         };
