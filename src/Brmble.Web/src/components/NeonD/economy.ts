@@ -19,8 +19,10 @@ import {
   RESEARCH_REVEAL_RATIO,
   TERRITORY_BASE_COST,
   TERRITORY_GROWTH,
+  ZONE_CONCENTRATION_COST_MULTIPLIER,
+  ZONE_NORMAL_DEALER_SLOT_LIMIT,
 } from './constants';
-import type { Captain, EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId } from './types';
+import type { Captain, EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId, Zone } from './types';
 import { getActiveCaptainEntries, getAssignedCaptainIds } from './zones';
 import { hasZoneBulkSaleTalent } from './talents';
 
@@ -83,6 +85,38 @@ export const getVisibleProductIds = (state: GameState): ProductId[] => {
 
 export const getTerritoryCost = (level: number) => TERRITORY_BASE_COST * Math.pow(TERRITORY_GROWTH, level);
 export const getDealerCapacityCost = (purchases: number) => getTerritoryCost(purchases);
+export type ZoneDealerCapacityQuote = {
+  baseCost: number;
+  concentrationMultiplier: number;
+  finalCost: number;
+  zoneDealerSlotCount: number;
+};
+
+export const getZoneDealerCapacityQuote = (
+  state: Pick<GameState, 'territoryLevel' | 'captains'>,
+  zone: Pick<Zone, 'dealerSlots'>,
+): ZoneDealerCapacityQuote => {
+  const baseCost = getDealerCapacityCost(state.territoryLevel);
+  const zoneDealerSlotCount = zone.dealerSlots.length;
+  const surchargeExponent =
+    zoneDealerSlotCount - ZONE_NORMAL_DEALER_SLOT_LIMIT + 1;
+
+  const concentrationMultiplier =
+    state.captains.length < 2 ||
+    zoneDealerSlotCount < ZONE_NORMAL_DEALER_SLOT_LIMIT
+      ? 1
+      : Math.pow(
+          ZONE_CONCENTRATION_COST_MULTIPLIER,
+          surchargeExponent,
+        );
+
+  return {
+    baseCost,
+    concentrationMultiplier,
+    finalCost: baseCost * concentrationMultiplier,
+    zoneDealerSlotCount,
+  };
+};
 export const getZoneUnlockCost = (state: Pick<GameState, 'zones'>) => {
   const additionalZonesAlreadyOpen = Math.max(0, state.zones.length - 1);
   return getDealerCapacityCost(additionalZonesAlreadyOpen) * 3;

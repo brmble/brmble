@@ -29,7 +29,7 @@ import {
   getEquipmentCost,
   getBailCost,
   getCaptainCost,
-  getDealerCapacityCost,
+  getZoneDealerCapacityQuote,
   getMuscleWorkerCost,
   getProducerCost,
   getTerritoryCost,
@@ -307,16 +307,17 @@ export const useGameEngine = () => {
   const buyDealerCapacity = (zoneId: ZoneCityId) => {
     setState((prev) => {
       if (prev.zones.length === 0) return prev;
-      const cost = getDealerCapacityCost(prev.territoryLevel);
-      if (prev.respect < cost) return prev;
 
       const zone = prev.zones.find((candidate) => candidate.id === zoneId);
       if (!zone) return prev;
 
+      const { finalCost } = getZoneDealerCapacityQuote(prev, zone);
+      if (prev.respect < finalCost) return prev;
+
       const nextSlotIndex = zone.dealerSlots.length;
       return {
         ...prev,
-        respect: prev.respect - cost,
+        respect: prev.respect - finalCost,
         territoryLevel: prev.territoryLevel + 1,
         zones: prev.zones.map((candidate) =>
           candidate.id === zoneId
@@ -577,11 +578,20 @@ export const useGameEngine = () => {
         prev.captains.length + prev.kingpins + 1,
         trimmedName,
       );
-      return resetRunPreservingPrestige(
-        [...prev.captains, captain],
-        prev.kingpins,
-        Date.now(),
-      );
+      const captains = [...prev.captains, captain];
+
+      if (prev.captains.length === 0) {
+        return resetRunPreservingPrestige(
+          captains,
+          prev.kingpins,
+          Date.now(),
+        );
+      }
+
+      return {
+        ...prev,
+        captains,
+      };
     });
   };
 

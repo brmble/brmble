@@ -20,6 +20,7 @@ import {
   getRecruitmentRefreshRemainingMs,
   getRespectPerSecond,
   getTerritoryCost,
+  getZoneDealerCapacityQuote,
   getZoneUnlockCost,
   getVisibleProductIds,
   isBulkSellingVisible,
@@ -33,6 +34,23 @@ import { createAmsterdamZone } from '../zones';
 import type { Captain } from '../types';
 
 describe('Neon-D economy formulas', () => {
+  const getCapacityQuote = (
+    captainCount: number,
+    territoryLevel: number,
+    slotCount: number,
+  ) => {
+    const state = createBaseGameState(0);
+    state.territoryLevel = territoryLevel;
+    state.captains = Array.from({ length: captainCount }, (_, index) =>
+      makeReferenceCaptain({ id: `captain-${index + 1}` }),
+    );
+
+    return getZoneDealerCapacityQuote(
+      state,
+      createAmsterdamZone(state.captains[0]?.id ?? null, slotCount),
+    );
+  };
+
   it('prices producers with exponential ownership growth and global discount', () => {
     expect(getProducerCost('weed', 0, 0)).toBeCloseTo(15);
     expect(getProducerCost('weed', 1, 0)).toBeCloseTo(16.8);
@@ -120,6 +138,62 @@ describe('Neon-D economy formulas', () => {
   it('keeps dealer capacity pricing on the existing global territory curve', () => {
     expect(getDealerCapacityCost(0)).toBe(getTerritoryCost(0));
     expect(getDealerCapacityCost(3)).toBe(getTerritoryCost(3));
+  });
+
+  it('keeps the legacy global dealer-capacity curve unchanged', () => {
+    expect(getDealerCapacityCost(0)).toBe(500);
+    expect(getDealerCapacityCost(1)).toBeCloseTo(2_600);
+    expect(getDealerCapacityCost(2)).toBeCloseTo(13_520);
+    expect(getDealerCapacityCost(3)).toBeCloseTo(70_304);
+  });
+
+  it('keeps zero-Captain zones on the legacy global capacity curve', () => {
+    const quote = getCapacityQuote(0, 2, 3);
+
+    expect(quote.baseCost).toBeCloseTo(13_520);
+    expect(quote.concentrationMultiplier).toBe(1);
+    expect(quote.finalCost).toBeCloseTo(13_520);
+    expect(quote.zoneDealerSlotCount).toBe(3);
+  });
+
+  it('keeps one-Captain Amsterdam on the normal global capacity curve', () => {
+    const quote = getCapacityQuote(1, 2, 3);
+
+    expect(quote.baseCost).toBeCloseTo(13_520);
+    expect(quote.concentrationMultiplier).toBe(1);
+    expect(quote.finalCost).toBeCloseTo(13_520);
+    expect(quote.zoneDealerSlotCount).toBe(3);
+  });
+
+  it('keeps the first three slots normal for a multi-Captain zone', () => {
+    for (const slotCount of [0, 1, 2]) {
+      const quote = getCapacityQuote(2, 4, slotCount);
+      expect(quote.baseCost).toBeCloseTo(getDealerCapacityCost(4));
+      expect(quote.concentrationMultiplier).toBe(1);
+      expect(quote.finalCost).toBeCloseTo(getDealerCapacityCost(4));
+    }
+  });
+
+  it('applies the exact concentration multipliers from the fourth slot onward', () => {
+    expect(getCapacityQuote(2, 2, 3).concentrationMultiplier).toBeCloseTo(2.5);
+    expect(getCapacityQuote(2, 3, 4).concentrationMultiplier).toBeCloseTo(6.25);
+    expect(getCapacityQuote(2, 4, 5).concentrationMultiplier).toBeCloseTo(15.625);
+    expect(getCapacityQuote(2, 5, 6).concentrationMultiplier).toBeCloseTo(39.0625);
+  });
+
+  it('multiplies the current global base by only the expanded zone local surcharge', () => {
+    const concentrated = getCapacityQuote(2, 2, 3);
+    const freshZone = getCapacityQuote(2, 2, 0);
+
+    expect(concentrated.finalCost).toBeCloseTo(13_520 * 2.5);
+    expect(freshZone.finalCost).toBeCloseTo(13_520);
+  });
+
+  it('never counts a Captain position as a dealer slot', () => {
+    const quote = getCapacityQuote(2, 2, 3);
+
+    expect(quote.zoneDealerSlotCount).toBe(3);
+    expect(quote.concentrationMultiplier).toBeCloseTo(2.5);
   });
 
   it('reports Captain zone bulk readiness and remaining cooldown', () => {

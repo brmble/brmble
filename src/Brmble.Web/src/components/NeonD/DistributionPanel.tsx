@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EQUIPMENT_CATALOG } from './constants';
+import {
+  EQUIPMENT_CATALOG,
+  ZONE_CITY_CATALOG,
+  ZONE_NORMAL_DEALER_SLOT_LIMIT,
+} from './constants';
 import {
   getBailCost,
   getCaptainRemainingThreshold,
-  getDealerCapacityCost,
   getEquipmentCost,
   getProductDefinition,
   getCaptainZoneBulkRemainingMs,
   isCaptainLevelUpAvailable,
   canCaptainZoneBulkSell,
+  getZoneDealerCapacityQuote,
+  getZoneUnlockCost,
 } from './economy';
 import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
@@ -29,6 +34,7 @@ import {
   getActiveDealerEntries,
   getTotalDealerCapacity,
   getZoneEarningsPerSecond,
+  getUnassignedCaptains,
 } from './zones';
 
 type DistributionPanelProps = {
@@ -187,6 +193,17 @@ export function DistributionPanel(props: DistributionPanelProps) {
     [props.state.activeDealers, props.state.captains, props.state.zones],
   );
   const [collapsedSellerIds, toggleSellerCard] = usePersistedCardPreferences(knownSellerIds);
+  const hasMultipleCaptains = props.state.captains.length >= 2;
+  const canOpenAnotherZone =
+    hasMultipleCaptains &&
+    getUnassignedCaptains(props.state).length > 0 &&
+    props.state.zones.length < ZONE_CITY_CATALOG.length;
+  const newZoneFirstSlotCost = canOpenAnotherZone
+    ? getZoneUnlockCost(props.state) + getZoneDealerCapacityQuote(
+      props.state,
+      { dealerSlots: [] },
+    ).finalCost
+    : null;
 
   const toggleDealerFavorite = useCallback((dealerId: string) => {
     setFavoriteDealerIds((current) => {
@@ -523,6 +540,10 @@ export function DistributionPanel(props: DistributionPanelProps) {
         >
           {hiringSummary}
         </button>
+        <p className={styles.zoneCapacityGuidance}>
+          Captains do not consume dealer slots.
+          {hasMultipleCaptains ? ' Existing dealers stay in place.' : ''}
+        </p>
         <div className={styles.zoneCardStack}>
           {props.state.zones.map((zone) => {
             const isCollapsed = collapsedZoneIds.has(zone.id);
@@ -535,6 +556,19 @@ export function DistributionPanel(props: DistributionPanelProps) {
             const outgoingCount = outgoingTransfers.length;
             const incomingCount = incomingTransfers.length;
             const bodyId = `zone-distribution-body-${zone.id}`;
+            const capacityQuote = getZoneDealerCapacityQuote(
+              props.state,
+              zone,
+            );
+            const normalCostAlternative = hasMultipleCaptains
+              ? props.state.zones.find((candidate) =>
+                candidate.id !== zone.id &&
+                getZoneDealerCapacityQuote(
+                  props.state,
+                  candidate,
+                ).concentrationMultiplier === 1,
+              ) ?? null
+              : null;
 
             return (
               <article key={zone.id} className={styles.zoneGroup} aria-label={`${zone.displayName} distribution`}>
@@ -599,11 +633,44 @@ export function DistributionPanel(props: DistributionPanelProps) {
                       <button
                         type="button"
                         className={styles.unlockButton}
-                        disabled={props.state.respect < getDealerCapacityCost(props.state.territoryLevel)}
+                        disabled={props.state.respect < capacityQuote.finalCost}
                         onClick={() => props.buyDealerCapacity(zone.id)}
                       >
-                        Add dealer capacity · {Math.round(getDealerCapacityCost(props.state.territoryLevel)).toLocaleString()} Respect
+                        Add dealer capacity · {Math.round(capacityQuote.finalCost).toLocaleString()} Respect
                       </button>
+                      {hasMultipleCaptains ? (
+                        capacityQuote.concentrationMultiplier > 1 ? (
+                          <p className={styles.zoneCapacityCopy}>
+                            {zone.displayName} is over its{' '}
+                            {ZONE_NORMAL_DEALER_SLOT_LIMIT}-dealer operating limit ·{' '}
+                            {capacityQuote.concentrationMultiplier}× concentration cost
+                          </p>
+                        ) : (
+                          <p className={styles.zoneCapacityCopy}>
+                            {ZONE_NORMAL_DEALER_SLOT_LIMIT} dealer slots available at normal operating cost
+                          </p>
+                        )
+                      ) : null}
+                      {hasMultipleCaptains &&
+                      capacityQuote.concentrationMultiplier > 1 &&
+                      normalCostAlternative ? (
+                        <p className={styles.zoneCapacityCopy}>
+                          {normalCostAlternative.displayName} can expand at normal operating cost.
+                        </p>
+                      ) : null}
+                      {hasMultipleCaptains &&
+                      capacityQuote.concentrationMultiplier > 1 &&
+                      !normalCostAlternative &&
+                      newZoneFirstSlotCost !== null &&
+                      newZoneFirstSlotCost < capacityQuote.finalCost ? (
+                        <button
+                          type="button"
+                          className={styles.unlockButton}
+                          onClick={() => setZoneUnlockOpen(true)}
+                        >
+                          Open another zone · {Math.round(newZoneFirstSlotCost).toLocaleString()} Respect total
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

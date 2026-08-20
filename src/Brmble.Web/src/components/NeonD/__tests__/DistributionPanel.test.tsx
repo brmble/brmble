@@ -6,6 +6,9 @@ import { createBaseGameState } from '../constants';
 import { DistributionPanel } from '../DistributionPanel';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 import type { GameState } from '../types';
+import { createAmsterdamZone } from '../zones';
+
+const formatRespect = (value: number) => Math.round(value).toLocaleString();
 
 const state = {
   ...createBaseGameState(0),
@@ -416,6 +419,224 @@ describe('DistributionPanel zone groups', () => {
 
     await user.click(within(amsterdam).getByRole('button', { name: /Add dealer capacity/ }));
     expect(buyDealerCapacity).toHaveBeenCalledWith('amsterdam');
+  });
+
+  it('keeps one-Captain Amsterdam on normal capacity pricing past three slots', () => {
+    const oneCaptainState = createZoneState();
+    oneCaptainState.territoryLevel = 2;
+    oneCaptainState.captains = [amsterdamCaptain];
+    oneCaptainState.zones = [
+      createAmsterdamZone(amsterdamCaptain.id, 3),
+    ];
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={oneCaptainState}
+      />,
+    );
+
+    const amsterdam = screen.getByRole('article', {
+      name: 'Amsterdam distribution',
+    });
+
+    expect(
+      within(amsterdam).getByRole('button', {
+        name: `Add dealer capacity · ${formatRespect(13_520)} Respect`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(amsterdam).queryByText(/concentration cost/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the exact local surcharge while another zone remains normal', () => {
+    const parisCaptain = makeReferenceCaptain({
+      id: 'paris-captain',
+      name: 'Paris Captain',
+    });
+    const multiCaptainState = createZoneState();
+    multiCaptainState.territoryLevel = 2;
+    multiCaptainState.captains = [amsterdamCaptain, parisCaptain];
+    multiCaptainState.zones = [
+      createAmsterdamZone(amsterdamCaptain.id, 3),
+      {
+        id: 'paris',
+        displayName: 'Paris',
+        captainId: parisCaptain.id,
+        dealerSlots: [],
+        perkIds: [],
+      },
+    ];
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={multiCaptainState}
+      />,
+    );
+
+    const amsterdam = screen.getByRole('article', {
+      name: 'Amsterdam distribution',
+    });
+    const paris = screen.getByRole('article', {
+      name: 'Paris distribution',
+    });
+
+    expect(
+      within(amsterdam).getByRole('button', {
+        name: `Add dealer capacity · ${formatRespect(33_800)} Respect`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(amsterdam).getByText(
+        'Amsterdam is over its 3-dealer operating limit · 2.5× concentration cost',
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      within(paris).getByRole('button', {
+        name: `Add dealer capacity · ${formatRespect(13_520)} Respect`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(paris).getByText(
+        '3 dealer slots available at normal operating cost',
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        'Captains do not consume dealer slots. Existing dealers stay in place.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(amsterdam).getByText(
+        'Paris can expand at normal operating cost.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('renders an existing over-capacity dealer roster unchanged after a second Captain exists', () => {
+    const secondCaptain = makeReferenceCaptain({
+      id: 'second-captain',
+      name: 'Second Captain',
+    });
+    const dealers = [
+      makeReferenceDealer({ id: 'dealer-1', name: 'Dealer One' }),
+      makeReferenceDealer({ id: 'dealer-2', name: 'Dealer Two' }),
+      makeReferenceDealer({ id: 'dealer-3', name: 'Dealer Three' }),
+      makeReferenceDealer({ id: 'dealer-4', name: 'Dealer Four' }),
+    ];
+    const preservedState = createZoneState();
+    preservedState.captains = [amsterdamCaptain, secondCaptain];
+    preservedState.zones = [
+      createAmsterdamZone(amsterdamCaptain.id, 4, dealers),
+    ];
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={preservedState}
+      />,
+    );
+
+    const amsterdam = screen.getByRole('article', {
+      name: 'Amsterdam distribution',
+    });
+    expect(
+      within(amsterdam).getByText(
+        'AMSTERDAM · 1 Captain · 4 / 4 Dealers',
+      ),
+    ).toBeInTheDocument();
+
+    for (const dealer of dealers) {
+      expect(
+        within(amsterdam).getByText(`${dealer.name} (Weed)`),
+      ).toBeInTheDocument();
+    }
+
+    expect(
+      screen.queryByRole('dialog', { name: /transfer/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers the existing zone unlock flow when opening and initially expanding it costs less', async () => {
+    const user = userEvent.setup();
+    const secondCaptain = makeReferenceCaptain({
+      id: 'unassigned-captain',
+      name: 'Second Captain',
+    });
+    const multiCaptainState = createZoneState();
+    multiCaptainState.territoryLevel = 2;
+    multiCaptainState.captains = [amsterdamCaptain, secondCaptain];
+    multiCaptainState.zones = [
+      createAmsterdamZone(amsterdamCaptain.id, 3),
+    ];
+
+    render(
+      <DistributionPanel
+        {...panelProps}
+        state={multiCaptainState}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Open another zone · ${formatRespect(15_020)} Respect total`,
+      }),
+    );
+
+    expect(
+      screen.getByRole('dialog', { name: 'Open new zone' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not present a new zone as cheaper when its unlock and first slot cost more', () => {
+    const parisCaptain = makeReferenceCaptain({ id: 'paris-captain' });
+    const berlinCaptain = makeReferenceCaptain({ id: 'berlin-captain' });
+    const unassignedCaptain = makeReferenceCaptain({ id: 'unassigned-captain' });
+    const state = createZoneState();
+    state.territoryLevel = 2;
+    state.captains = [
+      amsterdamCaptain,
+      parisCaptain,
+      berlinCaptain,
+      unassignedCaptain,
+    ];
+    state.zones = [
+      createAmsterdamZone(amsterdamCaptain.id, 3),
+      {
+        id: 'paris',
+        displayName: 'Paris',
+        captainId: parisCaptain.id,
+        dealerSlots: [
+          { id: 'paris-slot-0', dealer: null, reservedTransferId: null },
+          { id: 'paris-slot-1', dealer: null, reservedTransferId: null },
+          { id: 'paris-slot-2', dealer: null, reservedTransferId: null },
+        ],
+        perkIds: [],
+      },
+      {
+        id: 'berlin',
+        displayName: 'Berlin',
+        captainId: berlinCaptain.id,
+        dealerSlots: [
+          { id: 'berlin-slot-0', dealer: null, reservedTransferId: null },
+          { id: 'berlin-slot-1', dealer: null, reservedTransferId: null },
+          { id: 'berlin-slot-2', dealer: null, reservedTransferId: null },
+        ],
+        perkIds: [],
+      },
+    ];
+
+    render(<DistributionPanel {...panelProps} state={state} />);
+
+    expect(
+      screen.queryByRole('button', {
+        name: /Open another zone/i,
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it('offers a transfer action for an active zone dealer when another zone has an available slot', () => {

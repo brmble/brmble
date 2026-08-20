@@ -4,15 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBaseGameState, NEON_D_SAVE_KEY, STARTING_CASH } from '../../constants';
 import {
   getCaptainCost,
+  getDealerCapacityCost,
   getProducerCost,
   getProductProductionRate,
   getRecruitmentRefreshMs,
   getRespectMultiplier,
-  getTerritoryCost,
 } from '../../economy';
 import type { Dealer, GameState } from '../../types';
 import { makeReferenceCaptain, makeReferenceDealer } from '../../__tests__/testFixtures';
-import { parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import {
   createAmsterdamZone,
   getAvailableZoneDealerSlots,
@@ -502,32 +501,38 @@ describe('useGameEngine', () => {
     expect(result.current.state.kingpins).toBe(1);
   });
 
-  it('later Captain reset keeps only Amsterdam and requires an owned Captain choice', () => {
-    const existing = makeReferenceCaptain({ id: 'old-captain', name: 'Old Captain' });
+  it('recruits an additional Captain without mutating existing zone capacity or dealers', () => {
+    const existingCaptain = makeReferenceCaptain({ id: 'old-captain', name: 'Old Captain' });
+    const dealers = [
+      makeReferenceDealer({ id: 'dealer-1' }),
+      makeReferenceDealer({ id: 'dealer-2' }),
+      makeReferenceDealer({ id: 'dealer-3' }),
+      makeReferenceDealer({ id: 'dealer-4' }),
+    ];
     const { result } = renderSeededGame({
       cash: 10_000_000,
       runEarnings: 7_500_000,
-      captains: [existing],
+      territoryLevel: 3,
+      captains: [existingCaptain],
       activeDealers: [],
-      zones: [{
-        id: 'amsterdam',
-        displayName: 'Amsterdam',
-        captainId: existing.id,
-        dealerSlots: [{ id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null }],
-        perkIds: [],
-      }],
+      zones: [createAmsterdamZone(existingCaptain.id, 4, dealers)],
+      pendingAmsterdamCaptainSelection: false,
     });
+    const zonesBefore = result.current.state.zones;
 
     act(() => result.current.buyCaptain('New Captain'));
 
-    expect(result.current.state.zones).toHaveLength(1);
-    expect(result.current.state.zones[0].id).toBe('amsterdam');
-    expect(result.current.state.zones[0].captainId).toBeNull();
-    expect(result.current.state.pendingAmsterdamCaptainSelection).toBe(true);
-    expect(result.current.state.dealerTransfers).toEqual([]);
+    expect(result.current.state.captains).toHaveLength(2);
+    expect(result.current.state.captains[0]).toEqual(existingCaptain);
+    expect(result.current.state.zones).toEqual(zonesBefore);
+    expect(result.current.state.zones[0].captainId).toBe(existingCaptain.id);
+    expect(result.current.state.zones[0].dealerSlots.map((slot) => slot.dealer?.id))
+      .toEqual(['dealer-1', 'dealer-2', 'dealer-3', 'dealer-4']);
+    expect(result.current.state.territoryLevel).toBe(3);
+    expect(result.current.state.pendingAmsterdamCaptainSelection).toBe(false);
   });
 
-  it('preserves Captain zone bulk cooldowns across a later Captain reset', () => {
+  it('preserves Captain zone bulk cooldowns when adding a Captain', () => {
     const existing = makeReferenceCaptain({
       id: 'cooldown-captain',
       zoneBulkSellAvailableAt: 99_000,
@@ -542,8 +547,7 @@ describe('useGameEngine', () => {
 
     act(() => result.current.buyCaptain('New Captain'));
 
-    act(() => result.current.assignAmsterdamCaptain(existing.id));
-
+    expect(result.current.state.zones[0].captainId).toBe(existing.id);
     expect(result.current.state.captains.find((captain) => captain.id === existing.id)?.zoneBulkSellAvailableAt)
       .toBe(99_000);
   });
@@ -600,7 +604,7 @@ describe('useGameEngine', () => {
     expect(result.current.state).toBe(before);
   });
 
-  it('round-trips a later Captain reset when an existing Captain sells a non-Weed product', () => {
+  it('preserves an existing Captain selling a non-Weed product when adding a Captain', () => {
     const existingCaptain = makeReferenceCaptain({
       id: 'captain-existing',
       name: 'Captain Existing',
@@ -613,14 +617,20 @@ describe('useGameEngine', () => {
       runEarnings: 7_500_000,
       unlockedProducts: ['weed', 'mushrooms'],
       captains: [existingCaptain],
+      zones: [createAmsterdamZone(existingCaptain.id)],
+      availableDealers: [
+        makeReferenceDealer({ id: 'candidate-1' }),
+        makeReferenceDealer({ id: 'candidate-2' }),
+        makeReferenceDealer({ id: 'candidate-3' }),
+      ],
     });
 
     act(() => result.current.buyCaptain('Captain 2'));
 
-    expect(parseNeonDSave(serializeNeonDSave(result.current.state))).toEqual(result.current.state);
     expect(result.current.state.captains.every((captain) =>
       result.current.state.unlockedProducts.includes(captain.selling),
     )).toBe(true);
+    expect(result.current.state.captains[0].selling).toBe('mushrooms');
   });
 
   it('requires the undiscounted next Captain cost despite an active discount', () => {
@@ -874,32 +884,55 @@ describe('useGameEngine', () => {
     });
   });
 
-  it('adds local dealer capacity on the global territory price curve', () => {
+  it('keeps capacity globally progressive while applying surcharge only to the expanded zone', () => {
     const amsterdamCaptain = makeReferenceCaptain({ id: 'captain-1' });
     const parisCaptain = makeReferenceCaptain({ id: 'captain-2' });
+    const startRespect =
+      getDealerCapacityCost(2) +
+      getDealerCapacityCost(3) * 2.5;
     const { result } = renderSeededGame({
-      respect: getTerritoryCost(3) + getTerritoryCost(4),
-      territoryLevel: 3,
+      respect: startRespect,
+      territoryLevel: 2,
       captains: [amsterdamCaptain, parisCaptain],
       activeDealers: [],
       zones: [
-        createAmsterdamZone(amsterdamCaptain.id, 1),
+        createAmsterdamZone(amsterdamCaptain.id, 3),
         { id: 'paris', displayName: 'Paris', captainId: parisCaptain.id, dealerSlots: [], perkIds: [] },
       ],
     });
 
     act(() => result.current.buyDealerCapacity('paris'));
 
-    expect(result.current.state.territoryLevel).toBe(4);
-    expect(result.current.state.respect).toBeCloseTo(getTerritoryCost(4));
-    expect(result.current.state.zones[1].dealerSlots).toEqual([
-      { id: 'paris-slot-0', dealer: null, reservedTransferId: null },
-    ]);
+    expect(result.current.state.territoryLevel).toBe(3);
+    expect(result.current.state.zones[1].dealerSlots).toHaveLength(1);
+    expect(result.current.state.respect).toBeCloseTo(getDealerCapacityCost(3) * 2.5);
 
-    act(() => result.current.buyDealerCapacity('paris'));
-    expect(result.current.state.territoryLevel).toBe(5);
+    act(() => result.current.buyDealerCapacity('amsterdam'));
+
+    expect(result.current.state.territoryLevel).toBe(4);
+    expect(result.current.state.zones[0].dealerSlots).toHaveLength(4);
+    expect(result.current.state.zones[1].dealerSlots).toHaveLength(1);
     expect(result.current.state.respect).toBeCloseTo(0);
-    expect(result.current.state.zones[1].dealerSlots).toHaveLength(2);
+  });
+
+  it('allows a concentrated fourth slot when the player can afford the surcharge', () => {
+    const captainOne = makeReferenceCaptain({ id: 'captain-1' });
+    const captainTwo = makeReferenceCaptain({ id: 'captain-2' });
+    const fourthSlotCost = getDealerCapacityCost(2) * 2.5;
+
+    const { result } = renderSeededGame({
+      respect: fourthSlotCost,
+      territoryLevel: 2,
+      captains: [captainOne, captainTwo],
+      activeDealers: [],
+      zones: [createAmsterdamZone(captainOne.id, 3)],
+    });
+
+    act(() => result.current.buyDealerCapacity('amsterdam'));
+
+    expect(result.current.state.respect).toBeCloseTo(0);
+    expect(result.current.state.territoryLevel).toBe(3);
+    expect(result.current.state.zones[0].dealerSlots).toHaveLength(4);
   });
 
   it('excludes reserved zone slots from available hiring targets', () => {
@@ -1276,7 +1309,7 @@ describe('useGameEngine', () => {
     expect(result.current.state.zones[1].dealerSlots[0].dealer?.id).toBe(dealer.id);
   });
 
-  it('clears travelling dealers and reservations during a Captain soft reset', () => {
+  it('keeps travelling dealers and reservations when recruiting an additional Captain', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-0000-0000-000000000003');
     const dealer = makeReferenceDealer({ id: 'reset-traveller' });
     const captain = makeReferenceCaptain({ id: 'reset-captain' });
@@ -1293,14 +1326,13 @@ describe('useGameEngine', () => {
 
     act(() => result.current.transferDealer(dealer.id, 'paris', 'paris-slot-0'));
     expect(result.current.state.dealerTransfers).toHaveLength(1);
+    const transferBefore = result.current.state.dealerTransfers[0];
+    const zonesBefore = result.current.state.zones;
 
-    act(() => result.current.buyCaptain('Reset Captain'));
+    act(() => result.current.buyCaptain('Second Captain'));
 
-    expect(result.current.state.activeDealers).toEqual([]);
-    expect(result.current.state.dealerTransfers).toEqual([]);
-    expect(result.current.state.zones).toHaveLength(1);
-    expect(result.current.state.zones[0].dealerSlots).toEqual([
-      { id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null },
-    ]);
+    expect(result.current.state.dealerTransfers).toEqual([transferBefore]);
+    expect(result.current.state.zones).toEqual(zonesBefore);
+    expect(result.current.state.captains).toHaveLength(2);
   });
 });
