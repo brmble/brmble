@@ -300,7 +300,7 @@
 }
 
 .onboarding-identity-badge.saved {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-muted);
 }
 

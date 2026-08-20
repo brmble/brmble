@@ -335,10 +335,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             case "toggleLeaveVoice":
                 LeaveVoice();
                 break;
-            case "toggleDmScreen":
-                _bridge?.Send("voice.toggleDmScreen", null);
-                _bridge?.NotifyUiThread();
-                break;
             case "toggleScreenShare":
                 _bridge?.Send("voice.toggleScreenShare", null);
                 _bridge?.NotifyUiThread();
@@ -985,7 +981,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _inputRouter?.SetShortcutBinding("toggleMute", settings.Shortcuts.ToggleMuteKey);
         _inputRouter?.SetShortcutBinding("toggleMuteDeafen", settings.Shortcuts.ToggleMuteDeafenKey);
         _inputRouter?.SetShortcutBinding("toggleLeaveVoice", settings.Shortcuts.ToggleLeaveVoiceKey);
-        _inputRouter?.SetShortcutBinding("toggleDmScreen", settings.Shortcuts.ToggleDMScreenKey);
         _inputRouter?.SetShortcutBinding("toggleScreenShare", settings.Shortcuts.ToggleScreenShareKey);
         _inputRouter?.SetShortcutBinding("toggleGame", settings.Shortcuts.ToggleGameKey);
         _audioManager?.SetInputVolume(settings.Audio.InputVolume);

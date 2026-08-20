@@ -428,7 +428,7 @@
 .admin-user-badge {
   --admin-user-badge-padding-block: var(--space-2xs);
   padding: var(--admin-user-badge-padding-block) var(--space-xs);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-lg);
   background: var(--bg-overlay);
   color: var(--text-secondary);
   white-space: nowrap;

@@ -20,7 +20,6 @@ public record ShortcutsSettings(
     string? ToggleMuteKey = null,
     string? ToggleMuteDeafenKey = null,
     string? ToggleLeaveVoiceKey = null,
-    string? ToggleDMScreenKey = null,
     string? ToggleScreenShareKey = null,
     string? ToggleGameKey = null
 );

@@ -15,7 +15,6 @@ export interface ShortcutsSettings {
   toggleMuteKey: string | null;
   toggleMuteDeafenKey: string | null;
   toggleLeaveVoiceKey: string | null;
-  toggleDMScreenKey: string | null;
   toggleScreenShareKey: string | null;
   toggleGameKey: string | null;
 }
@@ -24,7 +23,6 @@ export const DEFAULT_SHORTCUTS: ShortcutsSettings = {
   toggleMuteKey: null,
   toggleMuteDeafenKey: null,
   toggleLeaveVoiceKey: null,
-  toggleDMScreenKey: null,
   toggleScreenShareKey: null,
   toggleGameKey: null,
 };
@@ -227,22 +225,6 @@ export function ShortcutsSettingsTab({ settings, onChange, allBindings, onClearB
               onClick={() => setRecordingKey(recordingKey === 'toggleMuteKey' ? null : 'toggleMuteKey')}
             >
                   {keyButtonLabel('toggleMuteKey')}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <h3 className="heading-section settings-section-title">Navigation</h3>
-        <div className="settings-item">
-          <label>Toggle Direct Messages Screen</label>
-          <div className="key-binding-actions">
-            {localSettings.toggleDMScreenKey && <button className="btn btn-secondary key-binding-clear-btn" aria-label="Clear Toggle Direct Messages Screen binding" onClick={() => clearBinding('toggleDMScreenKey')}>Clear</button>}
-            <button
-              className={keyButtonClass('toggleDMScreenKey')}
-              onClick={() => setRecordingKey(recordingKey === 'toggleDMScreenKey' ? null : 'toggleDMScreenKey')}
-            >
-                  {keyButtonLabel('toggleDMScreenKey')}
             </button>
           </div>
         </div>

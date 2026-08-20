@@ -49,7 +49,7 @@ const mocks = vi.hoisted(() => {
     activeShare: null, activeShares: [], watchingShare: null, watchingShares: [], pendingViewerShares: [], remoteWatchCount: 0,
     isViewerConnectPending: false, focusedShare: null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null,
     remoteVideoEls: new Map(), roomQuality: undefined, shareQualities: new Map(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
+    disconnectViewer: vi.fn(), setRemoteScreenSharesHidden: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
   return { ids, gameState, duelQueue, notificationQueue, sidebarProps, headerProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
 });
@@ -438,6 +438,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.outgoingRematch = { offerId: 8, sourceMatchId: 91, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
     mocks.duelQueue.outgoingRematch = null;
@@ -451,6 +452,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
     mocks.gameState.ended = null;
@@ -460,6 +462,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 92, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch' })).toBeEnabled();
     mocks.gameState.ended = null;
@@ -468,6 +471,7 @@ describe('App duel orchestration', () => {
   it('locks a rematch request against double click and unlocks on a correlated error', () => {
     mocks.gameState.ended = ended;
     const { rerender } = renderApp();
+    connectSelf(0);
 
     const rematch = screen.getByRole('button', { name: 'Rematch' });
     fireEvent.click(rematch);

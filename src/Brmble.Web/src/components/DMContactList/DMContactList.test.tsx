@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -46,7 +45,6 @@ const mumbleContact: DMContact = {
   mumbleSessionId: 44,
 };
 
-const appCss = readFileSync(join(process.cwd(), 'src', 'App.css'), 'utf8');
 const dmContactListCss = readFileSync(
   join(process.cwd(), 'src', 'components', 'DMContactList', 'DMContactList.css'),
   'utf8',
@@ -55,14 +53,11 @@ const dmContactListCss = readFileSync(
 function renderList(
   contacts: DMContact[] = [matrixContact, mumbleContact],
   options: Partial<{
-    visible: boolean;
-    onToggleVisibility: () => void;
     selectedUserId: string | null;
   }> = {},
 ) {
   const onSelectContact = vi.fn();
   const onCloseConversation = vi.fn();
-  const onToggleVisibility = options.onToggleVisibility ?? vi.fn();
 
   const view = render(
     <DMContactList
@@ -70,46 +65,10 @@ function renderList(
       selectedUserId={options.selectedUserId ?? null}
       onSelectContact={onSelectContact}
       onCloseConversation={onCloseConversation}
-      onToggleVisibility={onToggleVisibility}
-      visible={options.visible ?? true}
     />,
   );
 
-  return { ...view, onSelectContact, onCloseConversation, onToggleVisibility };
-}
-
-function VisibilityHarness({
-  contacts = [matrixContact],
-  selectedUserId = matrixContact.id,
-  onSelectContact = vi.fn(),
-  onCloseConversation = vi.fn(),
-  withExternalCollapseControl = false,
-}: Partial<{
-  contacts: DMContact[];
-  selectedUserId: string | null;
-  onSelectContact: (id: string, displayName: string) => void;
-  onCloseConversation: (id: string) => void;
-  withExternalCollapseControl: boolean;
-}>) {
-  const [visible, setVisible] = useState(true);
-
-  return (
-    <>
-      {withExternalCollapseControl && (
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setVisible(false)}>
-          Collapse externally
-        </button>
-      )}
-      <DMContactList
-        contacts={contacts}
-        selectedUserId={selectedUserId}
-        onSelectContact={onSelectContact}
-        onCloseConversation={onCloseConversation}
-        onToggleVisibility={() => setVisible((current) => !current)}
-        visible={visible}
-      />
-    </>
-  );
+  return { ...view, onSelectContact, onCloseConversation };
 }
 
 describe('DMContactList directory behavior', () => {
@@ -118,91 +77,6 @@ describe('DMContactList directory behavior', () => {
     localStorage.clear();
     localStorage.setItem('volume_44', '100');
     localStorage.setItem('volume_33', '100');
-  });
-
-  it('expands the persistent Messages rail with Enter and restores the preserved search state', async () => {
-    const user = userEvent.setup();
-    render(<VisibilityHarness contacts={[matrixContact, mumbleContact]} />);
-
-    const search = screen.getByPlaceholderText('Search users...');
-    await user.type(search, 'val');
-    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
-
-    const expand = screen.getByRole('button', { name: 'Expand Messages panel' });
-    expect(expand.querySelector('polyline')).toHaveAttribute('points', '18 6 12 12 18 18');
-    expand.focus();
-    await user.keyboard('{Enter}');
-
-    expect(screen.getByRole('button', { name: 'Collapse Messages panel' })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Search users...')).toHaveValue('val');
-    expect(screen.getAllByText('Vanilla Val')).toHaveLength(2);
-  });
-
-  it('collapses the Messages panel with Space and updates the rail state', async () => {
-    const user = userEvent.setup();
-    render(<VisibilityHarness />);
-
-    const collapse = screen.getByRole('button', { name: 'Collapse Messages panel' });
-    expect(collapse.querySelector('polyline')).toHaveAttribute('points', '6 6 12 12 6 18');
-    collapse.focus();
-    await user.keyboard(' ');
-
-    const expand = screen.getByRole('button', { name: 'Expand Messages panel' });
-    expect(expand.querySelector('polyline')).toHaveAttribute('points', '18 6 12 12 18 18');
-    expect(screen.getByPlaceholderText('Search users...').closest('.dm-contact-list-content')).toHaveAttribute('aria-hidden', 'true');
-  });
-
-  it('moves focus to the rail control when a focused contact collapses through a state transition', async () => {
-    const user = userEvent.setup();
-    render(<VisibilityHarness withExternalCollapseControl />);
-
-    const contact = screen.getByRole('button', { name: /Vanilla Val/ });
-    contact.focus();
-    await user.click(screen.getByRole('button', { name: 'Collapse externally' }));
-
-    expect(screen.getByRole('button', { name: 'Expand Messages panel' })).toHaveFocus();
-  });
-
-  it('hides contact unread badges when collapsed without adding a separate rail badge', async () => {
-    const user = userEvent.setup();
-    render(<VisibilityHarness contacts={[matrixContact, mumbleContact]} />);
-
-    expect(screen.getAllByText('2')).toHaveLength(1);
-    expect(screen.getAllByText('1')).toHaveLength(1);
-    expect(screen.queryByLabelText('3 unread messages')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
-
-    expect(screen.queryByLabelText('3 unread messages')).not.toBeInTheDocument();
-    expect(screen.queryByText('2')).not.toBeInTheDocument();
-    expect(screen.queryByText('1')).not.toBeInTheDocument();
-  });
-
-  it('settles on the expanded state after rapid repeated rail toggles', async () => {
-    const user = userEvent.setup();
-    render(<VisibilityHarness />);
-
-    const collapse = screen.getByRole('button', { name: 'Collapse Messages panel' });
-    await user.dblClick(collapse);
-
-    expect(screen.getByRole('button', { name: 'Collapse Messages panel' })).toBeInTheDocument();
-  });
-
-  it('closes a contact context menu when the panel collapses without selection or close side effects', async () => {
-    const user = userEvent.setup();
-    const onSelectContact = vi.fn();
-    const onCloseConversation = vi.fn();
-    render(<VisibilityHarness onSelectContact={onSelectContact} onCloseConversation={onCloseConversation} />);
-
-    fireEvent.contextMenu(screen.getByRole('button', { name: /Vanilla Val/ }));
-    expect(screen.getByRole('button', { name: 'Send Direct Message' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Collapse Messages panel' }));
-
-    expect(screen.queryByRole('button', { name: 'Send Direct Message' })).not.toBeInTheDocument();
-    expect(onSelectContact).not.toHaveBeenCalled();
-    expect(onCloseConversation).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: /Vanilla Val/, hidden: true })).toHaveClass('active');
   });
 
   it('renders a registered standard-Mumble user as two visually distinct route entries', () => {
@@ -218,36 +92,6 @@ describe('DMContactList directory behavior', () => {
     expect(screen.getByTestId('mumble-avatar')).toBeInTheDocument();
   });
 
-  it('keeps the panel toggle in the Messages header row before the title', () => {
-    renderList();
-
-    const header = screen.getByRole('heading', { name: 'Messages' }).closest('.dm-contact-list-header');
-    expect(header).not.toBeNull();
-    expect(header?.children[0]).toBe(screen.getByRole('button', { name: 'Collapse Messages panel' }));
-    expect(header?.children[1]).toBe(screen.getByRole('heading', { name: 'Messages' }));
-  });
-
-  it('keeps the expand toggle in the visible collapsed rail header', () => {
-    const { container } = renderList([matrixContact], { visible: false });
-
-    const panel = container.querySelector('.dm-contact-list');
-    const header = container.querySelector('.dm-contact-list-header');
-    expect(panel).not.toHaveClass('visible');
-    expect(header).toHaveClass('collapsed');
-    expect(header?.children[0]).toBe(screen.getByRole('button', { name: 'Expand Messages panel' }));
-  });
-
-  it('keeps the collapsed Messages rail wide enough for the toggle', () => {
-    expect(appCss).toContain('--messages-rail-width: 48px;');
-    expect(dmContactListCss).toContain('width: var(--messages-rail-width, 48px);');
-    expect(dmContactListCss).toContain('min-width: var(--messages-rail-width, 48px);');
-  });
-
-  it('keeps each conversation slide exactly the width of the main content viewport', () => {
-    expect(appCss).toMatch(/\.content-slider\s*\{[\s\S]*?\bwidth:\s*100%;/);
-    expect(appCss).toMatch(/\.content-slider\.dm-active\s*\{[\s\S]*?transform:\s*translateX\(-100%\);/);
-    expect(appCss).toMatch(/\.content-slide\s*\{[\s\S]*?\bflex:\s*0 0 100%;/);
-  });
 
   it('keeps search results in their route sections when both routes match', async () => {
     const user = userEvent.setup();
@@ -377,8 +221,6 @@ describe('DMContactList directory behavior', () => {
         selectedUserId={null}
         onSelectContact={vi.fn()}
         onCloseConversation={vi.fn()}
-        onToggleVisibility={vi.fn()}
-        visible={true}
       />,
     );
 
@@ -409,6 +251,44 @@ describe('DMContactList directory behavior', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: /Offline Olive/ }));
 
     expect(screen.getByRole('button', { name: 'User Information' })).toBeDisabled();
+  });
+
+  it('renders without a visibility toggle', () => {
+    renderList();
+
+    expect(screen.queryByRole('button', { name: /Collapse Messages panel/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Expand Messages panel/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Messages' })).toBeInTheDocument();
+  });
+
+  it('always shows unread counts', () => {
+    renderList([{ id: 'a', displayName: 'Alice', unreadCount: 4, lastMessageTime: 1000 }]);
+
+    expect(screen.getByText('4')).toBeInTheDocument();
+  });
+
+  // The plan's third case set a `--force-narrow` custom property and re-asserted the
+  // badge. jsdom does not evaluate media queries against imported stylesheets, so that
+  // assertion is identical to the one above and proves nothing about the rail. The rail
+  // is presentation-only, so its contract is asserted against the stylesheet source and
+  // its rendered appearance is covered by the Task 20 manual checklist.
+  it('keeps unread counts out of the narrow rail collapse rules', () => {
+    expect(dmContactListCss).toContain('@media (max-width: 60rem)');
+    expect(dmContactListCss).toContain('width: var(--dm-rail-width);');
+    expect(dmContactListCss).not.toMatch(/\.dm-contact-unread\s*{[^}]*display:\s*none/);
+  });
+
+  // UI_GUIDE forbids `aria-label` on an element that also carries a visible unread badge
+  // (it would replace the whole accessible name and silence the count), and forbids
+  // `display: none` for text that must reach assistive technology. The rail therefore
+  // visually hides `.dm-contact-name` with the `.sr-only` technique instead of removing it.
+  it('keeps a rail-proof accessible name alongside the unread badge', () => {
+    renderList([matrixContact]);
+
+    const entry = screen.getByRole('button', { name: /Vanilla Val/ });
+    expect(entry).toHaveAccessibleName(/2/);
+    expect(dmContactListCss).not.toMatch(/\.dm-contact-name,/);
+    expect(dmContactListCss).toContain('clip-path: inset(50%);');
   });
 
   it('disables user info for an offline Mumble route', () => {

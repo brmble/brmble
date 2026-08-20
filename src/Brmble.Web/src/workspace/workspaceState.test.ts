@@ -1,147 +1,164 @@
 import { describe, expect, it } from 'vitest';
+import { conversationKey, type Conversation } from './conversation';
 import {
   createWorkspaceState,
-  getForegroundConversation,
-  isMessagesPanelExpanded,
+  isHomeKey,
+  selectActiveConversation,
+  selectHomeKey,
   workspaceReducer,
+  type WorkspaceState,
 } from './workspaceState';
 
-describe('workspace state machine', () => {
-  it('creates the channel-first workspace', () => {
-    const state = createWorkspaceState();
+const channel = (id: string): Conversation => ({ kind: 'channel', channelId: id });
+const dm = (id: string): Conversation => ({ kind: 'dm', contactId: id });
+const keys = (state: WorkspaceState) => state.tabs.map(conversationKey);
 
-    expect(state).toEqual({
-      messagesPanelExpanded: true,
-      foreground: { kind: 'channel' },
-      previousContent: { messagesPanelExpanded: true },
-      remoteWatchCount: 0,
+const joined = (id: string | null, base = createWorkspaceState()) =>
+  workspaceReducer(base, { type: 'JOINED_CHANNEL_CHANGED', channelId: id });
+
+describe('workspace conversation tabs', () => {
+  it('starts empty and disconnected', () => {
+    const state = createWorkspaceState();
+    expect(state).toEqual({ joinedChannelId: null, tabs: [], activeKey: null });
+    expect(selectHomeKey(state)).toBeNull();
+    expect(selectActiveConversation(state)).toBeNull();
+  });
+
+  it('creates a pinned home tab when joining a channel', () => {
+    const state = joined('7');
+    expect(keys(state)).toEqual(['channel:7']);
+    expect(state.activeKey).toBe('channel:7');
+    expect(isHomeKey(state, 'channel:7')).toBe(true);
+  });
+
+  it('keeps a home tab at server root', () => {
+    const state = joined('server-root');
+    expect(keys(state)).toEqual(['channel:server-root']);
+    expect(selectHomeKey(state)).toBe('channel:server-root');
+  });
+
+  it('appends and activates an opened conversation', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('@val:example.com') });
+    expect(keys(state)).toEqual(['channel:7', 'channel:9', 'dm:@val:example.com']);
+    expect(state.activeKey).toBe('dm:@val:example.com');
+  });
+
+  it('activates rather than duplicating an already open conversation', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    expect(keys(state)).toEqual(['channel:7', 'channel:9', 'dm:a']);
+    expect(state.activeKey).toBe('channel:9');
+  });
+
+  it('replaces the home tab when the joined channel changes and leaves browsed tabs alone', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '12' });
+    expect(keys(state)).toEqual(['channel:12', 'channel:9']);
+    expect(selectHomeKey(state)).toBe('channel:12');
+  });
+
+  it('absorbs a browsed tab that becomes the new home instead of showing it twice', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '9' });
+    expect(keys(state)).toEqual(['channel:9', 'dm:a']);
+    expect(state.activeKey).toBe('dm:a');
+  });
+
+  it('follows the absorbed tab into home when it was the active tab', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '9' });
+    expect(keys(state)).toEqual(['channel:9']);
+    expect(state.activeKey).toBe('channel:9');
+  });
+
+  it('moves activation to the new home when the old home was active', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'ACTIVATE_CONVERSATION', key: 'channel:7' });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '12' });
+    expect(state.activeKey).toBe('channel:12');
+  });
+
+  it('keeps activation on a browsed tab across a channel move', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '12' });
+    expect(state.activeKey).toBe('channel:9');
+  });
+
+  it('refuses to close the home tab', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'CLOSE_CONVERSATION', key: 'channel:7' });
+    expect(keys(state)).toEqual(['channel:7']);
+  });
+
+  it('activates the right neighbour when closing the active tab', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'ACTIVATE_CONVERSATION', key: 'channel:9' });
+    state = workspaceReducer(state, { type: 'CLOSE_CONVERSATION', key: 'channel:9' });
+    expect(keys(state)).toEqual(['channel:7', 'dm:a']);
+    expect(state.activeKey).toBe('dm:a');
+  });
+
+  it('falls back to the left neighbour when closing the last tab', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'CLOSE_CONVERSATION', key: 'dm:a' });
+    expect(state.activeKey).toBe('channel:9');
+  });
+
+  it('leaves activation alone when closing an inactive tab', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: channel('9') });
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'CLOSE_CONVERSATION', key: 'channel:9' });
+    expect(state.activeKey).toBe('dm:a');
+  });
+
+  it('treats invalidation as a close', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'CONVERSATION_INVALIDATED', key: 'dm:a' });
+    expect(keys(state)).toEqual(['channel:7']);
+    expect(state.activeKey).toBe('channel:7');
+  });
+
+  it('restores non-home tabs and activates home', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, {
+      type: 'RESTORE_CONVERSATIONS',
+      conversations: [channel('9'), dm('a'), channel('7')],
     });
-    expect(isMessagesPanelExpanded(state)).toBe(true);
-    expect(getForegroundConversation(state)).toBe(state.foreground);
+    expect(keys(state)).toEqual(['channel:7', 'channel:9', 'dm:a']);
+    expect(state.activeKey).toBe('channel:7');
   });
 
-  it('closes once when the first remote watch starts and restores the previous visibility when the final one ends', () => {
-    let state = createWorkspaceState();
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-    expect(state.messagesPanelExpanded).toBe(false);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
-    expect(state.messagesPanelExpanded).toBe(false);
+  it('drops every tab and the home tab on disconnect', () => {
+    let state = joined('7');
+    state = workspaceReducer(state, { type: 'OPEN_CONVERSATION', conversation: dm('a') });
+    state = workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: null });
+    expect(selectHomeKey(state)).toBeNull();
+    expect(keys(state)).toEqual(['dm:a']);
+    state = workspaceReducer(state, { type: 'WORKSPACE_RESET' });
+    expect(keys(state)).toEqual([]);
+    expect(state.activeKey).toBeNull();
   });
 
-  it('changes only Messages-panel visibility when remote watching starts or ends', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    const foreground = state.foreground;
-    const previousContent = state.previousContent;
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-    expect(state.messagesPanelExpanded).toBe(false);
-    expect(state.foreground).toBe(foreground);
-    expect(state.previousContent).toEqual(previousContent);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
-    expect(state.messagesPanelExpanded).toBe(true);
-    expect(state.foreground).toBe(foreground);
-    expect(state.previousContent).toEqual(previousContent);
-  });
-
-  it('keeps a manually reopened panel open until the watch set becomes empty', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    expect(state.messagesPanelExpanded).toBe(true);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 2 });
-    expect(state.messagesPanelExpanded).toBe(true);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
-    expect(state.messagesPanelExpanded).toBe(true);
-  });
-
-  it('reopens the panel when the final watch ends after a manual close during watching', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    expect(state.messagesPanelExpanded).toBe(false);
-
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 });
-
-    expect(state.messagesPanelExpanded).toBe(true);
-  });
-
-  it('clamps remote-watch counts at zero and changes visibility only at zero edges', () => {
-    const initialState = createWorkspaceState();
-    let state = initialState;
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: -2 });
-    expect(state).toBe(initialState);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 2 });
-    const watchingState = state;
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 4 });
-    expect(state.remoteWatchCount).toBe(4);
-    expect(state.messagesPanelExpanded).toBe(false);
-    expect(state.foreground).toBe(watchingState.foreground);
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: -1 });
-    expect(state.remoteWatchCount).toBe(0);
-    expect(state.messagesPanelExpanded).toBe(true);
-  });
-
-  it('resets a reconnecting session to the channel-first workspace without clearing retained panel data', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    const previousContent = state.previousContent;
-    state = workspaceReducer(state, { type: 'SELECT_CHANNEL' });
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 2 });
-    state = workspaceReducer(state, { type: 'CONNECTION_WORKSPACE_READY' });
-    expect(state).toMatchObject({ messagesPanelExpanded: true, remoteWatchCount: 0 });
-    expect(state.foreground).toEqual({ kind: 'channel' });
-    expect(state.previousContent).toEqual(previousContent);
-  });
-
-  it('falls back to the channel while watching when the selected DM is invalidated', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-    state = workspaceReducer(state, { type: 'SELECTED_DM_INVALIDATED' });
-    expect(state.foreground).toEqual({ kind: 'channel' });
-  });
-
-  it('falls back to the empty DM workspace when an invalidated DM is not being watched', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    state = workspaceReducer(state, { type: 'SELECTED_DM_INVALIDATED' });
-    expect(state.foreground).toEqual({ kind: 'dm', contactId: '' });
-  });
-
-  it('keeps the foreground channel when a background DM is invalidated', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    state = workspaceReducer(state, { type: 'SELECT_CHANNEL' });
-    const channelState = state;
-
-    state = workspaceReducer(state, { type: 'SELECTED_DM_INVALIDATED' });
-
-    expect(state).toBe(channelState);
-    expect(state.foreground).toEqual({ kind: 'channel' });
-  });
-
-  it('updates previous panel visibility before switching into a remote watch', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'TOGGLE_MESSAGES_PANEL' });
-    state = workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 1 });
-
-    expect(state.previousContent).toEqual({ messagesPanelExpanded: false });
-  });
-
-  it('preserves previous content when opening or toggling the Messages panel', () => {
-    let state = workspaceReducer(createWorkspaceState(), { type: 'SELECT_DM', contactId: '@val:example.com' });
-    const previousContent = state.previousContent;
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    state = workspaceReducer(state, { type: 'OPEN_MESSAGES_PANEL' });
-    expect(state.previousContent).toBe(previousContent);
-  });
-
-  it('returns the original state for idempotent events', () => {
-    const state = createWorkspaceState();
-
-    expect(workspaceReducer(state, { type: 'REMOTE_WATCH_COUNT_CHANGED', count: 0 })).toBe(state);
-    expect(workspaceReducer(state, { type: 'OPEN_MESSAGES_PANEL' })).toBe(state);
-    expect(workspaceReducer(state, { type: 'CONNECTION_WORKSPACE_READY' })).toBe(state);
-  });
-
-  it('uses one toggle action for both successive visibility changes', () => {
-    let state = createWorkspaceState();
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    state = workspaceReducer(state, { type: 'TOGGLE_MESSAGES_PANEL' });
-    expect(state.messagesPanelExpanded).toBe(true);
+  it('returns the same state object when nothing changes', () => {
+    const state = joined('7');
+    expect(workspaceReducer(state, { type: 'JOINED_CHANNEL_CHANGED', channelId: '7' })).toBe(state);
+    expect(workspaceReducer(state, { type: 'ACTIVATE_CONVERSATION', key: 'channel:7' })).toBe(state);
+    expect(workspaceReducer(state, { type: 'CLOSE_CONVERSATION', key: 'channel:404' })).toBe(state);
   });
 });

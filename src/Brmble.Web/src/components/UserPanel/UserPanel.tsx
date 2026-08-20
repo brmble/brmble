@@ -10,9 +10,6 @@ type BridgeModule = { default: { on: (event: string, handler: (data: unknown) =>
 
 interface UserPanelProps {
   username?: string;
-  onToggleDM?: () => void;
-  dmActive?: boolean;
-  unreadDMCount?: number;
   onOpenSettings: () => void;
   onAvatarClick?: () => void;
   avatarUrl?: string;
@@ -37,7 +34,7 @@ interface UserPanelProps {
   onOpenAudioSettings?: () => void;
 }
 
-export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, onOpenAudioSettings }: UserPanelProps) {
+export function UserPanel({ username, onOpenSettings, onAvatarClick, avatarUrl, matrixUserId, muted, deafened, leftVoice, canRejoin, onToggleMute, onToggleDeaf, onLeaveVoice, screenSharing, screenShareError, onToggleScreenShare, canScreenShare, speaking, pendingChannelAction, hotkeyPressedBtn, leaveVoiceOnCooldown, muteOnCooldown, deafOnCooldown, onOpenAudioSettings }: UserPanelProps) {
   const [pressedBtn, setPressedBtn] = useState<string | null>(null);
   const [voiceContextMenu, setVoiceContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [deafenContextMenu, setDeafenContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -351,27 +348,9 @@ export function UserPanel({ username, onToggleDM, dmActive, unreadDMCount, onOpe
         </Tooltip>
       )}
 
-      {onToggleDM && (
-      <Tooltip content={dmActive ? 'Collapse Messages panel' : 'Expand Messages panel'} position="bottom" align="end">
-      <button
-        className={`btn btn-ghost btn-icon user-panel-btn dm-btn ${dmActive ? 'active' : ''} ${activeBtn === 'dm' ? 'pressed' : ''}`}
-        aria-label={dmActive ? 'Collapse Messages panel' : 'Expand Messages panel'}
-        onMouseDown={handleMouseDown('dm')}
-        onMouseUp={handleMouseUp('dm', onToggleDM)}
-        onMouseLeave={handleMouseLeave}
-        onKeyDown={handleKeyDown('dm')}
-        onKeyUp={handleKeyUp('dm', onToggleDM)}
-      >
-        <Icon name="message-square" size={18} />
-        {unreadDMCount != null && unreadDMCount > 0 && (
-          <span className="dm-unread-badge" key={unreadDMCount}>
-            {unreadDMCount > 9 ? '9+' : unreadDMCount}
-          </span>
-        )}
-      </button>
-      </Tooltip>
-      )}
-      
+      {/* The Messages panel is permanently visible, so there is no DM toggle button.
+          Unread counts live on the contact entries in that panel. */}
+
       <Tooltip content="Settings" position="bottom" align="end">
       <button 
         className="btn btn-ghost btn-icon user-panel-btn user-settings-btn" 

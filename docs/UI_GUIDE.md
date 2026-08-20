@@ -102,6 +102,29 @@ All visual properties must come from CSS custom properties. Two layers exist:
 | `padding: 1rem` | `padding: var(--space-md)` |
 | `box-shadow: 0 8px 32px rgba(0,0,0,0.4)` | `box-shadow: var(--shadow-elevated)` |
 
+### Text On An Accent Fill
+
+When text or an icon sits on a filled accent background (`--accent-primary`,
+`--accent-success`, unread/mention badges, the active conversation tab), its colour is
+**`var(--bg-deep)`**. This is the established convention across `ChatPanel.css`,
+`ChannelTree.css`, `ConversationTabStrip.module.css` and `NeonD.module.css`. There is no
+`--text-on-accent` token — do not invent one, and do not hardcode white.
+
+### Phantom Tokens (do not copy)
+
+These names appear in older code and in AI-generated CSS but are **defined nowhere**. A
+`var()` on them resolves to nothing, so the declaration silently does nothing:
+
+| Phantom (not real) | Use instead |
+|---|---|
+| `--radius-pill` | `--radius-lg` (or `--radius-full` for a true circle) |
+| `--bg-subtle` | `--bg-surface` |
+| `--text-on-accent` | `--bg-deep` (see above) |
+| `--font-size-xs` | `--text-xs` |
+
+Before using any token, confirm it exists in `index.css` (`:root`) or
+`themes/_template.css`. Font-size tokens are `--text-*`, never `--font-size-*`.
+
 ---
 
 ## 3. Heading System
@@ -204,23 +227,101 @@ The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer 
 their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
 duplicate this listener lifecycle in a consumer.
 
-### Minigame Modal Pattern
+The main panel has **exactly one** split, keyed `brmble-main-split` (channel activity above,
+conversation below). No component may introduce a second splitter inside the main panel. See the
+Main Panel Region Pattern.
 
-Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,
-`components/Games/RpsModal.tsx`, `RpsModal.module.css`
+### Main Panel Region Pattern
 
-Real-time minigame modals (e.g. Deathroll, Rock Paper Scissors) reuse the shared modal shell —
-global `div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
-`h2.heading-title.modal-title` — and add game-specific content styling via a colocated
-CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
-
-Each game gets its **own** modal component (Deathroll and RPS do not share a body). The
-`view` prop is the generic `GameView` union from `useGameState`; each modal narrows it to its
-own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
-modal to render from `activeMatch?.gameType ?? ended?.gameType`.
+Reference: `src/Brmble.Web/src/components/MainPanel/MainPanel.tsx`,
+`workspace/mainPanelMode.ts`, `components/ChannelActivityRegion/ChannelActivityRegion.tsx`,
+`App.tsx`
 
 Rules:
-1. Reuse the shared modal shell classes above; only game-board content (player rows,
+1. The main panel has exactly two modes. In `game` mode a single game surface fills it
+   entirely — no activity chips, no tab strip, no chat. In `split` mode the channel
+   activity region sits above the conversation region, separated by one
+   `VerticalSplitPane` keyed `brmble-main-split`.
+2. Game mode is entered by **participating** in a game, never by spectating one. Opening
+   the solo idle game is participation.
+3. The channel activity region is bound to the joined voice channel and to nothing else.
+   It never renders at server root, and never renders when the channel has no activity —
+   in that case the panel has no upper pane and no divider.
+4. The activity region stages exactly one activity. Chips list everything live; the first
+   activity to appear takes the stage, later arrivals never steal it, and an explicit chip
+   click always wins.
+5. A backgrounded screen share stays subscribed for a 10-second grace period, then
+   unsubscribes. Watched list, order, focus, receive quality, room membership and local
+   publishing are never changed by staging.
+6. No component may introduce a second splitter inside the main panel.
+
+### Conversation Tab Strip Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`ConversationTabStrip.module.css`, `workspace/` conversation tab state
+
+Rules:
+1. The strip is a single `role="tablist"`. The home tab is first, is derived from the
+   joined voice channel, has no close control, and is pinned outside the scroll container.
+2. Moving voice channel **replaces** the home tab. A browsed tab for the new channel is
+   absorbed rather than duplicated. Presence never creates history.
+3. Only an explicit click to read a channel or a user creates a tab, and every such click
+   creates a permanent tab. There are no preview tabs.
+4. Overflow shrinks labels to `--conversation-tab-min-width` with ellipsis, then scrolls
+   horizontally.
+5. An open conversation's unread badge lives on its tab; its sidebar row or contact entry
+   shows nothing. Aggregate counts are computed **before** suppression.
+6. Tabs persist per server and are validated on restore. The home tab is never restored
+   from storage.
+
+### Conversation Region Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`App.tsx` (`.conversation-region`), `App.css`
+
+The main panel's conversation slot is a single `.conversation-region` column: a
+`ConversationTabStrip` above **one** `ChatPanel`. There is no second, hidden chat panel and
+no sliding transform — the active tab decides which conversation the one panel renders.
+
+Rules:
+1. Never render more than one `ChatPanel`. Channel and DM prop sets are selected by the
+   active conversation's kind, not rendered side by side.
+2. Do not reintroduce `aria-hidden` / `inert` conversation slides or a transform-based
+   route transition. Nothing is mounted-but-hidden, so there is nothing to mark inert.
+3. Every tab must have a visible label. A channel whose name cannot be resolved falls back
+   to its channel id.
+4. The "you are here" (home) tab is the joined voice channel and follows presence; it is
+   not closeable and is never persisted. Use the `.sr-only` pattern for its suffix.
+5. Root chat (`'server-root'`) is not Matrix-backed and therefore has no unread source. It
+   must render **no** badge, not a zero.
+6. Presence and unread signals live on the tab, not in the `.chat-header`.
+
+### Minigame Panel Pattern
+
+Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,
+`components/Games/RpsModal.tsx`, `RpsModal.module.css`, `components/Games/GameSurface.tsx`
+
+A minigame the local player is participating in — and the result of the one that just
+finished — **owns the whole main panel**. It is not a dialog: there is no
+`div.modal-overlay`, no click-outside dismissal, no focus trap and no `role="dialog"`.
+App composes the panel with `<MainPanel>` (`components/MainPanel/MainPanel.tsx`), whose
+mode comes from `selectMainPanelMode` (`workspace/mainPanelMode.ts`); the board is
+centered in the panel by the `<GameSurface>` wrapper. The idle Neon-D game uses the same
+main-panel slot and is closed by its own close control. Chat, paint and screen share stay
+mounted underneath and simply reappear when the panel returns to `split`.
+
+The board itself still reuses the shared card shell — `.glass-panel.animate-slide-up`,
+`.modal-close`, `.modal-header`, `h2.heading-title.modal-title` — and adds game-specific
+content styling via a colocated CSS module (`*.module.css`). Do not build a bespoke
+positioning system, and do not put a live match back behind an overlay.
+
+Each game gets its **own** board component (Deathroll and RPS do not share a body). The
+`view` prop is the generic `GameView` union from `useGameState`; each one narrows it to its
+own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
+board to render from `activeMatch?.gameType ?? ended?.gameType`.
+
+Rules:
+1. Reuse the shared card shell classes above; only game-board content (player rows,
    stat tiles, countdown bar, pick buttons, result banner) lives in the CSS module.
 2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
    `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
@@ -248,9 +349,10 @@ Rules:
    short token-styled `3…2…1` countdown in the status area, then reveal the updated
    score, `lastRound`, and — only after the countdown — the end result banner. Gate this
    with local state (the raw `view` prop is the source of truth; a `display` copy lags
-   during the reveal). Key the modal on the match id in App so this reveal state resets
-   between matches.
-7. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
+   during the reveal). Key the board on the match id in App so this reveal state resets
+   between matches — and keep the live match and its result in the **same** mount site, or
+   the reveal state is destroyed by a remount the moment `game.ended` nulls the view.
+7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
 ### Minigame Invite Pattern
@@ -352,9 +454,9 @@ Rematch **requests** from the result modal are locked client-side on `sourceMatc
 Ready/Accept are locked, because `outgoingRematch` only arrives after the server answers. The lock
 releases on a correlated `requestRematch` error or when the completed match changes.
 
-Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
-**Rematch** action beside **Close**. A pending request disables that action and leaves the result
-modal open.
+Completed Deathroll and Rock Paper Scissors participant result panels place a secondary
+**Rematch** action beside **Close**. A pending request disables that action and leaves the
+result panel open.
 
 #### Duel queue confirmation
 
@@ -748,6 +850,53 @@ Rules:
 6. Do not use native `title` attributes on prompt controls; use accessible labels and the shared Tooltip pattern when hover help is needed
 7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
 8. Rich preview confirmations still use the single App-owned prompt host; never mount a second host for feature-specific content
+
+### Permanently Visible User Panel Pattern
+
+Reference: `src/Brmble.Web/src/components/DMContactList/DMContactList.tsx`,
+`DMContactList.css`, `App.tsx` (`.app-body`), `App.css`
+
+`.app-body` is a static three-column workspace: sidebar | main content | user panel
+(`DMContactList`). The user panel is **permanently visible** whenever the client is
+connected. It is not a reading surface — clicking a contact opens a conversation tab.
+
+Rules:
+1. There is no visibility state, no toggle control, and no `visible` prop. Do not
+   reintroduce `messagesPanelExpanded`, a Header/UserPanel DM toggle button, or any
+   activity-driven auto-collapse (screen share, game, remote watching).
+2. Below `60rem` the panel narrows to a compact rail. That collapse is **presentation
+   only**: driven by a CSS media query on viewport width alone. No reducer state, no
+   JavaScript, not user-toggleable.
+3. Widths come from `--dm-panel-width` and `--dm-rail-width` in `:root` (`index.css`).
+4. Unread counts render unconditionally and stay visible in the rail (absolutely
+   positioned on the contact entry). Never gate a badge on panel width.
+5. Text that is the accessible name of a control must be visually hidden with the
+   `.sr-only` technique in the rail, never `display: none`. Do not use `aria-label`
+   on a contact entry — it would replace the accessible name and silence the unread
+   badge (see the `.sr-only` section).
+6. The panel is rendered only while connected, so it never appears on the
+   server-list, onboarding, connecting, or disconnected screens.
+
+### Screen-Reader-Only Text (`.sr-only`)
+
+Reference: `src/Brmble.Web/src/index.css`
+
+Use the global `.sr-only` utility for text that must reach assistive technology but not the
+screen — for example marking which item is the current one. Prefer it over `aria-label` on any
+element that also carries visible dynamic content (unread counts, mention badges, status
+chips): `aria-label` **replaces** the whole accessible name and silences those badges.
+
+Because the accessible name is the concatenation of inline children **without separators**, do
+not rely on a leading space inside the `.sr-only` span (it is trimmed). Instead repeat the label
+inside the `.sr-only` span and mark the visible copy `aria-hidden="true"`:
+
+```tsx
+<span className={styles.text} aria-hidden="true">{label}</span>
+<span className="sr-only">{`${label} (you are here)`}</span>
+```
+
+Do not add per-component visually-hidden helpers, and never use `display: none` or
+`visibility: hidden` for this — both remove the text from the accessibility tree.
 
 ### Form Inputs
 

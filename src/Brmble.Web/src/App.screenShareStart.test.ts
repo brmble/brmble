@@ -202,6 +202,7 @@ vi.mock('./hooks/useScreenShare', () => ({
     disconnectViewer,
     connectAsViewer,
     isViewerConnectPending: screenShareState.isViewerConnectPending,
+    setRemoteScreenSharesHidden: vi.fn(),
     };
   },
 }));
@@ -285,10 +286,9 @@ vi.mock('./components/ErrorBoundary', () => ({
 }));
 
 vi.mock('./components/Header/Header', () => ({
-  Header: ({ onLeaveVoice, onToggleScreenShare, onToggleDM }: {
+  Header: ({ onLeaveVoice, onToggleScreenShare }: {
     onLeaveVoice?: () => void;
     onToggleScreenShare?: () => void;
-    onToggleDM?: () => void;
   }) => React.createElement(React.Fragment, null,
     React.createElement('button', {
       type: 'button',
@@ -299,11 +299,6 @@ vi.mock('./components/Header/Header', () => ({
       type: 'button',
       'data-testid': 'header-toggle-screen-share',
       onClick: onToggleScreenShare,
-    }),
-    React.createElement('button', {
-      type: 'button',
-      'data-testid': 'header-toggle-messages',
-      onClick: onToggleDM,
     }),
   ),
 }));
@@ -321,6 +316,7 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
     onWatchScreenShare?: (roomName: string, userId?: number, matrixUserId?: string) => void;
     onJoinChannel?: (channelId: number) => void;
     onSelectChannel?: (channelId: number) => void;
+    onSelectServer?: () => void;
     channels?: Array<{ id: number; canEnter?: boolean; hasPasswordRestriction?: boolean; position?: number; description?: string }>;
   }) => {
     sidebarProps.current = props;
@@ -345,6 +341,11 @@ vi.mock('./components/Sidebar/Sidebar', () => ({
       'data-testid': 'sidebar-select-channel-2',
       onClick: () => props.onSelectChannel?.(2),
     }),
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'sidebar-select-server',
+      onClick: () => props.onSelectServer?.(),
+    }),
   );
   },
 }));
@@ -367,10 +368,10 @@ vi.mock('./components/CloseDialog/CloseDialog', () => ({ CloseDialog: () => null
 vi.mock('./components/OnboardingWizard/OnboardingWizard', () => ({ OnboardingWizard: () => null }));
 vi.mock('./components/Version/Version', () => ({ Version: () => null }));
 vi.mock('./components/ZoomIndicator/ZoomIndicator', () => ({ ZoomIndicator: () => null }));
-const dmContactListProps = vi.hoisted(() => ({ current: { visible: false } }));
+const dmContactListProps = vi.hoisted(() => ({ current: { rendered: false } }));
 vi.mock('./components/DMContactList/DMContactList', () => ({
-  DMContactList: (props: { visible: boolean }) => {
-    dmContactListProps.current = props;
+  DMContactList: () => {
+    dmContactListProps.current = { rendered: true };
     return null;
   },
 }));
@@ -546,7 +547,7 @@ describe('shouldClearLocalShareStartPending', () => {
 });
 
 describe('canWatchShareFromChannel', () => {
-  it('blocks watch attempts when current channel does not match share room', () => {
+  it('blocks watch attempts when the JOINED channel does not match the share room', () => {
     expect(canWatchShareFromChannel('server-root', 'channel-1')).toBe(false);
     expect(canWatchShareFromChannel('2', 'channel-1')).toBe(false);
     expect(canWatchShareFromChannel('1', 'channel-1')).toBe(true);
@@ -605,87 +606,9 @@ describe('active share discovery', () => {
     });
   });
 
-  it('closes Messages while a viewer connection is pending, then reopens it when that only attempt fails', async () => {
-    const view = render(React.createElement(App));
 
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-
-    screenShareState.pendingViewerShares = [{ roomName: 'channel-1', userId: 10 }];
-    screenShareState.remoteWatchCount = 1;
-    view.rerender(React.createElement(App));
-
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-
-    screenShareState.pendingViewerShares = [];
-    screenShareState.remoteWatchCount = 0;
-    view.rerender(React.createElement(App));
-
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-  });
-
-  it('keeps the channel foreground while active remote watches collapse Messages', async () => {
-    const view = render(React.createElement(App));
-
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Work' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-
-    act(() => {
-      view.getByTestId('sidebar-select-channel-2').click();
-    });
-
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
-
-    screenShareState.remoteWatchCount = 1;
-    view.rerender(React.createElement(App));
-
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
-  });
-
-  it('keeps Messages collapsed until the final remote watch ends, including duplicate final-watch updates', async () => {
-    const view = render(React.createElement(App));
-
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-
-    screenShareState.remoteWatchCount = 2;
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-
-    screenShareState.remoteWatchCount = 1;
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-
-    screenShareState.remoteWatchCount = 0;
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-  });
-
-  it('does not collapse Messages for local sharing alone', async () => {
+  // The Messages panel is permanently visible now; local sharing must not remove it.
+  it('keeps the Messages panel mounted for local sharing alone', async () => {
     screenShareState.isSharing = true;
     const view = render(React.createElement(App));
 
@@ -698,42 +621,13 @@ describe('active share discovery', () => {
       });
     });
 
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
+    await waitFor(() => expect(dmContactListProps.current.rendered).toBe(true));
     expect(screenShareState.remoteWatchCount).toBe(0);
     view.unmount();
   });
 
-  it('preserves manual panel intent during a remote watch and reopens Messages when the final watch ends', async () => {
-    const view = render(React.createElement(App));
 
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-
-    screenShareState.remoteWatchCount = 1;
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
-
-    act(() => view.getByTestId('header-toggle-messages').click());
-    expect(dmContactListProps.current.visible).toBe(true);
-
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-
-    act(() => view.getByTestId('header-toggle-messages').click());
-    expect(dmContactListProps.current.visible).toBe(false);
-
-    screenShareState.remoteWatchCount = 0;
-    view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-  });
-
-  it('keeps viewers connected during channel selection and lets cleared watches reopen Messages', async () => {
+  it('keeps viewers connected during channel selection', async () => {
     const view = render(React.createElement(App));
 
     act(() => {
@@ -749,50 +643,24 @@ describe('active share discovery', () => {
     screenShareState.pendingViewerShares = [{ roomName: 'channel-1', userId: 10 }];
     screenShareState.remoteWatchCount = 1;
     view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(false));
 
     const cleanupCallsBeforeChannelSelection = vi.mocked(disconnectViewer).mock.calls.length;
     act(() => view.getByTestId('sidebar-select-channel-2').click());
-    await waitFor(() => expect(getActiveShareRequests()).toHaveLength(2));
 
     expect(disconnectViewer.mock.calls.length).toBe(cleanupCallsBeforeChannelSelection);
+    // Merely BROWSING another channel is not a presence move, so it must not
+    // re-run share discovery: the only discovery is still the one for the
+    // joined channel from connect.
+    expect(getActiveShareRequests()).toHaveLength(1);
     const channelTwoDiscoveryCall = vi.mocked(bridge.send).mock.calls
       .map(([type, payload], index) => ({ type, payload, order: vi.mocked(bridge.send).mock.invocationCallOrder[index] }))
       .find(call => call.type === 'livekit.checkActiveShare' && (call.payload as { roomName?: string }).roomName === 'channel-2');
-    expect(channelTwoDiscoveryCall).toBeDefined();
+    expect(channelTwoDiscoveryCall).toBeUndefined();
 
     screenShareState.pendingViewerShares = [];
     screenShareState.remoteWatchCount = 0;
     view.rerender(React.createElement(App));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
     expect(screenShareState.pendingViewerShares).toEqual([]);
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
-  });
-
-  it('routes the native Messages shortcut through the Header panel state', async () => {
-    const view = render(React.createElement(App));
-
-    act(() => {
-      bridge.emit('voice.connected', {
-        username: 'TestUser',
-        channelId: 1,
-        channels: [{ id: 1, name: 'General' }],
-        users: [{ session: 7, name: 'TestUser', self: true, channelId: 1 }],
-      });
-    });
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-
-    act(() => view.getByTestId('header-toggle-messages').click());
-    expect(dmContactListProps.current.visible).toBe(false);
-
-    act(() => bridge.emit('voice.toggleDmScreen'));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
-
-    act(() => view.getByTestId('header-toggle-messages').click());
-    expect(dmContactListProps.current.visible).toBe(false);
-
-    act(() => bridge.emit('voice.toggleDmScreen'));
-    await waitFor(() => expect(dmContactListProps.current.visible).toBe(true));
   });
 
   it('renders a pre-idle warning notification when idle pre-leave starts', async () => {
@@ -1304,7 +1172,7 @@ describe('active share discovery', () => {
     expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'idle', error: undefined });
   });
 
-  it('notification watch does not connect as viewer from root selected channel', async () => {
+  it('notification watch still connects as viewer while browsing the server root', async () => {
     vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
     screenShareState.activeShares = [{
       roomName: 'channel-1',
@@ -1328,8 +1196,11 @@ describe('active share discovery', () => {
       });
     });
 
+    // Browse the server root while still JOINED to voice channel 1. Watching
+    // follows presence, not selection, so the share in your own channel stays
+    // watchable while you look around.
     act(() => {
-      bridge.emit('voice.channelChanged', { channelId: 0, name: 'Root' });
+      view.getByTestId('sidebar-select-server').click();
     });
 
     act(() => {
@@ -1347,12 +1218,11 @@ describe('active share discovery', () => {
       await Promise.resolve();
     });
 
-    expect(connectAsViewer).not.toHaveBeenCalled();
-    expect(serviceStatus.updateStatus).not.toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
+    expect(connectAsViewer).toHaveBeenCalledWith('channel-1', 42, '@alice:example.com');
+    expect(serviceStatus.updateStatus).toHaveBeenCalledWith('livekit', { state: 'connecting', error: undefined });
   });
 
-  it('notification watch does not connect as viewer from the wrong selected channel', async () => {
-    vi.mocked(notifQueue.isVisible).mockImplementation((id: string) => id === 'screen-share');
+  it('does not connect as viewer for a share in a channel the user has moved out of', async () => {
     screenShareState.activeShares = [{
       roomName: 'channel-1',
       userName: 'Alice',
@@ -1378,22 +1248,18 @@ describe('active share discovery', () => {
       });
     });
 
+    // A real presence move: the gate is keyed to where you are standing, and
+    // presence is the source of truth for that.
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
-    });
-
-    act(() => {
-      bridge.emit('livekit.screenShareStarted', {
-        roomName: 'channel-1',
-        userName: 'Alice',
-        userId: 42,
-        matrixUserId: '@alice:example.com',
-        sessionId: 2,
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
       });
     });
 
     await act(async () => {
-      view.getByText('Watch').click();
+      view.getByTestId('sidebar-watch-share').click();
       await Promise.resolve();
     });
 
@@ -1672,8 +1538,14 @@ describe('active share discovery', () => {
 
     vi.mocked(notifQueue.unregister).mockClear();
 
+    // Presence is the source of truth for "switching channels" now, so the
+    // fixture must move the self user too.
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     expect(notifQueue.unregister).toHaveBeenCalledWith('screen-share');
@@ -1757,6 +1629,10 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     await waitFor(() => {
@@ -1765,6 +1641,11 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 0, name: 'Root' });
+      // Discovery follows presence, so root moves must land in presence too.
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 0 }],
+        removed: [],
+      });
     });
 
     await waitFor(() => {
@@ -1805,6 +1686,10 @@ describe('active share discovery', () => {
 
     act(() => {
       bridge.emit('voice.channelChanged', { channelId: 2, name: 'Gaming' });
+      bridge.emit('voice.usersChanged', {
+        changed: [{ session: 7, name: 'TestUser', self: true, channelId: 2 }],
+        removed: [],
+      });
     });
 
     await waitFor(() => {
