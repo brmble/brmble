@@ -11,7 +11,7 @@ describe('TalentLedger', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css'), 'utf8');
 
     expect(css).toMatch(/\.talentLedgerModal\s*\{[^}]*background:[^}]*var\(--bg-deep\)/);
-    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*grid-template-columns:\s*minmax\(0, 12rem\)/);
+    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*grid-template-columns:\s*minmax\(0, var\(--neond-talent-lane-max-width\)\)/);
     expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*justify-content:\s*center/);
   });
 

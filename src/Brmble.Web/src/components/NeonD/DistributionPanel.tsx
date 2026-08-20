@@ -582,7 +582,7 @@ export function DistributionPanel(props: DistributionPanelProps) {
                           <p className={styles.zoneCapacityCopy}>
                             {zone.displayName} is over its{' '}
                             {ZONE_NORMAL_DEALER_SLOT_LIMIT}-dealer operating limit ·{' '}
-                            {capacityQuote.concentrationMultiplier}× concentration cost
+                            {capacityQuote.concentrationMultiplier}x concentration cost
                           </p>
                         ) : (
                           <p className={styles.zoneCapacityCopy}>

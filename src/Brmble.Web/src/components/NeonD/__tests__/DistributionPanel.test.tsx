@@ -521,7 +521,7 @@ describe('DistributionPanel zone groups', () => {
     ).toBeInTheDocument();
     expect(
       within(amsterdam).getByText(
-        'Amsterdam is over its 3-dealer operating limit · 2.5× concentration cost',
+        'Amsterdam is over its 3-dealer operating limit · 2.5x concentration cost',
       ),
     ).toBeInTheDocument();
 
