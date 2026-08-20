@@ -336,6 +336,16 @@ export interface RenderConnectedAppOptions {
   /** Per-channel unread counts, keyed by channel id. */
   unreads?: Record<string, { notificationCount: number; highlightCount: number }>;
   serverLabel?: string;
+  /** Server directory snapshot: display name -> matrix user id. */
+  userMappings?: Record<string, string>;
+  /** Server-owned DM rooms: matrix user id -> matrix room id. */
+  dmRoomMap?: Record<string, string>;
+  /**
+   * Connects without emitting `server.credentials`, so a test can drive the real
+   * ordering where channels and presence land before any DM identity data.
+   * Call `emitCredentials()` to deliver it afterwards.
+   */
+  deferCredentials?: boolean;
 }
 
 export interface ConnectedAppHandles extends RenderResult {
@@ -351,6 +361,10 @@ export interface ConnectedAppHandles extends RenderResult {
   props: (name: string) => HarnessProps | undefined;
   /** Re-renders the same `<App />` tree, for asserting on freshly captured props. */
   rerenderApp: () => void;
+  /** Emits `server.credentials`; used with `deferCredentials` to control arrival order. */
+  emitCredentials: () => void;
+  /** Replaces the DM contact list, modelling contacts that resolve only later. */
+  setDmContacts: (contacts: HarnessDmContact[]) => void;
 }
 
 const SERVER_HOST = 'voice.example.com';
@@ -401,6 +415,15 @@ function channelIdNumber(joinedChannelId: string | null): number | undefined {
   return Number(joinedChannelId);
 }
 
+function toDmContacts(contacts: HarnessDmContact[]): unknown[] {
+  return contacts.map(contact => ({
+    ...contact,
+    id: contact.id,
+    displayName: contact.name,
+    unreadCount: contact.unreadCount ?? 0,
+  }));
+}
+
 /**
  * Renders `App` and drives it to the connected state.
  *
@@ -429,12 +452,7 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
     });
   }
 
-  harness.dmStore.contacts = (options.dmContacts ?? []).map(contact => ({
-    ...contact,
-    id: contact.id,
-    displayName: contact.name,
-    unreadCount: contact.unreadCount ?? 0,
-  }));
+  harness.dmStore.contacts = toDmContacts(options.dmContacts ?? []);
 
   const shares = options.watchedShares ?? [];
   harness.screenShare.watchingShares = shares;
@@ -452,6 +470,28 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
     </ServiceStatusProvider>,
   );
 
+  const rerenderApp = () => {
+    view.rerender(
+      <ServiceStatusProvider>
+        <App />
+      </ServiceStatusProvider>,
+    );
+  };
+
+  const credentialsPayload = {
+    matrix: {
+      homeserverUrl: 'https://example.com',
+      accessToken: 'token',
+      userId: '@me:example.com',
+      roomMap,
+      ...(options.dmRoomMap ? { dmRoomMap: options.dmRoomMap } : {}),
+    },
+    ...(options.userMappings ? { userMappings: options.userMappings } : {}),
+  };
+  const emitCredentials = () => {
+    act(() => { emit('server.credentials', credentialsPayload); });
+  };
+
   act(() => {
     emit('voice.autoConnect', {
       id: 'harness-server',
@@ -459,14 +499,7 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
       host: SERVER_HOST,
       port: SERVER_PORT,
     });
-    emit('server.credentials', {
-      matrix: {
-        homeserverUrl: 'https://example.com',
-        accessToken: 'token',
-        userId: '@me:example.com',
-        roomMap,
-      },
-    });
+    if (!options.deferCredentials) emit('server.credentials', credentialsPayload);
     emit('voice.connected', {
       username: 'Me',
       channelId: selfChannelId ?? 0,
@@ -500,12 +533,11 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
       });
     },
     props: (name: string) => harness.captured.get(name),
-    rerenderApp: () => {
-      view.rerender(
-        <ServiceStatusProvider>
-          <App />
-        </ServiceStatusProvider>,
-      );
+    rerenderApp,
+    emitCredentials,
+    setDmContacts: (contacts: HarnessDmContact[]) => {
+      harness.dmStore.contacts = toDmContacts(contacts);
+      act(() => { rerenderApp(); });
     },
   };
 }

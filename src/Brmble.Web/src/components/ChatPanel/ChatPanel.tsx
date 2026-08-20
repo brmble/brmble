@@ -728,17 +728,11 @@ const [replyState, setReplyState] = useState<{
     return (
       <div className="chat-panel chat-panel--empty">
         <div className="chat-empty-state">
-          {isDM ? (
-            <div className="empty-icon">
-              <Icon name="message-circle" size={48} strokeWidth={1.5} />
-            </div>
-          ) : (
-            <div className="empty-logo">
-              <BrmbleLogo size={192} heartbeat />
-            </div>
-          )}
-          <h2 className="heading-title">{isDM ? 'Direct Messages' : 'Welcome to Brmble'}</h2>
-          <p>{isDM ? 'Right-click a user to start a private conversation' : 'Select a channel to start talking and chatting'}</p>
+          <div className="empty-logo">
+            <BrmbleLogo size={192} heartbeat />
+          </div>
+          <h2 className="heading-title">Welcome to Brmble</h2>
+          <p>Select a channel to start talking and chatting</p>
         </div>
       </div>
     );

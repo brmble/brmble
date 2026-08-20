@@ -1419,6 +1419,11 @@ function App() {
   const [hasPendingInvite] = useState(false);
 
   const [brmbleDMUsers, setBrmbleDMUsers] = useState<BrmbleDMUser[]>([]);
+  // True once `server.credentials` has been delivered for this session. Both the
+  // server directory (`userMappings`) and the server-owned DM room map arrive in that
+  // one payload, so this is the single point after which a DM contact id can be judged
+  // resolvable. Nothing may validate a DM tab before it flips.
+  const [serverDirectoryLoaded, setServerDirectoryLoaded] = useState(false);
   const matrixOverlayCallbacks = useMemo(() => ({
     onChannelMessage: (channelId: string, message: ChatMessage) => {
       const settings = overlaySettingsRef.current;
@@ -1815,6 +1820,23 @@ function App() {
       return { ...contact, unreadCount: unread.notificationCount };
     });
   }, [dmStore.contacts, matrixClient?.dmRoomMap, unreadTracker]);
+
+  // Every DM contact id that can currently be resolved to a real conversation.
+  //
+  // This is the union of the three sources a DM contact can come from, and it is what
+  // decides whether a persisted DM tab is still valid. `dmStore.contacts` alone is not
+  // enough: it derives its Matrix half from `matrixClient.dmRoomMap`, which is only
+  // republished at Matrix sync `PREPARED` and therefore lags. The server sends the same
+  // map inside the credentials payload (`matrixCredentials.dmRoomMap`) together with the
+  // directory (`brmbleDMUsers`), so folding those two in makes the set complete the
+  // instant `serverDirectoryLoaded` flips, with no window where a valid tab looks dead.
+  const resolvableDmContactIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const contact of dmContactsWithUnreads) ids.add(contact.id);
+    for (const user of brmbleDMUsers) ids.add(user.matrixUserId);
+    for (const matrixUserId of Object.keys(matrixCredentials?.dmRoomMap ?? {})) ids.add(matrixUserId);
+    return ids;
+  }, [dmContactsWithUnreads, brmbleDMUsers, matrixCredentials]);
 
   // Every conversation that currently owns a tab. A tab owns its own unread badge, so
   // these conversations are suppressed from the sidebar and the DM contact list.
@@ -2333,6 +2355,7 @@ function App() {
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);
+      setServerDirectoryLoaded(false);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
@@ -2350,6 +2373,7 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
+      setServerDirectoryLoaded(true);
       const wrapped = data as { matrix?: MatrixCredentials; userMappings?: Record<string, string> } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
@@ -3725,6 +3749,7 @@ const handleConnect = (serverData: SavedServer) => {
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setBrmbleDMUsers([]);
+        setServerDirectoryLoaded(false);
         setSharingChannelId(undefined);
       },
     });
@@ -4521,10 +4546,11 @@ const handleConnect = (serverData: SavedServer) => {
     dispatchWorkspace({ type: 'JOINED_CHANNEL_CHANGED', channelId: joinedChannelId });
   }, [joinedChannelId]);
 
-  // Restore persisted tabs exactly once per connection, and only once both the
-  // channel roster and our own presence have arrived — restoring earlier would
-  // reject every channel tab as unknown and leave a restored tab active instead
-  // of the joined channel.
+  // Restore persisted tabs exactly once per connection, and only once the channel
+  // roster, our own presence and the server directory have all arrived — restoring
+  // earlier would reject every channel tab as unknown and leave a restored tab active
+  // instead of the joined channel, and would reject every DM tab as unresolvable
+  // because DM identity data arrives on `server.credentials`, independently of voice.
   const restoredForServerRef = useRef<string | null>(null);
   useEffect(() => {
     if (!connected || !serverAddress) {
@@ -4532,10 +4558,13 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
     if (channels.length === 0 || joinedChannelId === null) return;
+    if (!serverDirectoryLoaded) return;
     if (restoredForServerRef.current === serverAddress) return;
     restoredForServerRef.current = serverAddress;
     const restored = loadConversationTabs(serverAddress, conversation => {
-      if (conversation.kind === 'dm') return true;
+      // A persisted tab for a contact this server can no longer resolve is invalid:
+      // it would render with a raw Matrix id for a label and no conversation behind it.
+      if (conversation.kind === 'dm') return resolvableDmContactIds.has(conversation.contactId);
       // A persisted tab for a channel this server no longer has is invalid. This is
       // stricter than `canOpenChannelChat`, which deliberately treats an unknown
       // channel as permitted for legacy servers that omit the flag.
@@ -4544,7 +4573,23 @@ const handleConnect = (serverData: SavedServer) => {
       return canOpenChannelChat(conversation.channelId, channels);
     });
     dispatchWorkspace({ type: 'RESTORE_CONVERSATIONS', conversations: restored });
-  }, [connected, serverAddress, channels, joinedChannelId]);
+  }, [connected, serverAddress, channels, joinedChannelId, serverDirectoryLoaded, resolvableDmContactIds]);
+
+  // Safety net for DM tabs that stop resolving after the restore — a contact removed
+  // from the directory mid-session, or a tab persisted by an older build that never
+  // validated DM tabs at all. Gated on the same `serverDirectoryLoaded` signal as the
+  // restore, so it can never fire while DM identity data is still in flight.
+  useEffect(() => {
+    if (!connected || !serverAddress) return;
+    if (!serverDirectoryLoaded) return;
+    if (restoredForServerRef.current !== serverAddress) return;
+    for (const tab of workspace.tabs) {
+      if (tab.kind !== 'dm') continue;
+      if (resolvableDmContactIds.has(tab.contactId)) continue;
+      dispatchWorkspace({ type: 'CONVERSATION_INVALIDATED', key: conversationKey(tab) });
+    }
+  }, [connected, serverAddress, serverDirectoryLoaded, resolvableDmContactIds, workspace.tabs]);
+
 
   // The home tab follows presence, so it is never persisted.
   useEffect(() => {
@@ -5246,12 +5291,12 @@ const handleConnect = (serverData: SavedServer) => {
             }}
             onCloseConversation={(id: string) => {
               dmStore.closeDM(id);
-              if (dmStore.selectedContact?.id === id) {
-                dispatchWorkspace({
-                  type: 'CONVERSATION_INVALIDATED',
-                  key: conversationKey({ kind: 'dm', contactId: id }),
-                });
-              }
+              // The tab owns the conversation, not the selection: a contact closed
+              // while its tab sits in the background must still lose that tab.
+              dispatchWorkspace({
+                type: 'CONVERSATION_INVALIDATED',
+                key: conversationKey({ kind: 'dm', contactId: id }),
+              });
             }}
           />
         )}

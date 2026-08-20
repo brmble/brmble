@@ -528,7 +528,7 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
-  // The Header no longer carries an aggregate DM badge � the permanently visible
+  // The Header no longer carries an aggregate DM badge — the permanently visible
   // Messages panel shows per-contact unread counts. The surviving aggregate consumer is
   // the native taskbar badge, so that is what this asserts.
   it('updates the taskbar DM badge without leaving the foreground channel', async () => {
