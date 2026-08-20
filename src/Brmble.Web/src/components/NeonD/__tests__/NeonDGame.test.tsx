@@ -924,15 +924,53 @@ it('keeps production on the left and sales on the right in the card flow', () =>
   expect(css).toMatch(/\.productionSideSales\s*\{[\s\S]*justify-content:\s*flex-end/);
 });
 
-it('shows dealer Volume and Margin ratings, protection loss, and fixed equipment choices', async () => {
+it('shows dealer ratings, protection loss, and opens equipment purchases', async () => {
   const user = userEvent.setup();
   render(<NeonDGame />);
 
   expect(screen.getByRole('img', { name: 'Volume: 1.00x' })).toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Margin: 1.00x' })).toBeInTheDocument();
   expect(screen.getByText(/-10% income/i)).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: /expand equipment for test dealer/i }));
-  expect(screen.getAllByRole('button', { name: /baseball bat/i }).length).toBeGreaterThan(0);
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*\$150/i })).toBeInTheDocument();
+  expect(within(dialog).getByText(/\+10% margin/i)).toBeInTheDocument();
+});
+
+it('keeps owned and unaffordable equipment disabled in the dealer dialog', async () => {
+  const user = userEvent.setup();
+  mockState({
+    cash: 100,
+    activeDealers: [makeReferenceDealer({ id: 'dealer-ui', equipmentIds: ['baseballBat'] })],
+  });
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*Owned/i })).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: /Bicycle.*\$/i })).toBeDisabled();
+});
+
+it('forwards an affordable equipment purchase for the selected dealer', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+  await user.click(screen.getByRole('button', { name: /Bicycle.*\$/i }));
+
+  expect(mockNeonD.buySellerEquipmentMock).toHaveBeenCalledWith('dealer-ui', 'bicycle', 'dealer');
+});
+
+it('closes the dealer equipment dialog', async () => {
+  const user = userEvent.setup();
+  render(<NeonDGame />);
+
+  await user.click(screen.getByRole('button', { name: 'Buy equipment for Test Dealer' }));
+  await user.click(screen.getByRole('button', { name: 'Close equipment for Test Dealer' }));
+
+  expect(screen.queryByRole('dialog', { name: 'Equipment for Test Dealer' })).not.toBeInTheDocument();
 });
 
 it('hides main sales from hired and candidate dealer cards', () => {
@@ -1068,7 +1106,7 @@ it('keeps hired dealer favorite stars while candidate hiring stays in the modal'
     .toHaveAttribute('aria-pressed', 'false');
 });
 
-it('keeps owned dealer equipment compact while leaving dealer details visible', async () => {
+it('keeps dealer equipment behind the purchase dialog while leaving details visible', async () => {
   const user = userEvent.setup();
   mockState({
     activeDealers: [makeReferenceDealer({ id: 'dealer-ui', isProtected: false })],
@@ -1082,17 +1120,13 @@ it('keeps owned dealer equipment compact while leaving dealer details visible', 
   expect(dealer.getByText(/test dealer/i)).toBeInTheDocument();
   expect(dealer.getByText(/volume/i)).toBeInTheDocument();
   expect(dealer.getByText(/unprotected/i)).toBeInTheDocument();
-  expect(dealer.getByRole('button', { name: /expand equipment for test dealer/i })).toBeInTheDocument();
+  expect(dealer.getByRole('button', { name: /buy equipment for test dealer/i })).toBeInTheDocument();
   expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
 
-  await user.click(dealer.getByRole('button', { name: /expand equipment for test dealer/i }));
+  await user.click(dealer.getByRole('button', { name: /buy equipment for test dealer/i }));
 
-  expect(dealer.getByRole('button', { name: /baseball bat/i })).toBeInTheDocument();
-  expect(dealer.getByRole('button', { name: /collapse equipment for test dealer/i })).toBeInTheDocument();
-
-  await user.click(dealer.getByRole('button', { name: /collapse equipment for test dealer/i }));
-
-  expect(dealer.queryByRole('button', { name: /baseball bat/i })).not.toBeInTheDocument();
+  const dialog = screen.getByRole('dialog', { name: 'Equipment for Test Dealer' });
+  expect(within(dialog).getByRole('button', { name: /Baseball Bat.*\$/i })).toBeInTheDocument();
 });
 
 it('shows talent-derived Captain ratings and hides compatibility equipment controls', () => {

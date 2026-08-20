@@ -310,11 +310,15 @@
 
 .zoneGroup {
   overflow: hidden;
-  border: var(--border-width-thin) solid var(--glass-border);
+  border: var(--border-width-strong) solid var(--accent-secondary-subtle);
   border-left: var(--space-2xs) solid var(--accent-secondary);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   box-shadow: var(--shadow-elevated);
+}
+
+.zoneGroup .distributionCard {
+  margin-inline: var(--space-xs);
 }
 
 .zoneHeader {
@@ -328,8 +332,17 @@
   font-size: var(--text-xs);
 }
 
+.zoneHeaderName {
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: 700;
+}
+
 .zoneHeaderSummary {
   min-width: 0;
+  margin-left: auto;
+  text-align: right;
 }
 
 .zoneEarningsRow,
@@ -1384,6 +1397,25 @@
 .dealerHiringModal:focus-visible {
   outline: var(--border-width-strong) solid var(--accent-secondary);
   outline-offset: var(--space-2xs);
+}
+
+.dealerEquipmentModal {
+  display: grid;
+  gap: var(--space-md);
+  width: min(100%, var(--neond-hiring-modal-max-width));
+  max-height: calc(100vh - var(--space-2xl));
+  overflow: auto;
+  padding: var(--space-xl);
+  border: var(--border-width-strong) solid var(--accent-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-deep);
+  box-shadow: var(--shadow-elevated), 0 0 var(--glow-lg) var(--accent-secondary-glow);
+}
+
+.dealerEquipmentList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--neond-hiring-card-min-width), 1fr));
+  gap: var(--space-sm);
 }
 
 .dealerHiringHeader,

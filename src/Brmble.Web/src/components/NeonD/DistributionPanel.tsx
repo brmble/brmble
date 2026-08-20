@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  EQUIPMENT_CATALOG,
-  ZONE_CITY_CATALOG,
-  ZONE_NORMAL_DEALER_SLOT_LIMIT,
-} from './constants';
+import { ZONE_CITY_CATALOG, ZONE_NORMAL_DEALER_SLOT_LIMIT } from './constants';
 import {
   getBailCost,
   getCaptainRemainingThreshold,
-  getEquipmentCost,
   getProductDefinition,
   getCaptainZoneBulkRemainingMs,
   isCaptainLevelUpAvailable,
@@ -17,7 +12,7 @@ import {
 } from './economy';
 import { getCaptainBonuses, getCaptainMainSaleRate, getCaptainMarginMultiplier } from './dealers';
 import { DealerRating } from './DealerRating';
-import type { Captain, Dealer, DealerSlotTarget, EquipmentDefinition, EquipmentId, GameState, ProductId, TalentPathId, ZoneCityId } from './types';
+import type { Captain, Dealer, DealerSlotTarget, EquipmentId, GameState, ProductId, TalentPathId, ZoneCityId } from './types';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import styles from './NeonD.module.css';
@@ -25,12 +20,12 @@ import { usePersistedCardPreferences } from './hooks/usePersistedCardPreferences
 import { TalentLedger } from './TalentLedger';
 import { DealerHiringModal } from './DealerHiringModal';
 import { DealerTransferModal } from './DealerTransferModal';
+import { DealerEquipmentModal } from './DealerEquipmentModal';
 import { ZoneUnlockModal } from './ZoneUnlockModal';
 import { isCaptain, isDealer } from './sellers';
 import { getIncomingTransfers, getOutgoingTransfers } from './transfers';
 import { getZoneLeadershipBonuses, hasProtectionCoverage, hasZoneBulkSaleTalent } from './talents';
 import {
-  getAvailableZoneDealerSlots,
   getActiveDealerEntries,
   getTotalDealerCapacity,
   getZoneEarningsPerSecond,
@@ -77,18 +72,6 @@ const formatDuration = (remainingMs: number) => {
   return minutes > 0 ? `${minutes}m${seconds > 0 ? ` ${seconds}s` : ''}` : `${seconds}s`;
 };
 
-const formatEquipmentEffect = (equipmentId: EquipmentId) => {
-  const effect = EQUIPMENT_CATALOG.find((item) => item.id === equipmentId)
-    ?.effect as EquipmentDefinition['effect'] | undefined;
-  if (!effect) return 'No effect';
-  const parts = [
-    effect.marginBonus ? `+${Math.round(effect.marginBonus * 100)}% margin` : null,
-    effect.volumeBonus ? `+${Math.round(effect.volumeBonus * 100)}% volume` : null,
-    effect.secondarySalesBonus ? `+${Math.round(effect.secondarySalesBonus * 100)}% secondary sales` : null,
-  ].filter(Boolean);
-  return parts.join(', ');
-};
-
 const ProductSelect = ({
   value,
   onChange,
@@ -115,36 +98,6 @@ const ProductSelect = ({
   </label>
 );
 
-const EquipmentList = ({
-  seller,
-  sellerKind,
-  state,
-  onBuy,
-}: {
-  seller: Dealer | Captain;
-  sellerKind: 'dealer' | 'captain';
-  state: GameState;
-  onBuy: (equipmentId: EquipmentId) => void;
-}) => (
-  <div className={styles.equipmentList}>
-    <h4 className={`heading-label ${styles.subheading}`}>Fixed equipment</h4>
-    {EQUIPMENT_CATALOG.map((item) => {
-      const owned = seller.equipmentIds.includes(item.id);
-      const cost = getEquipmentCost(item.id, sellerKind, state.discountLevel);
-      return (
-        <button
-          key={item.id}
-          className={`${styles.unlockButton} ${owned ? styles.equipmentOwned : ''}`}
-          disabled={owned || state.cash < cost}
-          onClick={() => onBuy(item.id)}
-        >
-          {item.name} - {owned ? 'Owned' : formatMoney(cost)} ({formatEquipmentEffect(item.id)})
-        </button>
-      );
-    })}
-  </div>
-);
-
 const DealerFavoriteButton = ({
   dealer,
   isFavorite,
@@ -166,7 +119,7 @@ const DealerFavoriteButton = ({
 );
 
 export function DistributionPanel(props: DistributionPanelProps) {
-  const [expandedEquipmentIds, setExpandedEquipmentIds] = useState<Set<string>>(() => new Set());
+  const [equipmentDealerId, setEquipmentDealerId] = useState<string | null>(null);
   const [favoriteDealerIds, setFavoriteDealerIds] = useState<Set<string>>(() => new Set());
   const [ledgerCaptainId, setLedgerCaptainId] = useState<string | null>(null);
   const [hiringTarget, setHiringTarget] = useState<DealerSlotTarget | null | undefined>(undefined);
@@ -214,14 +167,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
     });
   }, []);
 
-  const toggleEquipment = (sellerId: string) => {
-    setExpandedEquipmentIds((current) => {
-      const next = new Set(current);
-      if (next.has(sellerId)) next.delete(sellerId);
-      else next.add(sellerId);
-      return next;
-    });
-  };
+  const equipmentDealer = equipmentDealerId
+    ? getActiveDealerEntries(props.state).find(({ dealer }) => dealer.id === equipmentDealerId)?.dealer ?? null
+    : null;
 
   const closeLedger = () => {
     const opener = ledgerCaptainId ? talentButtonRefs.current[ledgerCaptainId] : null;
@@ -437,11 +385,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
     });
   };
 
-  const renderZoneDealerCard = (dealer: Dealer, slotIndex: number, sourceZoneId: ZoneCityId) => {
+  const renderZoneDealerCard = (dealer: Dealer, slotIndex: number) => {
     const isCollapsed = collapsedSellerIds.has(dealer.id);
     const bodyId = `distribution-body-${dealer.id}`;
-    const availableDestinationSlots = getAvailableZoneDealerSlots(props.state)
-      .filter((slot) => slot.zoneId !== sourceZoneId);
 
     return (
       <div className={styles.distributionCard} aria-label={`${dealer.name} distribution`}>
@@ -506,24 +452,12 @@ export function DistributionPanel(props: DistributionPanelProps) {
                 <button type="button" className={styles.toggleButtonText} aria-pressed={dealer.isProtected} onClick={() => props.toggleDealerProtection(dealer.id)}>
                   {dealer.isProtected ? 'Disable protection' : 'Enable protection (-10% income)'}
                 </button>
-                <button type="button" className={styles.equipmentToggle} aria-expanded={expandedEquipmentIds.has(dealer.id)} aria-label={`${expandedEquipmentIds.has(dealer.id) ? 'Collapse' : 'Expand'} equipment for ${dealer.name}`} onClick={() => toggleEquipment(dealer.id)}>
-                  <span>Fixed equipment</span>
-                  <Icon name={expandedEquipmentIds.has(dealer.id) ? 'chevron-up' : 'chevron-down'} size={14} />
+                <button type="button" className={styles.buyButton} aria-label={`Buy equipment for ${dealer.name}`} onClick={() => setEquipmentDealerId(dealer.id)}>
+                  Buy equipment
                 </button>
-                {expandedEquipmentIds.has(dealer.id) ? (
-                  <EquipmentList seller={dealer} sellerKind="dealer" state={props.state} onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')} />
-                ) : null}
                 <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>Fire Dealer</button>
               </>
             )}
-            <button
-              type="button"
-              className={styles.unlockButton}
-              disabled={availableDestinationSlots.length === 0 || dealer.isArrested}
-              onClick={() => setTransferDealerId(dealer.id)}
-            >
-              Transfer dealer
-            </button>
           </div>
         )}
       </div>
@@ -569,13 +503,17 @@ export function DistributionPanel(props: DistributionPanelProps) {
                 ).concentrationMultiplier === 1,
               ) ?? null
               : null;
+            const dealerSlotsForDisplay = [
+              ...zone.dealerSlots.filter((slot) => slot.dealer),
+              ...zone.dealerSlots.filter((slot) => !slot.dealer),
+            ];
 
             return (
               <article key={zone.id} className={styles.zoneGroup} aria-label={`${zone.displayName} distribution`}>
                 <div className={styles.zoneHeader}>
+                  <h3 className={styles.zoneHeaderName}>{zone.displayName.toUpperCase()}</h3>
                   <strong className={styles.zoneHeaderSummary}>
-                    {zone.displayName.toUpperCase()} · {zone.captainId ? 1 : 0} Captain · {' '}
-                    {zoneActiveDealerCount} / {zone.dealerSlots.length} Dealers
+                    {zone.captainId ? 1 : 0} Captain · {zoneActiveDealerCount} / {zone.dealerSlots.length} Dealers
                     {outgoingCount > 0 ? ` · ${outgoingCount} travelling` : ''}
                     {incomingCount > 0 ? ` · ${incomingCount} incoming` : ''}
                   </strong>
@@ -612,8 +550,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
                       </div>
                     ))}
                     {captain ? <div className={styles.distributionCard}>{renderCaptainCard(captain)}</div> : null}
-                    {zone.dealerSlots.map((slot, slotIndex) => {
-                      if (slot.dealer) return <div key={slot.id}>{renderZoneDealerCard(slot.dealer, slotIndex, zone.id)}</div>;
+                    {dealerSlotsForDisplay.map((slot) => {
+                      const slotIndex = zone.dealerSlots.findIndex((candidate) => candidate.id === slot.id);
+                      if (slot.dealer) return <div key={slot.id}>{renderZoneDealerCard(slot.dealer, slotIndex)}</div>;
                       if (slot.reservedTransferId) {
                         return <div key={slot.id} className={styles.zoneSlotRow}>Transfer reserved</div>;
                       }
@@ -808,24 +747,9 @@ export function DistributionPanel(props: DistributionPanelProps) {
                       >
                         {dealer.isProtected ? 'Disable protection' : 'Enable protection (-10% income)'}
                       </button>
-                      <button
-                        type="button"
-                        className={styles.equipmentToggle}
-                        aria-expanded={expandedEquipmentIds.has(dealer.id)}
-                        aria-label={`${expandedEquipmentIds.has(dealer.id) ? 'Collapse' : 'Expand'} equipment for ${dealer.name}`}
-                        onClick={() => toggleEquipment(dealer.id)}
-                      >
-                        <span>Fixed equipment</span>
-                        <Icon name={expandedEquipmentIds.has(dealer.id) ? 'chevron-up' : 'chevron-down'} size={14} />
+                      <button type="button" className={styles.buyButton} aria-label={`Buy equipment for ${dealer.name}`} onClick={() => setEquipmentDealerId(dealer.id)}>
+                        Buy equipment
                       </button>
-                      {expandedEquipmentIds.has(dealer.id) ? (
-                        <EquipmentList
-                          seller={dealer}
-                          sellerKind="dealer"
-                          state={props.state}
-                          onBuy={(equipmentId) => props.buySellerEquipment(dealer.id, equipmentId, 'dealer')}
-                        />
-                      ) : null}
                       <button className={styles.dangerButton} onClick={() => props.fireDealer(dealer.id)}>
                         Fire Dealer
                       </button>
@@ -847,6 +771,14 @@ export function DistributionPanel(props: DistributionPanelProps) {
       </div>
       </>
       )}
+      {equipmentDealer ? (
+        <DealerEquipmentModal
+          dealer={equipmentDealer}
+          state={props.state}
+          onBuy={(equipmentId) => props.buySellerEquipment(equipmentDealer.id, equipmentId, 'dealer')}
+          onClose={() => setEquipmentDealerId(null)}
+        />
+      ) : null}
       {hiringTarget !== undefined ? (
         <DealerHiringModal
           state={props.state}

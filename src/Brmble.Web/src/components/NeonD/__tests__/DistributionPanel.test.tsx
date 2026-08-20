@@ -347,20 +347,50 @@ describe('DistributionPanel zone groups', () => {
     const amsterdam = screen.getByRole('article', { name: 'Amsterdam distribution' });
     const paris = screen.getByRole('article', { name: 'Paris distribution' });
 
-    expect(within(amsterdam).getByText('AMSTERDAM · 1 Captain · 1 / 3 Dealers')).toBeInTheDocument();
-    expect(within(paris).getByText('PARIS · 0 Captain · 0 / 1 Dealers')).toBeInTheDocument();
+    expect(within(amsterdam).getByRole('heading', { name: 'AMSTERDAM' })).toBeInTheDocument();
+    expect(within(amsterdam).getByText('1 Captain · 1 / 3 Dealers')).toBeInTheDocument();
+    expect(within(paris).getByRole('heading', { name: 'PARIS' })).toBeInTheDocument();
+    expect(within(paris).getByText('0 Captain · 0 / 1 Dealers')).toBeInTheDocument();
     expect(within(amsterdam).getByText('Zone earnings')).toBeInTheDocument();
     expect(within(amsterdam).getByText('$150/s')).toBeInTheDocument();
     expect(within(amsterdam).getByText('Amsterdam Captain (Weed)')).toBeInTheDocument();
     expect(screen.getByText('Hire dealers 1/4 · 1 reserved')).toBeInTheDocument();
 
     const content = amsterdam.textContent ?? '';
-    expect(content.indexOf('AMSTERDAM · 1 Captain · 1 / 3 Dealers')).toBeLessThan(content.indexOf('Zone earnings'));
+    expect(content.indexOf('AMSTERDAM')).toBeLessThan(content.indexOf('1 Captain · 1 / 3 Dealers'));
+    expect(content.indexOf('1 Captain · 1 / 3 Dealers')).toBeLessThan(content.indexOf('Zone earnings'));
     expect(content.indexOf('Zone earnings')).toBeLessThan(content.indexOf('Amsterdam Captain'));
     expect(content.indexOf('Amsterdam Captain')).toBeLessThan(content.indexOf('Amsterdam Dealer'));
     expect(content.indexOf('Amsterdam Dealer')).toBeLessThan(content.indexOf('Transfer reserved'));
     expect(content.indexOf('Transfer reserved')).toBeLessThan(content.indexOf('Dealer spot available'));
     expect(content.indexOf('Dealer spot available')).toBeLessThan(content.indexOf('Add dealer capacity'));
+  });
+
+  it('renders filled dealer slots before free slots within a zone', () => {
+    const orderingCaptain = makeReferenceCaptain({ id: 'ordering-captain', name: 'Ordering Captain' });
+    const orderingDealer = makeReferenceDealer({ id: 'ordering-dealer', name: 'Ordering Dealer' });
+    const orderingState = createZoneState();
+    orderingState.captains = [orderingCaptain];
+    orderingState.zones = [{
+      id: 'amsterdam',
+      displayName: 'Amsterdam',
+      captainId: orderingCaptain.id,
+      dealerSlots: [
+        { id: 'amsterdam-slot-0', dealer: null, reservedTransferId: null },
+        { id: 'amsterdam-slot-1', dealer: orderingDealer, reservedTransferId: null },
+      ],
+      perkIds: [],
+    }];
+
+    render(<DistributionPanel {...panelProps} state={orderingState} />);
+
+    const amsterdam = screen.getByRole('article', { name: 'Amsterdam distribution' });
+    const dealerCard = within(amsterdam).getByLabelText('Ordering Dealer distribution');
+    const freeSlot = within(amsterdam).getByText('Dealer spot available');
+
+    expect(dealerCard.compareDocumentPosition(freeSlot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(amsterdam).getByRole('button', { name: 'Hire dealer' })).toBeInTheDocument();
+    expect(within(amsterdam).getAllByRole('button', { name: 'Transfer dealer' })).toHaveLength(1);
   });
 
   it('keeps the zone header and earnings visible when a zone is collapsed', async () => {
@@ -371,7 +401,8 @@ describe('DistributionPanel zone groups', () => {
     await user.click(within(amsterdam).getByRole('button', { name: 'Collapse Amsterdam distribution' }));
 
     expect(within(amsterdam).getByRole('button', { name: 'Expand Amsterdam distribution' })).toHaveAttribute('aria-expanded', 'false');
-    expect(within(amsterdam).getByText('AMSTERDAM · 1 Captain · 1 / 3 Dealers')).toBeInTheDocument();
+    expect(within(amsterdam).getByRole('heading', { name: 'AMSTERDAM' })).toBeInTheDocument();
+    expect(within(amsterdam).getByText('1 Captain · 1 / 3 Dealers')).toBeInTheDocument();
     expect(within(amsterdam).getByText('Zone earnings')).toBeInTheDocument();
     expect(within(amsterdam).getByText('$150/s')).toBeInTheDocument();
     expect(within(amsterdam).queryByText('Amsterdam Captain (Weed)')).not.toBeInTheDocument();
@@ -546,9 +577,10 @@ describe('DistributionPanel zone groups', () => {
     });
     expect(
       within(amsterdam).getByText(
-        'AMSTERDAM · 1 Captain · 4 / 4 Dealers',
+        '1 Captain · 4 / 4 Dealers',
       ),
     ).toBeInTheDocument();
+    expect(within(amsterdam).getByRole('heading', { name: 'AMSTERDAM' })).toBeInTheDocument();
 
     for (const dealer of dealers) {
       expect(
@@ -639,11 +671,11 @@ describe('DistributionPanel zone groups', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('offers a transfer action for an active zone dealer when another zone has an available slot', () => {
+  it('does not offer a transfer action from an active dealer card', () => {
     renderZonePanel();
 
     const dealerCard = screen.getByLabelText('Amsterdam Dealer distribution');
-    expect(within(dealerCard).getByRole('button', { name: 'Transfer dealer' })).toBeInTheDocument();
+    expect(within(dealerCard).queryByRole('button', { name: 'Transfer dealer' })).not.toBeInTheDocument();
   });
 
   it('starts a transfer into the exact vacant Rome slot while keeping hiring available', async () => {
@@ -681,7 +713,7 @@ describe('DistributionPanel zone groups', () => {
     expect(transferDealer).toHaveBeenCalledWith('amsterdam-dealer', 'rome', 'rome-slot-1');
   });
 
-  it('keeps the transfer action visible but disabled for an arrested zone dealer', () => {
+  it('does not offer a transfer action for an arrested zone dealer', () => {
     const arrestedDealer = makeReferenceDealer({
       id: 'arrested-zone-dealer',
       isArrested: true,
@@ -713,7 +745,7 @@ describe('DistributionPanel zone groups', () => {
     );
 
     const dealerCard = screen.getByLabelText('Test Dealer distribution');
-    expect(within(dealerCard).getByRole('button', { name: 'Transfer dealer' })).toBeDisabled();
+    expect(within(dealerCard).queryByRole('button', { name: 'Transfer dealer' })).not.toBeInTheDocument();
   });
 
   it('shows pending transfers in both expanded zones while keeping reserved slots unavailable', async () => {
@@ -755,8 +787,10 @@ describe('DistributionPanel zone groups', () => {
 
     const amsterdam = screen.getByRole('article', { name: 'Amsterdam distribution' });
     const paris = screen.getByRole('article', { name: 'Paris distribution' });
-    expect(within(amsterdam).getByText(/AMSTERDAM · 1 Captain · 0 \/ 1 Dealers · 1 travelling/)).toBeInTheDocument();
-    expect(within(paris).getByText(/PARIS · 0 Captain · 0 \/ 1 Dealers · 1 incoming/)).toBeInTheDocument();
+    expect(within(amsterdam).getByRole('heading', { name: 'AMSTERDAM' })).toBeInTheDocument();
+    expect(within(amsterdam).getByText(/1 Captain · 0 \/ 1 Dealers · 1 travelling/)).toBeInTheDocument();
+    expect(within(paris).getByRole('heading', { name: 'PARIS' })).toBeInTheDocument();
+    expect(within(paris).getByText(/0 Captain · 0 \/ 1 Dealers · 1 incoming/)).toBeInTheDocument();
     expect(within(amsterdam).getByText('Travelling Dealer travelling to Paris')).toBeInTheDocument();
     expect(within(paris).getByText('Incoming: Travelling Dealer')).toBeInTheDocument();
     expect(screen.getAllByText('1m 30s')).toHaveLength(2);
