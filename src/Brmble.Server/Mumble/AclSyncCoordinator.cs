@@ -57,10 +57,10 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         catch (Exception ex)
         {
             const string warning = "ACL change may have succeeded in Mumble, but Brmble could not refresh canonical ACL state.";
-            var staleReason = $"{warning} {ex.Message}";
+            const string error = "ACL operation could not be confirmed.";
             _logger.LogWarning(ex, "ACL write for channel {ChannelId} succeeded before refresh failed", channelId);
-            await _snapshots.MarkStaleAsync(channelId, staleReason);
-            return new AclWriteResult(false, null, warning, ex.Message);
+            await _snapshots.MarkStaleAsync(channelId, warning);
+            return new AclWriteResult(false, null, warning, error);
         }
     }
 
@@ -74,8 +74,11 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         }
         catch (Exception ex)
         {
-            await _snapshots.MarkStaleAsync(channelId, "ACL group add may have succeeded, but refresh failed.");
-            return new AclWriteResult(false, null, "ACL group add may have succeeded, but refresh failed.", ex.Message);
+            const string warning = "ACL group add may have succeeded, but Brmble could not refresh canonical ACL state.";
+            const string error = "ACL operation could not be confirmed.";
+            _logger.LogWarning(ex, "ACL group add for channel {ChannelId} succeeded before refresh failed", channelId);
+            await _snapshots.MarkStaleAsync(channelId, warning);
+            return new AclWriteResult(false, null, warning, error);
         }
     }
 
@@ -89,8 +92,11 @@ public sealed class AclSyncCoordinator : IAclSyncCoordinator
         }
         catch (Exception ex)
         {
-            await _snapshots.MarkStaleAsync(channelId, "ACL group remove may have succeeded, but refresh failed.");
-            return new AclWriteResult(false, null, "ACL group remove may have succeeded, but refresh failed.", ex.Message);
+            const string warning = "ACL group remove may have succeeded, but Brmble could not refresh canonical ACL state.";
+            const string error = "ACL operation could not be confirmed.";
+            _logger.LogWarning(ex, "ACL group remove for channel {ChannelId} succeeded before refresh failed", channelId);
+            await _snapshots.MarkStaleAsync(channelId, warning);
+            return new AclWriteResult(false, null, warning, error);
         }
     }
 

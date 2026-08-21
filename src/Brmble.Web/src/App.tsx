@@ -41,7 +41,7 @@ import { parseMessageMedia } from './utils/parseMessageMedia';
 import { linkifyForMumble } from './utils/linkifyForMumble';
 import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
-import { usePrompt, confirm, prompt } from './hooks/usePrompt';
+import { usePrompt, confirm, promptPassword } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollModal } from './components/Games/DeathrollModal';
 import { RpsModal } from './components/Games/RpsModal';
@@ -1337,7 +1337,8 @@ function App() {
 
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'admin'>('profile');
+  const [requestedAdminChannelId, setRequestedAdminChannelId] = useState<number | undefined>();
   const [requestChannelOpen, setRequestChannelOpen] = useState(false);
   const [channelRequestRefreshKey, setChannelRequestRefreshKey] = useState(0);
   const [showGame, setShowGame] = useState(false);
@@ -1983,14 +1984,16 @@ function App() {
     bridge.send('voice.joinChannel', { channelId });
   }, []);
 
-  const saveChannelPasswordAndReconnect = useCallback((channelId: number, channelName: string, password: string) => {
+  const joinChannelWithPassword = useCallback((channelId: number, channelName: string, password: string, remember: boolean) => {
     const normalized = password.trim();
     if (!normalized) {
       return;
     }
 
-    bridge.send('voice.saveChannelPassword', { channelId, channelName, password: normalized });
-    bridge.send('voice.reconnect', { channelId });
+    if (remember) {
+      bridge.send('voice.saveChannelPassword', { channelId, channelName, password: normalized });
+    }
+    bridge.send('voice.joinChannel', { channelId, password: normalized });
   }, []);
 
   // Handle Push-to-Talk key detection via JavaScript when app is focused
@@ -2344,23 +2347,30 @@ function App() {
 
           void (async () => {
             const savedPassword = await getSavedChannelPassword(pendingJoinAttempt.channelId);
-            const password = await prompt({
+            const passwordResult = await promptPassword({
               title: 'Channel Password',
-              message: `Enter the password for ${pendingJoinAttempt.channelName}. Save the password and reconnect to authenticate it.`,
+              message: `Enter the password for ${pendingJoinAttempt.channelName}.`,
               placeholder: 'Password',
               defaultValue: savedPassword,
-              confirmLabel: 'Save & reconnect',
+              confirmLabel: 'Join channel',
               cancelLabel: 'Cancel',
+              rememberLabel: 'Remember this password',
+              rememberDefaultChecked: true,
               isPassword: true,
             });
 
-            if (!password) {
+            if (!passwordResult?.password.trim()) {
               clearPendingJoinAttempt();
               return;
             }
 
             clearPendingJoinAttempt();
-            saveChannelPasswordAndReconnect(pendingJoinAttempt.channelId, pendingJoinAttempt.channelName, password);
+            joinChannelWithPassword(
+              pendingJoinAttempt.channelId,
+              pendingJoinAttempt.channelName,
+              passwordResult.password,
+              passwordResult.remember,
+            );
           })();
           return;
         }
@@ -3400,21 +3410,23 @@ const handleConnect = (serverData: SavedServer) => {
 
     if (joinAction === 'promptPassword') {
       const savedPassword = await getSavedChannelPassword(channelId);
-      const enteredPassword = await prompt({
+      const passwordResult = await promptPassword({
         title: 'Channel Password',
-        message: `Enter the password for ${channel.name}. Save the password and reconnect to authenticate it.`,
+        message: `Enter the password for ${channel.name}.`,
         placeholder: 'Password',
         defaultValue: savedPassword,
-        confirmLabel: 'Save & reconnect',
+        confirmLabel: 'Join channel',
         cancelLabel: 'Cancel',
+        rememberLabel: 'Remember this password',
+        rememberDefaultChecked: true,
         isPassword: true,
       });
 
-      if (!enteredPassword) {
+      if (!passwordResult?.password.trim()) {
         return;
       }
 
-      saveChannelPasswordAndReconnect(channelId, channel.name, enteredPassword);
+      joinChannelWithPassword(channelId, channel.name, passwordResult.password, passwordResult.remember);
       return;
     }
 
@@ -4826,6 +4838,11 @@ const handleConnect = (serverData: SavedServer) => {
           currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
+          onOpenChannelPermissions={(channelId) => {
+            setRequestedAdminChannelId(channelId);
+            setSettingsTab('admin');
+            setShowSettings(true);
+          }}
           onSelectServer={handleSelectServer}
           isServerChatActive={currentChannelId === 'server-root'}
           serverLabel={serverLabel}
@@ -5012,6 +5029,7 @@ const handleConnect = (serverData: SavedServer) => {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         initialTab={settingsTab}
+        initialAdminChannelId={requestedAdminChannelId}
         username={username}
         connected={connected}
         currentUser={{ name: username || 'Unknown', matrixUserId: matrixCredentials?.userId, avatarUrl: currentUserAvatarUrl }}

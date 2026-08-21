@@ -1,0 +1,59 @@
+.channel-access-panel {
+  margin: 0 0 var(--space-sm) var(--space-xl);
+  padding: var(--space-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.channel-access-summary {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+}
+
+.channel-access-summary > div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) 1fr;
+  gap: var(--space-sm);
+}
+
+.channel-access-panel section,
+.channel-access-password {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
+}
+
+.channel-access-group-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.channel-access-group-name {
+  min-width: 10rem;
+  margin-right: auto;
+}
+
+.channel-access-group-controls {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.channel-access-permission-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.channel-access-panel button:focus-visible,
+.channel-access-panel select:focus-visible,
+.channel-access-panel input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}

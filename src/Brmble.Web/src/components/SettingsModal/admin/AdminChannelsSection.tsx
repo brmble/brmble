@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import '../AdminSettingsTab.css';
-import { AclEditorDialog } from '../../../components/AclEditor/AclEditorDialog';
 import { ContextMenu } from '../../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../../ContextMenu/ContextMenu';
 import { EditChannelDialog } from '../../EditChannelDialog/EditChannelDialog';
@@ -8,6 +7,7 @@ import bridge from '../../../bridge';
 import { prompt } from '../../../hooks/usePrompt';
 import type { Channel } from '../../../types';
 import { SettingsHelp } from '../SettingsHelp';
+import { ChannelAccessPanel } from './ChannelAccessPanel';
 import {
   buildReorderPayload,
   canDropIntoSiblingGroup,
@@ -18,18 +18,20 @@ import {
 interface AdminChannelsSectionProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
+  initialChannelId?: number;
 }
 
-export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminChannelsSectionProps) {
+export function AdminChannelsSection({ channels = [], onChannelsChange, initialChannelId }: AdminChannelsSectionProps) {
   const [draftChannels, setDraftChannels] = useState<Channel[]>(() => getOrderedChannels(channels));
-  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(channels[0]?.id ?? null);
-  const [aclEditorChannel, setAclEditorChannel] = useState<{ id: number; name: string } | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(initialChannelId ?? channels[0]?.id ?? null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; channelId: number } | null>(null);
   const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const [draggedChannelId, setDraggedChannelId] = useState<number | null>(null);
   const [dropTargetId, setDropTargetId] = useState<number | null>(null);
   const [recentlyMovedChannelId, setRecentlyMovedChannelId] = useState<number | null>(null);
+  const [expandedChannelId, setExpandedChannelId] = useState<number | null>(initialChannelId ?? null);
   const recentlyMovedTimeoutRef = useRef<number | null>(null);
+  const appliedInitialChannelIdRef = useRef<number | undefined>(undefined);
   const orderedChannels = getOrderedChannels(draftChannels);
   const contextChannel = orderedChannels.find(channel => channel.id === contextMenu?.channelId) ?? null;
 
@@ -44,6 +46,22 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
   useEffect(() => {
     setDraftChannels(getOrderedChannels(channels));
   }, [channels]);
+
+  useEffect(() => {
+    if (
+      initialChannelId == null
+      || appliedInitialChannelIdRef.current === initialChannelId
+      || !orderedChannels.some(channel => channel.id === initialChannelId)
+    ) {
+      return;
+    }
+
+    appliedInitialChannelIdRef.current = initialChannelId;
+    setSelectedChannelId(initialChannelId);
+    if (initialChannelId !== 0) {
+      setExpandedChannelId(initialChannelId);
+    }
+  }, [initialChannelId, orderedChannels]);
 
   useEffect(() => () => {
     if (recentlyMovedTimeoutRef.current != null) {
@@ -77,14 +95,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
     },
     {
       type: 'item',
-      label: 'Edit Permissions',
-      onClick: () => {
-        setAclEditorChannel({ id: contextChannel.id, name: contextChannel.name });
-        setContextMenu(null);
-      },
-    },
-    {
-      type: 'item',
       label: 'Delete Channel',
       onClick: () => {
         setContextMenu(null);
@@ -108,10 +118,17 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
               const isDragging = channel.id === draggedChannelId;
               const isDropTarget = channel.id === dropTargetId;
               const isRecentlyMoved = channel.id === recentlyMovedChannelId;
+              const isExpandable = channel.id !== 0;
+              const isExpanded = isExpandable && expandedChannelId === channel.id;
+              const parentName = orderedChannels.find(candidate => candidate.id === channel.parent)?.name ?? 'No parent';
+              const toggleChannelExpansion = () => {
+                if (!isExpandable) return;
+                setExpandedChannelId(current => current === channel.id ? null : channel.id);
+              };
 
               return (
+                <Fragment key={channel.id}>
                 <div
-                  key={channel.id}
                   className={[
                     'admin-channel-row',
                     'admin-channel-row--management',
@@ -124,7 +141,10 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                   aria-label={`${channel.name} Position ${channel.position ?? 0}`}
                   tabIndex={0}
                   draggable={channel.id !== 0}
-                  onClick={() => setSelectedChannelId(channel.id)}
+                  onClick={() => {
+                    setSelectedChannelId(channel.id);
+                    toggleChannelExpansion();
+                  }}
                   onContextMenu={event => {
                     event.preventDefault();
                     setSelectedChannelId(channel.id);
@@ -137,6 +157,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
 
                     event.preventDefault();
                     setSelectedChannelId(channel.id);
+                    toggleChannelExpansion();
                   }}
                   onDragStart={event => {
                     setRecentlyMovedChannelId(null);
@@ -208,7 +229,34 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
                 >
                   <span className="admin-channel-row-name">{channel.name}</span>
                   <span className="admin-channel-position-pill">Position {channel.position ?? 0}</span>
+                  {isExpandable ? (
+                    <button
+                      type="button"
+                      className="admin-channel-expand-button"
+                      aria-expanded={isExpanded}
+                      aria-controls={`channel-access-${channel.id}`}
+                      aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${channel.name} access settings`}
+                      onClick={event => {
+                        event.stopPropagation();
+                        setSelectedChannelId(channel.id);
+                        toggleChannelExpansion();
+                      }}
+                    >
+                      <span aria-hidden="true">{isExpanded ? '▾' : '▸'}</span>
+                    </button>
+                  ) : (
+                    <span className="admin-channel-root-access-note">Group access managed in Groups</span>
+                  )}
                 </div>
+                {isExpandable && isExpanded && (
+                  <div id={`channel-access-${channel.id}`}>
+                    <ChannelAccessPanel
+                      channel={channel}
+                      parentName={parentName}
+                    />
+                  </div>
+                )}
+                </Fragment>
               );
             })
           ) : (
@@ -249,16 +297,6 @@ export function AdminChannelsSection({ channels = [], onChannelsChange }: AdminC
             });
             setEditChannel(null);
           }}
-        />
-      )}
-      {aclEditorChannel && (
-        <AclEditorDialog
-          isOpen={true}
-          channelId={aclEditorChannel.id}
-          channelName={aclEditorChannel.name}
-          availableUsers={[]}
-          isNativePasswordProtected={draftChannels.find(channel => channel.id === aclEditorChannel.id)?.isEnterRestricted ?? false}
-          onClose={() => setAclEditorChannel(null)}
         />
       )}
     </section>

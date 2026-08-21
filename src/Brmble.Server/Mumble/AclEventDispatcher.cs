@@ -28,6 +28,18 @@ public sealed class AclEventDispatcher : IAclEventDispatcher
             return;
         }
 
+        var hasManagedPassword = snapshot.Acls.Any(acl =>
+            acl.Group?.StartsWith("__brmble_password_marker__:#", StringComparison.Ordinal) == true);
+
+        await _eventBus.BroadcastToUsersAsync(
+            connectedUserIds,
+            new
+            {
+                type = "acl.passwordStateChanged",
+                channelId,
+                hasManagedPassword
+            });
+
         // Parallelize authorization checks for better performance with many connected users
         var authTasks = connectedUserIds.Select(async userId =>
         {
@@ -45,6 +57,12 @@ public sealed class AclEventDispatcher : IAclEventDispatcher
 
         await _eventBus.BroadcastToUsersAsync(
             allowed,
-            new { type = "acl.changed", channelId, snapshot });
+            new
+            {
+                type = "acl.changed",
+                channelId,
+                snapshotHash = snapshot.SnapshotHash,
+                hasManagedPassword
+            });
     }
 }

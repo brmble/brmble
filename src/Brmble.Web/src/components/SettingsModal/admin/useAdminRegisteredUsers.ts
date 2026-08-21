@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import bridge from '../../../bridge';
 import type { AdminRegisteredUser } from './adminUserModels';
 
-export function useAdminRegisteredUsers() {
+export function useAdminRegisteredUsers(enabled = true) {
   const [registeredUsers, setRegisteredUsers] = useState<AdminRegisteredUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
+    if (!enabled) return;
+
     setLoading(true);
     setError(null);
 
@@ -63,11 +65,14 @@ export function useAdminRegisteredUsers() {
     bridge.once('voice.registeredUsers', handleRegisteredUsers);
     bridge.once('voice.registeredUsersError', handleRegisteredUsersError);
     bridge.send('voice.getRegisteredUsers');
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
+    // This hook's mount effect intentionally initiates its external bridge synchronization.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   return { registeredUsers, loading, error, refresh };
 }

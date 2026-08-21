@@ -11,6 +11,7 @@ import { ConnectionSettingsTab, type ConnectionSettings } from './ConnectionSett
 import { ProfileSettingsTab } from './ProfileSettingsTab';
 import { GamesSettingsTab } from './GamesSettingsTab';
 import { AdminSettingsTab } from './AdminSettingsTab';
+import { ChannelAccessPanel } from './admin/ChannelAccessPanel';
 import { ScreenShareSettingsTab } from './ScreenShareSettingsTab';
 import { MyChannelRequests } from '../ChannelRequests/MyChannelRequests';
 import { useServerlist } from '../../hooks/useServerlist';
@@ -49,6 +50,7 @@ interface SettingsModalProps {
   onUploadAvatar?: (blob: Blob, contentType: string) => void;
   onRemoveAvatar?: () => void;
   initialTab?: 'profile' | 'games' | 'audio' | 'shortcuts' | 'messages' | 'appearance' | 'connection' | 'screenShare' | 'admin';
+  initialAdminChannelId?: number;
   brmblegotchiEnabled?: boolean;
   setBrmblegotchiEnabled?: (enabled: boolean) => void;
   onLiveCompanionChange?: (
@@ -135,6 +137,15 @@ export function SettingsModal(props: SettingsModalProps) {
   const { servers } = useServerlist();
   const { hasPermission } = usePermissions();
   const hasAdminPermission = hasPermission(0, Permission.Ban) || hasPermission(0, Permission.Kick);
+  const requestedAdminChannel = props.initialAdminChannelId == null
+    ? undefined
+    : props.channels?.find(channel => channel.id === props.initialAdminChannelId);
+  const hasRequestedChannelPermission = requestedAdminChannel != null
+    && hasPermission(requestedAdminChannel.id, Permission.Write);
+  const canAccessAdmin = hasAdminPermission || hasRequestedChannelPermission;
+  const requestedAdminChannelParentName = requestedAdminChannel == null
+    ? ''
+    : props.channels?.find(channel => channel.id === requestedAdminChannel.parent)?.name ?? 'No parent';
 
   const tabsRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -161,13 +172,13 @@ export function SettingsModal(props: SettingsModalProps) {
     return () => {
       window.removeEventListener('resize', updateModalWidth);
     };
-  }, [isOpen, hasAdminPermission]);
+  }, [isOpen, canAccessAdmin]);
 
   useEffect(() => {
     if (!isOpen || customCompanionUploadActive) return;
-    const effectiveTab = (initialTab === 'admin' && !hasAdminPermission) ? 'profile' : (initialTab ?? 'profile');
+    const effectiveTab = (initialTab === 'admin' && !canAccessAdmin) ? 'profile' : (initialTab ?? 'profile');
     setActiveTab(effectiveTab);
-  }, [isOpen, initialTab, hasAdminPermission, customCompanionUploadActive]);
+  }, [isOpen, initialTab, canAccessAdmin, customCompanionUploadActive]);
 
   // Resolve registration name for the currently connected server
   const connectedRegisteredName = (() => {
@@ -509,7 +520,7 @@ export function SettingsModal(props: SettingsModalProps) {
           >
             Screen Share
           </button>
-          {hasAdminPermission && (
+          {canAccessAdmin && (
             <button
               className={`settings-tab ${activeTab === 'admin' ? 'active' : ''}`}
               disabled={customCompanionUploadActive}
@@ -577,10 +588,23 @@ export function SettingsModal(props: SettingsModalProps) {
             <AdminSettingsTab
               channels={props.channels ?? []}
               onChannelsChange={props.onChannelsChange}
+              initialChannelId={props.initialAdminChannelId}
               liveUsers={props.liveUsers ?? []}
               customCompanions={props.customCompanions}
               customCompanionGallery={props.customCompanionGallery}
             />
+          )}
+          {activeTab === 'admin' && !hasAdminPermission && hasRequestedChannelPermission && requestedAdminChannel && (
+            <section className="settings-section admin-section" aria-labelledby="channel-access-settings-title">
+              <h3 id="channel-access-settings-title" className="heading-section settings-section-title">
+                {requestedAdminChannel.name} access
+              </h3>
+              <ChannelAccessPanel
+                channel={requestedAdminChannel}
+                parentName={requestedAdminChannelParentName}
+                scoped
+              />
+            </section>
           )}
 
         </div>
