@@ -16,7 +16,7 @@
  */
 import { act, render, type RenderResult } from '@testing-library/react';
 import { vi } from 'vitest';
-import type { ComponentType, ReactNode } from 'react';
+import { useEffect, useReducer, type ComponentType, type ReactNode } from 'react';
 import App from '../App';
 import bridge from '../bridge';
 import { ServiceStatusProvider } from '../hooks/useServiceStatus';
@@ -64,16 +64,67 @@ const harness = vi.hoisted(() => {
     stopTyping: vi.fn(),
   };
 
+  // The DM store fake is LIVE, not a bag of spies: `selectContact` really moves the
+  // selection, `messages` really follows it and `sendMessage` really records which
+  // contact it targeted. Tests can therefore assert outcomes ("Alice got the message")
+  // instead of calls ("selectContact was called"), which is what let a wrong-contact
+  // send ship behind green tests before.
+  const dmStoreListeners = new Set<() => void>();
+  const notifyDmStore = () => { for (const listener of [...dmStoreListeners]) listener(); };
+  /** Per-contact DM history, keyed by contact id. */
+  const dmMessages = new Map<string, unknown[]>();
+  /** Every `sendMessage` call, resolved to the contact it actually targeted. */
+  const dmSends: Array<{ content: string; contactId: string | null }> = [];
+  const EMPTY_DM_MESSAGES: unknown[] = [];
+
+  type HarnessDmSelection = {
+    id: string;
+    displayName: string;
+    unreadCount: number;
+    isEphemeral?: boolean;
+    mumbleSessionId?: number | null;
+  };
+
+  let selectedContactValue: HarnessDmSelection | null = null;
+  let messagesOverride: unknown[] = EMPTY_DM_MESSAGES;
+
   const dmStore = {
     contacts: [] as unknown[],
-    selectedContact: null as
-      | { id: string; displayName: string; unreadCount: number; isEphemeral?: boolean; mumbleSessionId?: number | null }
-      | null,
-    messages: [] as unknown[],
-    selectContact: vi.fn(),
-    sendMessage: vi.fn(),
+    // Accessor pair so suites can still assign a selection directly; assigning keeps
+    // `selectedContactIdRef` (and therefore `messages`) in step.
+    get selectedContact(): HarnessDmSelection | null { return selectedContactValue; },
+    set selectedContact(value: HarnessDmSelection | null) {
+      selectedContactValue = value;
+      dmStore.selectedContactIdRef.current = value?.id ?? null;
+    },
+    // Per-contact history wins when a suite seeded one; otherwise the flat override
+    // array preserves the original single-conversation harness behaviour.
+    get messages(): unknown[] {
+      const id = dmStore.selectedContactIdRef.current;
+      if (id !== null && dmMessages.has(id)) return dmMessages.get(id)!;
+      return messagesOverride;
+    },
+    set messages(value: unknown[]) { messagesOverride = value; },
+    // Mirrors the real hook: the id is authoritative, the contact object is derived
+    // from the contact list and is null when the id does not resolve.
+    selectContact: vi.fn((id: string) => {
+      if (dmStore.selectedContactIdRef.current === id) return;
+      dmStore.selectedContactIdRef.current = id;
+      selectedContactValue = (dmStore.contacts as HarnessDmSelection[])
+        .find(contact => contact.id === id) ?? null;
+      notifyDmStore();
+    }),
+    // Mirrors the real hook's targeting rule: an explicit contact id wins, otherwise
+    // the ambient selection is used.
+    sendMessage: vi.fn((content: string, contactId?: string) => {
+      dmSends.push({ content, contactId: contactId ?? dmStore.selectedContactIdRef.current });
+    }),
     startDM: vi.fn(),
-    clearSelection: vi.fn(),
+    clearSelection: vi.fn(() => {
+      dmStore.selectedContactIdRef.current = null;
+      selectedContactValue = null;
+      notifyDmStore();
+    }),
     closeDM: vi.fn(),
     selectedContactIdRef: { current: null as string | null },
     receiveMumbleDM: vi.fn(),
@@ -152,6 +203,9 @@ const harness = vi.hoisted(() => {
     chatStore,
     matrixClient,
     dmStore,
+    dmStoreListeners,
+    dmMessages,
+    dmSends,
     unreadTracker,
     roomUnreads,
     idleActions,
@@ -282,6 +336,14 @@ vi.mock('../hooks/useChatStore', () => ({
 vi.mock('../hooks/useDMStore', () => ({
   useDMStore: (options: HarnessProps) => {
     harness.captured.set('useDMStore', options);
+    // The fake store mutates in place, so subscribe the consumer to it the way a real
+    // hook would; otherwise `selectContact` would move the selection without ever
+    // re-rendering the tree that reads it.
+    const [, forceUpdate] = useReducer((tick: number) => tick + 1, 0);
+    useEffect(() => {
+      harness.dmStoreListeners.add(forceUpdate);
+      return () => { harness.dmStoreListeners.delete(forceUpdate); };
+    }, []);
     return harness.dmStore;
   },
 }));
@@ -336,6 +398,8 @@ export interface RenderConnectedAppOptions {
   matrixRoomMap?: Record<string, string>;
   users?: HarnessUser[];
   dmContacts?: HarnessDmContact[];
+  /** Per-contact DM history, keyed by contact id. */
+  dmMessages?: Record<string, unknown[]>;
   /** Shares the local user is watching; each one also gets a fake remote video element. */
   watchedShares?: HarnessShare[];
   /** Opens a paint session through the real `onOpenPaint` entry point after connecting. */
@@ -367,6 +431,8 @@ export interface ConnectedAppHandles extends RenderResult {
   screenShare: typeof harness.screenShare;
   matrixClient: typeof harness.matrixClient;
   dmStore: typeof harness.dmStore;
+  /** Every DM send, resolved to the contact it actually targeted. */
+  dmSends: typeof harness.dmSends;
   unreadTracker: typeof harness.unreadTracker;
   notificationQueue: typeof harness.notificationQueue;
   /** Emits a presence reset that puts the local user in another voice channel. */
@@ -404,6 +470,9 @@ export function resetAppHarness(): void {
   harness.screenShare.focusedShare = null;
   harness.dmStore.contacts = [];
   harness.dmStore.selectedContact = null;
+  harness.dmStore.messages = [];
+  harness.dmMessages.clear();
+  harness.dmSends.length = 0;
   (bridge as unknown as { __reset: () => void }).__reset();
 }
 
@@ -468,6 +537,10 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
   }
 
   harness.dmStore.contacts = toDmContacts(options.dmContacts ?? []);
+
+  for (const [contactId, contactMessages] of Object.entries(options.dmMessages ?? {})) {
+    harness.dmMessages.set(contactId, contactMessages);
+  }
 
   for (const [key, storeMessages] of Object.entries(options.chatStore ?? {})) {
     harness.chatStore.set(key, storeMessages);
@@ -542,6 +615,7 @@ export function renderConnectedApp(options: RenderConnectedAppOptions = {}): Con
     screenShare: harness.screenShare,
     matrixClient: harness.matrixClient,
     dmStore: harness.dmStore,
+    dmSends: harness.dmSends,
     unreadTracker: harness.unreadTracker,
     notificationQueue: harness.notificationQueue,
     moveSelfToChannel: (channelId: number) => {

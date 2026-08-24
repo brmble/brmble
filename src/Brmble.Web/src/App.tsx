@@ -1772,6 +1772,19 @@ function App() {
     ? activeDmContactId
     : null;
 
+  // The TAB owns which conversation is open; the DM store owns that conversation's
+  // history, unread/foreground bookkeeping and history fetching. `activeConversation` is
+  // derived from the workspace reducer, so syncing the store here covers EVERY activation
+  // path at once — tab click, OPEN_CONVERSATION, the close and invalidation neighbour
+  // fallbacks, the home retarget and restore — instead of asking each of them to remember.
+  // Without this, activating an already-open DM tab moved only `workspace.activeKey` and
+  // left the store pointing at the previously selected contact.
+  useLayoutEffect(() => {
+    if (activeDmContactId === null) return;
+    if (dmStore.selectedContactIdRef.current === activeDmContactId) return;
+    dmStore.selectContact(activeDmContactId);
+  }, [activeDmContactId, dmStore.selectContact, dmStore.selectedContactIdRef]);
+
   useLayoutEffect(() => {
     matrixClient.setActiveChannel(activeConversationIsDm ? null : permittedActiveMatrixChannelId);
   }, [activeConversationIsDm, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
@@ -3682,20 +3695,22 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [matrixClient]);
 
+  // Defence in depth alongside the selection sync above: the reaction target is read from
+  // the ACTIVE TAB, so it cannot land on another conversation even for the one render
+  // before the sync effect has flushed.
   const handleToggleDmReaction = useCallback(async (
     _chatPanelChannelId: string,
     messageId: string,
     emoji: string,
     isCurrentlyReacted: boolean,
   ) => {
-    const selectedContactId = dmStore.selectedContact?.id;
-    if (!selectedContactId) return;
+    if (!activeDmContactId) return;
     if (isCurrentlyReacted) {
-      await matrixClient.removeReaction(selectedContactId, messageId, emoji);
+      await matrixClient.removeReaction(activeDmContactId, messageId, emoji);
     } else {
-      await matrixClient.sendReaction(selectedContactId, messageId, emoji);
+      await matrixClient.sendReaction(activeDmContactId, messageId, emoji);
     }
-  }, [dmStore.selectedContact?.id, matrixClient]);
+  }, [activeDmContactId, matrixClient]);
 
   const handleDisconnect = async () => {
     await runIntentionalDisconnect({
@@ -5024,6 +5039,13 @@ const handleConnect = (serverData: SavedServer) => {
     })
   ), [workspace, resolveChannelChatLabel, channelUnreads, dmContactsWithUnreads]);
 
+  // Named explicitly rather than relying on the store's ambient selection, so a send can
+  // never land on a contact other than the one whose tab is open.
+  const handleSendDmMessage = useCallback((content: string) => {
+    if (!activeDmContactId) return;
+    dmStore.sendMessage(content, activeDmContactId);
+  }, [activeDmContactId, dmStore.sendMessage]);
+
   // One ChatPanel renders the active tab. This picks which prop set feeds it; the
   // channel and DM shapes are otherwise unchanged.
   const chatPanelPropsForActiveConversation: ComponentProps<typeof ChatPanel> = activeConversationIsDm
@@ -5032,7 +5054,7 @@ const handleConnect = (serverData: SavedServer) => {
       channelName: activeDmContact?.displayName ?? '',
       messages: activeDmMessages,
       currentUsername: username,
-      onSendMessage: dmStore.sendMessage,
+      onSendMessage: handleSendDmMessage,
       isDM: true,
       matrixClient: activeDmContact && !selectedDmIsMumble ? matrixClient.client : null,
       matrixRoomId: activeDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null,

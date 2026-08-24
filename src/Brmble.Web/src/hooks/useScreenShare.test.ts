@@ -4010,6 +4010,56 @@ describe('useScreenShare', () => {
       expect(publicationFor(10).setSubscribed).not.toHaveBeenCalledWith(false);
     });
 
+    // A room lifecycle reset drops the elapsed flag along with the publications it
+    // described, but the hide INTENT belongs to the stage the caller is showing, not to
+    // the room. Leaving `hiddenRef` set with nothing scheduled stranded the replacement
+    // room subscribed forever: `setRemoteScreenSharesHidden(true)` early-returns on an
+    // unchanged intent, so the stage effect re-running could not self-correct.
+    it('re-hides a backgrounded share after the room is replaced by a publisher upgrade', async () => {
+      vi.useFakeTimers();
+      captureBridgeHandlers();
+      registerRemotePublisher(10);
+
+      const { result } = renderHook(() => useScreenShare());
+
+      act(() => {
+        bridgeHandlers.get('livekit.screenShareStarted')?.({
+          roomName: 'channel-1', userName: 'alice', userId: 10, matrixUserId: identityFor(10),
+        });
+      });
+
+      await act(async () => {
+        const promise = result.current.connectAsViewer('channel-1', 10, identityFor(10));
+        bridgeHandlers.get('livekit.token')?.(liveKitToken('viewer-jwt'));
+        await promise;
+      });
+
+      act(() => { result.current.setRemoteScreenSharesHidden(true); });
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+      expect(publicationFor(10).setSubscribed).toHaveBeenCalledWith(false);
+
+      // Upgrade viewer -> publisher: the room is replaced, resetting the hide lifecycle.
+      await act(async () => {
+        const promise = result.current.startSharing('channel-1');
+        emitRoomEvent('disconnected');
+        await Promise.resolve();
+        bridgeHandlers.get('livekit.token')?.(liveKitToken('publisher-jwt'));
+        await promise;
+      });
+
+      publicationFor(10).setSubscribed.mockClear();
+
+      // The stage is still not screen-share, so nothing calls setRemoteScreenSharesHidden
+      // again. The hide must re-arm itself against the replacement room.
+      act(() => { vi.advanceTimersByTime(REMOTE_HIDE_GRACE_MS); });
+
+      expect(publicationFor(10).setSubscribed).toHaveBeenCalledWith(false);
+      // Invariants: this is a subscription concern only.
+      expect(result.current.watchingShares).toHaveLength(1);
+      expect(mockRoom.localParticipant.setScreenShareEnabled).not.toHaveBeenCalledWith(false);
+      expect(result.current.isSharing).toBe(true);
+    });
+
     // The flagged hazard: a TrackUnsubscribed we caused ourselves, delivered late and
     // stamped by a superseded hide generation, must not tear down logical viewer state.
     it('ignores a delayed stale-generation TrackUnsubscribed for a deliberately hidden share', async () => {

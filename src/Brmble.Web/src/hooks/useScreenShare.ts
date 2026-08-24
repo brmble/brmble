@@ -375,6 +375,11 @@ export function useScreenShare(
   const hideElapsedRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideGenerationRef = useRef(0);
+  // Late-bound so `resetHideLifecycle` (declared first) can re-arm a hide.
+  const applyHiddenRef = useRef<((hidden: boolean) => void) | null>(null);
+  // Set during teardown: after unmount there is no replacement room to background, so
+  // the hide must not be re-armed (that would leave a timer running past the hook).
+  const hookUnmountedRef = useRef(false);
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
   onWatchedShareEndedRef.current = onWatchedShareEnded;
@@ -396,11 +401,20 @@ export function useScreenShare(
    * generation orphans any in-flight hide timer, and clearing the elapsed flag drops
    * the "we intend watched publications to be unsubscribed" state along with the room
    * whose publications it described.
+   *
+   * `hiddenRef` is deliberately NOT cleared: it is the caller's intent (the stage that
+   * is on screen), which outlives any single room. Clearing it would silently diverge
+   * from that intent. But leaving it set with nothing scheduled is just as wrong —
+   * `setRemoteScreenSharesHidden` early-returns on an unchanged intent, so a stage
+   * effect re-running with the same `true` cannot self-correct and the replacement
+   * room would stay subscribed indefinitely. So re-arm the grace period instead: the
+   * replacement room's publications get the same background treatment the old one had.
    */
   const resetHideLifecycle = useCallback(() => {
     hideGenerationRef.current += 1;
     hideElapsedRef.current = false;
     clearHideTimer();
+    if (hiddenRef.current && !hookUnmountedRef.current) applyHiddenRef.current?.(true);
   }, [clearHideTimer]);
 
   /**
@@ -781,6 +795,7 @@ export function useScreenShare(
       setRemoteVideoEls(new Map());
     }, REMOTE_HIDE_GRACE_MS);
   }, [clearHideTimer, detachRemoteAudio, forEachWatchedScreenPublication, reconcileEndedShares, unsubscribeIntentionally]);
+  applyHiddenRef.current = applyHidden;
 
   const setRemoteScreenSharesHidden = useCallback((hidden: boolean) => {
     if (hiddenRef.current === hidden) return;
@@ -1835,6 +1850,7 @@ export function useScreenShare(
 
   useEffect(() => {
     return () => {
+      hookUnmountedRef.current = true;
       clearLocalShareEndListener();
       cancelPendingViewerAttempts();
       clearTokenLease();

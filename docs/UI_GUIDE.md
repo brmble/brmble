@@ -287,7 +287,10 @@ Rules:
 1. Never render more than one `ChatPanel`. Channel and DM prop sets are selected by the
    active conversation's kind, not rendered side by side.
 2. Do not reintroduce `aria-hidden` / `inert` conversation slides or a transform-based
-   route transition. Nothing is mounted-but-hidden, so there is nothing to mark inert.
+   route transition. Nothing *inside* the conversation region is mounted-but-hidden, so
+   there is nothing there to mark inert. (This is about the region's own contents. The
+   whole region *is* hidden as one layer when a game owns the main panel — see the
+   Minigame Panel Pattern — which is a different concern.)
 3. Every tab must have a visible label. A channel whose name cannot be resolved falls back
    to its channel id.
 4. The "you are here" (home) tab is the joined voice channel and follows presence; it is
@@ -309,6 +312,17 @@ mode comes from `selectMainPanelMode` (`workspace/mainPanelMode.ts`); the board 
 centered in the panel by the `<GameSurface>` wrapper. The idle Neon-D game uses the same
 main-panel slot and is closed by its own close control. Chat, paint and screen share stay
 mounted underneath and simply reappear when the panel returns to `split`.
+
+`MainPanel` renders the two surfaces as persistent **layers**
+(`components/MainPanel/MainPanel.css`), never as an either/or route. The split layer is
+always mounted; when a game owns the panel it is hidden with `visibility` — which keeps
+scroll offsets and canvas backing stores alive — and marked `inert` + `aria-hidden` so it
+is neither focusable nor announced. The game layer is taken out of flow (`position:
+absolute; inset: 0`) so it fills the panel rather than sharing space with the
+hidden-but-still-laid-out split. Do **not** return the game surface early in place of the
+split: that unmounts `ChatPanel` (message draft, search state, scroll position) and
+`PaintSessionView` (canvas contents, in-flight strokes, the session snapshot, which then
+refetches and flashes).
 
 The board itself still reuses the shared card shell — `.glass-panel.animate-slide-up`,
 `.modal-close`, `.modal-header`, `h2.heading-title.modal-title` — and adds game-specific
