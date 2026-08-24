@@ -22,9 +22,12 @@
 
   /* Layout */
   --sidebar-width: 340px;
+  --dm-panel-width: 260px;
+  --dm-rail-width: 48px;
   --header-height: 60px;
   --border-width-thin: 1px;
   --border-width-strong: 2px;
+  --activity-stage-min-height: 8rem;
   --neond-grid-gap: var(--space-md);
   --neond-grid-max-width: 80rem;
   --neond-panel-max-width: 35rem;
@@ -33,6 +36,8 @@
   --neond-arrow-width: var(--space-xs);
   --neond-arrow-height: var(--space-sm);
   --neond-modal-max-width: 26.25rem;
+  --conversation-tab-min-width: 4.5rem;
+  --conversation-tab-max-width: 12rem;
   --neond-talent-ledger-max-width: calc(var(--neond-panel-max-width) + var(--neond-panel-max-width) + var(--neond-grid-gap));
 
   /* Transitions */
@@ -68,6 +73,21 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Screen-reader-only text: visually hidden, still in the accessibility tree.
+   Use for supplementary text that must extend an element's accessible name
+   without hiding the element's other visible content (badges, counts). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 html, body {

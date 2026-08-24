@@ -176,12 +176,10 @@ export function RpsModal({
     );
   };
 
+  // Not a dialog: a live match owns the whole main panel, so there is no overlay,
+  // no click-outside dismissal and no focus trap. Close/Forfeit remain the exits.
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className={`rps-modal glass-panel animate-slide-up ${styles.modal}`}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className={`rps-modal glass-panel animate-slide-up ${styles.modal}`}>
         <button className="modal-close" onClick={onClose} aria-label="Close rock paper scissors">
           <Icon name="x" size={20} />
         </button>
@@ -285,7 +283,6 @@ export function RpsModal({
             <button className="btn btn-danger" onClick={onForfeit}>Forfeit</button>
           )}
         </div>
-      </div>
     </div>
   );
 }

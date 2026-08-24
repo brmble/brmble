@@ -864,6 +864,93 @@ describe('ChannelTree duel activity badge', () => {
   });
 });
 
+// The joined channel (where your voice is) and the current channel (the conversation you
+// are reading) are independent. The sidebar has to mark both, and the server gates duels
+// on the joined one.
+describe('ChannelTree joined channel presence', () => {
+  const presenceChannels = [
+    { id: 7, name: 'General' },
+    { id: 9, name: 'Random' },
+  ];
+
+  it('marks the joined channel separately from the active conversation', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[]}
+        currentChannelId={9}
+        joinedChannelId={7}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    const generalRow = screen.getByText('General').closest('.channel-row')!;
+    const randomRow = screen.getByText('Random').closest('.channel-row')!;
+
+    expect(generalRow).toHaveClass('channel-row--joined');
+    expect(generalRow).not.toHaveClass('current');
+    expect(randomRow).toHaveClass('current');
+    expect(randomRow).not.toHaveClass('channel-row--joined');
+  });
+
+  it('names the joined channel row for screen readers, not by colour alone', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[]}
+        currentChannelId={9}
+        joinedChannelId={7}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /General \(you are here\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Random \(you are here\)/ })).not.toBeInTheDocument();
+  });
+
+  it('offers Challenge only for users in the joined channel', () => {
+    const users = [
+      { session: 1, name: 'Me', channelId: 7, self: true, isBrmbleClient: true },
+      { session: 2, name: 'Alice', channelId: 7, isBrmbleClient: true },
+    ];
+    const treeProps = {
+      channels: presenceChannels,
+      users,
+      currentChannelId: 9,
+      onJoinChannel: vi.fn(),
+      onChallengeDeathroll: vi.fn(),
+      onChallengeRps: vi.fn(),
+    };
+
+    const { rerender } = render(<ChannelTree {...treeProps} joinedChannelId={7} />);
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.getByRole('button', { name: 'Challenge to a duel' })).toBeInTheDocument();
+
+    rerender(<ChannelTree {...treeProps} joinedChannelId={9} />);
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.queryByText('Challenge to a duel')).not.toBeInTheDocument();
+  });
+
+  it('offers no Challenge while unjoined even when viewing the target channel', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[
+          { session: 1, name: 'Me', channelId: 7, self: true, isBrmbleClient: true },
+          { session: 2, name: 'Alice', channelId: 7, isBrmbleClient: true },
+        ]}
+        currentChannelId={7}
+        onJoinChannel={vi.fn()}
+        onChallengeDeathroll={vi.fn()}
+        onChallengeRps={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.queryByText('Challenge to a duel')).not.toBeInTheDocument();
+  });
+});
+
 // The server refuses a challenge when either side already holds a duel commitment, so
 // the entry is disabled rather than offered. These drive the real right-click path to
 // prove ChannelTree's own wiring — its `users.find(u => u.self)` lookup and the
@@ -881,6 +968,7 @@ describe('ChannelTree challenge entry', () => {
         channels={channels}
         users={duelUsers}
         currentChannelId={1}
+        joinedChannelId={1}
         onJoinChannel={vi.fn()}
         onChallengeDeathroll={vi.fn()}
         onChallengeRps={vi.fn()}

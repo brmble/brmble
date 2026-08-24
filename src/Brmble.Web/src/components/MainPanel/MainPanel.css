@@ -1,0 +1,35 @@
+/*
+ * The main panel is two LAYERS, not two routes.
+ *
+ * A minigame owns the whole panel, but the split workspace underneath must survive it:
+ * unmounting the split tore down ChatPanel (message draft, search state, scroll
+ * position) and PaintSessionView (canvas contents, in-flight strokes, the snapshot,
+ * which then refetched and flashed). See UI_GUIDE "Minigame Panel Pattern".
+ *
+ * So the split keeps its layout and is hidden with `visibility`, which preserves scroll
+ * offsets and canvas backing stores, rather than `display: none`, which would collapse
+ * the layout and make the ResizeObserver in ChatPanel measure a zero-sized scroller.
+ * The game layer is taken out of flow so it fills the panel instead of sharing the
+ * space with the hidden-but-still-laid-out split.
+ */
+
+.main-panel__split {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.main-panel__split--hidden {
+  visibility: hidden;
+}
+
+.main-panel__game {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}

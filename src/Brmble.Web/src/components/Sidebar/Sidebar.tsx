@@ -28,6 +28,8 @@ interface SidebarProps {
   channels: Channel[];
   users: User[];
   currentChannelId?: number;
+  /** The channel the local user's voice is in — drives the presence marker and duel gate. */
+  joinedChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel: (channelId: number) => void;
   onSelectServer?: () => void;
@@ -70,6 +72,7 @@ export function Sidebar({
   channels,
   users,
   currentChannelId,
+  joinedChannelId,
   onJoinChannel,
   onSelectChannel,
   onSelectServer,
@@ -450,6 +453,7 @@ export function Sidebar({
           channels={nonRootChannels}
           users={nonRootUsers}
           currentChannelId={currentChannelId}
+          joinedChannelId={joinedChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}

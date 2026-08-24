@@ -77,12 +77,10 @@ export function DeathrollModal({
     );
   };
 
+  // Not a dialog: a live match owns the whole main panel, so there is no overlay,
+  // no click-outside dismissal and no focus trap. Close/Forfeit remain the exits.
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className={`deathroll-modal glass-panel animate-slide-up ${styles.modal}`}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className={`deathroll-modal glass-panel animate-slide-up ${styles.modal}`}>
         <button className="modal-close" onClick={onClose} aria-label="Close deathroll">
           <Icon name="x" size={20} />
         </button>
@@ -164,7 +162,6 @@ export function DeathrollModal({
             </>
           )}
         </div>
-      </div>
     </div>
   );
 }
