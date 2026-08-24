@@ -54,6 +54,44 @@ public class SpectatorViewTests
     }
 
     [TestMethod]
+    public void RpsSpectatorView_RoundInProgressAfterAReveal_LeaksOnlyTheOldRoundsThrows()
+    {
+        // The dangerous state: a previous round's reveal is still present while a new
+        // round is live. A blanket substring ban cannot police this, because round 1's
+        // throws legitimately appear inside LastRound. So round 2's pick is deliberately
+        // a THIRD throw value ("paper") that round 1 never used, letting us assert its
+        // absence precisely while still allowing the legitimate reveal through.
+        var engine = new RpsEngine();
+        var state = RpsStateWithOneCommit();                                  // round 1: 10 -> rock
+        engine.ApplyAction(state, 20, new Dictionary<string, object?> { ["pick"] = "scissors" }, new FixedRandom(1));
+        engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["pick"] = "paper" }, new FixedRandom(1));
+
+        var view = (RpsSpectatorView)engine.SpectatorView(state);
+
+        CollectionAssert.AreEqual(new[] { true, false }, view.Committed.ToArray(),
+            "Round 2 is in progress with only player 10 committed.");
+        Assert.IsNotNull(view.LastRound);
+        Assert.AreEqual(1, view.LastRound!.RoundNumber, "The reveal must be the OLD round, not the live one.");
+        Assert.AreEqual(2, view.RoundNumber, "A new round is underway.");
+
+        var json = JsonSerializer.Serialize(view, Wire).ToLowerInvariant();
+        Assert.IsFalse(json.Contains("paper"),
+            $"The live round-2 pick leaked into the spectator view: {json}");
+        // Round 1's throws may appear, but only once each — inside LastRound and nowhere else.
+        Assert.AreEqual(1, CountOccurrences(json, "rock"), $"'rock' should appear only in LastRound: {json}");
+        Assert.AreEqual(1, CountOccurrences(json, "scissors"), $"'scissors' should appear only in LastRound: {json}");
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
+    [TestMethod]
     public void DeathrollSpectatorView_MirrorsThePublicView()
     {
         var engine = new DeathrollEngine();
@@ -63,13 +101,28 @@ public class SpectatorViewTests
         engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(50));
 
         var view = (DeathrollSpectatorView)engine.SpectatorView(state);
-        Assert.AreEqual("deathroll", view.Kind);
-        CollectionAssert.AreEqual(new[] { 10L, 20L }, view.Players.ToArray());
+        // Deathroll has no private state, so every field the participant view exposes
+        // must match the spectator view field for field. Comparing against the real
+        // PublicView (rather than hardcoded literals) keeps the two drifting together.
+        var pub = JsonSerializer.SerializeToElement(engine.PublicView(state, 10), Wire);
+
+        CollectionAssert.AreEqual(
+            pub.GetProperty("players").EnumerateArray().Select(e => e.GetInt64()).ToArray(),
+            view.Players.ToArray());
+        Assert.AreEqual(pub.GetProperty("currentPlayer").GetInt64(), view.CurrentPlayer);
+        Assert.AreEqual(pub.GetProperty("ceiling").GetInt32(), view.Ceiling);
+        Assert.AreEqual(pub.GetProperty("lastRoll").GetInt32(), view.LastRoll);
+        Assert.AreEqual(pub.GetProperty("finished").GetBoolean(), view.Finished);
+        Assert.AreEqual(JsonValueKind.Null, pub.GetProperty("loserId").ValueKind);
+        Assert.IsNull(view.LoserId);
+
+        // Sanity-check the shared values are the ones the engine should have produced,
+        // so a mirrored-but-wrong pair cannot pass: rolling 50 on a ceiling of 100
+        // lowers the ceiling to 50 and passes the turn to player 20.
         Assert.AreEqual(20L, view.CurrentPlayer);
         Assert.AreEqual(50, view.Ceiling);
         Assert.AreEqual(50, view.LastRoll);
         Assert.IsFalse(view.Finished);
-        Assert.IsNull(view.LoserId);
     }
 
     private sealed class FixedRandom(int value) : IRandomSource

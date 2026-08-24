@@ -153,7 +153,10 @@ public sealed class DeathrollEngine : IGameEngine
         var s = (State)state;
         return new DeathrollSpectatorView(
             Kind: "deathroll",
-            Players: s.Players,
+            // Copied, not aliased: the spectator frame is captured under the match
+            // lock but published after the lock is released, so the view must not
+            // reference mutable engine state.
+            Players: s.Players.ToArray(),
             CurrentPlayer: s.LoserId is null ? s.Players[s.CurrentIndex] : null,
             Ceiling: s.Ceiling,
             LastRoll: s.LastRoll,

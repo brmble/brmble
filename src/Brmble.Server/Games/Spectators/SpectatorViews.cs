@@ -3,7 +3,9 @@ namespace Brmble.Server.Games.Spectators;
 /// <summary>
 /// What a non-participant may see of a live Deathroll match. Deathroll has no
 /// private state — <see cref="Engines.DeathrollEngine.PublicView"/> ignores its
-/// <c>forUserId</c> argument — so this mirrors the participant view exactly.
+/// <c>forUserId</c> argument — so this carries the same information as the
+/// participant view, plus a <see cref="Kind"/> discriminator that the participant
+/// view has no analogue for.
 /// Every player id is a Mumble SESSION id, matching the engine's state keys.
 /// </summary>
 public sealed record DeathrollSpectatorView(
@@ -15,7 +17,9 @@ public sealed record DeathrollSpectatorView(
     bool Finished,
     long? LoserId);
 
-/// <summary>A resolved RPS round. Throws are public only once the round is over.</summary>
+/// <summary>A resolved RPS round. Throws are public only once the round is over.
+/// <see cref="WinnerId"/> is a Mumble SESSION id.</summary>
+
 public sealed record RpsResolvedRoundSnapshot(
     int RoundNumber,
     int Sequence,

@@ -286,11 +286,14 @@ public sealed class RpsEngine : IGameEngine
         var s = (State)state;
         return new RpsSpectatorView(
             Kind: "rps",
-            Players: s.Players,
+            // Copied, not aliased: the spectator frame is captured under the match
+            // lock but published after the lock is released, so the view must not
+            // reference mutable engine state.
+            Players: s.Players.ToArray(),
             BestOf: s.BestOf,
             TargetWins: s.TargetWins,
             RoundNumber: s.RoundNumber,
-            RoundWins: s.RoundWins,
+            RoundWins: s.RoundWins.ToArray(),
             // Whether, never what. Picks are cleared on resolution, so this reads
             // false/false between rounds and the reveal lives in LastRound.
             Committed: [s.Picks[0] is not null, s.Picks[1] is not null],
