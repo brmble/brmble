@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 
 namespace Brmble.Server.Games.Engines;
 
@@ -278,6 +279,30 @@ public sealed class RpsEngine : IGameEngine
                 tie = s.Last.Tie,
             },
         };
+    }
+
+    public object SpectatorView(object state)
+    {
+        var s = (State)state;
+        return new RpsSpectatorView(
+            Kind: "rps",
+            Players: s.Players,
+            BestOf: s.BestOf,
+            TargetWins: s.TargetWins,
+            RoundNumber: s.RoundNumber,
+            RoundWins: s.RoundWins,
+            // Whether, never what. Picks are cleared on resolution, so this reads
+            // false/false between rounds and the reveal lives in LastRound.
+            Committed: [s.Picks[0] is not null, s.Picks[1] is not null],
+            Finished: s.WinnerId is not null || s.Drawn,
+            WinnerId: s.WinnerId,
+            LastRound: s.Last is null ? null : new RpsResolvedRoundSnapshot(
+                RoundNumber: s.Last.RoundNumber,
+                Sequence: s.Last.Seq,
+                Pick0: s.Last.P0?.ToString().ToLowerInvariant() ?? "none",
+                Pick1: s.Last.P1?.ToString().ToLowerInvariant() ?? "none",
+                WinnerId: s.Last.WinnerId,
+                Tie: s.Last.Tie));
     }
 
     public string MatchFormat(object state) => $"bo{((State)state).BestOf}";

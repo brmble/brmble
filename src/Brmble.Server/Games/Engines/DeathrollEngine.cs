@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text.Json;
+using Brmble.Server.Games.Spectators;
 
 namespace Brmble.Server.Games.Engines;
 
@@ -145,6 +146,19 @@ public sealed class DeathrollEngine : IGameEngine
             finished = s.LoserId is not null,
             loserId = s.LoserId,
         };
+    }
+
+    public object SpectatorView(object state)
+    {
+        var s = (State)state;
+        return new DeathrollSpectatorView(
+            Kind: "deathroll",
+            Players: s.Players,
+            CurrentPlayer: s.LoserId is null ? s.Players[s.CurrentIndex] : null,
+            Ceiling: s.Ceiling,
+            LastRoll: s.LastRoll,
+            Finished: s.LoserId is not null,
+            LoserId: s.LoserId);
     }
 
     public int? CurrentCeiling(object state) => ((State)state).Ceiling;
