@@ -24,9 +24,6 @@ export interface PaintStroke extends PaintStrokeInput {
 }
 
 export interface PaintSource {
-  matrixRoomId: string;
-  sourceEventId: string;
-  mxcUrl: string;
   mimeType: string;
   width: number;
   height: number;
@@ -56,8 +53,6 @@ export interface PaintSessionSnapshot {
   hostUserId: number;
   currentUserId?: number;
   isHost?: boolean;
-  matrixRoomId: string;
-  sourceEventId: string | null;
   status: PaintSessionStatus;
   expiresAt: string;
   source: PaintSource | null;

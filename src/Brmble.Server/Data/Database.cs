@@ -168,6 +168,20 @@ public class Database
             """);
 
         conn.Execute("""
+            CREATE TABLE IF NOT EXISTS paint_temporary_cleanup (
+                session_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'failed', 'terminal')),
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                next_attempt_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_paint_temporary_cleanup_pending
+                ON paint_temporary_cleanup(status, next_attempt_at);
+            """);
+
+        conn.Execute("""
             CREATE TABLE IF NOT EXISTS custom_companion_gallery_room (
                 singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                 matrix_room_id TEXT NOT NULL UNIQUE,

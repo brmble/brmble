@@ -719,17 +719,6 @@ export function canOpenChannelChat(channelId: string | undefined, channels: Chan
   return channel?.canOpenChat !== false;
 }
 
-// A paint session belongs to the voice channel the user joined, not the channel they
-// happen to be viewing. Browsing elsewhere must not tear the canvas down.
-export function shouldKeepPaintSession(input: {
-  connectionStatus: string;
-  sessionChannelId: string | undefined;
-  joinedChannelId: string | null;
-}): boolean {
-  if (input.connectionStatus !== 'connected') return false;
-  return activityChannelMatchesPresence(input.joinedChannelId, input.sessionChannelId);
-}
-
 export function canSendToChannelChat(channelId: string | undefined, channels: Channel[]): boolean {
   if (!channelId) return false;
   if (channelId === 'server-root') return true;
@@ -1361,9 +1350,17 @@ function App() {
   // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
   const brmbleIdleSec = useBrmbleIdle();
   const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
-  const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
+  // Single presence derivation, hoisted so paint/idle/share all read the same value.
+  // `null` means self voice membership is not known yet; SERVER_ROOT_CHANNEL_ID means
+  // the user is standing in the root channel. Those two are NOT the same thing.
+  const joinedChannelId = selectJoinedChannelId(users);
+  // Thin numeric alias over the presence derivation. 'server-root' collapses to
+  // undefined, which every consumer already treats the same as the numeric root (0).
+  const selfVoiceChannelId = joinedChannelId === null || joinedChannelId === SERVER_ROOT_CHANNEL_ID
+    ? undefined
+    : Number(joinedChannelId);
   const inVoiceChannelForIdle =
-    !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
+    !selfLeftVoice && selfVoiceChannelId != null && selfVoiceChannelId !== 0;
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1385,7 +1382,22 @@ function App() {
   const invalidatePaintPreparation = useCallback(() => {
     paintPreparationGenerationRef.current += 1;
   }, []);
-  const activePaintChannelIdRef = useRef<string | undefined>(undefined);
+  const activePaintChannelIdRef = useRef<number | null>(null);
+  // The voice channel that owns any active paint session.
+  //   number    -> standing in that voice channel
+  //   null      -> definitively not in a paintable voice channel (disconnected, left
+  //                voice, or standing in the root channel) => close the session
+  //   undefined -> self voice membership not known yet => leave the session alone
+  // Derived from the presence layer's STRING ids, then narrowed to a number, so no
+  // string/number comparison ever reaches `activePaintChannelIdRef`.
+  const paintVoiceChannelId: number | null | undefined =
+    connectionStatus !== 'connected' || selfLeftVoice
+      ? null
+      : joinedChannelId === null
+        ? undefined
+        : joinedChannelId === SERVER_ROOT_CHANNEL_ID
+          ? null
+          : Number(joinedChannelId);
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
@@ -1404,7 +1416,19 @@ function App() {
   // deliberately does NOT end an active session — sessions belong to the joined channel.
   useEffect(() => {
     invalidatePaintPreparation();
-  }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
+  }, [currentChannelId, invalidatePaintPreparation]);
+
+  // Survival guard: an active paint session ends only when the voice channel that owns
+  // it changes (real move, root move, leave-voice, disconnect). Browsing another
+  // channel, a DM, or server chat opens a tab and must not tear the canvas down.
+  useEffect(() => {
+    if (!activePaintSessionId || paintVoiceChannelId === undefined) return;
+    if (activePaintChannelIdRef.current !== paintVoiceChannelId) {
+      activePaintSessionIdRef.current = null;
+      setActivePaintSessionId(null);
+      activePaintChannelIdRef.current = null;
+    }
+  }, [activePaintSessionId, paintVoiceChannelId]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -1711,28 +1735,6 @@ function App() {
     : undefined;
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
   const selectedDmContactIdRef = useRef<string | null>(null);
-
-  const joinedChannelId = selectJoinedChannelId(users);
-  // Thin numeric alias over the single presence derivation. 'server-root' collapses to
-  // undefined, which every consumer already treats the same as the numeric root (0).
-  const selfVoiceChannelId = joinedChannelId === null || joinedChannelId === SERVER_ROOT_CHANNEL_ID
-    ? undefined
-    : Number(joinedChannelId);
-
-  // Survival guard: an active paint session ends only when the connection drops or the
-  // user leaves/changes the voice channel that owns it. Viewing another channel is fine.
-  useEffect(() => {
-    if (!activePaintSessionId) return;
-    if (!shouldKeepPaintSession({
-      connectionStatus,
-      sessionChannelId: activePaintChannelIdRef.current,
-      joinedChannelId,
-    })) {
-      activePaintSessionIdRef.current = null;
-      setActivePaintSessionId(null);
-      activePaintChannelIdRef.current = undefined;
-    }
-  }, [activePaintSessionId, connectionStatus, joinedChannelId]);
 
   const dmStore = useDMStore({
     matrixDmLastMessages: matrixClient.dmLastMessages,
@@ -2778,6 +2780,15 @@ function App() {
       clearPendingJoinAttempt();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
+        if (
+          activePaintSessionIdRef.current !== null
+          && activePaintChannelIdRef.current !== d.channelId
+        ) {
+          activePaintSessionIdRef.current = null;
+          activePaintChannelIdRef.current = null;
+          setActivePaintSessionId(null);
+        }
+
         const computedWasSharing = shouldTreatMoveAsSharingRelated({
           isSharing: isSharingRef.current || wasLocalShareRecentlyActiveRef.current,
           isLocalShareStartPending: isLocalShareStartPendingRef.current,
@@ -4849,7 +4860,9 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [activeDmMatrixContactId, activeDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
-  const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
+  const paintChannelId = typeof paintVoiceChannelId === 'number'
+    ? paintVoiceChannelId
+    : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
   const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
   const canStartPaintRef = useRef(false);
@@ -4929,23 +4942,19 @@ const handleConnect = (serverData: SavedServer) => {
     },
     [isCurrentPaintPreparation, notifQueue],
   );
-  const paintCandidates = paintChannelId === null
-    ? []
-    : users
-      .filter(user => user.channelId === paintChannelId && !user.self)
-      .map(user => ({ userId: user.session, name: user.name }));
   const handleJoinPaint = useCallback(async (sessionId: string) => {
     await paintApi.join(sessionId);
   }, []);
   const handleOpenPaint = useCallback((sessionId: string) => {
+    if (paintVoiceChannelId == null) return;
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = joinedChannelId ?? undefined;
+    activePaintChannelIdRef.current = paintVoiceChannelId;
     activePaintSessionIdRef.current = sessionId;
     setActivePaintSessionId(sessionId);
-  }, [currentChannelId, invalidatePaintPreparation]);
+  }, [invalidatePaintPreparation, paintVoiceChannelId]);
   const handleClosePaint = useCallback(() => {
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = undefined;
+    activePaintChannelIdRef.current = null;
     activePaintSessionIdRef.current = null;
     setActivePaintSessionId(null);
   }, [invalidatePaintPreparation]);
@@ -5136,6 +5145,7 @@ const handleConnect = (serverData: SavedServer) => {
               sessionId={activePaintSessionId}
               matrixClient={matrixClient.client}
               channelRoomMap={matrixCredentials?.roomMap}
+              currentVoiceChannelId={paintVoiceChannelId}
               onClose={handleClosePaint}
             />
           ) : null}
@@ -5224,15 +5234,12 @@ const handleConnect = (serverData: SavedServer) => {
         <PaintSessionSetupModal
           channelId={paintChannelId}
           channelRoomId={paintChannelRoomId}
-          candidates={paintCandidates}
-          hostUserId={selfSession}
           paintApi={paintApi}
           matrixClient={matrixClient.client}
-          onAttachSource={paintApi.attachSource}
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             invalidatePaintPreparation();
-            activePaintChannelIdRef.current = joinedChannelId ?? undefined;
+            activePaintChannelIdRef.current = paintChannelId;
             activePaintSessionIdRef.current = sessionId;
             setActivePaintSessionId(sessionId);
             closePaintSetup();

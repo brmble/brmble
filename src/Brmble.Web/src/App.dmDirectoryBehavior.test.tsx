@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -47,6 +47,16 @@ function installStubs() {
   overrideComponent('Sidebar', (props: HarnessProps) => (
     <>
       <button type="button" data-testid="sidebar-select-channel" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(1)} />
+      {/* Per-channel buttons: browsing a channel opens a conversation TAB in the tab
+          model, so these drive the "paint survives browsing" cases. */}
+      {((props.channels as { id: number }[] | undefined) ?? []).map(channel => (
+        <button
+          key={channel.id}
+          type="button"
+          data-testid={`sidebar-select-channel-${channel.id}`}
+          onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(channel.id)}
+        />
+      ))}
       <button type="button" data-testid="sidebar-select-server" onClick={() => (props.onSelectServer as (() => void) | undefined)?.()} />
     </>
   ));
@@ -68,10 +78,26 @@ function renderConnectedApp() {
 function renderPaintReadyApp() {
   return renderApp({
     joinedChannelId: '1',
-    channels: [{ id: 1, name: 'General' }],
+    channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Gaming' }],
     users: [{ session: 7, name: 'Me', self: true, channelId: 1 }],
     matrixRoomMap: { '1': '!general:example.com' },
   });
+}
+
+async function renderAppWithActivePaint() {
+  const view = renderPaintReadyApp();
+  await waitFor(() => {
+    expect(mockValues.channelChatPanelProps?.onOpenPaint).toEqual(expect.any(Function));
+  });
+  act(() => {
+    (mockValues.channelChatPanelProps?.onOpenPaint as (sessionId: string) => void)(
+      'active-paint-session',
+    );
+  });
+  await waitFor(() => {
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+  return view;
 }
 
 const sharedImage: MediaAttachment = {
@@ -80,6 +106,18 @@ const sharedImage: MediaAttachment = {
   filename: 'shared.png',
   mimetype: 'image/png',
 };
+
+/**
+ * The label of the currently selected CONVERSATION tab. Scoped to the conversation
+ * tablist on purpose: the main panel's activity selector (screen share / paint) is
+ * also a `role="tab"` list, so an unscoped query picks up the activity chip instead.
+ */
+function activeTabLabel(): string {
+  const strip = screen.getByRole('tablist', { name: 'Conversations' });
+  const tab = within(strip).getAllByRole('tab').find(candidate => candidate.getAttribute('aria-selected') === 'true');
+  if (!tab) throw new Error('no active conversation tab');
+  return within(tab).getByTestId('conversation-tab-label').textContent ?? '';
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -173,6 +211,94 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByRole('dialog', {
       name: 'Start collaborative paint',
     })).not.toBeInTheDocument();
+  });
+
+  // Browsing in the tab model opens/activates a conversation TAB. Each of these first
+  // asserts the browse actually happened (the active tab moved off the joined channel),
+  // so the paint assertion cannot pass vacuously.
+  it('keeps active paint open when browsing another channel chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-channel-2').click());
+    await waitFor(() => expect(activeTabLabel()).toBe('Gaming'));
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing server chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-server').click());
+    await waitFor(() => expect(activeTabLabel()).not.toBe('General'));
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing a direct message', async () => {
+    mockValues.dmStore.selectedContact = {
+      id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0,
+    };
+    await renderAppWithActivePaint();
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)(
+        '@val:example.com',
+      );
+    });
+    await waitFor(() => expect(mockValues.dmChatPanelProps).toBeDefined());
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('closes active paint after an actual voice-channel move', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 2, name: 'Gaming',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after moving to the root voice channel', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 0, name: 'Root',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after Leave Voice is confirmed', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.leftVoiceChanged', { leftVoice: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after voice disconnects', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.disconnected', { reconnectAvailable: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('keeps active paint open while connected self voice membership is temporarily unknown', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.connected', {
+          username: 'Me',
+          channelId: 1,
+          channels: [
+            { id: 1, name: 'General' },
+            { id: 2, name: 'Gaming' },
+          ],
+          users: [],
+        });
+    });
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
   });
 
   it('does nothing when the user chooses No', async () => {

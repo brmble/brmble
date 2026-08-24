@@ -158,9 +158,10 @@ function processMessageContent(
   return mentionified;
 }
 
-export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, currentUserId: _currentUserId, users: _users, paintSessionStatuses, onJoinPaint, onOpenPaint, ...rest }, ref) {
-  void _currentUserId;
-  void _users;
+export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & React.HTMLAttributes<HTMLDivElement>>(function MessageBubble({ sender, content, timestamp, isOwnMessage, isSystem, html, media, matrixClient, collapsed, searchQuery, isActiveMatch, messageIndex, senderAvatarUrl, senderMatrixUserId, currentUsername, knownUsernames, messageId, pending, error, mumbleDelivery, replyToEventId, replyToSender, replyToContent, isReplyTargetHighlighted, onReplyClick, onDismiss, onOpenContextMenu, className, reactions, redacted, currentUserMatrixId, onToggleReaction, edited, gameType, currentUserId, users, paintSessionStatuses, onJoinPaint, onOpenPaint, ...rest }, ref) {
+  const currentVoiceChannelId = users?.find(
+    user => user.session === currentUserId,
+  )?.channelId;
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const formatTime = (date: Date) => {
@@ -263,7 +264,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
           )
         )}
         {content && (
-          paintInvitation ? <PaintSessionCard session={paintInvitation} liveStatus={paintSessionStatuses?.[paintInvitation.sessionId]} onJoin={async sessionId => { await onJoinPaint?.(sessionId); }} onOpen={sessionId => onOpenPaint?.(sessionId)} /> :
+          paintInvitation ? <PaintSessionCard session={paintInvitation} liveStatus={paintSessionStatuses?.[paintInvitation.sessionId]} currentVoiceChannelId={currentVoiceChannelId} onJoin={async sessionId => { await onJoinPaint?.(sessionId); }} onOpen={sessionId => onOpenPaint?.(sessionId)} /> :
           html ? (
             <div className="message-text" dangerouslySetInnerHTML={{ __html: searchQuery ? highlightHtml(content, searchQuery) : content }} />
           ) : (

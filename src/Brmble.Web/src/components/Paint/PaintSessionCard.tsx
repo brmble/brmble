@@ -6,12 +6,8 @@ import './PaintSessionCard.css';
 export interface PaintInvitation {
   version?: 2;
   sessionId: string;
-  hostUserId?: number;
-  participantUserIds?: number[];
   channelId: number;
   status: 'active' | 'ended' | 'expired' | 'unavailable';
-  sourceEventId?: string;
-  sourcePreview?: string;
 }
 
 export function PaintSessionCard({
@@ -20,12 +16,14 @@ export function PaintSessionCard({
   onOpen,
   getSummary = paintApi.getSummary,
   liveStatus,
+  currentVoiceChannelId,
 }: {
   session: PaintInvitation;
   onJoin: (sessionId: string) => Promise<void> | void;
   onOpen: (sessionId: string) => void;
   getSummary?: (sessionId: string) => Promise<PaintSessionSummary>;
   liveStatus?: PaintSessionStatus;
+  currentVoiceChannelId?: number;
 }) {
   const [summary, setSummary] = useState<PaintSessionSummary | null>(null);
   const [status, setStatus] = useState<PaintSessionStatus | null>(null);
@@ -54,14 +52,15 @@ export function PaintSessionCard({
         setStatus('unavailable');
       });
     return () => { disposed = true; };
-  }, [getSummary, session.sessionId]);
+  }, [currentVoiceChannelId, getSummary, session.sessionId]);
 
   const handleJoin = async () => {
     setJoining(true);
     setError(null);
     try {
       await onJoin(session.sessionId);
-      await refresh();
+      onOpen(session.sessionId);
+      void refresh().catch(() => {});
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to join paint.');
     } finally {
