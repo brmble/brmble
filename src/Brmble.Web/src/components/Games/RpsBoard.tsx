@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../Icon/Icon';
-import type { IconName } from '../Icon/Icon';
 import type { RpsView, EndedMatch, GameView } from './useGameState';
 import { isRpsView } from './useGameState';
 import { HeadToHead } from './HeadToHead';
+import { PICKS, REVEAL_SECONDS, pickLabel } from './rpsShared';
 import styles from './RpsBoard.module.css';
 
 interface RpsBoardProps {
@@ -19,21 +19,6 @@ interface RpsBoardProps {
   onClose: () => void;
   onRematch?: () => void;
   rematchPending?: boolean;
-}
-
-/** The three RPS choices, in canonical order (matches the server engine). */
-const PICKS: { id: string; label: string; icon: IconName }[] = [
-  { id: 'rock', label: 'Rock', icon: 'rps-rock' },
-  { id: 'paper', label: 'Paper', icon: 'rps-paper' },
-  { id: 'scissors', label: 'Scissors', icon: 'rps-scissors' },
-];
-
-/** Seconds of anticipation shown before a resolved round is revealed. */
-const REVEAL_SECONDS = 3;
-
-function pickLabel(pick: string): string {
-  if (pick === 'none') return 'None';
-  return pick.charAt(0).toUpperCase() + pick.slice(1);
 }
 
 export function RpsBoard({
