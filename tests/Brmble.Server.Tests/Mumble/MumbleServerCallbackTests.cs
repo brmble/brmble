@@ -764,9 +764,11 @@ public class MumbleServerCallbackTests
     [TestMethod]
     public async Task DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate()
     {
-        // Spectator authorization is same-channel, so the drop has to be decided while the
-        // OLD membership is still readable. Updating membership first would make the move
-        // invisible to the lifecycle and strand the subscription.
+        // Pins the spec-mandated order. It does NOT pin a correctness property: the lifecycle
+        // never reads membership — this test's own mock is proof — so inverting the order
+        // would still drop the subscription, and would in fact close a race. See the
+        // authoritative note at the call site in MumbleServerCallback.DispatchUserStateChanged
+        // before changing either the order or this test.
         var order = new List<string>();
         var spectators = new Mock<ISpectatorLifecycle>();
         spectators.Setup(x => x.HandleChannelChangedAsync(It.IsAny<long>(), It.IsAny<int>()))

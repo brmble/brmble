@@ -180,10 +180,15 @@ public sealed class SpectatorService(
     // ---------- ISpectatorLifecycle ----------
 
     /// <summary>
-    /// Called BEFORE channel membership is updated, so the old channel is still
-    /// readable. Authorization was always same-channel, so leaving the channel you
-    /// are spectating ends the subscription. Moving back into the same channel is a
+    /// Ends the subscription when a session leaves the channel it is watching, because
+    /// authorization was always same-channel. Moving back into the same channel is a
     /// no-op — a redundant user-state dispatch must not kill a live subscription.
+    ///
+    /// Decided entirely from <c>_sessionChannel</c> and <paramref name="newChannelId"/>;
+    /// this reads no membership service, so it does NOT require being called before
+    /// membership is updated. It is called before it anyway, and that ordering has a cost.
+    /// See the authoritative note at the call site in
+    /// <c>MumbleServerCallback.DispatchUserStateChanged</c>.
     /// </summary>
     public async Task HandleChannelChangedAsync(long sessionId, int newChannelId)
     {

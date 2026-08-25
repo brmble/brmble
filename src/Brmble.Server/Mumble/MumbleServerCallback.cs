@@ -244,17 +244,30 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 "channel change",
                 user.SessionId);
 
+        // AUTHORITATIVE NOTE on this ordering. Two other comments point here rather than
+        // restating it: the XML doc on SpectatorService.HandleChannelChangedAsync, and
+        // DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate.
+        //
         // Ordered before the membership update because a redundant user-state dispatch — the
         // same channel reported twice — must not kill a live subscription, and the lifecycle
         // decides that by comparing channelId against its OWN subscription table.
         //
         // It does NOT read IChannelMembershipService, so this ordering is not what makes the
-        // drop correct; inverting it would still drop the subscription. It is mandated by the
-        // spectating spec and pinned by a test, so leave it. One known cost: between here and
-        // Update, a concurrent SubscribeAsync for the OLD channel still sees the old
-        // membership via IGamePresence, passes the same-channel gate, and re-subscribes a
-        // session that has already left. That needs a user racing a subscribe against their
-        // own channel move, and it self-heals on the next move or disconnect.
+        // drop correct; inverting it would still drop the subscription. Inverting would in
+        // fact be STRICTLY BETTER for one race, so this order is the worse of the two rather
+        // than a neutral choice: as it stands, between here and Update a concurrent
+        // SubscribeAsync for the OLD channel still sees the old membership via IGamePresence,
+        // passes the same-channel gate, and re-subscribes a session that has already left.
+        // With Update first, that subscribe fails NotSameChannel, and a subscribe for the NEW
+        // channel writes _sessionChannel[session] = newChannelId so this call then sees
+        // subscribed == newChannelId and correctly does nothing.
+        //
+        // The order is nevertheless mandated by the spectating spec and pinned by a test, so
+        // leave it. The robust fix therefore does NOT belong here: SubscribeAsync reads
+        // presence.TryGetChannel OUTSIDE _gate and never revalidates after acquiring it, so
+        // moving or repeating that check under the gate closes the race for every caller
+        // rather than only for this one. The race needs a user to race a subscribe against
+        // their own channel move, and it self-heals on the next move or disconnect.
         await TryNotifySpectatorsAsync(
             () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
             "channel change", user.SessionId);
