@@ -58,11 +58,46 @@ public class SpectatorWireTests
     }
 
     [DataTestMethod]
+    [DataRow(nameof(SpectatorSubscribeReason.None), "none")]
     [DataRow(nameof(SpectatorSubscribeReason.NotPresent), "notPresent")]
     [DataRow(nameof(SpectatorSubscribeReason.NotSameChannel), "notSameChannel")]
     public void SubscribeReason_MapsToStructuredCode(string member, string expected)
     {
         var value = Enum.Parse<SpectatorSubscribeReason>(member);
         Assert.AreEqual(expected, SpectatorWire.Reason(value));
+    }
+
+    [DataTestMethod]
+    [DataRow(nameof(MatchEndReason.Completed), "completed")]
+    [DataRow(nameof(MatchEndReason.Forfeited), "forfeited")]
+    public void MatchEndReason_MapsToStructuredCode(string member, string expected)
+    {
+        var value = Enum.Parse<MatchEndReason>(member);
+        Assert.AreEqual(expected, SpectatorWire.Reason(value));
+    }
+
+    [DataTestMethod]
+    [DataRow(nameof(SpectatorCloseReason.Unsubscribed), "unsubscribed")]
+    [DataRow(nameof(SpectatorCloseReason.AuthorizationLost), "authorizationLost")]
+    [DataRow(nameof(SpectatorCloseReason.Disconnected), "disconnected")]
+    [DataRow(nameof(SpectatorCloseReason.ChannelRemoved), "channelRemoved")]
+    public void CloseReason_MapsToStructuredCode(string member, string expected)
+    {
+        var value = Enum.Parse<SpectatorCloseReason>(member);
+        Assert.AreEqual(expected, SpectatorWire.Reason(value));
+    }
+
+    [TestMethod]
+    public void EveryEnumMemberHasAPinnedWireString()
+    {
+        CollectionAssert.AreEquivalent(
+            Enum.GetNames<SpectatorSubscribeReason>(),
+            new[] { "None", "NotPresent", "NotSameChannel" });
+        CollectionAssert.AreEquivalent(
+            Enum.GetNames<MatchEndReason>(),
+            new[] { "Completed", "Forfeited" });
+        CollectionAssert.AreEquivalent(
+            Enum.GetNames<SpectatorCloseReason>(),
+            new[] { "Unsubscribed", "AuthorizationLost", "Disconnected", "ChannelRemoved" });
     }
 }

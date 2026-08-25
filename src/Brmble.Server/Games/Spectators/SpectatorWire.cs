@@ -13,6 +13,10 @@ public sealed record SpectatorSnapshotEvent(
     IReadOnlyList<DuelPlayerSnapshot> Players,
     long Sequence,
     DateTimeOffset GeneratedAt,
+    // The `object` declaration is deliberate and load-bearing. System.Text.Json serialises
+    // an `object` member by its RUNTIME type; narrowing this to any base type or marker
+    // interface makes it serialise by the DECLARED type instead, silently truncating the
+    // view on the wire with no warning and no exception.
     object View);
 
 public sealed record SpectatorMatchEndedEvent(
@@ -22,6 +26,9 @@ public sealed record SpectatorMatchEndedEvent(
     int ChannelId,
     string Reason,
     long FinalSequence,
+    // The `object` declaration is deliberate and load-bearing — see the note on
+    // SpectatorSnapshotEvent.View. Narrowing this to a base type carrying only the winner
+    // would silently drop the rest of the outcome while the existing tests stayed green.
     object Outcome);
 
 public sealed record SpectatorClosedEvent(

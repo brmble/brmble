@@ -50,6 +50,8 @@ public sealed record SpectatorSnapshot(
     IReadOnlyList<DuelPlayerSnapshot> Players,
     long Sequence,
     DateTimeOffset GeneratedAt,
+    // Carried as-is into SpectatorSnapshotEvent.View, whose `object` declaration is
+    // load-bearing for serialisation — see the note there before changing this type.
     object View);
 
 /// <summary>
