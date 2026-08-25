@@ -49,6 +49,7 @@ import { MainPanel } from './components/MainPanel/MainPanel';
 import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
 import { ScreenShareGrid } from './components/ScreenShareGrid';
 import { selectStage, type ChannelActivityKind } from './workspace/channelActivity';
+import { assertNever } from './utils/assertNever';
 import { selectMainPanelMode } from './workspace/mainPanelMode';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
@@ -943,6 +944,13 @@ function duelCommandErrorDetail(error: { reason?: string; message?: string }): s
     ?? error.message
     ?? 'The server rejected the request. Try again.';
 }
+
+// A total Record, not a ternary. Adding a ChannelActivityKind without a label is
+// now a compile error rather than a chip silently rendering as "Paint".
+const ACTIVITY_LABELS: Record<ChannelActivityKind, string> = {
+  'screen-share': 'Screen share',
+  paint: 'Paint',
+};
 
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
@@ -5113,6 +5121,42 @@ const handleConnect = (serverData: SavedServer) => {
         : {}),
     };
 
+  const renderStage = (staged: ChannelActivityKind | null) => {
+    // A switch with assertNever, not a ternary chain: a new activity kind must not
+    // be able to fall through to `null` and render an empty stage.
+    switch (staged) {
+      case null:
+        return null;
+      case 'screen-share':
+        return (
+          <ScreenShareGrid
+            watchingShares={watchingShares}
+            focusedShare={focusedShare}
+            videoElements={remoteVideoEls}
+            roomQuality={roomQuality}
+            shareQualities={shareQualities}
+            viewerQualities={viewerQualities}
+            onFocus={setFocusedShare}
+            onClose={handleCloseWatchedShare}
+            onViewerQualityChange={setViewerQuality}
+          />
+        );
+      case 'paint':
+        return activePaintSessionId ? (
+          <PaintSessionView
+            key={activePaintSessionId}
+            sessionId={activePaintSessionId}
+            matrixClient={matrixClient.client}
+            channelRoomMap={matrixCredentials?.roomMap}
+            currentVoiceChannelId={paintVoiceChannelId}
+            onClose={handleClosePaint}
+          />
+        ) : null;
+      default:
+        return assertNever(staged);
+    }
+  };
+
   const activityRegion = joinedChannelId !== null
     && joinedChannelId !== SERVER_ROOT_CHANNEL_ID
     && availableActivities.length > 0
@@ -5122,33 +5166,12 @@ const handleConnect = (serverData: SavedServer) => {
           channelName={joinedChannelName}
           activities={availableActivities.map(kind => ({
             kind,
-            label: kind === 'screen-share' ? 'Screen share' : 'Paint',
+            label: ACTIVITY_LABELS[kind],
           }))}
           stage={stage}
           onSelect={setExplicitActivity}
         >
-          {stage === 'screen-share' ? (
-            <ScreenShareGrid
-              watchingShares={watchingShares}
-              focusedShare={focusedShare}
-              videoElements={remoteVideoEls}
-              roomQuality={roomQuality}
-              shareQualities={shareQualities}
-              viewerQualities={viewerQualities}
-              onFocus={setFocusedShare}
-              onClose={handleCloseWatchedShare}
-              onViewerQualityChange={setViewerQuality}
-            />
-          ) : stage === 'paint' && activePaintSessionId ? (
-            <PaintSessionView
-              key={activePaintSessionId}
-              sessionId={activePaintSessionId}
-              matrixClient={matrixClient.client}
-              channelRoomMap={matrixCredentials?.roomMap}
-              currentVoiceChannelId={paintVoiceChannelId}
-              onClose={handleClosePaint}
-            />
-          ) : null}
+          {renderStage(stage)}
         </ChannelActivityRegion>
       </ErrorBoundary>
     )
