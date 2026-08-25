@@ -376,6 +376,43 @@ interface BridgeResponse {
 const BRIDGE_REQUEST_TIMEOUT_MS = 15000;
 
 /**
+ * Builds the rejection for a failed `games.response`.
+ *
+ * The client's `ParseHttpResponse` sets `error` to `"Server returned {status}: {body}"`
+ * for any non-2xx, so rejecting on `error` alone surfaces a raw JSON blob to the user
+ * in the WebView2 build. It also leaves `body` intact, which is the only place the
+ * clean human sentence and the machine-readable `reason` survive. So prefer the body:
+ * when it parses to an object with a string `error`, produce a {@link GameApiError}
+ * identical to what the `fetch` path would have thrown for the same response — same
+ * class, same `message`, same `reason`.
+ *
+ * Falls back to the previous behaviour for everything else: non-JSON bodies, absent
+ * bodies, and the transport-level failures (`"Not connected"`, `"No client
+ * certificate"`) that never reach HTTP and so carry no body at all.
+ */
+function toBridgeError(response: BridgeResponse): Error {
+  const fallback =
+    response.error ||
+    (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.');
+
+  if (response.body) {
+    try {
+      const parsed = JSON.parse(response.body) as { error?: unknown; reason?: unknown };
+      if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string' && parsed.error) {
+        return new GameApiError(
+          parsed.error,
+          typeof parsed.reason === 'string' ? parsed.reason : undefined,
+        );
+      }
+    } catch {
+      // Non-JSON error body — fall through to the transport error.
+    }
+  }
+
+  return new Error(fallback);
+}
+
+/**
  * Sends a `games.request` over the bridge and resolves the parsed `games.response`
  * body correlated by `requestId`. Guards against the two ways this pattern can hang
  * forever: a client that never replies (timeout) and a malformed body that throws
@@ -408,12 +445,7 @@ function bridgeRequest<T>(
         return;
       }
 
-      reject(
-        new Error(
-          response.error ||
-            (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.'),
-        ),
-      );
+      reject(toBridgeError(response));
     };
 
     bridge.on('games.response', handleResponse);
@@ -511,9 +543,9 @@ export async function getHeadToHead(opponentSession: number): Promise<HeadToHead
  * tunnel rather than the fire-and-forget POST path because it returns a body.
  *
  * Rejects with a {@link GameApiError} carrying the server's `reason`
- * (`notPresent` | `notSameChannel`) on the fetch path. The bridge path rejects
- * with a plain Error whose message is the server's human-readable text, because
- * the shared `games.response` envelope does not carry the reason code.
+ * (`notPresent` | `notSameChannel`) on BOTH transports: the fetch path via
+ * `toGameApiError`, the bridge path via `toBridgeError`. Same class, same
+ * `message`, same `reason` either way.
  */
 export async function subscribeSpectator(channelId: number): Promise<SpectatorSubscribeResponse> {
   if (isWebViewBridgeAvailable()) {

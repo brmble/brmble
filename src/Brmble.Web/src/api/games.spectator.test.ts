@@ -42,6 +42,49 @@ describe('spectator api', () => {
         action: 'spectate-unsubscribe',
       }));
     });
+
+    /**
+     * The bridge failure envelope carries BOTH a raw `error` string built by
+     * MumbleAdapter.ParseHttpResponse (`Server returned 400: {json}`) and the
+     * untouched `body`. Rejecting on `error` would surface a raw JSON blob to the
+     * user in the WebView2 build; the body is the only source of the clean
+     * sentence and the machine-readable reason.
+     */
+    it('rejects a structured bridge failure with the human message and reason, not the raw blob', async () => {
+      const errorBody = JSON.stringify({
+        error: 'You must be in the channel to watch it.',
+        reason: 'notSameChannel',
+      });
+      vi.spyOn(bridge, 'send').mockImplementation((type, data) => {
+        if (type !== 'games.request') return;
+        const { requestId } = data as { requestId: number };
+        queueMicrotask(() => bridge._handlers.get('games.response')?.forEach(h => h({
+          requestId,
+          success: false,
+          statusCode: 400,
+          body: errorBody,
+          error: `Server returned 400: ${errorBody}`,
+        })));
+      });
+
+      await expect(subscribeSpectator(7)).rejects.toMatchObject({
+        message: 'You must be in the channel to watch it.',
+        reason: 'notSameChannel',
+      });
+    });
+
+    /** Non-JSON bodies and null bodies must keep the pre-existing fallback. */
+    it('falls back to the transport error when the failure body is not structured', async () => {
+      vi.spyOn(bridge, 'send').mockImplementation((type, data) => {
+        if (type !== 'games.request') return;
+        const { requestId } = data as { requestId: number };
+        queueMicrotask(() => bridge._handlers.get('games.response')?.forEach(h => h({
+          requestId, success: false, statusCode: 0, body: null, error: 'No client certificate',
+        })));
+      });
+
+      await expect(subscribeSpectator(7)).rejects.toThrow('No client certificate');
+    });
   });
 
   describe('over fetch', () => {
