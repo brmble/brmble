@@ -177,12 +177,80 @@ public sealed class SpectatorService(
         long sessionId, long userId, long matchId, SpectatorRole role)
         => Task.FromResult(new SpectatorAuthorizationResult(false, role, SpectatorSubscribeReason.NotPresent));
 
-    // ---------- ISpectatorLifecycle (bodies land in Task 4) ----------
+    // ---------- ISpectatorLifecycle ----------
 
-    public Task HandleChannelChangedAsync(long sessionId, int newChannelId) => throw new NotImplementedException();
-    public Task HandlePresenceLostAsync(long sessionId, SpectatorCloseReason reason) => throw new NotImplementedException();
-    public Task HandleChannelRemovedAsync(int channelId) => throw new NotImplementedException();
-    public Task HandleTransportDisconnectedAsync(long userId) => throw new NotImplementedException();
+    /// <summary>
+    /// Called BEFORE channel membership is updated, so the old channel is still
+    /// readable. Authorization was always same-channel, so leaving the channel you
+    /// are spectating ends the subscription. Moving back into the same channel is a
+    /// no-op — a redundant user-state dispatch must not kill a live subscription.
+    /// </summary>
+    public async Task HandleChannelChangedAsync(long sessionId, int newChannelId)
+    {
+        int? subscribed;
+        await _gate.WaitAsync();
+        try { subscribed = _sessionChannel.TryGetValue(sessionId, out var c) ? c : null; }
+        finally { _gate.Release(); }
+
+        // CloseSessionAsync takes _gate itself, so it must be called with the gate
+        // released: SemaphoreSlim is non-reentrant and would deadlock, not misbehave.
+        if (subscribed is null || subscribed == newChannelId) return;
+        await CloseSessionAsync(sessionId, SpectatorCloseReason.AuthorizationLost);
+    }
+
+    public Task HandlePresenceLostAsync(long sessionId, SpectatorCloseReason reason)
+        => CloseSessionAsync(sessionId, reason);
+
+    public async Task HandleChannelRemovedAsync(int channelId)
+    {
+        List<long> droppedUsers = [];
+        await _gate.WaitAsync();
+        try
+        {
+            // The entry is detached from _channels first, so iterating its subscribers
+            // while mutating _sessionChannel touches two independent collections.
+            if (_channels.Remove(channelId, out var entry))
+            {
+                foreach (var (sessionId, userId) in entry.Subscribers)
+                {
+                    _sessionChannel.Remove(sessionId);
+                    droppedUsers.Add(userId);
+                }
+            }
+        }
+        finally { _gate.Release(); }
+
+        if (droppedUsers.Count == 0) return;
+        await publisher.PublishToUsersAsync(
+            droppedUsers.ToHashSet(),
+            SpectatorWire.ToClosedEvent(channelId, SpectatorCloseReason.ChannelRemoved));
+    }
+
+    /// <summary>
+    /// Called when a user's FINAL application WebSocket closes. Keyed by user, not
+    /// session: one user may hold several Mumble sessions, and every one of them
+    /// loses its subscription. Reconnecting requires an explicit fresh subscribe;
+    /// nothing is restored implicitly.
+    /// </summary>
+    public async Task HandleTransportDisconnectedAsync(long userId)
+    {
+        List<long> sessions;
+        await _gate.WaitAsync();
+        try
+        {
+            // Materialised under the gate. CloseSessionAsync mutates _channels, so the
+            // loop below must iterate this snapshot, never the live collections.
+            sessions = _channels.Values
+                .SelectMany(e => e.Subscribers)
+                .Where(kvp => kvp.Value == userId)
+                .Select(kvp => kvp.Key)
+                .ToList();
+        }
+        finally { _gate.Release(); }
+
+        foreach (var sessionId in sessions)
+            await CloseSessionAsync(sessionId, SpectatorCloseReason.Disconnected);
+    }
 
     // ---------- helpers (all callers hold _gate) ----------
 

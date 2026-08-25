@@ -284,4 +284,88 @@ public class SpectatorServiceTests
 
         Assert.AreEqual(1, Snapshots().Count);
     }
+
+    [TestMethod]
+    public async Task ChannelChange_DropsTheSubscriptionAndReportsAuthorizationLost()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandleChannelChangedAsync(30, 8);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(0, Snapshots().Count);
+        var closed = _publisher.OfType<SpectatorClosedEvent>().Single();
+        Assert.AreEqual("authorizationLost", closed.Message.Reason);
+        Assert.AreEqual(7, closed.Message.ChannelId, "The close names the channel that was left.");
+        CollectionAssert.AreEquivalent(new[] { 300L }, closed.Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task ChannelChange_BackToTheSameChannel_KeepsTheSubscription()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandleChannelChangedAsync(30, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(1, Snapshots().Count);
+        Assert.AreEqual(0, _publisher.OfType<SpectatorClosedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task PresenceLost_DropsTheSubscriptionAndReportsDisconnected()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(0, Snapshots().Count);
+        Assert.AreEqual("disconnected", _publisher.OfType<SpectatorClosedEvent>().Single().Message.Reason);
+    }
+
+    [TestMethod]
+    public async Task ChannelRemoved_DropsEverySubscriberInThatChannelOnly()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(40, 400, 7);
+        await _service.SubscribeAsync(50, 500, 8);
+
+        await _service.HandleChannelRemovedAsync(7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1, channelId: 8));
+
+        Assert.AreEqual(1, Snapshots().Count, "Only the channel-8 subscriber still receives frames.");
+        CollectionAssert.AreEquivalent(new[] { 500L }, Snapshots().Single().Users.ToArray());
+
+        // The brief's draft asserted two closed events, which contradicted its own
+        // implementation and the "one close event naming that channel" rule. Channel
+        // removal is a single fan-out to every dropped subscriber, not one send each.
+        var closed = _publisher.OfType<SpectatorClosedEvent>().Single();
+        Assert.AreEqual("channelRemoved", closed.Message.Reason);
+        Assert.AreEqual(7, closed.Message.ChannelId);
+        CollectionAssert.AreEquivalent(new[] { 300L, 400L }, closed.Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task TransportDisconnected_DropsEverySessionOfThatUser()
+    {
+        Place(session: 31, user: 300, channel: 7); // same user, second Mumble session
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(31, 300, 7);
+        await _service.SubscribeAsync(40, 400, 7);
+
+        await _service.HandleTransportDisconnectedAsync(300);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        CollectionAssert.AreEquivalent(new[] { 400L }, Snapshots().Single().Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task Teardown_OfAnUnsubscribedSession_IsSilent()
+    {
+        await _service.HandleChannelChangedAsync(30, 8);
+        await _service.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected);
+        await _service.HandleTransportDisconnectedAsync(300);
+        await _service.HandleChannelRemovedAsync(7);
+
+        Assert.AreEqual(0, _publisher.ToUsers.Count);
+    }
 }
