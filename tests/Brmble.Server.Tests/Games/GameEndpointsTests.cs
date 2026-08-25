@@ -423,6 +423,44 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
+    public async Task SpectatorSubscribe_CoordinatorReportsNotPresent_RejectsWithNotPresent()
+    {
+        // Reachable when the session mapping exists but presence disagrees, so this is
+        // the coordinator's own NotPresent, not the endpoint's pre-check.
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(false, null, SpectatorSubscribeReason.NotPresent));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notPresent", doc.RootElement.GetProperty("reason").GetString());
+        spectators.Verify(x => x.SubscribeAsync(55, It.IsAny<long>(), 7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_WithNoLiveSession_SucceedsWithoutCoordinatorCall()
+    {
+        // Deliberately asymmetric with subscribe's 400 notPresent: unsubscribing when
+        // you are already gone is not a failure.
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsTrue(doc.RootElement.GetProperty("unsubscribed").GetBoolean());
+        spectators.Verify(x => x.UnsubscribeAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task SpectatorUnsubscribe_Unauthenticated_Returns401()
     {
         var spectators = new Mock<ISpectatorCoordinator>();
