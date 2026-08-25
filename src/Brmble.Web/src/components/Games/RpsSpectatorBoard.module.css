@@ -1,0 +1,101 @@
+/*
+ * Read-only RPS spectator board.
+ *
+ * Layout rules for .players, .player, .playerName, .playerScore, .lastRound,
+ * .lastRoundLabel, .result and .resultText are copied from RpsBoard.module.css
+ * with their token references verbatim. Every pick-button, countdown, reveal,
+ * footer and head-to-head rule is deliberately absent: a spectator has nothing to
+ * click, no clock and no reveal suspense. .commit styles the per-player
+ * "Thrown" / "Choosing…" state — never a throw.
+ */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.players {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.player {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.playerName {
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.playerScore {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--accent-primary);
+}
+
+.commit {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.format {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.lastRound {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.lastRoundLabel {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.lastRoundText {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.result {
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.resultText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
