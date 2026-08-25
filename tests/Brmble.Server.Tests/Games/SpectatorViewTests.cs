@@ -184,17 +184,27 @@ public class SpectatorViewTests
     }
 
     /*
-     * The fatal TIMEOUT branch, which is the only path where the penalty method itself
-     * authors `LastRoll` — and the only one where `LastRollBy` names a player who never
-     * made that roll. Player 20 is credited with a 1 it did not throw; the engine
+     * The fatal TIMEOUT branch: the only path where the penalty method itself authors
+     * `LastRoll`. Player 20 is credited with a 1 it did not throw; the engine
      * synthesises it so the board can show the losing value. That is intended, and this
      * test is the record of it.
      *
      * FixedRandom clamps to the ceiling, so `FixedRandom(2)` drives ceiling 100 -> 2 on
      * player 10's roll; the penalty then computes floor(2 * 0.8) = 1 and turns fatal.
      *
-     * A fatal timeout with NO prior roll is unreachable: the ceiling starts at 100 and
-     * the first penalty can only take it to 80, so at least one roll must land first.
+     * A fatal timeout with NO prior roll by EITHER player is also reachable, and is not
+     * exotic: penalties COMPOUND. `ApplyTimeoutPenalty` reassigns `s.Ceiling = reduced`
+     * on the non-fatal path and never touches `CurrentIndex`, while GameSessionManager
+     * restarts the timer with the 5s `PenaltyTimeout` after each one — so a player AFK
+     * from the opening turn is penalised over and over against a shrinking ceiling:
+     * 100 -> 80 -> 64 -> 51 -> 40 -> 32 -> 25 -> 20 -> 16 -> 12 -> 9 -> 7 -> 5 -> 4 ->
+     * 3 -> 2, then floor(2 * 0.8) = 1 and fatal. That is one 15s turn window plus
+     * fifteen 5s penalty windows — roughly 90 seconds of "queued, then walked away".
+     *
+     * It gets no separate test deliberately, because it exercises no new branch: the
+     * fatal path sets `LoserId`, and `LastRollBy` short-circuits on `s.LoserId ??`
+     * before ever consulting `CurrentIndex`, so the resulting view is identical to the
+     * one asserted below. Only the prior-roll history differs, and this view carries none.
      */
     [TestMethod]
     public void DeathrollSpectatorView_AttributesAFatalTimeoutToTheTimedOutPlayer()
