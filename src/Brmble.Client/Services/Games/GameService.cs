@@ -149,6 +149,29 @@ internal sealed class GameService : IService
                     SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
                     break;
                 }
+                case "spectate-subscribe":
+                {
+                    var channelId = data.TryGetProperty("channelId", out var chEl)
+                        && chEl.ValueKind == JsonValueKind.Number
+                        && chEl.TryGetInt32(out var parsedChannel)
+                        ? parsedChannel
+                        : (int?)null;
+                    if (channelId is null)
+                    {
+                        SendResponse(requestId, false, null, 0, "Missing channelId for spectate-subscribe request");
+                        return;
+                    }
+                    var body = JsonSerializer.Serialize(new { channelId });
+                    var result = await _postJsonAsync(cert, new Uri(baseUri, "games/spectators/subscribe"), body);
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
+                case "spectate-unsubscribe":
+                {
+                    var result = await _postJsonAsync(cert, new Uri(baseUri, "games/spectators/unsubscribe"), "{}");
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
                 default:
                     SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
                     break;

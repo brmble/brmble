@@ -120,6 +120,99 @@ export interface DuelQueueSnapshot {
   queue: QueuedDuel[];
 }
 
+/**
+ * What a non-participant may see of a live Deathroll match. Player ids here are
+ * Mumble SESSION ids (the engine's own state keys), NOT db user ids — resolve
+ * them against `SpectatorSnapshot.players[].sessionId`.
+ */
+export interface DeathrollSpectatorView {
+  kind: 'deathroll';
+  players: number[];
+  currentPlayer: number | null;
+  ceiling: number;
+  lastRoll: number | null;
+  finished: boolean;
+  loserId: number | null;
+}
+
+/** A resolved RPS round. Throws are public only once the round is over. */
+export interface RpsResolvedRound {
+  roundNumber: number;
+  sequence: number;
+  pick0: string;
+  pick1: string;
+  winnerId: number | null;
+  tie: boolean;
+}
+
+/**
+ * What a non-participant may see of a live RPS match. `committed` carries WHETHER
+ * each player has thrown, never WHAT. There is deliberately no `picks`, `myPick`
+ * or `opponentPicked`: resolved throws exist only inside `lastRound`.
+ * Player ids are Mumble SESSION ids.
+ */
+export interface RpsSpectatorView {
+  kind: 'rps';
+  players: number[];
+  bestOf: number;
+  targetWins: number;
+  roundNumber: number;
+  roundWins: number[];
+  committed: boolean[];
+  finished: boolean;
+  winnerId: number | null;
+  lastRound: RpsResolvedRound | null;
+}
+
+export type SpectatorView = DeathrollSpectatorView | RpsSpectatorView;
+
+export function isRpsSpectatorView(view: SpectatorView): view is RpsSpectatorView {
+  return view.kind === 'rps';
+}
+
+export interface SpectatorSnapshot {
+  schemaVersion: 1;
+  matchId: number;
+  channelId: number;
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  players: DuelPlayer[];
+  sequence: number;
+  generatedAt: string;
+  view: SpectatorView;
+}
+
+/** `match` is null when the channel is idle. That is a SUCCESSFUL subscription. */
+export interface SpectatorSubscribeResponse {
+  channelId: number;
+  match: SpectatorSnapshot | null;
+}
+
+export interface SpectatorMatchEndedEvent {
+  schemaVersion: 1;
+  matchId: number;
+  channelId: number;
+  reason: 'completed' | 'forfeited';
+  finalSequence: number;
+  outcome: { winnerId: number | null; loserId: number | null; draw: boolean };
+}
+
+export type SpectatorCloseReason =
+  | 'unsubscribed' | 'authorizationLost' | 'disconnected' | 'channelRemoved';
+
+/**
+ * NOTE: unlike `SpectatorSnapshot` and `SpectatorMatchEndedEvent`, the close event
+ * carries NO `schemaVersion` — that is deliberate in the server contract, not an
+ * oversight. Consequence for consumers: `game.spectatorClosed` cannot be
+ * version-gated the way the other two inbound events can. Guard it on the shape of
+ * `channelId`/`reason` instead, and never assume a `schemaVersion` field is present.
+ */
+export interface SpectatorClosedEvent {
+  channelId: number;
+  reason: SpectatorCloseReason;
+}
+
 function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
@@ -410,4 +503,45 @@ export async function getHeadToHead(opponentSession: number): Promise<HeadToHead
     throw await toGameApiError(response);
   }
   return response.json() as Promise<HeadToHeadStats>;
+}
+
+/**
+ * Subscribes to a CHANNEL, not a match: frames keep arriving match after match
+ * until you unsubscribe, move channel, or disconnect. Uses the games.request
+ * tunnel rather than the fire-and-forget POST path because it returns a body.
+ *
+ * Rejects with a {@link GameApiError} carrying the server's `reason`
+ * (`notPresent` | `notSameChannel`) on the fetch path. The bridge path rejects
+ * with a plain Error whose message is the server's human-readable text, because
+ * the shared `games.response` envelope does not carry the reason code.
+ */
+export async function subscribeSpectator(channelId: number): Promise<SpectatorSubscribeResponse> {
+  if (isWebViewBridgeAvailable()) {
+    return bridgeRequest<SpectatorSubscribeResponse>({ action: 'spectate-subscribe', channelId });
+  }
+
+  const response = await fetch('/games/spectators/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelId }),
+  });
+  if (!response.ok) {
+    throw await toGameApiError(response);
+  }
+  return response.json() as Promise<SpectatorSubscribeResponse>;
+}
+
+/** Stops the caller's spectator subscription. Idempotent server-side. */
+export async function unsubscribeSpectator(): Promise<void> {
+  if (isWebViewBridgeAvailable()) {
+    await bridgeRequest<{ unsubscribed: boolean }>({ action: 'spectate-unsubscribe' });
+    return;
+  }
+
+  const response = await fetch('/games/spectators/unsubscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  return unwrap(response);
 }
