@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
-import { DeathrollModal } from './components/Games/DeathrollModal';
+import { DeathrollBoard } from './components/Games/DeathrollBoard';
 import { RpsModal } from './components/Games/RpsModal';
 import type { EndedMatch, IncomingInvite } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
@@ -136,12 +136,12 @@ const common = {
 
 describe('participant result rematches', () => {
   it.each([
-    ['Deathroll', DeathrollModal],
+    ['Deathroll', DeathrollBoard],
     ['Rock Paper Scissors', RpsModal],
   ])('keeps the %s result open and requests a rematch', (_name, Modal) => {
     const onRematch = vi.fn();
-    if (Modal === DeathrollModal) {
-      render(<DeathrollModal {...common} ended={{ ...ended, gameType: 'deathroll' }} onRematch={onRematch} onRoll={vi.fn()} />);
+    if (Modal === DeathrollBoard) {
+      render(<DeathrollBoard {...common} ended={{ ...ended, gameType: 'deathroll' }} onRematch={onRematch} onRoll={vi.fn()} />);
     } else {
       render(<RpsModal {...common} onRematch={onRematch} onPick={vi.fn()} />);
     }

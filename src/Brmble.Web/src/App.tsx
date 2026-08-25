@@ -42,7 +42,7 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
-import { DeathrollModal } from './components/Games/DeathrollModal';
+import { DeathrollBoard } from './components/Games/DeathrollBoard';
 import { RpsModal } from './components/Games/RpsModal';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
@@ -5174,7 +5174,7 @@ const handleConnect = (serverData: SavedServer) => {
           rematchPending={rematchPending}
         />
       ) : (
-        <DeathrollModal
+        <DeathrollBoard
           view={gameState.view}
           ended={gameState.ended}
           myUserId={selfSession}
