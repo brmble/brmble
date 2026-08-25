@@ -198,6 +198,13 @@ export interface SpectatorMatchEndedEvent {
   outcome: { winnerId: number | null; loserId: number | null; draw: boolean };
 }
 
+/**
+ * The terminal outcome shape, derived from the wire event rather than restated.
+ * Spectator boards take this so a server-side field addition that lands in
+ * `SpectatorMatchEndedEvent` cannot silently stop there.
+ */
+export type SpectatorMatchOutcome = SpectatorMatchEndedEvent['outcome'];
+
 export type SpectatorCloseReason =
   | 'unsubscribed' | 'authorizationLost' | 'disconnected' | 'channelRemoved';
 

@@ -3,6 +3,7 @@ using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
 using Brmble.Server.Games.Spectators;
 using Dapper;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
 
@@ -575,6 +576,53 @@ public class GameSessionManagerTests
         Assert.AreEqual(started.MatchId, end.MatchId);
         Assert.AreEqual(MatchEndReason.Completed, end.Reason);
         Assert.AreEqual(spectators.Frames.Last().Sequence, end.FinalSequence);
+    }
+
+    [TestMethod]
+    public async Task Spectator_MatchEnd_ReachesSpectators_EvenWhenTheNextMatchStartsImmediately()
+    {
+        // Defends the ordering invariant in CompleteAsync/ForfeitAsync: EndSpectatorMatchAsync
+        // MUST run before RaiseMatchCompletedAsync. RaiseMatchCompletedAsync advances the duel
+        // queue, which starts the NEXT match in the SAME channel; that match's first frame moves
+        // SpectatorService's per-channel MatchId on, and the late terminal event for the previous
+        // match is then DROPPED with a warning — stranding every spectator on a board that never
+        // ends. Uses the real SpectatorService rather than RecordingSpectators, because the drop
+        // is the service's behaviour and a recording stub would happily accept the late end.
+        //
+        // The MatchCompleted handler below is what a real duel queue does; without it the second
+        // match could only be started after the first had fully returned, and the ordering would
+        // be unobservable.
+        var publisher = new SpectatorPublisher();
+        var presence = new SpectatorPresence();
+        presence.Channels[30] = 7; presence.Users[30] = 300; // watcher
+        presence.Channels[10] = 7; presence.Users[10] = 100; // players
+        presence.Channels[20] = 7; presence.Users[20] = 200;
+        var spectators = new SpectatorService(publisher, presence, NullLogger<SpectatorService>.Instance);
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), new ManagerSink(),
+            spectators: spectators);
+
+        await spectators.SubscribeAsync(sessionId: 30, userId: 300, channelId: 7);
+
+        var startedNext = 0;
+        manager.MatchCompleted += async _ =>
+        {
+            if (Interlocked.Exchange(ref startedNext, 1) == 0)
+                await manager.StartAsync(Reservation(9601));
+        };
+
+        var started = await manager.StartAsync(Reservation(9600));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        Assert.AreEqual(1, startedNext, "The follow-up match must actually have started.");
+        var ended = publisher.OfType<SpectatorMatchEndedEvent>().ToList();
+        Assert.AreEqual(1, ended.Count,
+            "Spectators must receive the terminal event for the first match even though the next match started.");
+        Assert.AreEqual(started.MatchId, ended[0].Message.MatchId);
     }
 
     [TestMethod]

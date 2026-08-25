@@ -1,11 +1,11 @@
-import type { DeathrollSpectatorView, DuelPlayer } from '../../api/games';
+import type { DeathrollSpectatorView, DuelPlayer, SpectatorMatchOutcome } from '../../api/games';
 import styles from './DeathrollSpectatorBoard.module.css';
 
 interface DeathrollSpectatorBoardProps {
   view: DeathrollSpectatorView;
   players: DuelPlayer[];
   /** Present once the match has ended. */
-  outcome: { winnerId: number | null; loserId: number | null; draw: boolean } | null;
+  outcome: SpectatorMatchOutcome | null;
 }
 
 /**

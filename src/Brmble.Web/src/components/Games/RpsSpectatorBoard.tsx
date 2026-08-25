@@ -1,11 +1,11 @@
-import type { DuelPlayer, RpsSpectatorView } from '../../api/games';
+import type { DuelPlayer, RpsSpectatorView, SpectatorMatchOutcome } from '../../api/games';
 import styles from './RpsSpectatorBoard.module.css';
 
 interface RpsSpectatorBoardProps {
   view: RpsSpectatorView;
   players: DuelPlayer[];
   /** Present once the match has ended. */
-  outcome: { winnerId: number | null; loserId: number | null; draw: boolean } | null;
+  outcome: SpectatorMatchOutcome | null;
 }
 
 /**

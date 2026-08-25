@@ -523,7 +523,11 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
-    public async Task Action_FromTheMatchParticipant_ReachesTheSessionManager()
+    // Asserts only that the endpoint's guard boundary lets the request through (200). The
+    // stubbed session is NOT one of the real match participants, so ActionAsync swallows an
+    // InvalidGameActionException — this does not, and cannot, assert that the action reached
+    // the session manager's engine.
+    public async Task Action_FromTheMatchParticipant_IsNotRejected()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
         var manager = NewManager();

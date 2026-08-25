@@ -263,11 +263,23 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         // subscribed == newChannelId and correctly does nothing.
         //
         // The order is nevertheless mandated by the spectating spec and pinned by a test, so
-        // leave it. The robust fix therefore does NOT belong here: SubscribeAsync reads
-        // presence.TryGetChannel OUTSIDE _gate and never revalidates after acquiring it, so
-        // moving or repeating that check under the gate closes the race for every caller
-        // rather than only for this one. The race needs a user to race a subscribe against
-        // their own channel move, and it self-heals on the next move or disconnect.
+        // leave it, and accept the race. Its consequence is a session subscribed to a channel
+        // it has already left — cross-channel spectating, an explicit non-goal — until that
+        // session's next channel move or disconnect drops the subscription.
+        //
+        // Moving SubscribeAsync's presence.TryGetChannel read under SpectatorService._gate
+        // is a NO-OP for this race. Do not implement it and believe the race closed.
+        // HandleChannelChangedAsync acquires and RELEASES _gate before returning, and only
+        // then does Update run, so a SubscribeAsync landing entirely in that window reads the
+        // old channel whether it reads inside the gate or outside it. The read is stale on
+        // both sides of the gate; the race is a function of the CALL-SITE ordering here, not
+        // of the lock scope. Only two things would actually close it:
+        //   (a) inverting the order below — Update first — which the spec forbids and
+        //       DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate pins; or
+        //   (b) having HandleChannelChangedAsync write _sessionChannel[sessionId] = newChannelId
+        //       under the gate as a tombstone instead of merely removing the entry, so a later
+        //       subscribe for the OLD channel is rejected against the service's own state
+        //       rather than against stale presence.
         await TryNotifySpectatorsAsync(
             () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
             "channel change", user.SessionId);
