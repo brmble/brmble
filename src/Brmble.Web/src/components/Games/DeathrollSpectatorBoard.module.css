@@ -1,0 +1,97 @@
+/*
+ * Read-only Deathroll spectator board.
+ *
+ * Layout rules for .players, .player, .playerActive, .playerName, .playerTurn,
+ * .stat, .statLabel, .statValue, .result and .resultText are copied from
+ * DeathrollBoard.module.css with their token references verbatim. The countdown,
+ * footer and head-to-head rules are deliberately absent: a spectator has no turn
+ * and no controls. The participant board's `.board` (the stats row) is `.stats`
+ * here, because `.board` is this component's own container.
+ */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  width: 100%;
+}
+
+.players {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.player {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.playerActive {
+  background: var(--bg-surface-active);
+  border-color: var(--accent-primary);
+}
+
+.playerName {
+  font-family: var(--font-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.playerTurn {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary);
+}
+
+.stats {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.statLabel {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+}
+
+.result {
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.resultText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
