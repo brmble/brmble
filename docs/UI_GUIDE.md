@@ -1557,3 +1557,4 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
 | `game-command-error` (App) | `error` | `top-right` | No | `Ready check failed` / `Rematch response failed` / `Rematch request failed` | Server `reason` for the rejected duel command |
+| `spectate-error` (App) | `error` | `top-right` | No | `Cannot watch this channel` | Why the server refused the spectator subscription |

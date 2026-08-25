@@ -55,6 +55,9 @@ import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
 import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
+import { useSpectatorState } from './components/Games/useSpectatorState';
+import { SpectatorActivity } from './components/Games/SpectatorActivity';
+import { GameApiError } from './api/games';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -1084,6 +1087,10 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
   const duelQueue = useDuelQueueState();
+  // Spectating is a CHANNEL mode the user opts into from DuelQueueModal. It is
+  // deliberately independent of `duelQueue`: the queue is broadcast to everyone,
+  // a spectator subscription is held per session by the server.
+  const spectator = useSpectatorState();
   // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
   // latest game actions without being in their dependency arrays.
   const gameStateRef = useRef(gameState);
@@ -4997,8 +5004,13 @@ const handleConnect = (serverData: SavedServer) => {
     const kinds: ChannelActivityKind[] = [];
     if (hasWatchableShare) kinds.push('screen-share');
     if (activePaintSessionId) kinds.push('paint');
+    // Appended LAST so the existing chip order is untouched, and present only while
+    // actually spectating: the queue itself stays in the sidebar badge and
+    // DuelQueueModal. `spectatingChannelId`, not `match`, is the condition — a
+    // subscription to an idle channel is a real subscription.
+    if (spectator.spectatingChannelId !== null) kinds.push('spectate');
     return kinds;
-  }, [hasWatchableShare, activePaintSessionId]);
+  }, [hasWatchableShare, activePaintSessionId, spectator.spectatingChannelId]);
 
   const [explicitActivity, setExplicitActivity] = useState<ChannelActivityKind | null>(null);
   const previousStageRef = useRef<ChannelActivityKind | null>(null);
@@ -5008,6 +5020,43 @@ const handleConnect = (serverData: SavedServer) => {
     previous: previousStageRef.current,
   });
   useEffect(() => { previousStageRef.current = stage; }, [stage]);
+
+  // Copy for a refused subscribe. Written here from the server's `reason` code
+  // rather than echoing the server's own sentence, so the wording is ours and does
+  // not change under us when the server's does.
+  const [spectateError, setSpectateError] = useState<string | null>(null);
+  /**
+   * Opting in is a click, exactly as watching a share is. Setting the explicit
+   * activity makes the stage take focus under the region's "explicit click always
+   * wins" rule, and the modal closes because the activity it launched now owns the
+   * surface.
+   *
+   * Spectating is same-channel only. DuelQueueModal disables Watch when the
+   * snapshot's channel is not the joined one, but its snapshot can be a moment
+   * stale, so the server re-validates and may still refuse. That refusal is
+   * surfaced rather than swallowed: the user clicked, and a click that silently
+   * does nothing is indistinguishable from a broken button. On rejection
+   * `useSpectatorState` writes no state at all, so the only thing to unwind is the
+   * explicit activity this handler set.
+   */
+  const handleWatchDuel = useCallback((channelId: number) => {
+    setSelectedDuelChannelId(null);
+    setSpectateError(null);
+    notifQueue.unregister('spectate-error');
+    setExplicitActivity('spectate');
+    void spectator.startSpectating(channelId).catch((reason: unknown) => {
+      setExplicitActivity(null);
+      const code = reason instanceof GameApiError ? reason.reason : undefined;
+      setSpectateError(
+        code === 'notSameChannel'
+          ? 'You can only watch a game in the channel you have joined.'
+          : code === 'notPresent'
+            ? 'You are no longer connected to this channel.'
+            : 'The server refused the request. Try again in a moment.',
+      );
+      notifQueue.register('spectate-error', 'error');
+    });
+  }, [spectator.startSpectating, notifQueue]);
 
   useEffect(() => {
     setRemoteScreenSharesHidden(stage !== 'screen-share');
@@ -5123,6 +5172,16 @@ const handleConnect = (serverData: SavedServer) => {
         : {}),
     };
 
+  // Input to the spectate stage's Idle card. Null while not spectating, and null
+  // while the duel queue still reports a live match we have no frame for (see the
+  // note at the 'spectate' case below).
+  const spectateQueueSnapshot = spectator.spectatingChannelId == null
+    ? null
+    : (() => {
+      const snapshot = duelQueue.byChannel.get(spectator.spectatingChannelId) ?? null;
+      return snapshot?.active && spectator.match == null ? null : snapshot;
+    })();
+
   const renderStage = (staged: ChannelActivityKind | null) => {
     // A switch with assertNever, not a ternary chain: a new activity kind must not
     // be able to fall through to `null` and render an empty stage.
@@ -5155,9 +5214,23 @@ const handleConnect = (serverData: SavedServer) => {
           />
         ) : null;
       case 'spectate':
-        // Filled in by Task 17 (SpectatorActivity). Rendering null here keeps the
-        // switch exhaustive without pretending the stage works yet.
-        return null;
+        return (
+          <SpectatorActivity
+            match={spectator.match}
+            ended={spectator.ended}
+            /*
+             * The Idle card reads `readyCheck ?? queue[0]` and never the queue's
+             * `active`, so handing it a snapshot that claims a live match while we
+             * hold no spectator frame would advertise the pair AFTER the live one as
+             * "Next up" — a wrong pair, not merely a late one. The two feeds are
+             * independent broadcasts and can disagree for a beat, so during that
+             * disagreement the snapshot is withheld and the card says it is waiting.
+             */
+            queueSnapshot={spectateQueueSnapshot}
+            resolveName={resolveGamePlayerName}
+            onStopWatching={spectator.stopSpectating}
+          />
+        );
       default:
         return assertNever(staged);
     }
@@ -5467,8 +5540,7 @@ const handleConnect = (serverData: SavedServer) => {
           snapshot={selectedDuelSnapshot}
           resolveName={resolveGamePlayerName}
           joinedChannelId={joinedChannelId}
-          // Task 19 replaces this no-op with the real spectate handler.
-          onWatch={() => {}}
+          onWatch={() => handleWatchDuel(selectedDuelSnapshot.channelId)}
           onClose={() => setSelectedDuelChannelId(null)}
         />
       )}
@@ -5597,6 +5669,22 @@ const handleConnect = (serverData: SavedServer) => {
               }}
             />
           )}
+        {spectateError && notifQueue.isVisible('spectate-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={true}
+            title="Cannot watch this channel"
+            detail={spectateError}
+            onDismiss={() => {
+              notifQueue.unregister('spectate-error');
+              setSpectateError(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('spectate-error');
+            }}
+          />
+        )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"
