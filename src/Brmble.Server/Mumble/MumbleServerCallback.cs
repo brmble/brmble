@@ -273,13 +273,25 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         // then does Update run, so a SubscribeAsync landing entirely in that window reads the
         // old channel whether it reads inside the gate or outside it. The read is stale on
         // both sides of the gate; the race is a function of the CALL-SITE ordering here, not
-        // of the lock scope. Only two things would actually close it:
+        // of the lock scope. What would actually close it:
         //   (a) inverting the order below — Update first — which the spec forbids and
         //       DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate pins; or
-        //   (b) having HandleChannelChangedAsync write _sessionChannel[sessionId] = newChannelId
-        //       under the gate as a tombstone instead of merely removing the entry, so a later
-        //       subscribe for the OLD channel is rejected against the service's own state
-        //       rather than against stale presence.
+        //   (b) a _sessionChannel tombstone, so a subscribe for the OLD channel is rejected
+        //       against the service's own state rather than against stale presence. This is
+        //       THREE changes, not one, and the tombstone alone is inert: SubscribeAsync's
+        //       only gated read of _sessionChannel is DropSessionLocked, which deletes the
+        //       entry without comparing it to the requested channel and then overwrites it,
+        //       so SubscribeAsync must ALSO reject when that read disagrees with the channel
+        //       asked for. The write must be unconditional — including the path where
+        //       HandleChannelChangedAsync currently early-returns for a session with no
+        //       subscription, otherwise (b) covers only already-subscribed sessions and
+        //       leaves a FIRST subscribe racing its own channel move wide open, which is the
+        //       most natural instance of this race. Note that making it unconditional turns
+        //       _sessionChannel into a full membership mirror. It also needs its own gate
+        //       acquisition AFTER the CloseSessionAsync call, not the existing gated read
+        //       block, because that close removes the entry again.
+        // Doing the membership update itself under the same gate would also close it, but
+        // that couples this callback to SpectatorService's internal lock and is worse.
         await TryNotifySpectatorsAsync(
             () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
             "channel change", user.SessionId);
