@@ -387,7 +387,12 @@ Rules:
    short token-styled `3…2…1` countdown in the status area, then reveal the updated
    score, `lastRound`, and — only after the countdown — the end result banner. Gate this
    with local state (the raw `view` prop is the source of truth; a `display` copy lags
-   during the reveal). Key the board on the match id in App so this reveal state resets
+   during the reveal). Hold the end result banner until the reveal has finished — the
+   deciding round and `game.ended` arrive together, so releasing the banner early
+   reveals the outcome while the board still shows the previous round's throws. The
+   beat's length is `REVEAL_SECONDS` from `components/Games/rpsShared.ts`, shared with
+   the spectator board (see the Game Spectator Pattern) and never redeclared. Key the
+   board on the match id in App so this reveal state resets
    between matches — and keep the live match and its result in the **same** mount site, or
    the reveal state is destroyed by a remount the moment `game.ended` nulls the view.
 7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
@@ -447,7 +452,8 @@ The server allows only one live duel per channel. During project 1, a channel wi
 complete `game.queueSnapshot` replacements and clears them on voice disconnect; do not use the old
 `game.duelState` event or `channelBusy` UI state. Keep the button next to the access-lock icon and do
 not invent a new row-status container. Activating it opens that channel's duel activity without
-selecting or joining the channel.
+selecting or joining the channel. A watch toggle (`<Icon name="eye">`) sits beside it under the same
+activity condition — see the Game Spectator Pattern.
 
 Project 1's duel activity surface is a temporary shared modal using the standard token-styled modal
 shell. Apart from a single action (see below) it contains metadata only: active/starting pair,
@@ -463,7 +469,9 @@ spectating is same-channel only. Always go through that helper rather than writi
 by hand — it also rejects a null presence **and server root**, and string-coerces the numeric
 snapshot `channelId`, all three of which a hand-rolled `===` silently loses. A `Tooltip` wraps the
 button in both states and explains the disabled one. Everything else in the modal stays read-only.
-See the Game Spectator Pattern.
+This is one of **two** entry points into spectating; the other, and the primary one, is the watch
+toggle (`eye`) on the channel row, which unlike this button also appears for ready-checks and
+queues. Both run the same handler. See the Game Spectator Pattern.
 
 Duel activity cards show two distinct server-owned values. `Estimated duration: ~25s` is that duel's
 own expected length (server full-duration median; `Unknown` when the server has too few samples).
@@ -651,7 +659,8 @@ markup and persists via `getGameSettings`/`setGameSettings` (server-authoritativ
 
 Reference: `components/Games/SpectatorActivity.tsx`, `SpectatorActivity.module.css`,
 `components/Games/DeathrollSpectatorBoard.tsx`, `components/Games/RpsSpectatorBoard.tsx`,
-`components/Games/useSpectatorState.ts`, `workspace/channelActivity.ts`
+`components/Games/useSpectatorState.ts`, `components/Games/rpsShared.ts`,
+`components/Sidebar/ChannelTree.tsx`, `workspace/channelActivity.ts`
 
 Watching a minigame you are not playing is the third chip in the channel activity
 region (`'spectate'`, label `Game`). It is never game mode: game mode is
@@ -676,11 +685,15 @@ host's header, nothing on screen would say what is being watched.
 list includes one. The region is not dismissible and **Stop watching** is the only exit.
 
 Rules:
-1. **Opt-in is always a local click.** The entry point is the **Watch** button in
-   `DuelQueueModal`'s active-duel card, enabled only when the snapshot's channel is
-   the joined voice channel — spectating is same-channel only. Watch starts
-   spectating, sets the explicit activity so the stage takes focus, and closes the
-   modal. No activity may appear without a click.
+1. **Opt-in is always a local click**, and there are two entry points. The primary one
+   is the channel row's **watch toggle** (`<Icon name="eye">`, beside the swords
+   badge), shown whenever the channel has duel activity — a live match, a ready-check
+   or a queue — and enabled only for the channel you have joined; a `Tooltip` wraps it
+   in both states and explains the disabled one. The second is the **Watch** button on
+   `DuelQueueModal`'s active-duel card, which starts spectating, sets the explicit
+   activity so the stage takes focus, and closes the modal. Both run the same handler,
+   and both gate on the joined voice channel via `activityChannelMatchesPresence` —
+   spectating is same-channel only. No activity may appear without a click.
 2. **Spectating is a channel mode that outlives any single match.** You keep watching
    match after match until you stop, leave the channel, or disconnect. A match ending
    does not stop it and never requires a resubscribe.
@@ -691,31 +704,47 @@ Rules:
    `.btn`, because the whole panel's chrome has to fit inside
    `--activity-stage-min-height` (8rem) and a full-size `.btn` line box overflows it.
    Do not "tidy" it back to `.btn`; no test catches that overflow.
-4. **Idle is a continuation state, not an entry state.** The only opt-in is the Watch
-   button, which renders on the active-duel card and so exists only while a match is
-   live. A spectator therefore reaches the Idle card only by a match *ending* while
-   they watch. Subscribing to a genuinely idle channel is supported by the server and
-   by `useSpectatorState`, but is deliberately not reachable from the UI — this is
-   intended, not a gap to file or to "fix" unasked.
-5. The Idle card shows only the upcoming pair, game and format, or the ready-check
+4. The Idle card shows only the upcoming pair, game and format, or the ready-check
    waiting line, read from the already-broadcast queue snapshot. **No queue list and
-   no ETAs** — the queue lives in the sidebar badge and `DuelQueueModal`.
-6. **There is no collapse affordance.** Stop watching is the only exit, and the
+   no ETAs** — the queue lives in the sidebar badge and `DuelQueueModal`. It is
+   reachable directly: the channel-row toggle appears on any duel activity, so you can
+   start watching a queued channel and see the next-up card before the match begins.
+   (This supersedes an earlier rule calling Idle a continuation state with no entry —
+   that was true only while the modal's Watch button was the sole way in.)
+5. **There is no collapse affordance.** Stop watching is the only exit, and the
    region collapses on its own when nothing else is live. Switching the stage to
    another chip leaves you subscribed with the chip lit; there is no grace period and
    no pause machinery, because spectator frames are low-frequency.
-7. Spectator boards are **read-only**: no action buttons, no forfeit, no countdown
-   bar (a spectator has no turn), no Head-to-head panel. They reuse the participant
-   boards' visual language and tokens.
+6. Spectator boards are **read-only**: no action buttons, no forfeit, no Head-to-head
+   panel, and **no turn countdown** — a spectator has no turn, so a timer measuring
+   their time running out would be meaningless. They reuse the participant boards'
+   visual language and tokens.
+7. A **reveal beat is not a turn countdown.** RPS holds a newly resolved round for
+   `REVEAL_SECONDS` before showing it, on the spectator board as well as the
+   participant board, so a watcher gets the same moment of tension. The constant is
+   shared (`components/Games/rpsShared.ts`) and imported by both boards, never copied:
+   its whole purpose is keeping the two surfaces synchronised, and a second
+   declaration could drift with no test noticing. Both boards also **hold the
+   end-of-match banner until the reveal completes** — the server sends the deciding
+   round and the match-ended signal back to back, so without the hold the result
+   paints while the board still shows the previous round's throws, telling the watcher
+   the outcome three seconds early and looking broken.
 8. **A spectator board must never render hidden state.** RPS renders commitment as a
    per-player state ("Thrown" / "Choosing…"), never a throw, and reveals throws only
    from `lastRound`. The server enforces this by giving `IGameEngine` a
    `SpectatorView` with no default implementation: a new engine cannot compile until
    its author decides what a spectator may see. Never infer a spectator view from a
    participant view.
-9. Spectator views carry **no history**. Every roll already appears in `game.feed`,
-   which is broadcast channel-wide and renders in the conversation region directly
-   below the stage.
+9. Player cards carry each player's **latest** action — the number they just rolled
+   (Deathroll) or the throw they just made (RPS). This is deliberately **not history**:
+   there is no strip, log or scrollback on a spectator board. `game.feed` remains the
+   running record, and duplicating it on the board would create a second source of
+   truth that can disagree with it. Deathroll attributes the roll from the view's
+   derived `lastRollBy`, never by inferring the roller from `currentPlayer`: that
+   inference breaks at match end, when `currentPlayer` goes null.
+10. Spectator views carry **no history**. Every roll already appears in `game.feed`,
+    which is broadcast channel-wide and renders in the conversation region directly
+    below the stage.
 
 
 ### Settings Tab Pattern
