@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { gameDisplayName } from '../../utils/games';
 import { ceilToSecondMs, estimateMs, estimateText, formatDuration, pairLabel, playerName } from './duelFormatting';
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
+import { activityChannelMatchesPresence } from '../../workspace/activityPresence';
 import type { DuelQueueSnapshot } from './useDuelQueueState';
 import styles from './DuelQueueModal.module.css';
 
@@ -10,11 +12,12 @@ interface DuelQueueModalProps {
   /** Resolves a voice **session** id to a display name (see App's resolveGamePlayerName). */
   resolveName: (sessionId: number) => string;
   /**
-   * The joined voice channel. Watch is enabled only when the snapshot's channel
-   * matches it: spectating is same-channel only, and this modal can peek at other
-   * channels' queues.
+   * The joined voice channel, in the same `string | null` encoding
+   * `selectJoinedChannelId` produces. Watch is enabled only when the snapshot's
+   * channel matches it: spectating is same-channel only, and this modal can peek
+   * at other channels' queues. Root owns no activities, so it never matches.
    */
-  joinedChannelId: number | null;
+  joinedChannelId: string | null;
   onWatch: () => void;
   onClose: () => void;
 }
@@ -44,6 +47,9 @@ export function DuelQueueModal({ snapshot, resolveName, joinedChannelId, onWatch
   const estimatedMs = active ? estimateMs(active.estimatedDuration) : null;
   const overMs = estimatedMs != null ? elapsedMs - estimatedMs : null;
   const isEmpty = !active && !snapshot.readyCheck && snapshot.queue.length === 0;
+  // Same invariant every other channel activity uses: you may only watch what the
+  // channel you are standing in owns. Root owns nothing.
+  const canWatch = activityChannelMatchesPresence(joinedChannelId, String(snapshot.channelId));
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -111,14 +117,18 @@ export function DuelQueueModal({ snapshot, resolveName, joinedChannelId, onWatch
                   ? <span className={styles.over}>{formatDuration(ceilToSecondMs(overMs))} over estimate</span>
                   : <span className={styles.eta}>Ends in about {formatDuration(ceilToSecondMs(-overMs))}</span>
               )}
-              <button
-                type="button"
-                className={`btn btn-sm btn-primary ${styles.watch}`}
-                onClick={onWatch}
-                disabled={joinedChannelId == null || snapshot.channelId !== joinedChannelId}
-              >
-                Watch
-              </button>
+              <Tooltip content={canWatch ? 'Watch this duel' : 'You can only watch a duel in the channel you have joined'}>
+                <span className={`tooltip-wrapper ${styles.watch}`} data-testid="duel-watch-trigger">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={onWatch}
+                    disabled={!canWatch}
+                  >
+                    Watch
+                  </button>
+                </span>
+              </Tooltip>
             </section>
           )}
 
