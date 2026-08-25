@@ -385,16 +385,16 @@ Rules:
    from the server (and, on the deciding round, `game.ended` immediately after — which
    nulls the view). Don't reveal the result raw. Freeze the pre-resolution board, run a
    short token-styled `3…2…1` countdown in the status area, then reveal the updated
-   score, `lastRound`, and — only after the countdown — the end result banner. Gate this
-   with local state (the raw `view` prop is the source of truth; a `display` copy lags
-   during the reveal). Hold the end result banner until the reveal has finished — the
-   deciding round and `game.ended` arrive together, so releasing the banner early
-   reveals the outcome while the board still shows the previous round's throws. The
-   beat's length is `REVEAL_SECONDS` from `components/Games/rpsShared.ts`, shared with
-   the spectator board (see the Game Spectator Pattern) and never redeclared. Key the
-   board on the match id in App so this reveal state resets
-   between matches — and keep the live match and its result in the **same** mount site, or
-   the reveal state is destroyed by a remount the moment `game.ended` nulls the view.
+   score and `lastRound`. Gate this with local state (the raw `view` prop is the source
+   of truth; a `display` copy lags during the reveal). **Hold the end result banner
+   until the reveal has finished** — the deciding round and `game.ended` arrive
+   together, so releasing the banner early reveals the outcome while the board still
+   shows the previous round's throws. The beat's length is `REVEAL_SECONDS` from
+   `components/Games/rpsShared.ts`, shared with the spectator board (see the Game
+   Spectator Pattern) and never redeclared. Key the board on the match id in App so
+   this reveal state resets between matches — and keep the live match and its result in
+   the **same** mount site, or the reveal state is destroyed by a remount the moment
+   `game.ended` nulls the view.
 7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
@@ -682,18 +682,23 @@ narrowed to a single `view` shape and cannot name the game it is rendering. With
 host's header, nothing on screen would say what is being watched.
 
 `SpectatorActivity` deliberately renders **no** `.modal-close`, even though the shell
-list includes one. The region is not dismissible and **Stop watching** is the only exit.
+list includes one. The region is not dismissible: **Stop watching** is its only exit
+(the channel-row watch toggle is the same exit reached from the sidebar — see the rules
+below).
 
 Rules:
 1. **Opt-in is always a local click**, and there are two entry points. The primary one
    is the channel row's **watch toggle** (`<Icon name="eye">`, beside the swords
    badge), shown whenever the channel has duel activity — a live match, a ready-check
    or a queue — and enabled only for the channel you have joined; a `Tooltip` wraps it
-   in both states and explains the disabled one. The second is the **Watch** button on
-   `DuelQueueModal`'s active-duel card, which starts spectating, sets the explicit
-   activity so the stage takes focus, and closes the modal. Both run the same handler,
-   and both gate on the joined voice channel via `activityChannelMatchesPresence` —
-   spectating is same-channel only. No activity may appear without a click.
+   in both states and explains the disabled one. It is a true toggle: clicking it on
+   the channel you are already watching **stops** watching, which is what its
+   `aria-pressed` and its flipped `Stop watching` tooltip express. The second entry
+   point is the **Watch** button on `DuelQueueModal`'s active-duel card, which also
+   closes the modal. Both run the same handler (`handleWatchDuel`), so both start
+   spectating, both set the explicit activity so the stage takes focus, and both gate
+   on the joined voice channel via `activityChannelMatchesPresence` — spectating is
+   same-channel only. No activity may appear without a click.
 2. **Spectating is a channel mode that outlives any single match.** You keep watching
    match after match until you stop, leave the channel, or disconnect. A match ending
    does not stop it and never requires a resubscribe.
@@ -711,10 +716,12 @@ Rules:
    start watching a queued channel and see the next-up card before the match begins.
    (This supersedes an earlier rule calling Idle a continuation state with no entry —
    that was true only while the modal's Watch button was the sole way in.)
-5. **There is no collapse affordance.** Stop watching is the only exit, and the
-   region collapses on its own when nothing else is live. Switching the stage to
-   another chip leaves you subscribed with the chip lit; there is no grace period and
-   no pause machinery, because spectator frames are low-frequency.
+5. **There is no collapse affordance.** **Stop watching** is the only exit *from the
+   stage*; clicking the channel row's watch toggle again is the same exit reached from
+   the sidebar, and there is no third. The region collapses on its own when nothing else is live.
+   Switching the stage to another chip leaves you subscribed with the chip lit; there
+   is no grace period and no pause machinery, because spectator frames are
+   low-frequency.
 6. Spectator boards are **read-only**: no action buttons, no forfeit, no Head-to-head
    panel, and **no turn countdown** — a spectator has no turn, so a timer measuring
    their time running out would be meaningless. They reuse the participant boards'
@@ -737,14 +744,14 @@ Rules:
    participant view.
 9. Player cards carry each player's **latest** action — the number they just rolled
    (Deathroll) or the throw they just made (RPS). This is deliberately **not history**:
-   there is no strip, log or scrollback on a spectator board. `game.feed` remains the
-   running record, and duplicating it on the board would create a second source of
-   truth that can disagree with it. Deathroll attributes the roll from the view's
-   derived `lastRollBy`, never by inferring the roller from `currentPlayer`: that
-   inference breaks at match end, when `currentPlayer` goes null.
-10. Spectator views carry **no history**. Every roll already appears in `game.feed`,
-    which is broadcast channel-wide and renders in the conversation region directly
-    below the stage.
+   there is no strip, log or scrollback on a spectator board. Deathroll attributes the
+   roll from the **server-derived** `lastRollBy` on the spectator view (computed in
+   `DeathrollEngine` and sent on the wire; the board only reads it), never by inferring
+   the roller from `currentPlayer`: that inference breaks at match end, when
+   `currentPlayer` goes null. Beyond that latest action, spectator views carry no
+   history at all — `game.feed` remains the running record, is broadcast channel-wide
+   and renders in the conversation region directly below the stage, so duplicating it
+   on the board would create a second source of truth that can disagree with it.
 
 
 ### Settings Tab Pattern
