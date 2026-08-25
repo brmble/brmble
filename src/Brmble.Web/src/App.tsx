@@ -5058,6 +5058,19 @@ const handleConnect = (serverData: SavedServer) => {
     });
   }, [spectator.startSpectating, notifQueue]);
 
+  /**
+   * The refusal copy names a condition ("you are not in that channel") that the user
+   * can fix by moving, and errors never auto-dismiss — so without this the notice
+   * outlives the condition it describes and sits there being false. `useSpectatorState`
+   * already resets itself on `voice.channelChanged`; this is the App-side half of that.
+   * Uses the queue ref, not `notifQueue`, so the effect fires on channel change only
+   * and not on every register/unregister elsewhere in the app.
+   */
+  useEffect(() => {
+    setSpectateError(null);
+    notifQueueRef.current.unregister('spectate-error');
+  }, [joinedChannelId]);
+
   useEffect(() => {
     setRemoteScreenSharesHidden(stage !== 'screen-share');
   }, [stage, setRemoteScreenSharesHidden]);

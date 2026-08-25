@@ -308,6 +308,95 @@ describe('App — spectating as a channel activity', () => {
     expect(document.querySelector('[data-main-panel-layer="game"]')).toBeNull();
   });
 
+  it('flows into the next match with no resubscribe', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    mocks.subscribeSpectator.mockResolvedValue(subscribed(deathrollFrame(1)));
+    renderInChannel();
+
+    await watchDuel(user);
+    await waitFor(() => expect(gameChip()).toBeInTheDocument());
+
+    // The watched match ends: its result is held on screen.
+    act(() => { emitBridgeEvent('game.spectatorMatchEnded', matchEnded()); });
+    expect(screen.getByText('Player 20 wins!')).toBeInTheDocument();
+
+    // A DIFFERENT match starts in the same channel. Spectating is a channel mode,
+    // so its first frame arrives on the subscription we already hold.
+    act(() => {
+      emitBridgeEvent('game.spectatorSnapshot', deathrollFrame(1, {
+        matchId: 92,
+        players: [duelPlayer(30), duelPlayer(31)],
+        view: {
+          kind: 'deathroll', players: [30, 31], currentPlayer: 30,
+          ceiling: 1000, lastRoll: null, finished: false, loserId: null,
+        },
+      }));
+    });
+
+    // Live again, on the new pair, with the previous result gone.
+    expect(screen.getByTestId('spectator-player-30')).toBeInTheDocument();
+    expect(screen.queryByTestId('spectator-player-20')).not.toBeInTheDocument();
+    expect(screen.queryByText('Player 20 wins!')).not.toBeInTheDocument();
+    expect(gameChip()).toBeInTheDocument();
+
+    // The assertion that makes this a CHANNEL mode and not a match view: one
+    // subscribe for the whole sequence, across two matches.
+    expect(mocks.subscribeSpectator).toHaveBeenCalledTimes(1);
+    expect(mocks.unsubscribeSpectator).not.toHaveBeenCalled();
+  });
+
+  it('yields the panel while the spectator plays their own match, then returns still spectating', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    mocks.subscribeSpectator.mockResolvedValue(subscribed(deathrollFrame(1)));
+    renderInChannel();
+
+    await watchDuel(user);
+    await waitFor(() => expect(gameChip()).toBeInTheDocument());
+    expect(splitLayer()).not.toHaveAttribute('inert');
+
+    // The spectator becomes a PARTICIPANT. Game mode is entered by playing, and it
+    // covers the split layer rather than unmounting it.
+    act(() => { emitBridgeEvent('game.started', { matchId: 55, gameType: 'deathroll' }); });
+    expect(splitLayer()).toHaveAttribute('inert');
+    expect(document.querySelector('[data-main-panel-layer="game"]')).not.toBeNull();
+    // Hidden, NOT unmounted — the chip is still in the tree behind the cover.
+    expect(screen.getByRole('tab', { name: 'Game', hidden: true })).toBeInTheDocument();
+
+    // Their own match ends and they dismiss the result.
+    act(() => { emitBridgeEvent('game.ended', { matchId: 55, gameType: 'deathroll', draw: true }); });
+    const gameLayer = document.querySelector('[data-main-panel-layer="game"]') as HTMLElement;
+    await user.click(within(gameLayer).getByRole('button', { name: 'Close' }));
+
+    expect(splitLayer()).not.toHaveAttribute('inert');
+    expect(gameChip()).toHaveAttribute('aria-selected', 'true');
+    // Spectating was never interrupted by participating.
+    expect(mocks.subscribeSpectator).toHaveBeenCalledTimes(1);
+    expect(mocks.unsubscribeSpectator).not.toHaveBeenCalled();
+  });
+
+  it('clears a stale refusal notice when the user moves channel', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    const { GameApiError } = await import('./api/games');
+    mocks.subscribeSpectator.mockRejectedValue(
+      new GameApiError('nope', 'notSameChannel'),
+    );
+    const { moveSelfToChannel } = renderInChannel({
+      channels: [{ id: CHANNEL, name: 'General' }, { id: 8, name: 'Other' }],
+    });
+
+    await watchDuel(user);
+    await waitFor(() => expect(screen.getByText('Cannot watch this channel')).toBeInTheDocument());
+
+    // The notice names a condition the user can fix, and errors never auto-dismiss.
+    // Moving must not leave a notification on screen that is now simply untrue.
+    moveSelfToChannel(8);
+
+    expect(screen.queryByText('Cannot watch this channel')).not.toBeInTheDocument();
+  });
+
   it('surfaces a rejected subscribe and leaves no chip behind', async () => {
     const user = userEvent.setup();
     mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
