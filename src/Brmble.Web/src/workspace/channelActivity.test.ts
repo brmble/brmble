@@ -39,7 +39,10 @@ describe('selectStage', () => {
   });
 
   it('does not let spectate steal the stage from a live activity', () => {
-    expect(selectStage({ available: ['paint', 'spectate'], explicit: null, previous: 'paint' })).toBe('paint');
+    // 'spectate' is deliberately first: the fallback branch would return it, so only
+    // the `previous` branch can yield 'paint'. Ordering it second would pass even
+    // with `previous` removed.
+    expect(selectStage({ available: ['spectate', 'paint'], explicit: null, previous: 'paint' })).toBe('paint');
   });
 
   it('honours an explicit click on spectate', () => {
@@ -54,7 +57,11 @@ describe('selectStage', () => {
 
 describe('ChannelActivityKind', () => {
   it('has exactly three members', () => {
-    const all: ChannelActivityKind[] = ['screen-share', 'paint', 'spectate'];
-    expect(new Set(all).size).toBe(3);
+    // A total Record keyed by the union, not a `ChannelActivityKind[]` literal: adding
+    // a fourth member WIDENS an array's element type, so a three-element array stays
+    // assignable and nothing signals. A total Record fails to compile instead (TS2739),
+    // the same mechanism that makes ACTIVITY_LABELS load-bearing.
+    const ALL: Record<ChannelActivityKind, true> = { 'screen-share': true, paint: true, spectate: true };
+    expect(Object.keys(ALL)).toHaveLength(3);
   });
 });
