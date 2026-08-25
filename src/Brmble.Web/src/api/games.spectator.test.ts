@@ -138,7 +138,7 @@ describe('spectator api', () => {
     })).toBe(true);
     expect(isRpsSpectatorView({
       kind: 'deathroll', players: [10, 20], currentPlayer: 10, ceiling: 100,
-      lastRoll: null, finished: false, loserId: null,
+      lastRoll: null, lastRollBy: null, finished: false, loserId: null,
     })).toBe(false);
   });
 });

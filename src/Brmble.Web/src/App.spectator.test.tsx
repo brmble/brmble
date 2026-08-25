@@ -106,7 +106,7 @@ function deathrollFrame(sequence: number, parts: Partial<SpectatorSnapshot> = {}
     sequence, generatedAt: new Date().toISOString(),
     view: {
       kind: 'deathroll', players: [20, 21], currentPlayer: 21,
-      ceiling: 500, lastRoll: 500, finished: false, loserId: null,
+      ceiling: 500, lastRoll: 500, lastRollBy: null, finished: false, loserId: null,
     },
     ...parts,
   };
@@ -250,7 +250,7 @@ describe('App — spectating as a channel activity', () => {
       emitBridgeEvent('game.spectatorSnapshot', deathrollFrame(2, {
         view: {
           kind: 'deathroll', players: [20, 21], currentPlayer: 20,
-          ceiling: 37, lastRoll: 42, finished: false, loserId: null,
+          ceiling: 37, lastRoll: 42, lastRollBy: null, finished: false, loserId: null,
         },
       }));
     });
@@ -329,7 +329,7 @@ describe('App — spectating as a channel activity', () => {
         players: [duelPlayer(30), duelPlayer(31)],
         view: {
           kind: 'deathroll', players: [30, 31], currentPlayer: 30,
-          ceiling: 1000, lastRoll: null, finished: false, loserId: null,
+          ceiling: 1000, lastRoll: null, lastRollBy: null, finished: false, loserId: null,
         },
       }));
     });

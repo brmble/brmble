@@ -131,6 +131,11 @@ export interface DeathrollSpectatorView {
   currentPlayer: number | null;
   ceiling: number;
   lastRoll: number | null;
+  /**
+   * Who made `lastRoll`, as a Mumble SESSION id — resolve against
+   * `SpectatorSnapshot.players[].sessionId`. Null before the first roll.
+   */
+  lastRollBy: number | null;
   finished: boolean;
   loserId: number | null;
 }

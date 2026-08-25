@@ -12,7 +12,7 @@ const deathrollMatch: SpectatorSnapshot = {
     { userId: 200, sessionId: 20, displayName: 'Broan', ready: false },
   ],
   sequence: 3, generatedAt: '2026-08-24T14:30:04.000Z',
-  view: { kind: 'deathroll', players: [10, 20], currentPlayer: 20, ceiling: 50, lastRoll: 73, finished: false, loserId: null },
+  view: { kind: 'deathroll', players: [10, 20], currentPlayer: 20, ceiling: 50, lastRoll: 73, lastRollBy: 10, finished: false, loserId: null },
 };
 
 const rpsMatch: SpectatorSnapshot = {
@@ -33,7 +33,7 @@ describe('SpectatorActivity', () => {
   it('Live: renders the deathroll board', () => {
     render(<SpectatorActivity match={deathrollMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
     expect(screen.getByText('Qy')).toBeInTheDocument();
-    expect(screen.getByText('73')).toBeInTheDocument();
+    expect(screen.getByTestId('spectator-roll-10')).toHaveTextContent(/^73$/);
   });
 
   it('Live: names the watched game in the heading', () => {
@@ -66,7 +66,7 @@ describe('SpectatorActivity', () => {
         onStopWatching={vi.fn()}
       />
     );
-    expect(screen.getByText('73')).toBeInTheDocument();
+    expect(screen.getByTestId('spectator-roll-10')).toHaveTextContent(/^73$/);
     expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
     // The board is HELD, not replaced by the Idle card.
     expect(screen.queryByTestId('spectator-next-up')).not.toBeInTheDocument();

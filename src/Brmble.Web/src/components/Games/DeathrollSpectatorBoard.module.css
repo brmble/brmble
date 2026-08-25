@@ -95,3 +95,13 @@
   font-size: var(--text-lg);
   color: var(--text-primary);
 }
+
+/* The roll that produced the current ceiling, shown on the card of whoever made
+   it. Large and quiet: it is the thing a spectator looks at, but it must not
+   out-shout the active-player treatment. */
+.playerRoll {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+  line-height: 1;
+}

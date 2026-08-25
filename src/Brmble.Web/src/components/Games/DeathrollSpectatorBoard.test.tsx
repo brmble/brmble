@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { DeathrollSpectatorBoard } from './DeathrollSpectatorBoard';
 import type { DeathrollSpectatorView, DuelPlayer } from '../../api/games';
 
@@ -14,6 +14,7 @@ const live: DeathrollSpectatorView = {
   currentPlayer: 20,
   ceiling: 50,
   lastRoll: 73,
+  lastRollBy: 10,
   finished: false,
   loserId: null,
 };
@@ -27,8 +28,13 @@ describe('DeathrollSpectatorBoard', () => {
 
   it('shows the ceiling and the last roll', () => {
     render(<DeathrollSpectatorBoard view={live} players={players} outcome={null} />);
-    expect(screen.getByText('50')).toBeInTheDocument();
-    expect(screen.getByText('73')).toBeInTheDocument();
+    // Scoped to their own stat tiles: the roll number also appears on its
+    // roller's card, so a bare getByText would be ambiguous — and asserting the
+    // value sits under the right label is the stronger claim anyway. `within` +
+    // getByText rather than toHaveTextContent, because the latter is a substring
+    // match and would accept a ceiling of 500 for '50'.
+    expect(within(screen.getByText('Ceiling').parentElement!).getByText('50')).toBeInTheDocument();
+    expect(within(screen.getByText('Last roll').parentElement!).getByText('73')).toBeInTheDocument();
   });
 
   it('marks whose turn it is', () => {
@@ -58,7 +64,7 @@ describe('DeathrollSpectatorBoard', () => {
   it('announces the winner once the match has ended', () => {
     render(
       <DeathrollSpectatorBoard
-        view={{ ...live, currentPlayer: null, finished: true, loserId: 20, lastRoll: 1 }}
+        view={{ ...live, currentPlayer: null, finished: true, loserId: 20, lastRoll: 1, lastRollBy: 20 }}
         players={players}
         outcome={{ winnerId: 10, loserId: 20, draw: false }}
       />,
@@ -90,8 +96,51 @@ describe('DeathrollSpectatorBoard', () => {
 
   it('shows a placeholder before the first roll', () => {
     render(
-      <DeathrollSpectatorBoard view={{ ...live, lastRoll: null }} players={players} outcome={null} />,
+      <DeathrollSpectatorBoard
+        view={{ ...live, lastRoll: null, lastRollBy: null }}
+        players={players}
+        outcome={null}
+      />,
     );
     expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it("shows the roll on its roller's card, not the player to move", () => {
+    render(
+      <DeathrollSpectatorBoard
+        view={{ ...live, lastRoll: 73, lastRollBy: 10, currentPlayer: 20 }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.getByTestId('spectator-roll-10')).toHaveTextContent(/^73$/);
+    expect(screen.queryByTestId('spectator-roll-20')).not.toBeInTheDocument();
+  });
+
+  // `lastRollBy: 10` deliberately contradicts `lastRoll: null` — a state the
+  // server cannot emit. It is the only way to exercise the `lastRoll != null`
+  // guard on its own: with lastRollBy null too, the id guard suppresses both
+  // cards by itself and the null-roll guard could be deleted unnoticed.
+  it('shows no roll on any card before the first roll', () => {
+    render(
+      <DeathrollSpectatorBoard
+        view={{ ...live, lastRoll: null, lastRollBy: 10 }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.queryByTestId('spectator-roll-10')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spectator-roll-20')).not.toBeInTheDocument();
+  });
+
+  it("keeps the losing roll on the loser's card after the match ends", () => {
+    render(
+      <DeathrollSpectatorBoard
+        view={{ ...live, lastRoll: 1, lastRollBy: 20, currentPlayer: null, finished: true, loserId: 20 }}
+        players={players}
+        outcome={{ winnerId: 10, loserId: 20, draw: false }}
+      />,
+    );
+    expect(screen.getByTestId('spectator-roll-20')).toHaveTextContent(/^1$/);
   });
 });

@@ -39,6 +39,11 @@ export function DeathrollSpectatorBoard({ view, players, outcome }: DeathrollSpe
           >
             <span className={styles.playerName}>{nameOf(sessionId)}</span>
             {view.currentPlayer === sessionId && <span className={styles.playerTurn}>Rolling…</span>}
+            {view.lastRoll != null && view.lastRollBy === sessionId && (
+              <span className={styles.playerRoll} data-testid={`spectator-roll-${sessionId}`}>
+                {view.lastRoll}
+              </span>
+            )}
           </div>
         ))}
       </div>

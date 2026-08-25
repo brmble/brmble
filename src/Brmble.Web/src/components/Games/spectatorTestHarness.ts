@@ -79,7 +79,7 @@ export function snapshot(overrides: Partial<SpectatorSnapshot> = {}): SpectatorS
     generatedAt: '2026-08-24T14:30:04.000Z',
     view: {
       kind: 'deathroll', players: [10, 20], currentPlayer: 20,
-      ceiling: 50, lastRoll: 73, finished: false, loserId: null,
+      ceiling: 50, lastRoll: 73, lastRollBy: 10, finished: false, loserId: null,
     },
     ...overrides,
   };
