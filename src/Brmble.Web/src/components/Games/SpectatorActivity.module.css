@@ -21,8 +21,15 @@
  * it does not fit this one, which lives in ChannelActivityRegion's stage at a
  * `--activity-stage-min-height` (8rem) minimum. Drop the margin entirely — the
  * column's gap already separates header from stage — and drop the centring.
+ *
+ * Scoped under `.activity` deliberately: a bare `.header` would tie 0,1,0 with
+ * `.modal-header` and win only on import order (CSS modules hash names, they do not
+ * add specificity), so the override would silently die if `index.css` ever moved
+ * after the module CSS. Two classes wins on specificity instead. This mirrors the
+ * repo precedent — `.prompt .modal-header`, `.avatar-upload .modal-header`,
+ * `.edit-channel-dialog .modal-header`, `.rename-confirm-dialog .modal-header`.
  */
-.header {
+.activity .header {
   margin-bottom: 0;
   text-align: left;
 }

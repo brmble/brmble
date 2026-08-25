@@ -61,7 +61,13 @@ export function SpectatorActivity({
       <div className={styles.stage}>{body}</div>
 
       <div className={styles.controls}>
-        <button type="button" className="btn btn-secondary" onClick={onStopWatching}>
+        {/*
+          * `.btn-sm` rather than the default `.btn`: this panel's chrome has to fit
+          * inside `--activity-stage-min-height` (8rem), and a full-size `.btn` line
+          * box is ~47px against ~25px here. It is the shared size class, not a
+          * bespoke one — the type scale and the shell stay untouched.
+          */}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onStopWatching}>
           Stop watching
         </button>
       </div>
