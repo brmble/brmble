@@ -42,8 +42,9 @@ export function RpsSpectatorBoard({ view: incoming, players, outcome }: RpsSpect
     if (!incoming.lastRound) {
       // `useSpectatorState` swaps in a new match without unmounting us, and the server
       // only ever moves `lastRound` forwards within a match — so a null here can only
-      // mean a fresh match. Reset, or match 2's round 1 would be gated as stale against
-      // match 1's sequence and the board would freeze on the old match forever.
+      // mean a fresh match. Without this reset, match 2's early rounds fail the
+      // `seq > shown` test against match 1's higher sequence, fall through to the
+      // ungated setter and are revealed with no beat at all until the count catches up.
       shownSeqRef.current = 0;
       pendingRef.current = null;
       setRevealing(false);
@@ -78,7 +79,11 @@ export function RpsSpectatorBoard({ view: incoming, players, outcome }: RpsSpect
   const nameOf = (sessionId: number) =>
     players.find(player => player.sessionId === sessionId)?.displayName ?? String(sessionId);
 
-  const result = !outcome
+  // Hold the end banner until the deciding round's reveal has finished, as the
+  // participant board does. The server publishes the deciding round's frame and the
+  // match-ended signal back to back, so both arrive in one render — without this the
+  // watcher reads the winner three seconds early, over the previous round's throws.
+  const result = !outcome || revealing
     ? null
     : outcome.draw
       ? 'The match ended in a draw.'
@@ -86,6 +91,10 @@ export function RpsSpectatorBoard({ view: incoming, players, outcome }: RpsSpect
         ? `${nameOf(outcome.winnerId)} wins!`
         : 'The match has ended.';
 
+  // Deliberate divergence from the participant board, which blanks the previous round's
+  // summary during the reveal: here it keeps showing round N-1. Chosen, not overlooked —
+  // a spectator has no throw of their own in play, so there is no context to protect, and
+  // a blank panel mid-reveal would read as a glitch on a read-only surface.
   const lastRoundText = !view.lastRound
     ? null
     : view.lastRound.tie

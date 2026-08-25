@@ -394,7 +394,7 @@ describe('RpsSpectatorBoard', () => {
       expect(screen.getByTestId('spectator-commit-10')).toHaveTextContent(/thrown/i);
     });
 
-    it('resets the gate for a new match instead of freezing on the old one', () => {
+    it('resets the gate for a new match so its early rounds still get the beat', () => {
       const { rerender } = render(
         <RpsSpectatorBoard view={{ ...unresolved, lastRound: round2 }} players={players} outcome={null} />,
       );
@@ -411,10 +411,39 @@ describe('RpsSpectatorBoard', () => {
 
       // Match 2 round 1 has sequence 1 — lower than match 1's. It must still reveal.
       rerender(<RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />);
+
+      // With the gate reset, match 2's round 1 is held; without it, it is adopted ungated.
+      expect(screen.queryByTestId('spectator-pick-10')).not.toBeInTheDocument();
+
       act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
 
       expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
       expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 1/i);
+    });
+
+    it('holds the end banner until the deciding round has been revealed', () => {
+      // The server publishes the deciding round's frame and the match-ended signal back
+      // to back, so both land in one render. Without gating the banner too, the watcher
+      // reads "Qy wins!" over a board still showing the previous round.
+      const { rerender } = render(
+        <RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />,
+      );
+
+      rerender(
+        <RpsSpectatorBoard
+          view={{ ...unresolved, finished: true, winnerId: 10, roundWins: [2, 0], committed: [false, false], lastRound: round2 }}
+          players={players}
+          outcome={{ winnerId: 10, loserId: 20, draw: false }}
+        />,
+      );
+
+      expect(screen.queryByText(/wins/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
     });
   });
 });
