@@ -5466,6 +5466,9 @@ const handleConnect = (serverData: SavedServer) => {
         <DuelQueueModal
           snapshot={selectedDuelSnapshot}
           resolveName={resolveGamePlayerName}
+          joinedChannelId={selfVoiceChannelId ?? null}
+          // Task 19 replaces this no-op with the real spectate handler.
+          onWatch={() => {}}
           onClose={() => setSelectedDuelChannelId(null)}
         />
       )}

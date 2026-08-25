@@ -9,6 +9,13 @@ interface DuelQueueModalProps {
   snapshot: DuelQueueSnapshot;
   /** Resolves a voice **session** id to a display name (see App's resolveGamePlayerName). */
   resolveName: (sessionId: number) => string;
+  /**
+   * The joined voice channel. Watch is enabled only when the snapshot's channel
+   * matches it: spectating is same-channel only, and this modal can peek at other
+   * channels' queues.
+   */
+  joinedChannelId: number | null;
+  onWatch: () => void;
   onClose: () => void;
 }
 
@@ -29,7 +36,7 @@ function useSecondTick(startedAt: string | null): number {
   return now;
 }
 
-export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModalProps) {
+export function DuelQueueModal({ snapshot, resolveName, joinedChannelId, onWatch, onClose }: DuelQueueModalProps) {
   const active = snapshot.active;
   const now = useSecondTick(active?.startedAt ?? null);
   const startedMs = active ? Date.parse(active.startedAt) : NaN;
@@ -104,6 +111,14 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
                   ? <span className={styles.over}>{formatDuration(ceilToSecondMs(overMs))} over estimate</span>
                   : <span className={styles.eta}>Ends in about {formatDuration(ceilToSecondMs(-overMs))}</span>
               )}
+              <button
+                type="button"
+                className={`btn btn-sm btn-primary ${styles.watch}`}
+                onClick={onWatch}
+                disabled={joinedChannelId == null || snapshot.channelId !== joinedChannelId}
+              >
+                Watch
+              </button>
             </section>
           )}
 
