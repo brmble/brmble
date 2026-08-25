@@ -110,13 +110,24 @@ describe('spectator api', () => {
       await expect(subscribeSpectator(8)).rejects.toMatchObject({ reason: 'notSameChannel' });
     });
 
-    it('surfaces the structured reason when unsubscribe fails', async () => {
+    /**
+     * Generic check of `unwrap`'s structured-error mapping on the void path.
+     * NOTE: /games/spectators/unsubscribe has only two real exits — 401 (cert
+     * unresolvable) and 200 { unsubscribed: true }, the latter INCLUDING the
+     * no-session case, which deliberately succeeds. It emits no reason codes at
+     * all; `notPresent`/`notSameChannel` are SUBSCRIBE reasons. The body below is
+     * therefore a generic stand-in, not a contract this endpoint can produce.
+     */
+    it('maps a structured error body through unwrap on the void path', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-        JSON.stringify({ error: 'Not spectating.', reason: 'notPresent' }),
+        JSON.stringify({ error: 'Something went wrong.', reason: 'someReason' }),
         { status: 400 },
       )));
 
-      await expect(unsubscribeSpectator()).rejects.toMatchObject({ reason: 'notPresent' });
+      await expect(unsubscribeSpectator()).rejects.toMatchObject({
+        message: 'Something went wrong.',
+        reason: 'someReason',
+      });
     });
   });
 
