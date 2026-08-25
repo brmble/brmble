@@ -19,7 +19,6 @@ public sealed record DeathrollSpectatorView(
 
 /// <summary>A resolved RPS round. Throws are public only once the round is over.
 /// <see cref="WinnerId"/> is a Mumble SESSION id.</summary>
-
 public sealed record RpsResolvedRoundSnapshot(
     int RoundNumber,
     int Sequence,
