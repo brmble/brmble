@@ -81,7 +81,7 @@ public class SpectatorServiceTests
         ParticipantUserIds: new HashSet<long> { 100, 200 },
         Sequence: sequence,
         GeneratedAt: DateTimeOffset.UnixEpoch.AddSeconds(sequence),
-        View: new DeathrollSpectatorView("deathroll", [10, 20], 10, 100, 50, false, null));
+        View: new DeathrollSpectatorView("deathroll", [10, 20], 10, 100, 50, false, null, null));
 
     private IReadOnlyList<(IReadOnlySet<long> Users, SpectatorSnapshotEvent Message)> Snapshots() =>
         _publisher.OfType<SpectatorSnapshotEvent>().ToList();

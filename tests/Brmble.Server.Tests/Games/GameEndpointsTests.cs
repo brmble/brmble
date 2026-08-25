@@ -346,7 +346,7 @@ public class GameEndpointsTests
             1, 91, 7, "deathroll", "1v1", 1,
             [new DuelPlayerSnapshot(100, 10, "Qy"), new DuelPlayerSnapshot(200, 20, "Broan")],
             4, DateTimeOffset.UnixEpoch,
-            new DeathrollSpectatorView("deathroll", [10, 20], 10, 50, 73, false, null));
+            new DeathrollSpectatorView("deathroll", [10, 20], 10, 50, 73, false, null, null));
         var spectators = new Mock<ISpectatorCoordinator>();
         spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
             .ReturnsAsync(new SpectatorSubscribeResult(true, snapshot, SpectatorSubscribeReason.None));

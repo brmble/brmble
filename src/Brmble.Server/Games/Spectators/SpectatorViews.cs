@@ -15,7 +15,13 @@ public sealed record DeathrollSpectatorView(
     int Ceiling,
     int? LastRoll,
     bool Finished,
-    long? LoserId);
+    long? LoserId,
+    /// <summary>
+    /// Who made <see cref="LastRoll"/>, as a Mumble SESSION id. Null before the first
+    /// roll. Derived, never stored: the engine holds no per-roll attribution, and this
+    /// project deliberately did not add any.
+    /// </summary>
+    long? LastRollBy);
 
 /// <summary>A resolved RPS round. Throws are public only once the round is over.
 /// <see cref="WinnerId"/> is a Mumble SESSION id.</summary>

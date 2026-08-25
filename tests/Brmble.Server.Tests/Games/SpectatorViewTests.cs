@@ -125,6 +125,64 @@ public class SpectatorViewTests
         Assert.IsFalse(view.Finished);
     }
 
+    [TestMethod]
+    public void DeathrollSpectatorView_BeforeAnyRoll_HasNoLastRollBy()
+    {
+        var engine = new DeathrollEngine();
+        var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(50));
+
+        var view = (DeathrollSpectatorView)engine.SpectatorView(state);
+
+        Assert.IsNull(view.LastRoll);
+        Assert.IsNull(view.LastRollBy, "Nobody has rolled yet.");
+    }
+
+    [TestMethod]
+    public void DeathrollSpectatorView_AttributesANonFatalRollToTheRoller()
+    {
+        var engine = new DeathrollEngine();
+        var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(50));
+        engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(50));
+
+        var view = (DeathrollSpectatorView)engine.SpectatorView(state);
+
+        Assert.AreEqual(50, view.LastRoll);
+        Assert.AreEqual(10L, view.LastRollBy, "Player 10 rolled, even though it is now player 20's turn.");
+        Assert.AreEqual(20L, view.CurrentPlayer);
+    }
+
+    [TestMethod]
+    public void DeathrollSpectatorView_AttributesTheFatalRollToTheLoser()
+    {
+        var engine = new DeathrollEngine();
+        var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(50));
+        engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(50));
+        // Player 20 rolls a 1 and loses. CurrentIndex is NOT flipped on a fatal roll.
+        engine.ApplyAction(state, 20, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(1));
+
+        var view = (DeathrollSpectatorView)engine.SpectatorView(state);
+
+        Assert.AreEqual(1, view.LastRoll);
+        Assert.AreEqual(20L, view.LoserId);
+        Assert.AreEqual(20L, view.LastRollBy, "The losing roll belongs to the loser.");
+        Assert.IsNull(view.CurrentPlayer, "The match is over, so nobody is to move.");
+    }
+
+    [TestMethod]
+    public void DeathrollSpectatorView_ANonFatalTimeoutLeavesTheRollWithItsOriginalRoller()
+    {
+        var engine = new DeathrollEngine();
+        var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(50));
+        engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(50));
+        // Player 20 times out. The ceiling drops; LastRoll and CurrentIndex are untouched.
+        engine.ApplyTimeoutPenalty(state, new FixedRandom(50));
+
+        var view = (DeathrollSpectatorView)engine.SpectatorView(state);
+
+        Assert.AreEqual(50, view.LastRoll);
+        Assert.AreEqual(10L, view.LastRollBy, "A timeout by player 20 does not transfer player 10's roll.");
+    }
+
     private sealed class FixedRandom(int value) : IRandomSource
     {
         public int Roll(int maxInclusive) => Math.Min(value, maxInclusive);

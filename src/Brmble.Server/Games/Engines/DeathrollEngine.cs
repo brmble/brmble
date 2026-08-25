@@ -161,7 +161,12 @@ public sealed class DeathrollEngine : IGameEngine
             Ceiling: s.Ceiling,
             LastRoll: s.LastRoll,
             Finished: s.LoserId is not null,
-            LoserId: s.LoserId);
+            LoserId: s.LoserId,
+            // Derived, not stored. DoRoll flips CurrentIndex only on a NON-fatal roll,
+            // and a non-fatal timeout penalty touches neither LastRoll nor CurrentIndex —
+            // so the owner of LastRoll is LoserId once set, and otherwise the player
+            // CurrentIndex has just flipped away from. Deathroll is always 2 players.
+            LastRollBy: s.LastRoll is null ? null : s.LoserId ?? s.Players[s.CurrentIndex ^ 1]);
     }
 
     public int? CurrentCeiling(object state) => ((State)state).Ceiling;
