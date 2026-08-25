@@ -456,8 +456,12 @@ server-provided static ETA (`About …` or exactly `Unknown`). It does not local
 derive ETAs.
 
 The active-duel card carries a single action, **Watch**, which starts spectating — the modal is no
-longer metadata-only. It is enabled only when `snapshot.channelId === joinedChannelId`: the modal
-can peek at other channels' queues, but spectating is same-channel only. A `Tooltip` wraps the
+longer metadata-only. It is enabled only when
+`activityChannelMatchesPresence(joinedChannelId, String(snapshot.channelId))`
+(`workspace/activityPresence.ts`) is true: the modal can peek at other channels' queues, but
+spectating is same-channel only. Always go through that helper rather than writing the comparison
+by hand — it also rejects a null presence **and server root**, and string-coerces the numeric
+snapshot `channelId`, all three of which a hand-rolled `===` silently loses. A `Tooltip` wraps the
 button in both states and explains the disabled one. Everything else in the modal stays read-only.
 See the Game Spectator Pattern.
 
@@ -654,19 +658,19 @@ region (`'spectate'`, label `Game`). It is never game mode: game mode is
 participation, and spectating must never set `MainPanelMode = 'game'`.
 
 The Minigame Panel Pattern does **not** govern this surface. That section scopes itself,
-in its own opening sentence, to a minigame the local player is participating in, one
+in its own scoping paragraph, to a minigame the local player is participating in, one
 that owns the whole main panel — spectating is neither. So the shell described below is
 a design choice for this surface, not a rule inherited from there. (An implementer has
 already read it the other way round; it is written out here so nobody has to guess
 again.)
 
-The shared card shell (`.glass-panel`, `.modal-header`, `h2.heading-title.modal-title`)
-therefore has **two owners**. For a participant the *board* wears it. For a spectator
-the *stage host*, `SpectatorActivity`, wears it and the spectator boards are bare
-bodies. The reason is concrete: `SpectatorActivity` is the only component in the
-spectate path that knows `match.gameType`, because each board is narrowed to a single
-`view` shape and cannot name the game it is rendering. Without the host's header,
-nothing on screen would say what is being watched.
+The shared card shell (`.glass-panel.animate-slide-up`, `.modal-header`,
+`h2.heading-title.modal-title`) therefore has **two owners**. For a participant the
+*board* wears it. For a spectator the *stage host*, `SpectatorActivity`, wears it and
+the spectator boards are bare bodies. The reason is concrete: `SpectatorActivity` is the
+only component in the spectate path that knows `match.gameType`, because each board is
+narrowed to a single `view` shape and cannot name the game it is rendering. Without the
+host's header, nothing on screen would say what is being watched.
 
 `SpectatorActivity` deliberately renders **no** `.modal-close`, even though the shell
 list includes one. The region is not dismissible and **Stop watching** is the only exit.
@@ -682,7 +686,11 @@ Rules:
    does not stop it and never requires a resubscribe.
 3. The stage has exactly three states, and **Stop watching** is present in all of
    them: **Live** (the spectator board), **Ended** (the same board showing its
-   result, held until the next match starts) and **Idle** (the next-up card).
+   result, held until the next match starts) and **Idle** (the next-up card). Stop
+   watching uses the shared `.btn.btn-secondary.btn-sm` — `.btn-sm`, not the default
+   `.btn`, because the whole panel's chrome has to fit inside
+   `--activity-stage-min-height` (8rem) and a full-size `.btn` line box overflows it.
+   Do not "tidy" it back to `.btn`; no test catches that overflow.
 4. **Idle is a continuation state, not an entry state.** The only opt-in is the Watch
    button, which renders on the active-duel card and so exists only while a match is
    live. A spectator therefore reaches the Idle card only by a match *ending* while
