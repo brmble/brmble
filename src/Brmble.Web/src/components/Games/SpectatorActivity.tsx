@@ -20,11 +20,14 @@ interface SpectatorActivityProps {
  * The 'spectate' stage. Three states, and Stop watching in all of them.
  *
  * This host supplies the shared card shell (`.glass-panel`, `.modal-header`,
- * `h2.heading-title.modal-title`) required by the UI guide's Minigame Panel
- * Pattern. The spectator boards are deliberately bare bodies, and
- * ChannelActivityRegion supplies only a channel-name + chip header and an
- * unstyled stage box — so without this shell nothing on screen would name the
- * game being watched.
+ * `h2.heading-title.modal-title`). That is a design CHOICE for this surface, not a
+ * guide requirement: the Minigame Panel Pattern scopes itself to a game the local
+ * player is PARTICIPATING in, one that owns the whole main panel, and game mode is
+ * never entered by spectating. It is chosen here because the spectator boards are
+ * deliberately bare bodies and ChannelActivityRegion supplies only a channel-name +
+ * chip header and an unstyled stage box — so without a shell nothing on screen would
+ * name the game being watched, and this host is the only component in the spectate
+ * path that knows `match.gameType`. It may be changed if a better fit is found.
  *
  * There is deliberately NO collapse or minimise affordance, for any activity kind.
  * The region is not dismissible; every activity ends by terminating itself. A
@@ -49,7 +52,7 @@ export function SpectatorActivity({
 
   return (
     <section className={`glass-panel animate-slide-up ${styles.activity}`} aria-label="Spectating">
-      <div className="modal-header">
+      <div className={`modal-header ${styles.header}`}>
         <h2 className="heading-title modal-title">
           {match ? gameDisplayName(match.gameType) : 'Spectating'}
         </h2>

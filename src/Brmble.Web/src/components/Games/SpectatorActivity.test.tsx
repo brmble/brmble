@@ -36,6 +36,21 @@ describe('SpectatorActivity', () => {
     expect(screen.getByText('73')).toBeInTheDocument();
   });
 
+  it('Live: names the watched game in the heading', () => {
+    render(<SpectatorActivity match={deathrollMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Deathroll');
+  });
+
+  it('Live: names an rps match in the heading', () => {
+    render(<SpectatorActivity match={rpsMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/rock|rps/i);
+  });
+
+  it('Idle: heads the panel Spectating, naming no game', () => {
+    render(<SpectatorActivity match={null} ended={null} queueSnapshot={queue()} resolveName={resolveName} onStopWatching={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Spectating');
+  });
+
   it('Live: renders the rps board for an rps view', () => {
     render(<SpectatorActivity match={rpsMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
     expect(screen.getByTestId('spectator-commit-10')).toHaveTextContent(/thrown/i);
@@ -53,6 +68,23 @@ describe('SpectatorActivity', () => {
     );
     expect(screen.getByText('73')).toBeInTheDocument();
     expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
+    // The board is HELD, not replaced by the Idle card.
+    expect(screen.queryByTestId('spectator-next-up')).not.toBeInTheDocument();
+  });
+
+  it('Ended: plumbs the outcome into the rps board too', () => {
+    render(
+      <SpectatorActivity
+        match={rpsMatch}
+        ended={{ schemaVersion: 1, matchId: 91, channelId: 7, reason: 'completed', finalSequence: 3, outcome: { winnerId: 10, loserId: 20, draw: false } }}
+        queueSnapshot={null}
+        resolveName={resolveName}
+        onStopWatching={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('spectator-score-10')).toBeInTheDocument();
+    expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
+    expect(screen.queryByTestId('spectator-next-up')).not.toBeInTheDocument();
   });
 
   it('Idle: shows the next-up pair, game and format from the queue snapshot', () => {
@@ -109,7 +141,7 @@ describe('SpectatorActivity', () => {
   });
 
   it('Idle: never lists the whole queue or an ETA', () => {
-    render(
+    const { container } = render(
       <SpectatorActivity
         match={null} ended={null}
         queueSnapshot={queue({
@@ -122,9 +154,16 @@ describe('SpectatorActivity', () => {
         onStopWatching={vi.fn()}
       />
     );
-    const card = screen.getByTestId('spectator-next-up');
-    expect(card).not.toHaveTextContent('Broan');
-    expect(card).not.toHaveTextContent(/starts in/i);
+    // Container scope, not card scope: a regression that renders queue[1] as a
+    // SIBLING of the next-up card would pass a card-scoped assertion.
+    expect(screen.getByTestId('spectator-next-up')).toHaveTextContent('Qy');
+    expect(screen.queryByText('Broan')).not.toBeInTheDocument();
+    // The fixture's eta is 60_000ms, which the queue modal renders as
+    // "Starts in about 1m" via formatDuration. Assert no such duration text
+    // appears anywhere — that is what a real ETA regression would produce.
+    expect(container.textContent).not.toMatch(/starts in/i);
+    expect(container.textContent).not.toMatch(/estimated/i);
+    expect(container.textContent).not.toMatch(/\b1m\b|\b60s\b/);
   });
 
   it.each([
