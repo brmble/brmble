@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectStage } from './channelActivity';
+import { selectStage, type ChannelActivityKind } from './channelActivity';
 
 describe('selectStage', () => {
   it('returns nothing when the channel is quiet', () => {
@@ -32,5 +32,29 @@ describe('selectStage', () => {
 
   it('returns nothing when the last activity ends', () => {
     expect(selectStage({ available: [], explicit: 'paint', previous: 'paint' })).toBeNull();
+  });
+
+  it('stages spectate when it is the only activity', () => {
+    expect(selectStage({ available: ['spectate'], explicit: null, previous: null })).toBe('spectate');
+  });
+
+  it('does not let spectate steal the stage from a live activity', () => {
+    expect(selectStage({ available: ['paint', 'spectate'], explicit: null, previous: 'paint' })).toBe('paint');
+  });
+
+  it('honours an explicit click on spectate', () => {
+    expect(selectStage({ available: ['screen-share', 'paint', 'spectate'], explicit: 'spectate', previous: 'paint' }))
+      .toBe('spectate');
+  });
+
+  it('hands the stage over when spectating stops', () => {
+    expect(selectStage({ available: ['paint'], explicit: 'spectate', previous: 'spectate' })).toBe('paint');
+  });
+});
+
+describe('ChannelActivityKind', () => {
+  it('has exactly three members', () => {
+    const all: ChannelActivityKind[] = ['screen-share', 'paint', 'spectate'];
+    expect(new Set(all).size).toBe(3);
   });
 });

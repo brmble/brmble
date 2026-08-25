@@ -1,4 +1,10 @@
-export type ChannelActivityKind = 'screen-share' | 'paint';
+/**
+ * The kind is 'spectate', NOT 'game': MainPanelMode is already 'game' | 'split'
+ * where 'game' means PARTICIPATING. Game mode is entered by participating in a
+ * game, never by spectating one (docs/UI_GUIDE.md), so two 'game' values meaning
+ * opposite things would be a trap. The user-facing chip label is 'Game'.
+ */
+export type ChannelActivityKind = 'screen-share' | 'paint' | 'spectate';
 
 export function selectStage(input: {
   available: ChannelActivityKind[];

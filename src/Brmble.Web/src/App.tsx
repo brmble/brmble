@@ -950,6 +950,8 @@ function duelCommandErrorDetail(error: { reason?: string; message?: string }): s
 const ACTIVITY_LABELS: Record<ChannelActivityKind, string> = {
   'screen-share': 'Screen share',
   paint: 'Paint',
+  // Game-neutral: does not presume two players.
+  spectate: 'Game',
 };
 
 function App() {
@@ -5152,6 +5154,10 @@ const handleConnect = (serverData: SavedServer) => {
             onClose={handleClosePaint}
           />
         ) : null;
+      case 'spectate':
+        // Filled in by Task 17 (SpectatorActivity). Rendering null here keeps the
+        // switch exhaustive without pretending the stage works yet.
+        return null;
       default:
         return assertNever(staged);
     }
