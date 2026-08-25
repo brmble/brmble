@@ -2,6 +2,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.ChannelRequests;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using System.Text.Json;
 
 namespace Brmble.Server.Games;
@@ -16,6 +17,7 @@ public static class GameEndpoints
     public record ActionDto(long MatchId, Dictionary<string, object?> Action);
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
+    public record SpectateDto(int ChannelId);
 
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
@@ -137,6 +139,47 @@ public static class GameEndpoints
             return Results.BadRequest(new GameErrorWire(
                 "The requested match is not the authenticated user's active match.",
                 DuelWire.Reason(DuelRejectReason.NotParticipant)));
+        });
+
+        // Spectating is a CHANNEL mode, not a match view: you subscribe to a channel
+        // and keep receiving frames match after match until you stop, move, or
+        // disconnect. channelId is VALIDATED against live membership rather than
+        // derived from it, so a concurrent channel move fails loudly with
+        // notSameChannel instead of silently subscribing you to the wrong channel.
+        app.MapPost("/games/spectators/subscribe", async (SpectateDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, ISpectatorCoordinator spectators,
+            ISessionMappingService sessions) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.BadRequest(new GameErrorWire(
+                    "You must be connected to Brmble.",
+                    SpectatorWire.Reason(SpectatorSubscribeReason.NotPresent)));
+
+            var result = await spectators.SubscribeAsync(session, user.UserId, dto.ChannelId);
+            if (!result.Success)
+                return Results.BadRequest(new GameErrorWire(
+                    result.Reason == SpectatorSubscribeReason.NotSameChannel
+                        ? "You must be in the channel to watch it."
+                        : "You must be connected to Brmble.",
+                    SpectatorWire.Reason(result.Reason)));
+
+            // A null match is a SUCCESS: the channel is idle and the subscription is live.
+            return Results.Ok(new { channelId = dto.ChannelId, match = result.Match });
+        });
+
+        app.MapPost("/games/spectators/unsubscribe", async (HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, ISpectatorCoordinator spectators,
+            ISessionMappingService sessions) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return Results.Ok(new { unsubscribed = true });
+
+            await spectators.UnsubscribeAsync(session, user.UserId);
+            return Results.Ok(new { unsubscribed = true });
         });
 
         app.MapGet("/games/stats/{gameType}", async (string gameType, string? window, HttpContext ctx,

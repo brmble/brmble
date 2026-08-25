@@ -3,6 +3,7 @@ using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.DependencyInjection;
@@ -79,5 +80,15 @@ public class GamesExtensionsTests
         else host.Dispose();
 
         Assert.AreEqual(0, MatchCompletedSubscriberCount(router));
+    }
+
+    [TestMethod]
+    public void AddGames_RegistersTheSpectatorServiceAsBothInterfaces()
+    {
+        using var host = BuildHost();
+
+        var coordinator = host.Services.GetRequiredService<ISpectatorCoordinator>();
+        var lifecycle = host.Services.GetRequiredService<ISpectatorLifecycle>();
+        Assert.AreSame<object>(coordinator, lifecycle, "One SpectatorService instance owns both roles.");
     }
 }

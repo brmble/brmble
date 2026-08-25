@@ -24,6 +24,11 @@ public static class GamesExtensions
         services.AddSingleton<GameStatsService>();
         services.AddSingleton<IGamePresence, SessionMappingGamePresence>();
         services.AddSingleton<IGameEventPublisher, EventBusGameEventPublisher>();
+        // One instance owns both roles: the coordinator (sources publish into it) and
+        // the lifecycle (presence teardown calls into it). They share the registry.
+        services.AddSingleton<Spectators.SpectatorService>();
+        services.AddSingleton<Spectators.ISpectatorCoordinator>(sp => sp.GetRequiredService<Spectators.SpectatorService>());
+        services.AddSingleton<Spectators.ISpectatorLifecycle>(sp => sp.GetRequiredService<Spectators.SpectatorService>());
         services.AddSingleton<GameSessionManager>();
         services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<GameSessionManager>());
         services.AddSingleton<DuelMatchRunnerRouter>();

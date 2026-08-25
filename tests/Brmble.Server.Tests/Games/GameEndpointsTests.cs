@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.Tests.Integration;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -299,6 +301,137 @@ public class GameEndpointsTests
         orchestrator.Verify(x => x.CancelOfferAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
         orchestrator.Verify(x => x.RespondReadyAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<ReadyResponse>()), Times.Never);
         orchestrator.Verify(x => x.RequestRematchAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+    }
+
+    private static WebApplicationFactory<Program> CreateSpectatorFactory(
+        Mock<ISpectatorCoordinator> spectators,
+        bool hasSession = true,
+        string? certHash = "testcerthash123")
+    {
+        var factory = new BrmbleServerFactory(certHash);
+        factory.SessionMappingMock
+            .Setup(x => x.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long _, out int session) => { session = 55; return hasSession; });
+        return factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<ISpectatorCoordinator>();
+            services.AddSingleton(spectators.Object);
+        }));
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_IdleChannel_ReturnsNullMatch()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(true, null, SpectatorSubscribeReason.None));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual(7, doc.RootElement.GetProperty("channelId").GetInt32());
+        Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("match").ValueKind);
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_LiveChannel_ReturnsTheSnapshot()
+    {
+        var snapshot = new SpectatorSnapshot(
+            1, 91, 7, "deathroll", "1v1", 1,
+            [new DuelPlayerSnapshot(100, 10, "Qy"), new DuelPlayerSnapshot(200, 20, "Broan")],
+            4, DateTimeOffset.UnixEpoch,
+            new DeathrollSpectatorView("deathroll", [10, 20], 10, 50, 73, false, null));
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(true, snapshot, SpectatorSubscribeReason.None));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var match = doc.RootElement.GetProperty("match");
+        Assert.AreEqual(91, match.GetProperty("matchId").GetInt64());
+        Assert.AreEqual("deathroll", match.GetProperty("view").GetProperty("kind").GetString());
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_CrossChannel_RejectsWithStructuredReason()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 8))
+            .ReturnsAsync(new SpectatorSubscribeResult(false, null, SpectatorSubscribeReason.NotSameChannel));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 8 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notSameChannel", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_WithNoLiveSession_RejectsWithNotPresent()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notPresent", doc.RootElement.GetProperty("reason").GetString());
+        spectators.Verify(x => x.SubscribeAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_Unauthenticated_Returns401()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, certHash: null);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_Succeeds()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsTrue(doc.RootElement.GetProperty("unsubscribed").GetBoolean());
+        spectators.Verify(x => x.UnsubscribeAsync(55, It.IsAny<long>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_Unauthenticated_Returns401()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, certHash: null);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(
