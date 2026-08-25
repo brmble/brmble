@@ -4,6 +4,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Companions;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 
 namespace Brmble.Server.WebSockets;
 
@@ -126,9 +127,49 @@ public static class BrmbleWebSocketHandler
         catch (OperationCanceledException) { /* server shutting down */ }
         finally
         {
-            eventBus.RemoveClient(ws);
-            if (!eventBus.HasConnectedClient(user.Id))
-                activeSessions.Deactivate(hash);
+            await FinalizeClosedClientAsync(
+                ws, user.Id, hash, eventBus, activeSessions,
+                context.RequestServices.GetRequiredService<ISpectatorLifecycle>(),
+                context.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger(typeof(BrmbleWebSocketHandler).FullName!));
+        }
+    }
+
+    /// <summary>
+    /// Unregisters a closed socket and, only when it was the user's LAST one, tears down the
+    /// per-user state that outlives an individual socket.
+    ///
+    /// There is no per-user socket refcount in this codebase: <c>RemoveClient</c> followed by
+    /// <c>HasConnectedClient(userId)</c> IS the signal, and it is the same one
+    /// <c>activeSessions.Deactivate</c> has always keyed off. A non-final close therefore
+    /// cannot reach the teardown, because the user's other sockets keep
+    /// <c>HasConnectedClient</c> true.
+    ///
+    /// Spectator teardown is best-effort. This runs in a <c>finally</c>, so letting it throw
+    /// would replace whatever exception was already unwinding the socket.
+    /// </summary>
+    internal static async Task FinalizeClosedClientAsync(
+        WebSocket socket,
+        long userId,
+        string certHash,
+        IBrmbleEventBus eventBus,
+        IActiveBrmbleSessions activeSessions,
+        ISpectatorLifecycle spectators,
+        ILogger logger)
+    {
+        eventBus.RemoveClient(socket);
+        if (eventBus.HasConnectedClient(userId)) return;
+
+        activeSessions.Deactivate(certHash);
+        // Only the user's FINAL application socket clears the subscription. Reconnecting
+        // requires an explicit fresh subscribe; nothing is restored implicitly.
+        try
+        {
+            await spectators.HandleTransportDisconnectedAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Spectator teardown failed for user {UserId} on socket close.", userId);
         }
     }
 

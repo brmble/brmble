@@ -3,6 +3,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +29,8 @@ public class MumbleServerCallbackTests
         LiveKitParticipantTracker? liveKitParticipantTracker = null,
         ILogger<MumbleServerCallback>? logger = null,
         IDuelOrchestrator? orchestrator = null,
-        Mock<IPaintParticipationLifecycle>? paintParticipation = null)
+        Mock<IPaintParticipationLifecycle>? paintParticipation = null,
+        ISpectatorLifecycle? spectators = null)
     {
         if (mapping is null)
         {
@@ -65,6 +67,7 @@ public class MumbleServerCallbackTests
             liveKitParticipantTracker ?? new LiveKitParticipantTracker(),
             orchestrator ?? new Mock<IDuelOrchestrator>().Object,
             paintParticipation?.Object ?? new Mock<IPaintParticipationLifecycle>().Object,
+            spectators ?? Mock.Of<ISpectatorLifecycle>(),
             logger ?? NullLogger<MumbleServerCallback>.Instance);
     }
 
@@ -754,5 +757,110 @@ public class MumbleServerCallbackTests
         remover.Verify(r => r.RemoveParticipant("channel-10", "@alice:test"), Times.Never);
         Assert.IsNull(screenShareTracker.GetActive("channel-5"));
         Assert.AreEqual("channel-10", participantTracker.GetSnapshot().Single().RoomName);
+    }
+
+    // --- Spectator lifecycle invalidation ---
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate()
+    {
+        // Spectator authorization is same-channel, so the drop has to be decided while the
+        // OLD membership is still readable. Updating membership first would make the move
+        // invisible to the lifecycle and strand the subscription.
+        var order = new List<string>();
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandleChannelChangedAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .Callback(() => order.Add("spectators")).Returns(Task.CompletedTask);
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(x => x.Update(It.IsAny<int>(), It.IsAny<int>()))
+            .Callback(() => order.Add("membership"));
+        var callback = CreateCallback([], channelMembership: membership.Object, spectators: spectators.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Qy", "abc", 30), 8);
+
+        spectators.Verify(x => x.HandleChannelChangedAsync(30, 8), Times.Once);
+        CollectionAssert.AreEqual(new[] { "spectators", "membership" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_DropsSpectatorSubscriptionBeforeDestructiveCleanup()
+    {
+        var order = new List<string>();
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected))
+            .Callback(() => order.Add("spectators")).Returns(Task.CompletedTask);
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        mapping.Setup(m => m.RemoveSession(30)).Callback(() => order.Add("mapping"));
+        var membership = new Mock<IChannelMembershipService>();
+        membership.Setup(m => m.Remove(30)).Callback(() => order.Add("membership"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, spectators: spectators.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Qy", "abc", 30));
+
+        spectators.Verify(x => x.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected), Times.Once);
+        CollectionAssert.AreEqual(new[] { "spectators", "mapping", "membership" }, order);
+    }
+
+    [TestMethod]
+    public async Task DispatchChannelRemoved_DropsEverySpectatorInThatChannel()
+    {
+        var spectators = new Mock<ISpectatorLifecycle>();
+        var callback = CreateCallback([], spectators: spectators.Object);
+
+        await callback.DispatchChannelRemoved(new MumbleChannel(7, "General"));
+
+        spectators.Verify(x => x.HandleChannelRemovedAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchChannelRemoved_SpectatorLifecycleFailureDoesNotBreakDispatch()
+    {
+        // Spectator teardown is best-effort: a failed drop leaves a subscription that the
+        // next teardown or an explicit unsubscribe clears, and must never take a Mumble
+        // dispatch down with it.
+        var handler = new Mock<IMumbleEventHandler>();
+        handler.Setup(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>())).Returns(Task.CompletedTask);
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandleChannelRemovedAsync(It.IsAny<int>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var callback = CreateCallback([handler.Object], spectators: spectators.Object);
+
+        await callback.DispatchChannelRemoved(new MumbleChannel(7, "General"));
+
+        handler.Verify(x => x.OnChannelRemoved(It.IsAny<MumbleChannel>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserStateChanged_SpectatorLifecycleFailureStillUpdatesMembership()
+    {
+        var membership = new Mock<IChannelMembershipService>();
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandleChannelChangedAsync(It.IsAny<long>(), It.IsAny<int>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var callback = CreateCallback([], channelMembership: membership.Object, spectators: spectators.Object);
+
+        await callback.DispatchUserStateChanged(new MumbleUser("Qy", "abc", 30), 8);
+
+        membership.Verify(x => x.Update(30, 8), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task DispatchUserDisconnected_SpectatorLifecycleFailureStillCleansUp()
+    {
+        var mapping = new Mock<ISessionMappingService>();
+        mapping.Setup(m => m.GetSnapshot()).Returns(new Dictionary<int, SessionMapping>());
+        var membership = new Mock<IChannelMembershipService>();
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandlePresenceLostAsync(It.IsAny<long>(), It.IsAny<SpectatorCloseReason>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var callback = CreateCallback([], mapping: mapping.Object,
+            channelMembership: membership.Object, spectators: spectators.Object);
+
+        await callback.DispatchUserDisconnected(new MumbleUser("Qy", "abc", 30));
+
+        mapping.Verify(m => m.RemoveSession(30), Times.Once);
+        membership.Verify(m => m.Remove(30), Times.Once);
     }
 }

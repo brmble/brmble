@@ -359,6 +359,38 @@ public class SpectatorServiceTests
     }
 
     [TestMethod]
+    public async Task TransportDisconnected_EmitsOneClosedEventPerSessionEvenWhenIdentical()
+    {
+        // Pins a deliberate asymmetry with HandleChannelRemovedAsync, which batches ONE
+        // closed event for all subscribers of a channel. The disconnect path is per-session
+        // because it reuses CloseSessionAsync, and a session is the only thing that knows
+        // WHICH channel it was watching — one user's two sessions can sit in two channels,
+        // so the events are usually distinct and genuinely both needed.
+        //
+        // When both sessions watch the SAME channel the two events are byte-identical,
+        // because SpectatorClosedEvent carries no session identity. That duplicate is
+        // accepted, not overlooked: closing an already-closed spectator view is idempotent
+        // on the client, and de-duplicating would mean grouping by channel inside the
+        // disconnect path alone, diverging it from every other teardown path for no
+        // correctness gain. If a future change wants a single batched publish here, this
+        // test is the thing it has to argue with.
+        Place(session: 31, user: 300, channel: 7);
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(31, 300, 7);
+
+        await _service.HandleTransportDisconnectedAsync(300);
+
+        var closed = _publisher.OfType<SpectatorClosedEvent>().ToList();
+        Assert.AreEqual(2, closed.Count, "one close per session, not one per user");
+        foreach (var (users, message) in closed)
+        {
+            CollectionAssert.AreEquivalent(new[] { 300L }, users.ToArray());
+            Assert.AreEqual(7, message.ChannelId);
+            Assert.AreEqual("disconnected", message.Reason);
+        }
+    }
+
+    [TestMethod]
     public async Task Teardown_OfAnUnsubscribedSession_IsSilent()
     {
         await _service.HandleChannelChangedAsync(30, 8);

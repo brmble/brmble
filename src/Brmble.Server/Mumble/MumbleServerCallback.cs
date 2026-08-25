@@ -2,6 +2,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Paint;
 
@@ -19,6 +20,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly IDuelOrchestrator _duels;
     private readonly IPaintParticipationLifecycle _paintParticipation;
+    private readonly ISpectatorLifecycle _spectators;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -33,6 +35,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         LiveKitParticipantTracker liveKitParticipantTracker,
         IDuelOrchestrator duels,
         IPaintParticipationLifecycle paintParticipation,
+        ISpectatorLifecycle spectators,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -45,6 +48,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _duels = duels;
         _paintParticipation = paintParticipation;
+        _spectators = spectators;
         _logger = logger;
     }
 
@@ -168,6 +172,12 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         IReadOnlyList<string> stoppedRooms = [];
 
+        // Ahead of every destructive step below: the session mapping and channel membership
+        // this drop is decided against are both about to be torn down.
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandlePresenceLostAsync(user.SessionId, SpectatorCloseReason.Disconnected),
+            "user disconnect", user.SessionId);
+
         // Check if user was sharing and stop all shares before removing session
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
@@ -234,6 +244,14 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 "channel change",
                 user.SessionId);
 
+        // Before the membership update: spectator authorization is same-channel, so the drop
+        // must be decided while the OLD channel is still readable. The lifecycle reads its own
+        // subscription table rather than this one, but it is ordered here so a redundant
+        // user-state dispatch cannot be told the move already happened.
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
+            "channel change", user.SessionId);
+
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
@@ -260,6 +278,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchChannelRemoved(MumbleChannel channel)
     {
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await TryNotifyDuelsAsync(() => _duels.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
     }
@@ -273,6 +293,23 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         catch (Exception ex)
         {
             _logger.LogError(ex, "Duel cleanup failed during {Operation} for {Id}", operation, id);
+        }
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="TryNotifyDuelsAsync"/>: spectator teardown is best-effort and must
+    /// never break a Mumble dispatch. A failed drop leaves a subscription that the next
+    /// teardown or an explicit unsubscribe will clear.
+    /// </summary>
+    private async Task TryNotifySpectatorsAsync(Func<Task> notify, string operation, long id)
+    {
+        try
+        {
+            await notify();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Spectator teardown failed during {Operation} for {Id}", operation, id);
         }
     }
 
