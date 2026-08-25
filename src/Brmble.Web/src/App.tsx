@@ -5059,6 +5059,20 @@ const handleConnect = (serverData: SavedServer) => {
   }, [spectator.startSpectating, notifQueue]);
 
   /**
+   * The channel row's watch toggle. Starting reuses handleWatchDuel so the modal path
+   * and the row path behave identically — same explicit-activity focus, same error
+   * surfacing. Stopping is the hook's own teardown, which unsubscribes and clears the
+   * spectate state that drops the chip and the activity region.
+   */
+  const handleToggleSpectate = useCallback((channelId: number) => {
+    if (spectator.spectatingChannelId === channelId) {
+      spectator.stopSpectating();
+      return;
+    }
+    handleWatchDuel(channelId);
+  }, [spectator.spectatingChannelId, spectator.stopSpectating, handleWatchDuel]);
+
+  /**
    * The refusal copy names a condition ("you are not in that channel") that the user
    * can fix by moving, and errors never auto-dismiss — so without this the notice
    * outlives the condition it describes and sits there being false. `useSpectatorState`
@@ -5385,6 +5399,8 @@ const handleConnect = (serverData: SavedServer) => {
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={setSelectedDuelChannelId}
+          spectatingChannelId={spectator.spectatingChannelId}
+          onToggleSpectate={handleToggleSpectate}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}

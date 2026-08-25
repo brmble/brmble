@@ -415,6 +415,54 @@ describe('App — spectating as a channel activity', () => {
     expect(screen.queryByRole('region', { name: /activity/ })).not.toBeInTheDocument();
   });
 
+  it('starts spectating from the channel row and lights the Game chip', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    mocks.subscribeSpectator.mockResolvedValue(subscribed(deathrollFrame(1)));
+    renderInChannel();
+
+    await user.click(screen.getByRole('button', { name: 'Watch games in General' }));
+
+    expect(mocks.subscribeSpectator).toHaveBeenCalledWith(CHANNEL);
+    await waitFor(() => expect(gameChip()).toBeInTheDocument());
+    // Same explicit-activity focus as the modal path: the stage is what was opted into.
+    expect(gameChip()).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Spectating' })).toBeInTheDocument();
+  });
+
+  it('stops spectating when the row toggle is clicked again', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    mocks.subscribeSpectator.mockResolvedValue(subscribed(deathrollFrame(1)));
+    renderInChannel();
+
+    await user.click(screen.getByRole('button', { name: 'Watch games in General' }));
+    await waitFor(() => expect(gameChip()).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Stop watching General' }));
+
+    expect(mocks.unsubscribeSpectator).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribeSpectator).toHaveBeenCalledTimes(1);
+    expect(gameChip()).not.toBeInTheDocument();
+  });
+
+  it('surfaces a refusal from the row toggle exactly as the modal path does', async () => {
+    const user = userEvent.setup();
+    mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);
+    const { GameApiError } = await import('./api/games');
+    mocks.subscribeSpectator.mockRejectedValue(
+      new GameApiError('You are not in that channel.', 'notSameChannel'),
+    );
+    renderInChannel();
+
+    await user.click(screen.getByRole('button', { name: 'Watch games in General' }));
+
+    await waitFor(() => expect(screen.getByText('Cannot watch this channel')).toBeInTheDocument());
+    expect(screen.getByText('You can only watch a game in the channel you have joined.'))
+      .toBeInTheDocument();
+    expect(gameChip()).not.toBeInTheDocument();
+  });
+
   it('drops the chip when the server closes the subscription', async () => {
     const user = userEvent.setup();
     mocks.duelQueue.byChannel = new Map([[CHANNEL, activeDuelSnapshot(CHANNEL)]]);

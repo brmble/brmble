@@ -433,7 +433,10 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
           {duelChannelIds?.has(channel.id) && onToggleSpectate && (() => {
             const watching = spectatingChannelId === channel.id;
             // Same-channel only, via the canonical predicate the modal's Watch button
-            // uses — one encoding of the rule, not two. It also excludes server-root.
+            // uses — one encoding of the rule, not two. Server-root is already gone by
+            // the time it gets here: App narrows selectJoinedChannelId's `string | null`
+            // to `number | undefined`, collapsing both null and the root sentinel to
+            // undefined, so no root id can reach this prop.
             // This prop is numeric and `undefined` while unjoined; the predicate speaks
             // the string ids of workspace/activityPresence, so widen before asking.
             const canWatch = activityChannelMatchesPresence(
@@ -446,7 +449,9 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
                   : canWatch ? 'Watch games in this channel'
                     : 'You can only watch games in the channel you have joined'
               }>
-                <span className="tooltip-wrapper">
+                {/* Focusable so keyboard users get the disabled explanation too:
+                    a disabled button takes no focus, so the wrapper must. */}
+                <span className="tooltip-wrapper" tabIndex={0}>
                   <button
                     type="button"
                     className={`channel-spectate-icon${watching ? ' watching' : ''}`}
