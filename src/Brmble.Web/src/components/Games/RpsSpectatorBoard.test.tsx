@@ -36,6 +36,41 @@ describe('RpsSpectatorBoard', () => {
     }
   });
 
+  // The steady state of a live match is round N+1 in progress WITH round N sitting in
+  // `lastRound`, so the throw names legitimately appear on screen. A whole-container scan is
+  // unusable here — assert on the commit cells themselves, which is where a leak would land.
+  it('keeps the commit cells free of throws even while a resolved round is on screen', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          lastRound: {
+            roundNumber: 1,
+            sequence: 1,
+            pick0: 'rock',
+            pick1: 'scissors',
+            winnerId: 10,
+            tie: false,
+          },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+
+    for (const sessionId of [10, 20]) {
+      const commit = (screen.getByTestId(`spectator-commit-${sessionId}`).textContent ?? '')
+        .toLowerCase();
+      for (const throwName of ['rock', 'paper', 'scissors']) {
+        expect(commit).not.toContain(throwName);
+      }
+    }
+
+    // ...and they still carry their real state, so this cannot pass by blanking.
+    expect(screen.getByTestId('spectator-commit-10')).toHaveTextContent(/thrown/i);
+    expect(screen.getByTestId('spectator-commit-20')).toHaveTextContent(/choosing/i);
+  });
+
   it('shows the running score against bestOf and targetWins', () => {
     render(<RpsSpectatorBoard view={unresolved} players={players} outcome={null} />);
     expect(screen.getByTestId('spectator-score-10')).toHaveTextContent('1');
@@ -143,5 +178,28 @@ describe('RpsSpectatorBoard', () => {
       />,
     );
     expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
+  });
+
+  it('announces a bare end when the match finished without a winner or a draw', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{ ...unresolved, finished: true, winnerId: null, committed: [false, false] }}
+        players={players}
+        outcome={{ winnerId: null, loserId: null, draw: false }}
+      />,
+    );
+    expect(screen.getByText('The match has ended.')).toBeInTheDocument();
+  });
+
+  it('degrades safely when roundWins and committed are shorter than players', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{ ...unresolved, roundWins: [1], committed: [true] }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.getByTestId('spectator-score-20')).toHaveTextContent('0');
+    expect(screen.getByTestId('spectator-commit-20')).toHaveTextContent(/choosing/i);
   });
 });

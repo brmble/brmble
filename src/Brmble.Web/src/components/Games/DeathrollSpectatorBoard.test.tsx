@@ -77,6 +77,17 @@ describe('DeathrollSpectatorBoard', () => {
     expect(screen.getByText(/draw/i)).toBeInTheDocument();
   });
 
+  it('announces a bare end when the match finished without a winner or a draw', () => {
+    render(
+      <DeathrollSpectatorBoard
+        view={{ ...live, currentPlayer: null, finished: true }}
+        players={players}
+        outcome={{ winnerId: null, loserId: null, draw: false }}
+      />,
+    );
+    expect(screen.getByText('The match has ended.')).toBeInTheDocument();
+  });
+
   it('shows a placeholder before the first roll', () => {
     render(
       <DeathrollSpectatorBoard view={{ ...live, lastRoll: null }} players={players} outcome={null} />,
