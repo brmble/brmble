@@ -99,3 +99,13 @@
   font-size: var(--text-lg);
   color: var(--text-primary);
 }
+
+/* The throw this player made in the round that just resolved. Rendered only from
+   `lastRound` — never from `committed`, which says only WHETHER a player has thrown. */
+.playerPick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  font-size: var(--text-2xs);
+}

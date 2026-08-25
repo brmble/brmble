@@ -202,4 +202,64 @@ describe('RpsSpectatorBoard', () => {
     expect(screen.getByTestId('spectator-score-20')).toHaveTextContent('0');
     expect(screen.getByTestId('spectator-commit-20')).toHaveTextContent(/choosing/i);
   });
+
+  it("shows each player's throw from the resolved round on their own card", () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+    expect(screen.getByTestId('spectator-pick-20')).toHaveAttribute('data-pick', 'scissors');
+  });
+
+  it('shows no throw on either card before the first round resolves', () => {
+    render(<RpsSpectatorBoard view={unresolved} players={players} outcome={null} />);
+    expect(screen.queryByTestId('spectator-pick-10')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spectator-pick-20')).not.toBeInTheDocument();
+  });
+
+  it('renders an idle timeout as no-throw rather than inventing an icon', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'none', pick1: 'scissors', winnerId: 20, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    const idle = screen.getByTestId('spectator-pick-10');
+    expect(idle).toHaveAttribute('data-pick', 'none');
+    expect(idle).toHaveTextContent(/no throw/i);
+    expect(idle.querySelector('svg')).toBeNull();
+  });
+
+  it('never shows an icon for the round currently in progress', () => {
+    // The dangerous state: round 2 is being played while round 1's reveal is on screen.
+    // Round 1 was rock/scissors; if a card ever showed 'paper' it could only have come
+    // from the live round, which the wire does not carry and the board must not invent.
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          roundNumber: 2,
+          committed: [true, false],
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    for (const sessionId of [10, 20]) {
+      const pick = screen.getByTestId(`spectator-pick-${sessionId}`).getAttribute('data-pick');
+      expect(pick).toBe(sessionId === 10 ? 'rock' : 'scissors');
+    }
+  });
 });
