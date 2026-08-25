@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSpectatorState } from './useSpectatorState';
+import type { SpectatorSubscribeResponse } from '../../api/games';
+import { useSpectatorState, type SpectatorState } from './useSpectatorState';
 import { api, emit, resetHarness, snapshot, snapshotEvent } from './spectatorTestHarness';
 
 vi.mock('../../bridge', async () => ({ default: (await import('./spectatorTestHarness')).bridge }));
@@ -108,6 +109,36 @@ describe('useSpectatorState', () => {
     expect(result.current.match).toBeNull();
   });
 
+  it.each([
+    ['game.spectatorMatchEnded'], ['game.spectatorClosed'],
+  ])('ignores a structurally malformed %s without throwing', async (event) => {
+    const { result } = renderHook(() => useSpectatorState());
+    await act(async () => { await result.current.startSpectating(7); });
+
+    // A non-object payload must be rejected by the isRecord guard, not dereferenced.
+    expect(() => {
+      emit(event, null);
+      emit(event, undefined);
+      emit(event, 'nonsense');
+      emit(event, 42);
+    }).not.toThrow();
+
+    expect(result.current.spectatingChannelId).toBe(7);
+    expect(result.current.ended).toBeNull();
+    expect(result.current.closeReason).toBeNull();
+  });
+
+  it('seeds the sequence gate from the subscribe response', async () => {
+    api.subscribeSpectator.mockResolvedValue({ channelId: 7, match: snapshot({ sequence: 4 }) });
+    const { result } = renderHook(() => useSpectatorState());
+    await act(async () => { await result.current.startSpectating(7); });
+
+    // Stale frame for the SAME match, below the sequence the response arrived at.
+    emit('game.spectatorSnapshot', snapshotEvent({ sequence: 3 }));
+
+    expect(result.current.match?.sequence).toBe(4);
+  });
+
   it('transitions to the next match with no resubscribe, resetting the sequence gate', async () => {
     const { result } = renderHook(() => useSpectatorState());
     await act(async () => { await result.current.startSpectating(7); });
@@ -173,6 +204,25 @@ describe('useSpectatorState', () => {
     expect(result.current.closeReason).toBe(reason);
   });
 
+  it('collapses an unrecognised close reason to disconnected', async () => {
+    const { result } = renderHook(() => useSpectatorState());
+    await act(async () => { await result.current.startSpectating(7); });
+
+    emit('game.spectatorClosed', { channelId: 7, reason: 'somethingElse' });
+
+    expect(result.current.closeReason).toBe('disconnected');
+    expect(result.current.spectatingChannelId).toBeNull();
+  });
+
+  it('collapses a missing close reason to disconnected', async () => {
+    const { result } = renderHook(() => useSpectatorState());
+    await act(async () => { await result.current.startSpectating(7); });
+
+    emit('game.spectatorClosed', { channelId: 7 });
+
+    expect(result.current.closeReason).toBe('disconnected');
+  });
+
   it('ignores a close for a channel it is not watching', async () => {
     const { result } = renderHook(() => useSpectatorState());
     await act(async () => { await result.current.startSpectating(7); });
@@ -214,6 +264,83 @@ describe('useSpectatorState', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(result.current.spectatingChannelId).toBeNull();
+  });
+
+  /**
+   * The staleness guard. Each of these holds the `subscribeSpectator` promise open,
+   * invalidates the intent mid-flight, and only THEN resolves. Without the
+   * epoch/mounted check in `startSpectating` the late response resurrects a
+   * subscription the user already discarded.
+   */
+  it.each([
+    ['stopSpectating', (result: { current: SpectatorState }) => { result.current.stopSpectating(); }],
+    ['voice.channelChanged', () => { emit('voice.channelChanged', { channelId: 8 }); }],
+    ['voice.connected', () => { emit('voice.connected', { channelId: 8 }); }],
+  ])('discards a subscribe that resolves after %s', async (_label, invalidate) => {
+    let resolveSubscribe!: (response: SpectatorSubscribeResponse) => void;
+    api.subscribeSpectator.mockReturnValue(
+      new Promise<SpectatorSubscribeResponse>(resolve => { resolveSubscribe = resolve; }),
+    );
+    const { result } = renderHook(() => useSpectatorState());
+
+    // Deliberately NOT awaited: the subscribe is still in flight.
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.startSpectating(7); });
+    expect(result.current.spectatingChannelId).toBeNull();
+
+    invalidate(result);
+
+    await act(async () => {
+      resolveSubscribe({ channelId: 7, match: snapshot({ sequence: 4 }) });
+      await pending;
+    });
+
+    expect(result.current.spectatingChannelId).toBeNull();
+    expect(result.current.match).toBeNull();
+    // And the discarded subscription must not start accepting frames either.
+    emit('game.spectatorSnapshot', snapshotEvent({ sequence: 5 }));
+    expect(result.current.match).toBeNull();
+  });
+
+  it('discards a subscribe that resolves after unmount', async () => {
+    let resolveSubscribe!: (response: SpectatorSubscribeResponse) => void;
+    api.subscribeSpectator.mockReturnValue(
+      new Promise<SpectatorSubscribeResponse>(resolve => { resolveSubscribe = resolve; }),
+    );
+    const { result, unmount } = renderHook(() => useSpectatorState());
+
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.startSpectating(7); });
+    unmount();
+
+    // Resolving after unmount must not attempt to set state on a dead hook.
+    await act(async () => {
+      resolveSubscribe({ channelId: 7, match: snapshot({ sequence: 4 }) });
+      await pending;
+    });
+  });
+
+  it('lets the newest concurrent subscribe win', async () => {
+    const resolvers: ((response: SpectatorSubscribeResponse) => void)[] = [];
+    api.subscribeSpectator.mockImplementation(
+      () => new Promise<SpectatorSubscribeResponse>(resolve => { resolvers.push(resolve); }),
+    );
+    const { result } = renderHook(() => useSpectatorState());
+
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => { first = result.current.startSpectating(7); });
+    act(() => { second = result.current.startSpectating(8); });
+
+    // The older subscribe resolves LAST, and must still lose to the newer intent.
+    await act(async () => {
+      resolvers[1]({ channelId: 8, match: null });
+      resolvers[0]({ channelId: 7, match: snapshot({ channelId: 7, sequence: 4 }) });
+      await Promise.all([first, second]);
+    });
+
+    expect(result.current.spectatingChannelId).toBe(8);
+    expect(result.current.match).toBeNull();
   });
 
   it.each([['voice.connected'], ['voice.channelChanged']])('resets on %s', async (event) => {
@@ -260,14 +387,17 @@ describe('useSpectatorState', () => {
     expect(result.current.match).toBeNull();
   });
 
-  it('unregisters its bridge listeners on unmount', async () => {
+  it('unregisters all of its bridge listeners on unmount', async () => {
     const { unmount } = renderHook(() => useSpectatorState());
     const { handlers } = await import('./spectatorTestHarness');
-    expect(handlers.get('game.spectatorSnapshot')).toHaveLength(1);
+    const types = [
+      'game.spectatorSnapshot', 'game.spectatorMatchEnded', 'game.spectatorClosed',
+      'voice.connected', 'voice.channelChanged',
+    ];
+    for (const type of types) expect(handlers.get(type), type).toHaveLength(1);
 
     unmount();
 
-    expect(handlers.get('game.spectatorSnapshot')).toHaveLength(0);
-    expect(handlers.get('game.spectatorClosed')).toHaveLength(0);
+    for (const type of types) expect(handlers.get(type), type).toHaveLength(0);
   });
 });
