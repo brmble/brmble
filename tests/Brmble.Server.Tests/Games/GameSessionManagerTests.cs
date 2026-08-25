@@ -1,6 +1,7 @@
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
+using Brmble.Server.Games.Spectators;
 using Dapper;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
@@ -31,6 +32,34 @@ internal sealed class ManagerPublisher : IGameEventPublisher
         lock (Delivered) Delivered.Add(message);
     }
     private static string? MessageType(object message) => message.GetType().GetProperty("type")?.GetValue(message) as string;
+}
+
+internal sealed class RecordingSpectators : ISpectatorCoordinator
+{
+    public List<SpectatorSourceFrame> Frames { get; } = [];
+    public List<(long MatchId, int ChannelId, long FinalSequence, MatchEndReason Reason, object Outcome)> Ends { get; } = [];
+
+    public Task<SpectatorSubscribeResult> SubscribeAsync(long sessionId, long userId, int channelId)
+        => Task.FromResult(new SpectatorSubscribeResult(true, null, SpectatorSubscribeReason.None));
+
+    public Task UnsubscribeAsync(long sessionId, long userId) => Task.CompletedTask;
+
+    public Task PublishDiscreteFrameAsync(SpectatorSourceFrame frame)
+    {
+        lock (Frames) Frames.Add(frame);
+        return Task.CompletedTask;
+    }
+
+    public Task EndMatchAsync(long matchId, int channelId, long finalSequence, MatchEndReason reason, object outcome)
+    {
+        lock (Ends) Ends.Add((matchId, channelId, finalSequence, reason, outcome));
+        return Task.CompletedTask;
+    }
+
+    public Task RegisterContinuousMatchAsync(SpectatorMatchDescriptor match) => Task.CompletedTask;
+
+    public Task<SpectatorAuthorizationResult> AuthorizeAsync(long sessionId, long userId, long matchId, SpectatorRole role)
+        => Task.FromResult(new SpectatorAuthorizationResult(false, role, SpectatorSubscribeReason.NotPresent));
 }
 
 internal sealed class ManagerRandom : IRandomSource
@@ -488,6 +517,126 @@ public class GameSessionManagerTests
         Assert.IsFalse(manager.TryGetActiveMatch(100, out _));
         Assert.AreEqual(1, sink.Matches.Count);
         Assert.IsTrue(publisher.Delivered.Any(x => MessageType(x) == "game.ended"));
+    }
+
+    [TestMethod]
+    public async Task Spectator_SequencesAreMonotonicAndUniqueAcrossStartActionAndTimeout()
+    {
+        var spectators = new RecordingSpectators();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), new ManagerPublisher(),
+            new ManagerSink(), spectators: spectators);
+
+        var started = await manager.StartAsync(Reservation(94));
+        await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "paper" });
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
+
+        var sequences = spectators.Frames.Select(f => f.Sequence).ToArray();
+        CollectionAssert.AllItemsAreUnique(sequences);
+        CollectionAssert.AreEqual(sequences.OrderBy(s => s).ToArray(), sequences, "Sequences must be monotonic.");
+        Assert.AreEqual(1L, sequences[0], "The first frame is the start state.");
+        Assert.IsTrue(sequences.Length >= 4, "Start, two actions and one timeout each produce a frame.");
+    }
+
+    [TestMethod]
+    public async Task Spectator_FrameExcludesParticipantsAndCarriesTheEngineView()
+    {
+        var spectators = new RecordingSpectators();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine()], new ManagerRandom(), new ManagerPublisher(),
+            new ManagerSink(), spectators: spectators);
+
+        await manager.StartAsync(DeathrollReservation(95));
+
+        var frame = spectators.Frames.First();
+        CollectionAssert.AreEquivalent(new[] { 100L, 200L }, frame.ParticipantUserIds.ToArray());
+        CollectionAssert.AreEquivalent(new[] { 10L, 20L }, frame.Players.Select(p => p.SessionId).ToArray());
+        Assert.IsInstanceOfType<DeathrollSpectatorView>(frame.View);
+        Assert.AreEqual("deathroll", frame.Configuration.GameType);
+    }
+
+    [TestMethod]
+    public async Task Spectator_MatchEnd_FiresExactlyOnceOnCompletion()
+    {
+        var spectators = new RecordingSpectators();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), new ManagerSink(),
+            spectators: spectators);
+
+        var started = await manager.StartAsync(Reservation(96));
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+
+        var end = spectators.Ends.Single();
+        Assert.AreEqual(started.MatchId, end.MatchId);
+        Assert.AreEqual(MatchEndReason.Completed, end.Reason);
+        Assert.AreEqual(spectators.Frames.Last().Sequence, end.FinalSequence);
+    }
+
+    [TestMethod]
+    public async Task Spectator_Forfeit_EndsWithNoFabricatedFrame()
+    {
+        var spectators = new RecordingSpectators();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), new ManagerSink(),
+            spectators: spectators);
+
+        var started = await manager.StartAsync(Reservation(97));
+        var beforeFrames = spectators.Frames.Count;
+        var beforeSequence = spectators.Frames.Last().Sequence;
+
+        await manager.ForfeitAsync(started.MatchId, 100, "disconnect");
+
+        Assert.AreEqual(beforeFrames, spectators.Frames.Count, "A forfeit fabricates no frame.");
+        var end = spectators.Ends.Single();
+        Assert.AreEqual(MatchEndReason.Forfeited, end.Reason);
+        Assert.AreEqual(beforeSequence, end.FinalSequence, "finalSequence is the last COMPLETE frame.");
+    }
+
+    [TestMethod]
+    public async Task Spectator_ViewPlayerIdsAreSessionIdsThatJoinToTheSnapshotPlayers()
+    {
+        // The engine's state is keyed by Mumble SESSION id, and SpectatorView returns
+        // an opaque `object` that GameSessionManager deliberately cannot inspect — so
+        // there is no translation step and none should ever be added. The client joins
+        // view ids against players[].sessionId, which is why DuelPlayerSnapshot must
+        // keep carrying BOTH ids. This test fails loudly if a future engine emits db
+        // user ids into a view instead.
+        var spectators = new RecordingSpectators();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine()], new ManagerRandom(), new ManagerPublisher(),
+            new ManagerSink(), spectators: spectators);
+
+        await manager.StartAsync(DeathrollReservation(99));
+
+        var frame = spectators.Frames.First();
+        var view = (DeathrollSpectatorView)frame.View;
+        var sessionIds = frame.Players.Select(p => p.SessionId).ToHashSet();
+        var userIds = frame.Players.Select(p => p.UserId).ToHashSet();
+
+        foreach (var id in view.Players)
+            Assert.IsTrue(sessionIds.Contains(id), $"View player {id} is not a session id of this match.");
+        Assert.IsFalse(view.Players.Any(userIds.Contains),
+            "View player ids must be session ids, not db user ids.");
+    }
+
+    [TestMethod]
+    public async Task Spectator_NullCoordinator_ChangesNothing()
+    {
+        var publisher = new ManagerPublisher();
+        var manager = new GameSessionManager(
+            [new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink());
+
+        var started = await manager.StartAsync(Reservation(98));
+        await manager.ForfeitAsync(started.MatchId, 100, "disconnect");
+
+        CollectionAssert.AreEqual(
+            new[] { "game.started", "game.ended" },
+            publisher.Messages.Select(MessageType).Where(t => t is "game.started" or "game.ended").ToArray());
     }
 
     private static bool? LastTurnStarted(ManagerPublisher publisher)
