@@ -4,9 +4,9 @@ import type { IconName } from '../Icon/Icon';
 import type { RpsView, EndedMatch, GameView } from './useGameState';
 import { isRpsView } from './useGameState';
 import { HeadToHead } from './HeadToHead';
-import styles from './RpsModal.module.css';
+import styles from './RpsBoard.module.css';
 
-interface RpsModalProps {
+interface RpsBoardProps {
   view: GameView | null;
   ended: EndedMatch | null;
   myUserId: number;
@@ -36,7 +36,7 @@ function pickLabel(pick: string): string {
   return pick.charAt(0).toUpperCase() + pick.slice(1);
 }
 
-export function RpsModal({
+export function RpsBoard({
   view: rawView,
   ended,
   myUserId,
@@ -49,7 +49,7 @@ export function RpsModal({
   onClose,
   onRematch,
   rematchPending = false,
-}: RpsModalProps) {
+}: RpsBoardProps) {
   const [now, setNow] = useState(() => Date.now());
   const incoming: RpsView | null = rawView && isRpsView(rawView) ? rawView : null;
 
@@ -179,7 +179,7 @@ export function RpsModal({
   // Not a dialog: a live match owns the whole main panel, so there is no overlay,
   // no click-outside dismissal and no focus trap. Close/Forfeit remain the exits.
   return (
-    <div className={`rps-modal glass-panel animate-slide-up ${styles.modal}`}>
+    <div className={`rps-board glass-panel animate-slide-up ${styles.modal}`}>
         <button className="modal-close" onClick={onClose} aria-label="Close rock paper scissors">
           <Icon name="x" size={20} />
         </button>

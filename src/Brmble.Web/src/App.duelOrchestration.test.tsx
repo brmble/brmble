@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
 import { DeathrollBoard } from './components/Games/DeathrollBoard';
-import { RpsModal } from './components/Games/RpsModal';
+import { RpsBoard } from './components/Games/RpsBoard';
 import type { EndedMatch, IncomingInvite } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
 import type { DuelPlayer, QueuedDuel, ReadyCheck } from './api/games';
@@ -137,13 +137,13 @@ const common = {
 describe('participant result rematches', () => {
   it.each([
     ['Deathroll', DeathrollBoard],
-    ['Rock Paper Scissors', RpsModal],
+    ['Rock Paper Scissors', RpsBoard],
   ])('keeps the %s result open and requests a rematch', (_name, Modal) => {
     const onRematch = vi.fn();
     if (Modal === DeathrollBoard) {
       render(<DeathrollBoard {...common} ended={{ ...ended, gameType: 'deathroll' }} onRematch={onRematch} onRoll={vi.fn()} />);
     } else {
-      render(<RpsModal {...common} onRematch={onRematch} onPick={vi.fn()} />);
+      render(<RpsBoard {...common} onRematch={onRematch} onPick={vi.fn()} />);
     }
     fireEvent.click(screen.getByRole('button', { name: 'Rematch' }));
 
@@ -153,7 +153,7 @@ describe('participant result rematches', () => {
   });
 
   it('disables the pending rematch action', () => {
-    render(<RpsModal {...common} onPick={vi.fn()} rematchPending />);
+    render(<RpsBoard {...common} onPick={vi.fn()} rematchPending />);
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
   });
 });

@@ -43,7 +43,7 @@ import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollBoard } from './components/Games/DeathrollBoard';
-import { RpsModal } from './components/Games/RpsModal';
+import { RpsBoard } from './components/Games/RpsBoard';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
 import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
@@ -5158,7 +5158,7 @@ const handleConnect = (serverData: SavedServer) => {
   const gameSurface = participatingMatchId !== null ? (
     <GameSurface>
       {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-        <RpsModal
+        <RpsBoard
           key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
           view={gameState.view}
           ended={gameState.ended}
