@@ -41,7 +41,7 @@ Verified against the working tree at `ecb04c8a`. Re-verify by reading before edi
 |---|---|
 | `DeathrollEngine.State` (`Players`, `CurrentIndex`, `LastRoll`, `LoserId`) | `src/Brmble.Server/Games/Engines/DeathrollEngine.cs:22-32` |
 | `DeathrollEngine.DoRoll` (sets `LastRoll`, flips `CurrentIndex` only on a non-fatal roll) | `DeathrollEngine.cs:98-121` |
-| `DeathrollEngine.ApplyPenalty` (fatal sets `LastRoll = 1` + `LoserId`; non-fatal touches neither) | `DeathrollEngine.cs:82-96` |
+| `DeathrollEngine.ApplyTimeoutPenalty` (fatal sets `LastRoll = 1` + `LoserId`; non-fatal touches neither) | `DeathrollEngine.cs:82-96` |
 | `DeathrollEngine.SpectatorView` | `DeathrollEngine.cs:151-165` |
 | `DeathrollSpectatorView` record | `src/Brmble.Server/Games/Spectators/SpectatorViews.cs` |
 | `SpectatorViewTests` | `tests/Brmble.Server.Tests/Games/SpectatorViewTests.cs` |
@@ -106,7 +106,7 @@ Docs: `docs/UI_GUIDE.md`.
 - Consumes: nothing.
 - Produces: `DeathrollSpectatorView` gains a final positional member `long? LastRollBy`. Task 3 consumes it as `lastRollBy` on the wire.
 
-**Why derivation works (do not add engine state):** `DoRoll` sets `LastRoll` and flips `CurrentIndex` **only** when the roll is non-fatal (`DeathrollEngine.cs:110-119`); on a fatal roll it sets `LoserId` to the roller and leaves `CurrentIndex` alone. `ApplyPenalty` either sets `LastRoll = 1` **and** `LoserId` (fatal, `:89-91`) or touches neither `LastRoll` nor `CurrentIndex` (non-fatal, `:94-95`). So the owner of `LastRoll` is `LoserId` when set, and otherwise the player `CurrentIndex` has flipped away from. Deathroll is always exactly 2 players (`InitialState` throws otherwise, `:44`), so `^ 1` is safe and matches the existing `CurrentIndex ^= 1`.
+**Why derivation works (do not add engine state):** `DoRoll` sets `LastRoll` and flips `CurrentIndex` **only** when the roll is non-fatal (`DeathrollEngine.cs:110-119`); on a fatal roll it sets `LoserId` to the roller and leaves `CurrentIndex` alone. `ApplyTimeoutPenalty` either sets `LastRoll = 1` **and** `LoserId` (fatal, `:89-91`) or touches neither `LastRoll` nor `CurrentIndex` (non-fatal, `:94-95`). So the owner of `LastRoll` is `LoserId` when set, and otherwise the player `CurrentIndex` has flipped away from. Deathroll is always exactly 2 players (`InitialState` throws otherwise, `:44`), so `^ 1` is safe and matches the existing `CurrentIndex ^= 1`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -163,7 +163,7 @@ Append to `SpectatorViewTests`:
         var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(50));
         engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(50));
         // Player 20 times out. The ceiling drops; LastRoll and CurrentIndex are untouched.
-        engine.ApplyTurnTimeout(state, new FixedRandom(50));
+        engine.ApplyTimeoutPenalty(state, new FixedRandom(50));
 
         var view = (DeathrollSpectatorView)engine.SpectatorView(state);
 
@@ -172,7 +172,7 @@ Append to `SpectatorViewTests`:
     }
 ```
 
-> `ApplyTurnTimeout` is the public member that reaches `ApplyPenalty`. Read `IGameEngine` and `DeathrollEngine` for its exact name and signature and adapt the call; if the timeout entry point differs, use the real one and say so in your report. `FixedRandom` is the existing helper at the bottom of this test file.
+> `ApplyTimeoutPenalty(object state, IRandomSource rng)` is the real timeout entry point — verified on `IGameEngine.cs:54` and `DeathrollEngine.cs:81`. It is the established name across the whole engine surface (`RpsEngine`, `GameSessionManager`). `FixedRandom` is the existing helper at the bottom of this test file.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
