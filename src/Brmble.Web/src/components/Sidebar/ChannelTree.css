@@ -145,6 +145,40 @@
   border-radius: var(--radius-sm);
 }
 
+/* Watch toggle for spectating a channel's games. Sits beside the duel badge and
+   mirrors its box exactly so the two read as a pair. `.watching` marks an active
+   subscription, the same way the screen-share watch control does. */
+.channel-spectate-icon {
+  /* Component-specific hit-target size — spacing tokens must not be reused for
+     element dimensions (UI_GUIDE §12 rule 3). Matches --duel-badge-size. */
+  --spectate-badge-size: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--spectate-badge-size);
+  min-height: var(--spectate-badge-size);
+  color: var(--text-secondary);
+  margin-left: var(--space-2xs);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* Active subscription, matching .channel-duel-icon.active. */
+.channel-spectate-icon.watching {
+  color: var(--accent-primary);
+  background: var(--accent-primary-wash);
+  border-radius: var(--radius-sm);
+}
+
+/* Same treatment as .btn:disabled (index.css). Keep pointer-events on: the
+   Tooltip wrapper needs hover to explain why the control is unavailable. */
+.channel-spectate-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .user-count {
   font-size: var(--text-xs);
   color: var(--text-muted);

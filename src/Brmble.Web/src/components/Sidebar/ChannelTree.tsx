@@ -17,7 +17,7 @@ import { Icon } from '../Icon/Icon';
 import { AclEditorDialog } from '../AclEditor/AclEditorDialog';
 import { getSavedChannelPassword } from '../../utils/channelPasswords';
 import { getOrderedChildChannels, sortChannels } from '../../utils/channelOrder';
-import { channelActivityRoomName } from '../../workspace/activityPresence';
+import { activityChannelMatchesPresence, channelActivityRoomName } from '../../workspace/activityPresence';
 import './ChannelTree.css';
 
 interface User {
@@ -75,6 +75,10 @@ interface ChannelTreeProps {
   /** Sessions with a live duel commitment; challenging them is refused by the server. */
   committedDuelSessions?: ReadonlySet<number>;
   onOpenDuelQueue?: (channelId: number) => void;
+  /** The channel currently being spectated, if any. Drives the watch toggle's pressed state. */
+  spectatingChannelId?: number | null;
+  /** Start watching this channel, or stop if it is already the watched one. */
+  onToggleSpectate?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -106,7 +110,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, joinedChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, joinedChannelId, onJoinChannel, onSelectChannel, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, spectatingChannelId, onToggleSpectate, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -426,6 +430,40 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
               </button>
             </Tooltip>
           )}
+          {duelChannelIds?.has(channel.id) && onToggleSpectate && (() => {
+            const watching = spectatingChannelId === channel.id;
+            // Same-channel only, via the canonical predicate the modal's Watch button
+            // uses — one encoding of the rule, not two. It also excludes server-root.
+            // This prop is numeric and `undefined` while unjoined; the predicate speaks
+            // the string ids of workspace/activityPresence, so widen before asking.
+            const canWatch = activityChannelMatchesPresence(
+              joinedChannelId != null ? String(joinedChannelId) : null,
+              String(channel.id),
+            );
+            return (
+              <Tooltip content={
+                watching ? 'Stop watching'
+                  : canWatch ? 'Watch games in this channel'
+                    : 'You can only watch games in the channel you have joined'
+              }>
+                <span className="tooltip-wrapper">
+                  <button
+                    type="button"
+                    className={`channel-spectate-icon${watching ? ' watching' : ''}`}
+                    aria-label={watching ? `Stop watching ${channel.name}` : `Watch games in ${channel.name}`}
+                    aria-pressed={watching}
+                    disabled={!canWatch}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleSpectate(channel.id);
+                    }}
+                  >
+                    <Icon name="eye" size={12} />
+                  </button>
+                </span>
+              </Tooltip>
+            );
+          })()}
         </div>
         
         {isExpanded && (
