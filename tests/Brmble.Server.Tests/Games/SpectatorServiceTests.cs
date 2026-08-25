@@ -212,6 +212,70 @@ public class SpectatorServiceTests
     }
 
     [TestMethod]
+    public async Task EndMatch_WithNoPriorFrame_AdoptsTheMatchAndPublishes()
+    {
+        // The forfeit shape: a match can end without ever having produced a frame.
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.EndMatchAsync(91, 7, 4, MatchEndReason.Forfeited, new { winnerId = 100L });
+
+        var ended = _publisher.OfType<SpectatorMatchEndedEvent>().Single();
+        CollectionAssert.AreEquivalent(new[] { 300L }, ended.Users.ToArray());
+        Assert.AreEqual(91, ended.Message.MatchId);
+        Assert.AreEqual(7, ended.Message.ChannelId);
+        Assert.AreEqual(4, ended.Message.FinalSequence, "finalSequence must be carried onto the wire.");
+        Assert.AreEqual("forfeited", ended.Message.Reason);
+
+        // The match was adopted and marked ended, so a repeat end is suppressed.
+        await _service.EndMatchAsync(91, 7, 4, MatchEndReason.Forfeited, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task EndMatch_ForADifferentLiveMatch_IsIgnored()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        await _service.EndMatchAsync(90, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+
+        Assert.AreEqual(0, _publisher.OfType<SpectatorMatchEndedEvent>().Count(),
+            "An end for a match other than the live one must not be published.");
+
+        // Match 91 is untouched: still live, high-water mark still 1, so 2 flows and 1 drops.
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.PublishDiscreteFrameAsync(Frame(91, 2));
+        CollectionAssert.AreEqual(new long[] { 1, 2 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+
+        // And 91 can still be ended normally.
+        await _service.EndMatchAsync(91, 7, 2, MatchEndReason.Completed, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task EndMatch_ForAnOlderMatchAfterTheCurrentOneEnded_ClobbersStateWithoutPublishing()
+    {
+        // CHARACTERISATION ONLY. This documents current behaviour; it does not claim the
+        // behaviour is desirable. The adoption guard's `Ended is false` conjunct lets a
+        // late end for an older match overwrite MatchId/LastSequence, then the `Ended`
+        // check suppresses the publish. It is self-healing (the next frame for a genuinely
+        // new match resets anyway) and Task 5 structurally cannot reorder two matches'
+        // ends, so the logic is deliberately left as-is.
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+
+        // A late end for the older match 90 arrives after 91 already ended.
+        await _service.EndMatchAsync(90, 7, 7, MatchEndReason.Completed, new { winnerId = 200L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count(),
+            "The stale end is silently absorbed: state is clobbered but nothing is published.");
+
+        // Self-healing: the next real match resets the mark and flows normally.
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1));
+        CollectionAssert.AreEqual(new long[] { 1, 1 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+    }
+
+    [TestMethod]
     public async Task Subscribing_Twice_DoesNotDuplicateDelivery()
     {
         await _service.SubscribeAsync(30, 300, 7);

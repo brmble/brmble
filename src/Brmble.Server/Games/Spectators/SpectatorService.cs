@@ -21,6 +21,18 @@ public sealed class SpectatorService(
 {
     private const int SchemaVersion = 1;
 
+    /// <summary>
+    /// Per-channel spectator state. A single <see cref="MatchId"/> encodes the assumption
+    /// that AT MOST ONE match is live per channel at a time. Today the duel queue enforces
+    /// that — <see cref="GameSessionManager"/> keys its matches by match id globally and
+    /// does not structurally guarantee one-per-channel.
+    ///
+    /// If that ever relaxes, two concurrent matches in one channel would fight over
+    /// <see cref="MatchId"/> and <see cref="LastSequence"/>: each frame would look like a
+    /// match change, reset the high-water mark, and the two matches would mutually starve
+    /// each other's frames. Supporting concurrent matches per channel requires keying this
+    /// state by match, not just by channel.
+    /// </summary>
     private sealed class ChannelEntry
     {
         /// <summary>Mumble session id → stable db user id. Both are needed: fan-out is by
@@ -112,7 +124,6 @@ public sealed class SpectatorService(
         long matchId, int channelId, long finalSequence, MatchEndReason reason, object outcome)
     {
         HashSet<long> targets;
-        IReadOnlySet<long> participants;
 
         await _gate.WaitAsync();
         try
@@ -122,7 +133,16 @@ public sealed class SpectatorService(
             // one; adopt the match id in that case rather than ignoring the end.
             if (entry.MatchId != matchId)
             {
-                if (entry.MatchId is not null && entry.Ended is false && entry.LastSequence > 0) return;
+                if (entry.MatchId is not null && entry.Ended is false && entry.LastSequence > 0)
+                {
+                    // Dropping a TERMINAL event, so this is a warning rather than the
+                    // debug used for stale frames: if it fires, spectators of the live
+                    // match are stuck on a board that never ends.
+                    logger.LogWarning(
+                        "Dropping spectator match end for match {MatchId} on channel {ChannelId}: match {LiveMatchId} is live there.",
+                        matchId, channelId, entry.MatchId);
+                    return;
+                }
                 entry.MatchId = matchId;
                 entry.LastSequence = finalSequence;
             }
@@ -133,8 +153,7 @@ public sealed class SpectatorService(
             // subscription — but the match is no longer live, so a NEW subscriber
             // must see idle rather than a finished board.
             entry.Latest = null;
-            participants = entry.ParticipantUserIds;
-            targets = TargetsLocked(entry, participants);
+            targets = TargetsLocked(entry, entry.ParticipantUserIds);
         }
         finally { _gate.Release(); }
 
