@@ -197,7 +197,8 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 if (match.Status != "starting" || !_matches.TryGetValue(matchId, out var current) || !ReferenceEquals(current, match))
                     return StartInterrupted(matchId);
                 match.Status = "live";
-                // Captured INSIDE match.Lock; published outside it, in the closure below.
+                // Captured INSIDE match.Lock. Published from the closure below, which may
+                // still run inline under the lock — see CaptureSpectatorFrameLocked.
                 var startFrame = CaptureSpectatorFrameLocked(match);
                 startedPublication = EnqueueOutbound(match, async () =>
                 {
@@ -260,7 +261,14 @@ public sealed class GameSessionManager : IDuelMatchRunner
     /// Captures the spectator frame for the current state. MUST be called while
     /// holding <c>match.Lock</c>: the sequence and the view are taken together so a
     /// concurrent mutation cannot produce an inconsistent frame. Publish the result
-    /// OUTSIDE the lock, inside the EnqueueOutbound closure.
+    /// from the EnqueueOutbound closure.
+    ///
+    /// CAUTION: that closure is NOT guaranteed to run outside <c>match.Lock</c>.
+    /// EnqueueOutbound is invoked while the lock is held, and when OutboundTail is
+    /// already complete and the publisher completes synchronously the body runs inline
+    /// on the capturing thread, still under the lock. This establishes a real lock
+    /// order, match.Lock -> SpectatorService._gate, so nothing reachable from a
+    /// spectator publish may take a lock that could be held while touching a match.
     ///
     /// Every collection handed to the frame is freshly materialised here and never
     /// mutated afterwards: SpectatorService retains ParticipantUserIds and Players
@@ -298,14 +306,20 @@ public sealed class GameSessionManager : IDuelMatchRunner
     /// terminal frame, because forfeits fabricate no frame — finalSequence is the
     /// last COMPLETE frame's sequence, and the outcome rides on this call.
     /// </summary>
-    private Task EndSpectatorMatchAsync(LiveMatch match, MatchEndReason reason, object outcome)
+    private async Task EndSpectatorMatchAsync(LiveMatch match, MatchEndReason reason, object outcome)
     {
-        if (_spectators is null) return Task.CompletedTask;
-        if (Interlocked.Exchange(ref match.SpectatorEnded, 1) != 0) return Task.CompletedTask;
-        long finalSequence;
-        lock (match.Lock) finalSequence = match.SpectatorSequence;
-        return PublishAdvisoryAsync(() => _spectators.EndMatchAsync(
-            match.MatchId, match.ChannelId, finalSequence, reason, outcome));
+        if (_spectators is null) return;
+        if (Interlocked.Exchange(ref match.SpectatorEnded, 1) != 0) return;
+        // Called from a finally block, so this method must never propagate. Interlocked
+        // cannot throw, and everything after it — including the sequence read — sits
+        // inside the advisory try.
+        await PublishAdvisoryAsync(() =>
+        {
+            long finalSequence;
+            lock (match.Lock) finalSequence = match.SpectatorSequence;
+            return _spectators.EndMatchAsync(
+                match.MatchId, match.ChannelId, finalSequence, reason, outcome);
+        });
     }
 
     // Called while match.Lock is held so queue order is identical to mutation order.
@@ -395,7 +409,8 @@ public sealed class GameSessionManager : IDuelMatchRunner
             views = match.Players
                 .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
                 .ToArray();
-            // Captured INSIDE match.Lock; published outside it, in the closure below.
+            // Captured INSIDE match.Lock. Published from the closure below, which may
+            // still run inline under the lock — see CaptureSpectatorFrameLocked.
             var spectatorFrame = CaptureSpectatorFrameLocked(match);
             publication = EnqueueOutbound(match, async () =>
             {
@@ -471,7 +486,8 @@ public sealed class GameSessionManager : IDuelMatchRunner
             views = match.Players
                 .Select(p => (object)new { userId = p, view = match.Engine.PublicView(match.State, p) })
                 .ToArray();
-            // Captured INSIDE match.Lock; published outside it, in the closure below.
+            // Captured INSIDE match.Lock. Published from the closure below, which may
+            // still run inline under the lock — see CaptureSpectatorFrameLocked.
             var spectatorFrame = CaptureSpectatorFrameLocked(match);
             publication = EnqueueOutbound(match, async () =>
             {
@@ -541,6 +557,7 @@ public sealed class GameSessionManager : IDuelMatchRunner
             Participants: persistedParticipants,
             MetadataJson: BuildMatchMetadata(match));
         var winner = isDraw ? null : outcome.Participants.FirstOrDefault(p => p.Placement == 1);
+        var loser = isDraw ? null : outcome.Participants.FirstOrDefault(p => p.Placement != 1);
         try
         {
             _completedMatches.Enqueue(completed);
@@ -564,7 +581,17 @@ public sealed class GameSessionManager : IDuelMatchRunner
                     ? $"🏆 {NameOf(match, winner.UserId)} wins!"
                     : $"{GameName(match.GameType)} over.");
             await PublishAdvisoryAsync(() => PublishFeedAsync(match, feedText));
-            var loser = isDraw ? null : outcome.Participants.FirstOrDefault(p => p.Placement != 1);
+        }
+        finally
+        {
+            // In the finally, and BEFORE RaiseMatchCompletedAsync: the participant
+            // "game.ended" publish above is NOT advisory, so if it throws we still owe
+            // spectators a terminal signal — otherwise they sit on a board that never
+            // ends and the match is already gone from _matches. Safe here because the
+            // call is advisory (swallows its own failures) and Interlocked-idempotent.
+            // It must precede RaiseMatchCompletedAsync, which can advance the duel queue
+            // and start the NEXT match in this channel; a frame from that match would
+            // move SpectatorService's per-channel MatchId on and our end would be dropped.
             // winnerId / loserId are Mumble SESSION ids, matching game.ended and the
             // spectator views (which are keyed by the engine's session-id state).
             await EndSpectatorMatchAsync(match, MatchEndReason.Completed, new
@@ -573,9 +600,6 @@ public sealed class GameSessionManager : IDuelMatchRunner
                 loserId = loser?.UserId,
                 draw = isDraw,
             });
-        }
-        finally
-        {
             RemoveRuntime(match);
             await RaiseMatchCompletedAsync(match, completed.EndedAt);
         }
@@ -667,15 +691,19 @@ public sealed class GameSessionManager : IDuelMatchRunner
             await PublishAdvisoryAsync(() => PublishDuelStateAsync(match, active: false));
             await PublishAdvisoryAsync(() => PublishFeedAsync(match,
                 $"🏳️ {NameOf(match, sessionId)} forfeited — {NameOf(match, otherId)} wins!"));
+        }
+        finally
+        {
+            // See CompleteMatchAsync: in the finally so a throwing (non-advisory)
+            // game.ended still leaves spectators with a terminal signal, and before
+            // RaiseMatchCompletedAsync so the next match in this channel cannot
+            // overtake it.
             await EndSpectatorMatchAsync(match, MatchEndReason.Forfeited, new
             {
                 winnerId = otherId,
                 loserId = sessionId,
                 draw = false,
             });
-        }
-        finally
-        {
             RemoveRuntime(match);
             await RaiseMatchCompletedAsync(match, completed.EndedAt);
         }

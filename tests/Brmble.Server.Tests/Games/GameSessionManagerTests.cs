@@ -624,6 +624,81 @@ public class GameSessionManagerTests
             "View player ids must be session ids, not db user ids.");
     }
 
+    // Runs a scenario that reaches ALL THREE closures a spectator publish was inserted
+    // into (start, action, turn-timeout) plus the completion terminal path, and returns
+    // the full participant/channel message type sequence.
+    private static async Task<(List<string?> Types, long MatchId)> RunCompletionScenarioAsync(
+        RecordingSpectators? spectators)
+    {
+        var publisher = new ManagerPublisher();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(),
+            spectators: spectators);
+
+        var started = await manager.StartAsync(Reservation(400));
+        // One unresolved commit (action closure, no round result), then a timeout that
+        // resolves the round (timeout closure), then resolved rounds to completion.
+        await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        await manager.FireTurnTimeoutForTestAsync(started.MatchId);
+        for (var round = 0; round < 3; round++)
+        {
+            await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+            await manager.ActionAsync(started.MatchId, 20, new Dictionary<string, object?> { ["pick"] = "scissors" });
+        }
+        return (publisher.Messages.Select(MessageType).ToList(), started.MatchId);
+    }
+
+    private static async Task<List<string?>> RunForfeitScenarioAsync(RecordingSpectators? spectators)
+    {
+        var publisher = new ManagerPublisher();
+        var manager = new GameSessionManager(
+            [new DeathrollEngine(), new RpsEngine()], new ManagerRandom(), publisher, new ManagerSink(),
+            spectators: spectators);
+
+        var started = await manager.StartAsync(Reservation(401));
+        await manager.ActionAsync(started.MatchId, 10, new Dictionary<string, object?> { ["pick"] = "rock" });
+        await manager.ForfeitAsync(started.MatchId, 100, "disconnect");
+        return publisher.Messages.Select(MessageType).ToList();
+    }
+
+    [TestMethod]
+    public async Task Spectator_ParticipantMessageSequenceIsIdenticalWithAndWithoutACoordinator()
+    {
+        // The 804 pre-existing tests all run with a NULL coordinator, so they cannot
+        // catch a regression on the coordinator-PRESENT path — which is the only path
+        // this change adds await points to. This compares the FULL message type
+        // sequence (game.started, game.stateUpdated, game.duelState, game.feed,
+        // game.ended) between the two, so ordering inside the outbound tail is observed.
+        var spectators = new RecordingSpectators();
+        var (withSpectators, matchId) = await RunCompletionScenarioAsync(spectators);
+        var (without, _) = await RunCompletionScenarioAsync(null);
+
+        CollectionAssert.AreEqual(without, withSpectators,
+            "A spectator coordinator must not change participant events, their shape or their order.");
+
+        // Prove the scenario really reached the instrumented closures and the terminal
+        // path, so the equivalence above is not vacuous.
+        Assert.IsTrue(withSpectators.Contains("game.ended"), "The scenario must reach a terminal path.");
+        Assert.IsTrue(spectators.Frames.Count >= 4,
+            "Start, action and timeout closures must each have produced a frame.");
+        var end = spectators.Ends.Single();
+        Assert.AreEqual(matchId, end.MatchId);
+        Assert.AreEqual(MatchEndReason.Completed, end.Reason);
+    }
+
+    [TestMethod]
+    public async Task Spectator_ForfeitParticipantMessageSequenceIsIdenticalWithAndWithoutACoordinator()
+    {
+        var spectators = new RecordingSpectators();
+        var withSpectators = await RunForfeitScenarioAsync(spectators);
+        var without = await RunForfeitScenarioAsync(null);
+
+        CollectionAssert.AreEqual(without, withSpectators,
+            "A spectator coordinator must not change the forfeit event sequence.");
+        Assert.IsTrue(withSpectators.Contains("game.ended"));
+        Assert.AreEqual(MatchEndReason.Forfeited, spectators.Ends.Single().Reason);
+    }
+
     [TestMethod]
     public async Task Spectator_NullCoordinator_ChangesNothing()
     {
