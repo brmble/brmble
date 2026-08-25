@@ -244,10 +244,17 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 "channel change",
                 user.SessionId);
 
-        // Before the membership update: spectator authorization is same-channel, so the drop
-        // must be decided while the OLD channel is still readable. The lifecycle reads its own
-        // subscription table rather than this one, but it is ordered here so a redundant
-        // user-state dispatch cannot be told the move already happened.
+        // Ordered before the membership update because a redundant user-state dispatch — the
+        // same channel reported twice — must not kill a live subscription, and the lifecycle
+        // decides that by comparing channelId against its OWN subscription table.
+        //
+        // It does NOT read IChannelMembershipService, so this ordering is not what makes the
+        // drop correct; inverting it would still drop the subscription. It is mandated by the
+        // spectating spec and pinned by a test, so leave it. One known cost: between here and
+        // Update, a concurrent SubscribeAsync for the OLD channel still sees the old
+        // membership via IGamePresence, passes the same-channel gate, and re-subscribes a
+        // session that has already left. That needs a user racing a subscribe against their
+        // own channel move, and it self-heals on the next move or disconnect.
         await TryNotifySpectatorsAsync(
             () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
             "channel change", user.SessionId);

@@ -38,6 +38,15 @@ public static class BrmbleWebSocketHandler
         var eventBus = context.RequestServices.GetRequiredService<IBrmbleEventBus>();
         var activeSessions = context.RequestServices.GetRequiredService<IActiveBrmbleSessions>();
         var publisher = context.RequestServices.GetRequiredService<IMappingEventPublisher>();
+        // Resolved here rather than in the finally. As arguments they would evaluate BEFORE
+        // FinalizeClosedClientAsync is entered, so a resolution failure would skip
+        // RemoveClient entirely — leaving the bus broadcasting to a dead socket — and replace
+        // whatever exception was already unwinding it. A request scope on a socket-abort path
+        // is exactly where resolution is least predictable. Resolving before the socket is
+        // even accepted turns any such failure into a clean 500 instead.
+        var spectators = context.RequestServices.GetRequiredService<ISpectatorLifecycle>();
+        var closeLogger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger(typeof(BrmbleWebSocketHandler).FullName!);
 
         // Read before the socket is accepted, so the version is known while the bootstrap
         // payloads are built.
@@ -128,10 +137,7 @@ public static class BrmbleWebSocketHandler
         finally
         {
             await FinalizeClosedClientAsync(
-                ws, user.Id, hash, eventBus, activeSessions,
-                context.RequestServices.GetRequiredService<ISpectatorLifecycle>(),
-                context.RequestServices.GetRequiredService<ILoggerFactory>()
-                    .CreateLogger(typeof(BrmbleWebSocketHandler).FullName!));
+                ws, user.Id, hash, eventBus, activeSessions, spectators, closeLogger);
         }
     }
 

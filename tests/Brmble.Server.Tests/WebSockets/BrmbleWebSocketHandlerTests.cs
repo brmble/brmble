@@ -442,21 +442,22 @@ public class BrmbleWebSocketHandlerTests
     /// codebase, so "sockets remaining after the close" is expressed as the value that
     /// signal returns afterwards — the same signal the production code reads.
     /// </summary>
-    private static async Task<Mock<IBrmbleEventBus>> RunHandlerUntilCloseAsync(
+    private static async Task<(Mock<IBrmbleEventBus> Bus, Mock<IActiveBrmbleSessions> Sessions)> RunHandlerUntilCloseAsync(
         ISpectatorLifecycle spectators, int remainingSocketsAfterClose, long userId = 42)
     {
         var removed = false;
         var bus = new Mock<IBrmbleEventBus>();
+        var sessions = new Mock<IActiveBrmbleSessions>();
         var socket = new Mock<WebSocket>();
         bus.Setup(x => x.RemoveClient(socket.Object)).Callback(() => removed = true);
         bus.Setup(x => x.HasConnectedClient(userId)).Returns(() => removed && remainingSocketsAfterClose > 0);
 
         await BrmbleWebSocketHandler.FinalizeClosedClientAsync(
-            socket.Object, userId, "cert", bus.Object, Mock.Of<IActiveBrmbleSessions>(),
+            socket.Object, userId, "cert", bus.Object, sessions.Object,
             spectators, NullLogger.Instance);
 
         bus.Verify(x => x.RemoveClient(socket.Object), Times.Once);
-        return bus;
+        return (bus, sessions);
     }
 
     [TestMethod]
@@ -464,9 +465,10 @@ public class BrmbleWebSocketHandlerTests
     {
         var spectators = new Mock<ISpectatorLifecycle>();
 
-        await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 0);
+        var (_, sessions) = await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 0);
 
         spectators.Verify(x => x.HandleTransportDisconnectedAsync(42), Times.Once);
+        sessions.Verify(x => x.Deactivate("cert"), Times.Once);
     }
 
     [TestMethod]
@@ -474,9 +476,13 @@ public class BrmbleWebSocketHandlerTests
     {
         var spectators = new Mock<ISpectatorLifecycle>();
 
-        await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 1);
+        var (_, sessions) = await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 1);
 
         spectators.Verify(x => x.HandleTransportDisconnectedAsync(It.IsAny<long>()), Times.Never);
+        // The whole correctness argument for rule 4 is that the lifecycle call and Deactivate
+        // sit on the same branch and cannot drift. Asserting only the lifecycle half would let
+        // a future edit move one of them past the early return unnoticed.
+        sessions.Verify(x => x.Deactivate(It.IsAny<string>()), Times.Never);
     }
 
     [TestMethod]
