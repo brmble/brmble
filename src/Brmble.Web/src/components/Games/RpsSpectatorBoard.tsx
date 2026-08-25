@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import type { DuelPlayer, RpsSpectatorView, SpectatorMatchOutcome } from '../../api/games';
 import { Icon } from '../Icon/Icon';
-import { pickIcon, pickLabel } from './rpsShared';
+import { REVEAL_SECONDS, pickIcon, pickLabel } from './rpsShared';
 import styles from './RpsSpectatorBoard.module.css';
 
 interface RpsSpectatorBoardProps {
@@ -16,12 +17,64 @@ interface RpsSpectatorBoardProps {
  * Commitment is rendered as a per-player STATE, never as a throw: the server's
  * `committed` array carries WHETHER each player has thrown, never WHAT. Throws are
  * revealed only from `lastRound`, which the server populates only once a round has
- * resolved. There is no reveal-suspense countdown here — that is a participant
- * affordance for the moment your own resolved round lands.
+ * resolved.
  *
  * `view.players` and `view.winnerId` are Mumble SESSION ids.
  */
-export function RpsSpectatorBoard({ view, players, outcome }: RpsSpectatorBoardProps) {
+export function RpsSpectatorBoard({ view: incoming, players, outcome }: RpsSpectatorBoardProps) {
+  // Reveal suspense, ported from the participant board so a watcher sitting beside a
+  // player sees the same beat. Keyed on lastRound.sequence, which increments on every
+  // resolution including ties. EVERYTHING below renders from `view`, never `incoming` —
+  // in particular the per-player pick icons, which would otherwise spoil the reveal.
+  const [view, setView] = useState<RpsSpectatorView>(incoming);
+  const [revealing, setRevealing] = useState(false);
+  const shownSeqRef = useRef<number | null>(null);
+  const pendingRef = useRef<RpsSpectatorView | null>(null);
+
+  useEffect(() => {
+    const seq = incoming.lastRound?.sequence ?? 0;
+    if (shownSeqRef.current === null) {
+      // First view for this match: adopt without suspense (covers joining mid-match).
+      shownSeqRef.current = seq;
+      setView(incoming);
+      return;
+    }
+    if (!incoming.lastRound) {
+      // `useSpectatorState` swaps in a new match without unmounting us, and the server
+      // only ever moves `lastRound` forwards within a match — so a null here can only
+      // mean a fresh match. Reset, or match 2's round 1 would be gated as stale against
+      // match 1's sequence and the board would freeze on the old match forever.
+      shownSeqRef.current = 0;
+      pendingRef.current = null;
+      setRevealing(false);
+      setView(incoming);
+      return;
+    }
+    if (seq > shownSeqRef.current) {
+      // A round just resolved: hold the old frame and start the countdown. A later frame
+      // arriving mid-reveal lands here too (its seq is still ahead of what is shown), so
+      // it supersedes `pendingRef` rather than reaching setView — latest-wins, one reveal.
+      pendingRef.current = incoming;
+      setRevealing(true);
+      return;
+    }
+    setView(incoming);
+  }, [incoming]);
+
+  useEffect(() => {
+    if (!revealing) return;
+    const id = window.setTimeout(() => {
+      const pending = pendingRef.current;
+      if (pending) {
+        shownSeqRef.current = pending.lastRound?.sequence ?? shownSeqRef.current;
+        setView(pending);
+        pendingRef.current = null;
+      }
+      setRevealing(false);
+    }, REVEAL_SECONDS * 1000);
+    return () => window.clearTimeout(id);
+  }, [revealing]);
+
   const nameOf = (sessionId: number) =>
     players.find(player => player.sessionId === sessionId)?.displayName ?? String(sessionId);
 
@@ -53,14 +106,27 @@ export function RpsSpectatorBoard({ view, players, outcome }: RpsSpectatorBoardP
               {view.finished ? '' : view.committed[index] ? 'Thrown' : 'Choosing…'}
             </span>
             {view.lastRound && (() => {
-              const pick = index === 0 ? view.lastRound.pick0 : view.lastRound.pick1;
+              // Indexed, never `index === 0 ? pick0 : pick1`: a third card would otherwise
+              // be attributed a throw it never made. Unreachable today, but this file
+              // degrades rather than invents everywhere else.
+              const pick = [view.lastRound.pick0, view.lastRound.pick1][index];
+              if (pick == null) return null;
               const icon = pickIcon(pick);
               return (
                 <span
                   className={styles.playerPick}
                   data-testid={`spectator-pick-${sessionId}`}
                   data-pick={pick}
-                  aria-label={`${nameOf(sessionId)} threw ${pickLabel(pick)}`}
+                  // `Icon` is aria-hidden, so this label is the only accessible name —
+                  // it needs a role to be reliably exposed. For a no-throw the label
+                  // states the fact instead of repeating the visible "No throw" text,
+                  // which aria-label would silence anyway.
+                  role="img"
+                  aria-label={
+                    icon
+                      ? `${nameOf(sessionId)} threw ${pickLabel(pick)}`
+                      : `${nameOf(sessionId)} did not throw`
+                  }
                 >
                   {icon ? <Icon name={icon} size={24} /> : pickLabel(pick)}
                 </span>

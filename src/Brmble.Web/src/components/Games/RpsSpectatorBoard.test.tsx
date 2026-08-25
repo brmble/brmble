@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
 import { RpsSpectatorBoard } from './RpsSpectatorBoard';
+import { REVEAL_SECONDS } from './rpsShared';
 import type { DuelPlayer, RpsSpectatorView } from '../../api/games';
 
 const players: DuelPlayer[] = [
@@ -261,5 +262,159 @@ describe('RpsSpectatorBoard', () => {
       const pick = screen.getByTestId(`spectator-pick-${sessionId}`).getAttribute('data-pick');
       expect(pick).toBe(sessionId === 10 ? 'rock' : 'scissors');
     }
+  });
+
+  it('names a throw as an image so the label is actually exposed', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'Qy threw Rock' })).toHaveAttribute('data-pick', 'rock');
+  });
+
+  it('does not double the label on a no-throw card', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'none', pick1: 'scissors', winnerId: 20, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    const idle = screen.getByTestId('spectator-pick-10');
+    expect(idle).toHaveTextContent(/no throw/i);
+    // The accessible name states the fact once; it does not repeat the visible text.
+    expect(idle.getAttribute('aria-label')).toBe('Qy did not throw');
+  });
+
+  it('attributes no throw to a player beyond the two the round carries', () => {
+    render(
+      <RpsSpectatorBoard
+        view={{
+          ...unresolved,
+          players: [10, 20, 30],
+          lastRound: { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false },
+        }}
+        players={players}
+        outcome={null}
+      />,
+    );
+    expect(screen.getByTestId('spectator-pick-20')).toHaveAttribute('data-pick', 'scissors');
+    expect(screen.queryByTestId('spectator-pick-30')).not.toBeInTheDocument();
+  });
+
+  describe('reveal beat', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const round1 = { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false };
+    const round2 = { roundNumber: 2, sequence: 2, pick0: 'paper', pick1: 'rock', winnerId: 10, tie: false };
+
+    it('adopts the first view immediately, without suspense', () => {
+      render(<RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />);
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+    });
+
+    it('holds a newly resolved round, icons included, then reveals it', () => {
+      const { rerender } = render(
+        <RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />,
+      );
+
+      rerender(<RpsSpectatorBoard view={{ ...unresolved, lastRound: round2 }} players={players} outcome={null} />);
+
+      // Still showing round 1 — the icons must not run ahead of the rest of the board.
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+      expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 1/i);
+
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
+      expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 2/i);
+    });
+
+    it('holds the score and commit cells too, not just the round text', () => {
+      const { rerender } = render(
+        <RpsSpectatorBoard
+          view={{ ...unresolved, roundWins: [1, 0], committed: [true, true], lastRound: round1 }}
+          players={players}
+          outcome={null}
+        />,
+      );
+
+      rerender(
+        <RpsSpectatorBoard
+          view={{ ...unresolved, roundWins: [2, 0], committed: [false, false], lastRound: round2 }}
+          players={players}
+          outcome={null}
+        />,
+      );
+
+      expect(screen.getByTestId('spectator-score-10')).toHaveTextContent('1');
+      expect(screen.getByTestId('spectator-commit-20')).toHaveTextContent(/thrown/i);
+
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByTestId('spectator-score-10')).toHaveTextContent('2');
+      expect(screen.getByTestId('spectator-commit-20')).toHaveTextContent(/choosing/i);
+    });
+
+    it('lets a frame arriving mid-reveal supersede without revealing early', () => {
+      const { rerender } = render(
+        <RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />,
+      );
+
+      rerender(<RpsSpectatorBoard view={{ ...unresolved, lastRound: round2 }} players={players} outcome={null} />);
+
+      act(() => { vi.advanceTimersByTime((REVEAL_SECONDS - 1) * 1000); });
+
+      // A later frame for the same resolution (round 3's commit state landing).
+      rerender(
+        <RpsSpectatorBoard
+          view={{ ...unresolved, roundNumber: 3, committed: [true, false], lastRound: round2 }}
+          players={players}
+          outcome={null}
+        />,
+      );
+
+      // It must not have jumped the queue: round 1 is still on screen.
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+
+      act(() => { vi.advanceTimersByTime(1000); });
+
+      // One reveal, latest-wins: round 2's throws with round 3's commit state.
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
+      expect(screen.getByTestId('spectator-commit-10')).toHaveTextContent(/thrown/i);
+    });
+
+    it('resets the gate for a new match instead of freezing on the old one', () => {
+      const { rerender } = render(
+        <RpsSpectatorBoard view={{ ...unresolved, lastRound: round2 }} players={players} outcome={null} />,
+      );
+
+      // A new match starts: same component, fresh view, no resolved round yet.
+      rerender(
+        <RpsSpectatorBoard
+          view={{ ...unresolved, roundNumber: 1, roundWins: [0, 0], lastRound: null }}
+          players={players}
+          outcome={null}
+        />,
+      );
+      expect(screen.queryByTestId('spectator-pick-10')).not.toBeInTheDocument();
+
+      // Match 2 round 1 has sequence 1 — lower than match 1's. It must still reveal.
+      rerender(<RpsSpectatorBoard view={{ ...unresolved, lastRound: round1 }} players={players} outcome={null} />);
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+      expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 1/i);
+    });
   });
 });
