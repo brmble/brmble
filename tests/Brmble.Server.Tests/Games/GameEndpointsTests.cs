@@ -472,6 +472,76 @@ public class GameEndpointsTests
         Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [TestMethod]
+    public async Task Action_FromANonParticipant_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns(false);
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = 91,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task Action_ForADifferentMatch_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(42, 1, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = 91,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task Action_WithANullAction_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(91, 1, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new { matchId = 91, action = (object?)null });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("invalidAction", doc.RootElement.GetProperty("reason").GetString());
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         Mock<IDuelOrchestrator> orchestrator,
         Mock<IDuelMatchRunnerRouter>? router = null,

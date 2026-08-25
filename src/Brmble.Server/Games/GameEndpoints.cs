@@ -14,7 +14,7 @@ public static class GameEndpoints
     public record CancelOfferDto(long OfferId);
     public record ReadyDto(long ReservationId, bool? Ready);
     public record RematchDto(long SourceMatchId);
-    public record ActionDto(long MatchId, Dictionary<string, object?> Action);
+    public record ActionDto(long MatchId, Dictionary<string, object?>? Action);
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
     public record SpectateDto(int ChannelId);
@@ -113,12 +113,22 @@ public static class GameEndpoints
 
         app.MapPost("/games/action", async (ActionDto dto, HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, GameSessionManager mgr,
-            ISessionMappingService sessions) =>
+            IDuelMatchRunnerRouter runner, ISessionMappingService sessions) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
             if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
                 return Results.BadRequest(new { error = "You must be connected to Brmble." });
+            if (dto.Action is null)
+                return Results.BadRequest(new GameErrorWire(
+                    "An action is required.", DuelWire.Reason(DuelRejectReason.InvalidAction)));
+            // Spectators can now SEE a live match, so this is a real privilege
+            // boundary rather than a theoretical one. Same guard as /games/forfeit.
+            if (!runner.TryGetActiveMatch(user.UserId, out var active) || active.MatchId != dto.MatchId)
+                return Results.BadRequest(new GameErrorWire(
+                    "The requested match is not the authenticated user's active match.",
+                    DuelWire.Reason(DuelRejectReason.NotParticipant)));
+
             await mgr.ActionAsync(dto.MatchId, session, dto.Action);
             return Results.Ok();
         });
