@@ -1068,6 +1068,23 @@ describe('ChannelTree spectate toggle', () => {
       .toHaveClass('tooltip-wrapper');
   });
 
+  // A disabled button takes no focus, so keyboard users would never see the
+  // explanation unless the wrapper itself is a tab stop.
+  it('makes the wrapper focusable so the disabled explanation reaches the keyboard', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 2, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i }).parentElement)
+      .toHaveAttribute('tabindex', '0');
+  });
+
+  // ...but only then. When the button is enabled it is its own tab stop and the
+  // tooltip opens from its focus, so a focusable wrapper would be a second stop for
+  // one control — an unnamed, roleless one at that.
+  it('leaves the wrapper out of the tab order when the toggle is enabled', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i }).parentElement)
+      .not.toHaveAttribute('tabindex');
+  });
+
   it('leaves the duel badge in place beside the toggle', () => {
     renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn() });
     expect(screen.getByRole('button', { name: 'Open duel activity for General' })).toBeInTheDocument();

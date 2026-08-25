@@ -449,9 +449,12 @@ export function ChannelTree({ channels, users, currentChannelId, joinedChannelId
                   : canWatch ? 'Watch games in this channel'
                     : 'You can only watch games in the channel you have joined'
               }>
-                {/* Focusable so keyboard users get the disabled explanation too:
-                    a disabled button takes no focus, so the wrapper must. */}
-                <span className="tooltip-wrapper" tabIndex={0}>
+                {/* Focusable only while disabled: a disabled button takes no focus, so
+                    the wrapper must carry the tab stop for the explanation to reach the
+                    keyboard. When enabled the button is its own stop and Tooltip's
+                    onFocus bubbles from it — a wrapper stop would just be a second,
+                    unnamed one. */}
+                <span className="tooltip-wrapper" tabIndex={canWatch ? undefined : 0}>
                   <button
                     type="button"
                     className={`channel-spectate-icon${watching ? ' watching' : ''}`}
