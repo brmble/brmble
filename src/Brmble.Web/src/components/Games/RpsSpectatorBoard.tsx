@@ -40,9 +40,12 @@ export function RpsSpectatorBoard({ view: incoming, players, outcome }: RpsSpect
       return;
     }
     if (!incoming.lastRound) {
-      // `useSpectatorState` swaps in a new match without unmounting us, and the server
-      // only ever moves `lastRound` forwards within a match — so a null here can only
-      // mean a fresh match. Without this reset, match 2's early rounds fail the
+      // BACKSTOP, not the primary mechanism. The primary is `key={match.matchId}` in
+      // `SpectatorActivity`, which remounts this board on a match change so the gate
+      // resets structurally. This branch survives as defence in depth for any future
+      // caller that swaps in a new match without remounting: the server only ever
+      // moves `lastRound` forwards within a match, so a null here can only mean a
+      // fresh match. Without either mechanism, match 2's early rounds fail the
       // `seq > shown` test against match 1's higher sequence, fall through to the
       // ungated setter and are revealed with no beat at all until the count catches up.
       shownSeqRef.current = 0;

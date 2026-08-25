@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { SpectatorActivity } from './SpectatorActivity';
+import { REVEAL_SECONDS } from './rpsShared';
 import type { DuelQueueSnapshot, SpectatorSnapshot } from '../../api/games';
 
 const resolveName = (sessionId: number) => ({ 10: 'Qy', 20: 'Broan', 30: 'Mo' }[sessionId] ?? String(sessionId));
@@ -192,5 +193,80 @@ describe('SpectatorActivity', () => {
   it('offers no collapse or minimise affordance', () => {
     render(<SpectatorActivity match={deathrollMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
     expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['Stop watching']);
+  });
+
+  describe('match identity', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const round1 = { roundNumber: 1, sequence: 1, pick0: 'rock', pick1: 'scissors', winnerId: 10, tie: false };
+    const round2 = { roundNumber: 2, sequence: 2, pick0: 'paper', pick1: 'rock', winnerId: 10, tie: false };
+
+    const rpsWith = (matchId: number, lastRound: unknown): SpectatorSnapshot => ({
+      ...rpsMatch, matchId, view: { ...rpsMatch.view, lastRound } as SpectatorSnapshot['view'],
+    });
+
+    /*
+     * The property the `key={match.matchId}` makes expressible at all. The board's
+     * own null-`lastRound` backstop CANNOT cover this case: match 2's first DELIVERED
+     * frame already carries a resolved round, so the backstop never fires and the
+     * stale sequence mark from match 1 survives. Without the key, match 2's round 2
+     * (sequence 2) fails `seq > shown` against match 1's mark and is adopted through
+     * the ungated setter — revealed instantly, with no beat.
+     */
+    it('resets the reveal gate when the match id changes', () => {
+      const { rerender } = render(
+        <SpectatorActivity match={rpsWith(91, round2)} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />
+      );
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
+
+      // New match, and its first delivered frame already has a resolved round.
+      rerender(
+        <SpectatorActivity match={rpsWith(92, round1)} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />
+      );
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+
+      // Match 2's round 2. Only a gate reset makes this hold for the beat.
+      rerender(
+        <SpectatorActivity match={rpsWith(92, round2)} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />
+      );
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+      expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 1/i);
+
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
+      expect(screen.getByTestId('spectator-last-round')).toHaveTextContent(/round 2/i);
+    });
+
+    /*
+     * The other half of the contract, and the reason the remount is safe:
+     * `useSpectatorState` deliberately does not null `match` on
+     * `game.spectatorMatchEnded`, so `matchId` is STABLE across the end of a match.
+     * A remount here would drop the in-flight reveal and flash the end banner early.
+     */
+    it('does not remount when only the outcome arrives, so the end banner stays gated', () => {
+      const { rerender } = render(
+        <SpectatorActivity match={rpsWith(91, round1)} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />
+      );
+
+      // Deciding frame and the ended signal land together, same matchId.
+      rerender(
+        <SpectatorActivity
+          match={rpsWith(91, round2)}
+          ended={{ schemaVersion: 1, matchId: 91, channelId: 7, reason: 'completed', finalSequence: 2, outcome: { winnerId: 10, loserId: 20, draw: false } }}
+          queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()}
+        />
+      );
+
+      // Held: the reveal survived, so the banner is still gated.
+      expect(screen.queryByText(/wins/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'rock');
+
+      act(() => { vi.advanceTimersByTime(REVEAL_SECONDS * 1000); });
+
+      expect(screen.getByText(/Qy wins/)).toBeInTheDocument();
+      expect(screen.getByTestId('spectator-pick-10')).toHaveAttribute('data-pick', 'paper');
+    });
   });
 });

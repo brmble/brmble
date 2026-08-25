@@ -44,10 +44,19 @@ export function SpectatorActivity({
 }: SpectatorActivityProps) {
   const outcome = ended?.outcome ?? null;
 
+  /*
+   * Keyed on `match.matchId`, matching the participant board's rule: a new match
+   * remounts the board so any per-match view state (RPS's reveal gate) resets
+   * structurally rather than by inference. Safe because `useSpectatorState`
+   * deliberately does NOT null `match` on `game.spectatorMatchEnded`, so `matchId`
+   * is stable across the end of a match and the reveal survives to release the end
+   * banner; every path that DOES clear `match` also clears `spectatingChannelId`,
+   * which unmounts this whole activity anyway.
+   */
   const body = match
     ? isRpsSpectatorView(match.view)
-      ? <RpsSpectatorBoard view={match.view} players={match.players} outcome={outcome} />
-      : <DeathrollSpectatorBoard view={match.view} players={match.players} outcome={outcome} />
+      ? <RpsSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />
+      : <DeathrollSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />
     : <NextUp queueSnapshot={queueSnapshot} resolveName={resolveName} />;
 
   return (

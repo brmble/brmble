@@ -183,6 +183,37 @@ public class SpectatorViewTests
         Assert.AreEqual(10L, view.LastRollBy, "A timeout by player 20 does not transfer player 10's roll.");
     }
 
+    /*
+     * The fatal TIMEOUT branch, which is the only path where the penalty method itself
+     * authors `LastRoll` — and the only one where `LastRollBy` names a player who never
+     * made that roll. Player 20 is credited with a 1 it did not throw; the engine
+     * synthesises it so the board can show the losing value. That is intended, and this
+     * test is the record of it.
+     *
+     * FixedRandom clamps to the ceiling, so `FixedRandom(2)` drives ceiling 100 -> 2 on
+     * player 10's roll; the penalty then computes floor(2 * 0.8) = 1 and turns fatal.
+     *
+     * A fatal timeout with NO prior roll is unreachable: the ceiling starts at 100 and
+     * the first penalty can only take it to 80, so at least one roll must land first.
+     */
+    [TestMethod]
+    public void DeathrollSpectatorView_AttributesAFatalTimeoutToTheTimedOutPlayer()
+    {
+        var engine = new DeathrollEngine();
+        var state = engine.InitialState([new GamePlayer(10), new GamePlayer(20)], new FixedRandom(2));
+        engine.ApplyAction(state, 10, new Dictionary<string, object?> { ["roll"] = true }, new FixedRandom(2));
+        // Player 20 times out with the ceiling at 2: the reduced ceiling would be 1, so
+        // the penalty is fatal and synthesises LastRoll = 1 for player 20.
+        engine.ApplyTimeoutPenalty(state, new FixedRandom(2));
+
+        var view = (DeathrollSpectatorView)engine.SpectatorView(state);
+
+        Assert.AreEqual(1, view.LastRoll, "The fatal penalty authors the losing roll itself.");
+        Assert.AreEqual(20L, view.LoserId);
+        Assert.AreEqual(20L, view.LastRollBy, "The synthesised roll is attributed to the timed-out player.");
+        Assert.IsNull(view.CurrentPlayer, "The match is over, so nobody is to move.");
+    }
+
     private sealed class FixedRandom(int value) : IRandomSource
     {
         public int Roll(int maxInclusive) => Math.Min(value, maxInclusive);

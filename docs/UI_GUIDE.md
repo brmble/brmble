@@ -735,7 +735,15 @@ Rules:
    end-of-match banner until the reveal completes** — the server sends the deciding
    round and the match-ended signal back to back, so without the hold the result
    paints while the board still shows the previous round's throws, telling the watcher
-   the outcome three seconds early and looking broken.
+   the outcome three seconds early and looking broken. As on the participant board,
+   **the board is keyed on the match id** — `key={match.matchId}` in
+   `SpectatorActivity` — so the reveal state resets between matches structurally
+   rather than by inference. That key is safe precisely because `useSpectatorState`
+   does **not** null `match` on `game.spectatorMatchEnded`: the match id is stable
+   across the end of a match, so the in-flight reveal survives to release the end
+   banner, and every path that does clear `match` also clears `spectatingChannelId`
+   and unmounts the whole activity anyway. `RpsSpectatorBoard` keeps a null-`lastRound`
+   reset as a backstop, but the key is the primary mechanism.
 8. **A spectator board must never render hidden state.** RPS renders commitment as a
    per-player state ("Thrown" / "Choosing…"), never a throw, and reveals throws only
    from `lastRound`. The server enforces this by giving `IGameEngine` a
