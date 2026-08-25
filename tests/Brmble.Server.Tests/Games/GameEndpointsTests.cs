@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Brmble.Server.Events;
+using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Engines;
 using Brmble.Server.Games.Spectators;
 using Brmble.Server.Tests.Integration;
 using Microsoft.AspNetCore.Hosting;
@@ -473,19 +475,21 @@ public class GameEndpointsTests
     }
 
     [TestMethod]
-    public async Task Action_FromANonParticipant_IsRejected()
+    public async Task Action_FromANonParticipant_OnALiveMatch_IsRejected()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
         var router = new Mock<IDuelMatchRunnerRouter>();
         router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
             .Returns(false);
-        await using var factory = CreateFactory(orchestrator, router);
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9101));
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
         var response = await client.PostAsJsonAsync("/games/action", new
         {
-            matchId = 91,
+            matchId = live.MatchId,
             action = new Dictionary<string, object?> { ["pick"] = "rock" },
         });
 
@@ -494,8 +498,58 @@ public class GameEndpointsTests
         Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
     }
 
+    // An action that lands after the match ended (final move, forfeit, or turn-timer
+    // expiry) must NOT be told "you are not a participant" — the player WAS one. The
+    // ownership index is cleared the instant a match completes, so this is an ordinary
+    // end-of-match race, and it must keep the pre-guard behaviour: a silent 200 no-op.
     [TestMethod]
-    public async Task Action_ForADifferentMatch_IsRejected()
+    public async Task Action_ForAMatchThatIsNotLive_IsNotRejectedAsNotParticipant()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns(false);
+        await using var factory = CreateFactory(orchestrator, router, manager: NewManager());
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = 9102,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Action_FromTheMatchParticipant_ReachesTheSessionManager()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9103));
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(live.MatchId, 1, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = live.MatchId,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Action_ForADifferentLiveMatch_IsRejected()
     {
         var orchestrator = new Mock<IDuelOrchestrator>();
         var router = new Mock<IDuelMatchRunnerRouter>();
@@ -505,17 +559,21 @@ public class GameEndpointsTests
                 m = new ActiveMatchReference(42, 1, 7, "discrete");
                 return true;
             });
-        await using var factory = CreateFactory(orchestrator, router);
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9104));
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
         var client = factory.CreateClient();
         await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
 
         var response = await client.PostAsJsonAsync("/games/action", new
         {
-            matchId = 91,
+            matchId = live.MatchId,
             action = new Dictionary<string, object?> { ["pick"] = "rock" },
         });
 
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        // Pins the rejection to the ownership guard rather than to any 400: the
+        // session-lookup failure returns { error } with no reason property at all.
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
     }
@@ -542,12 +600,27 @@ public class GameEndpointsTests
         Assert.AreEqual("invalidAction", doc.RootElement.GetProperty("reason").GetString());
     }
 
+    private static GameSessionManager NewManager() => new(
+        [new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), new ManagerSink());
+
+    private static DuelReservation ActionReservation(long id) => new(
+        id,
+        7,
+        new DuelPlayer(10, 100, "Alice"),
+        new DuelPlayer(20, 200, "Bob"),
+        new DuelConfiguration("rps", "bo3", 1,
+            new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+        DateTimeOffset.UtcNow,
+        id,
+        null);
+
     private static WebApplicationFactory<Program> CreateFactory(
         Mock<IDuelOrchestrator> orchestrator,
         Mock<IDuelMatchRunnerRouter>? router = null,
         bool hasSession = true,
         Mock<IDuelSnapshotProvider>? snapshots = null,
-        string? certHash = "testcerthash123")
+        string? certHash = "testcerthash123",
+        GameSessionManager? manager = null)
     {
         var factory = new BrmbleServerFactory(certHash);
         factory.SessionMappingMock
@@ -563,6 +636,11 @@ public class GameEndpointsTests
             {
                 services.RemoveAll<IDuelMatchRunnerRouter>();
                 services.AddSingleton(router.Object);
+            }
+            if (manager is not null)
+            {
+                services.RemoveAll<GameSessionManager>();
+                services.AddSingleton(manager);
             }
         }));
     }

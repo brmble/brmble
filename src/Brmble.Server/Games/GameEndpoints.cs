@@ -123,8 +123,14 @@ public static class GameEndpoints
                 return Results.BadRequest(new GameErrorWire(
                     "An action is required.", DuelWire.Reason(DuelRejectReason.InvalidAction)));
             // Spectators can now SEE a live match, so this is a real privilege
-            // boundary rather than a theoretical one. Same guard as /games/forfeit.
-            if (!runner.TryGetActiveMatch(user.UserId, out var active) || active.MatchId != dto.MatchId)
+            // boundary rather than a theoretical one. Same guard as /games/forfeit,
+            // but scoped to LIVE matches: the ownership index is cleared the instant a
+            // match completes, so an action racing the final move or a turn-timer
+            // expiry would otherwise tell a genuine participant "not a participant".
+            // A non-live or unknown match falls through to ActionAsync, which no-ops
+            // silently without touching state — the pre-guard behaviour.
+            if (mgr.IsMatchLive(dto.MatchId)
+                && (!runner.TryGetActiveMatch(user.UserId, out var active) || active.MatchId != dto.MatchId))
                 return Results.BadRequest(new GameErrorWire(
                     "The requested match is not the authenticated user's active match.",
                     DuelWire.Reason(DuelRejectReason.NotParticipant)));
