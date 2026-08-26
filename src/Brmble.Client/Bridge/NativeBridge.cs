@@ -117,6 +117,11 @@ public sealed class NativeBridge
         if (batch.Count == 0)
             return;
 
+        // Unreachable in production: the constructor parameter is non-nullable, so a
+        // real bridge always has a WebView2. Only a reflection-constructed test bridge
+        // reaches here — NativeBridgeTestHarness uses RuntimeHelpers.GetUninitializedObject,
+        // which leaves _webView null. Discarding the drained batch is acceptable there,
+        // since those tests exercise the notify/claim path rather than delivery.
         if (_webView is null)
             return;
 

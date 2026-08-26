@@ -15,7 +15,9 @@ out of scope here.
 
 `NotifyUiThread()` (line 128) posts one `WM_USER` per event and discards
 `PostMessage`'s return value, though the P/Invoke is declared returning `bool`
-at line 25. `MumbleAdapter.cs` calls it from 101 sites, about one per forwarded event. A thread's posted-message queue is capped at 10,000 by
+at line 25. `MumbleAdapter.cs` calls it from 101 sites, about one per forwarded
+event; across `src/Brmble.Client` as a whole there are 129 call sites in 10
+files. A thread's posted-message queue is capped at 10,000 by
 default; past that `PostMessage` returns FALSE and is silently ignored. The
 flush trigger is then lost while `_pendingMessages` (line 36, unbounded) keeps
 growing.
@@ -45,7 +47,8 @@ private Func<IntPtr, uint, IntPtr, IntPtr, bool> _postMessage = PostMessage;
 
 Resetting on failure is what makes the path self-healing. Nothing retries on a
 timer and nothing blocks; the next `NotifyUiThread()` call — of which there are
-many — reclaims and reposts. A failure that happens to be the last event before
+129 across the client — reclaims and reposts. A failure that happens to be the
+last event before
 a quiet period leaves messages queued until the next event, which is
 acceptable: those messages had no consumer waiting anyway.
 
@@ -83,7 +86,8 @@ Splitting `Flush` from `ProcessUiMessage` to buy strictness is not worth the
 additional code path.
 
 **No call-site changes in `MumbleAdapter.cs`.** Coalescing lives entirely
-inside `NotifyUiThread()`, so all 101 call sites are untouched.
+inside `NotifyUiThread()`, so all 101 call sites there — and the other 28
+elsewhere in the client, 129 in total across 10 files — are untouched.
 
 ### Testability
 

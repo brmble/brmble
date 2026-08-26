@@ -4,7 +4,7 @@
 
 **Goal:** Stop `NativeBridge` from silently losing UI flush triggers, and stop `DecodeChunkedBody` from truncating any HTTP chunked response containing non-ASCII bytes.
 
-**Architecture:** `NotifyUiThread()` gains a claim-then-post dirty flag so at most one `WM_USER` is outstanding, and honours `PostMessage`'s return value by releasing the claim on failure so the next of the 101 call sites retries. `ParseHttpResponse` moves from `string` to `byte[]` so chunk sizes are applied in byte space, as RFC 7230 requires.
+**Architecture:** `NotifyUiThread()` gains a claim-then-post dirty flag so at most one `WM_USER` is outstanding, and honours `PostMessage`'s return value by releasing the claim on failure so the next of the 129 client-wide call sites (101 of them in `MumbleAdapter.cs`) retries. `ParseHttpResponse` moves from `string` to `byte[]` so chunk sizes are applied in byte space, as RFC 7230 requires.
 
 **Tech Stack:** C# / .NET 10 (`net10.0-windows`), MSTest 3.7.3, Win32 P/Invoke, WebView2.
 
@@ -15,7 +15,7 @@
 - Never commit to `main`. All work lands on branch `fix/client-transport-defects`.
 - Test project is MSTest: `[TestClass]`, `[TestMethod]`, `[DataTestMethod]`, `Assert.AreEqual(expected, actual)`. No xUnit, no FluentAssertions.
 - `NativeBridge` stays `sealed`; its public constructor signature does not change.
-- Do **not** add a bound or a drop policy to `_pendingMessages`. Do **not** modify the batching logic in `ProcessUiMessage`. Do **not** modify any of the 101 `NotifyUiThread()` call sites in `MumbleAdapter.cs`.
+- Do **not** add a bound or a drop policy to `_pendingMessages`. Do **not** modify the batching logic in `ProcessUiMessage`. Do **not** modify any of the 101 `NotifyUiThread()` call sites in `MumbleAdapter.cs`, nor the other 28 elsewhere in the client (129 total across 10 files).
 - Every task ends in a commit. Commit message prefixes: `fix:`, `test:`, `refactor:`.
 
 ---
@@ -273,7 +273,7 @@ git commit -m "fix(client): coalesce NativeBridge UI notifications behind a sing
 - Consumes: `NativeBridgeTestHarness.RecordPosts(bridge, result)` and `NativeBridge._notifyPending` from Task 1.
 - Produces: nothing consumed by later tasks.
 
-**Background.** `PostMessage` is declared returning `bool` at `NativeBridge.cs:25` and the result is discarded. After Task 1 a discarded failure is strictly worse than before: the claim stays held forever and the bridge never flushes again. Releasing the claim on failure makes the path self-healing — the next of the 101 `NotifyUiThread()` calls reclaims and reposts. Nothing retries on a timer and nothing blocks.
+**Background.** `PostMessage` is declared returning `bool` at `NativeBridge.cs:25` and the result is discarded. After Task 1 a discarded failure is strictly worse than before: the claim stays held forever and the bridge never flushes again. Releasing the claim on failure makes the path self-healing — the next of the 129 `NotifyUiThread()` calls across the client (101 in `MumbleAdapter.cs`, the rest across 9 other files) reclaims and reposts. Nothing retries on a timer and nothing blocks.
 
 - [ ] **Step 1: Write the failing self-healing test**
 
@@ -588,4 +588,4 @@ Things this plan deliberately does **not** do, per the spec:
 - No bound and no drop policy on `_pendingMessages`. Coalescing makes the 10,000-message cliff unreachable, and no uniform drop policy is safe — losing a terminal event strands spectators on a board that never ends (`src/Brmble.Server/Games/Spectators/SpectatorService.cs:138-144`).
 - No strict one-outstanding-post invariant. `Flush()` routes through `ProcessUiMessage()`, so a UI-thread `Flush()` racing an outstanding post can permit a second post. "At most a small handful" is four orders of magnitude below the cliff.
 - No changes to `ProcessUiMessage`'s batching, which already coalesces correctly on the flush side.
-- No changes to any of the 101 `NotifyUiThread()` call sites in `MumbleAdapter.cs`.
+- No changes to any of the 101 `NotifyUiThread()` call sites in `MumbleAdapter.cs`, nor to the other 28 across the client (129 total, 10 files).
