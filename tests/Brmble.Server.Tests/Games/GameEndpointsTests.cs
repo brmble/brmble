@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Brmble.Server.Events;
+using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Engines;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.Tests.Integration;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -301,12 +305,326 @@ public class GameEndpointsTests
         orchestrator.Verify(x => x.RequestRematchAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
+    private static WebApplicationFactory<Program> CreateSpectatorFactory(
+        Mock<ISpectatorCoordinator> spectators,
+        bool hasSession = true,
+        string? certHash = "testcerthash123")
+    {
+        var factory = new BrmbleServerFactory(certHash);
+        factory.SessionMappingMock
+            .Setup(x => x.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long _, out int session) => { session = 55; return hasSession; });
+        return factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<ISpectatorCoordinator>();
+            services.AddSingleton(spectators.Object);
+        }));
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_IdleChannel_ReturnsNullMatch()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(true, null, SpectatorSubscribeReason.None));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual(7, doc.RootElement.GetProperty("channelId").GetInt32());
+        Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("match").ValueKind);
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_LiveChannel_ReturnsTheSnapshot()
+    {
+        var snapshot = new SpectatorSnapshot(
+            1, 91, 7, "deathroll", "1v1", 1,
+            [new DuelPlayerSnapshot(100, 10, "Qy"), new DuelPlayerSnapshot(200, 20, "Broan")],
+            4, DateTimeOffset.UnixEpoch,
+            new DeathrollSpectatorView("deathroll", [10, 20], 10, 50, 73, false, null, null));
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(true, snapshot, SpectatorSubscribeReason.None));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var match = doc.RootElement.GetProperty("match");
+        Assert.AreEqual(91, match.GetProperty("matchId").GetInt64());
+        Assert.AreEqual("deathroll", match.GetProperty("view").GetProperty("kind").GetString());
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_CrossChannel_RejectsWithStructuredReason()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 8))
+            .ReturnsAsync(new SpectatorSubscribeResult(false, null, SpectatorSubscribeReason.NotSameChannel));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 8 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notSameChannel", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_WithNoLiveSession_RejectsWithNotPresent()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notPresent", doc.RootElement.GetProperty("reason").GetString());
+        spectators.Verify(x => x.SubscribeAsync(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_Unauthenticated_Returns401()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, certHash: null);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_Succeeds()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsTrue(doc.RootElement.GetProperty("unsubscribed").GetBoolean());
+        spectators.Verify(x => x.UnsubscribeAsync(55, It.IsAny<long>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SpectatorSubscribe_CoordinatorReportsNotPresent_RejectsWithNotPresent()
+    {
+        // Reachable when the session mapping exists but presence disagrees, so this is
+        // the coordinator's own NotPresent, not the endpoint's pre-check.
+        var spectators = new Mock<ISpectatorCoordinator>();
+        spectators.Setup(x => x.SubscribeAsync(55, It.IsAny<long>(), 7))
+            .ReturnsAsync(new SpectatorSubscribeResult(false, null, SpectatorSubscribeReason.NotPresent));
+        await using var factory = CreateSpectatorFactory(spectators);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/subscribe", new { channelId = 7 });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notPresent", doc.RootElement.GetProperty("reason").GetString());
+        spectators.Verify(x => x.SubscribeAsync(55, It.IsAny<long>(), 7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_WithNoLiveSession_SucceedsWithoutCoordinatorCall()
+    {
+        // Deliberately asymmetric with subscribe's 400 notPresent: unsubscribing when
+        // you are already gone is not a failure.
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsTrue(doc.RootElement.GetProperty("unsubscribed").GetBoolean());
+        spectators.Verify(x => x.UnsubscribeAsync(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SpectatorUnsubscribe_Unauthenticated_Returns401()
+    {
+        var spectators = new Mock<ISpectatorCoordinator>();
+        await using var factory = CreateSpectatorFactory(spectators, certHash: null);
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/games/spectators/unsubscribe", new { });
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Action_FromANonParticipant_OnALiveMatch_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns(false);
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9101));
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = live.MatchId,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    // An action that lands after the match ended (final move, forfeit, or turn-timer
+    // expiry) must NOT be told "you are not a participant" — the player WAS one. The
+    // ownership index is cleared the instant a match completes, so this is an ordinary
+    // end-of-match race, and it must keep the pre-guard behaviour: a silent 200 no-op.
+    [TestMethod]
+    public async Task Action_ForAMatchThatIsNotLive_IsNotRejectedAsNotParticipant()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns(false);
+        await using var factory = CreateFactory(orchestrator, router, manager: NewManager());
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = 9102,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    // Asserts only that the endpoint's guard boundary lets the request through (200). The
+    // stubbed session is NOT one of the real match participants, so ActionAsync swallows an
+    // InvalidGameActionException — this does not, and cannot, assert that the action reached
+    // the session manager's engine.
+    public async Task Action_FromTheMatchParticipant_IsNotRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9103));
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(live.MatchId, 1, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = live.MatchId,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Action_ForADifferentLiveMatch_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(42, 1, 7, "discrete");
+                return true;
+            });
+        var manager = NewManager();
+        var live = await manager.StartAsync(ActionReservation(9104));
+        await using var factory = CreateFactory(orchestrator, router, manager: manager);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new
+        {
+            matchId = live.MatchId,
+            action = new Dictionary<string, object?> { ["pick"] = "rock" },
+        });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        // Pins the rejection to the ownership guard rather than to any 400: the
+        // session-lookup failure returns { error } with no reason property at all.
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notParticipant", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task Action_WithANullAction_IsRejected()
+    {
+        var orchestrator = new Mock<IDuelOrchestrator>();
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference m) =>
+            {
+                m = new ActiveMatchReference(91, 1, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(orchestrator, router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/action", new { matchId = 91, action = (object?)null });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("invalidAction", doc.RootElement.GetProperty("reason").GetString());
+    }
+
+    private static GameSessionManager NewManager() => new(
+        [new RpsEngine()], new ManagerRandom(), new ManagerPublisher(), new ManagerSink());
+
+    private static DuelReservation ActionReservation(long id) => new(
+        id,
+        7,
+        new DuelPlayer(10, 100, "Alice"),
+        new DuelPlayer(20, 200, "Bob"),
+        new DuelConfiguration("rps", "bo3", 1,
+            new Dictionary<string, object?> { ["bestOf"] = 3 }, "discrete"),
+        DateTimeOffset.UtcNow,
+        id,
+        null);
+
     private static WebApplicationFactory<Program> CreateFactory(
         Mock<IDuelOrchestrator> orchestrator,
         Mock<IDuelMatchRunnerRouter>? router = null,
         bool hasSession = true,
         Mock<IDuelSnapshotProvider>? snapshots = null,
-        string? certHash = "testcerthash123")
+        string? certHash = "testcerthash123",
+        GameSessionManager? manager = null)
     {
         var factory = new BrmbleServerFactory(certHash);
         factory.SessionMappingMock
@@ -322,6 +640,11 @@ public class GameEndpointsTests
             {
                 services.RemoveAll<IDuelMatchRunnerRouter>();
                 services.AddSingleton(router.Object);
+            }
+            if (manager is not null)
+            {
+                services.RemoveAll<GameSessionManager>();
+                services.AddSingleton(manager);
             }
         }));
     }

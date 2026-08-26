@@ -1,0 +1,88 @@
+/*
+ * Chrome budget: this panel lives in ChannelActivityRegion's `.stage`, whose floor
+ * is `--activity-stage-min-height` (8rem / 128px). Every value below is the small
+ * token rather than the dialog-scale one the participant boards use, because those
+ * own the entire main panel and this one does not.
+ */
+.activity {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-sm);
+  overflow: hidden;
+}
+
+/*
+ * `.modal-header` (ConnectModal.css) is dialog-scale chrome: centred, with a
+ * `--space-xl` bottom margin. That fits a board that owns the whole main panel;
+ * it does not fit this one, which lives in ChannelActivityRegion's stage at a
+ * `--activity-stage-min-height` (8rem) minimum. Drop the margin entirely — the
+ * column's gap already separates header from stage — and drop the centring.
+ *
+ * Scoped under `.activity` deliberately: a bare `.header` would tie 0,1,0 with
+ * `.modal-header` and win only on import order (CSS modules hash names, they do not
+ * add specificity), so the override would silently die if `index.css` ever moved
+ * after the module CSS. Two classes wins on specificity instead. This mirrors the
+ * repo precedent — `.prompt .modal-header`, `.avatar-upload .modal-header`,
+ * `.edit-channel-dialog .modal-header`, `.rename-confirm-dialog .modal-header`.
+ */
+.activity .header {
+  margin-bottom: 0;
+  text-align: left;
+}
+
+/*
+ * The board scrolls, not the whole activity: `.controls` must stay pinned, because
+ * Stop watching is the only exit from spectate mode and it cannot be allowed to
+ * scroll out of reach. `safe center` keeps the top of an overflowing board
+ * reachable — plain `center` would clip it unscrollably.
+ */
+.stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+}
+
+/* No top padding: `.activity`'s gap already separates this from the stage. */
+.controls {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nextUp {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+}
+
+.nextUpLabel {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.nextUpPair {
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+.nextUpMeta {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}

@@ -42,18 +42,22 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
-import { DeathrollModal } from './components/Games/DeathrollModal';
-import { RpsModal } from './components/Games/RpsModal';
+import { DeathrollBoard } from './components/Games/DeathrollBoard';
+import { RpsBoard } from './components/Games/RpsBoard';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
 import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
 import { ScreenShareGrid } from './components/ScreenShareGrid';
 import { selectStage, type ChannelActivityKind } from './workspace/channelActivity';
+import { assertNever } from './utils/assertNever';
 import { selectMainPanelMode } from './workspace/mainPanelMode';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
 import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
+import { useSpectatorState } from './components/Games/useSpectatorState';
+import { SpectatorActivity } from './components/Games/SpectatorActivity';
+import { GameApiError } from './api/games';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -944,6 +948,15 @@ function duelCommandErrorDetail(error: { reason?: string; message?: string }): s
     ?? 'The server rejected the request. Try again.';
 }
 
+// A total Record, not a ternary. Adding a ChannelActivityKind without a label is
+// now a compile error rather than a chip silently rendering as "Paint".
+const ACTIVITY_LABELS: Record<ChannelActivityKind, string> = {
+  'screen-share': 'Screen share',
+  paint: 'Paint',
+  // Game-neutral: does not presume two players.
+  spectate: 'Game',
+};
+
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
   // --- Notification queue (max 3 visible, priority-based) ---
@@ -1074,6 +1087,10 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
   const duelQueue = useDuelQueueState();
+  // Spectating is a CHANNEL mode the user opts into from DuelQueueModal. It is
+  // deliberately independent of `duelQueue`: the queue is broadcast to everyone,
+  // a spectator subscription is held per session by the server.
+  const spectator = useSpectatorState();
   // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
   // latest game actions without being in their dependency arrays.
   const gameStateRef = useRef(gameState);
@@ -4987,8 +5004,13 @@ const handleConnect = (serverData: SavedServer) => {
     const kinds: ChannelActivityKind[] = [];
     if (hasWatchableShare) kinds.push('screen-share');
     if (activePaintSessionId) kinds.push('paint');
+    // Appended LAST so the existing chip order is untouched, and present only while
+    // actually spectating: the queue itself stays in the sidebar badge and
+    // DuelQueueModal. `spectatingChannelId`, not `match`, is the condition — a
+    // subscription to an idle channel is a real subscription.
+    if (spectator.spectatingChannelId !== null) kinds.push('spectate');
     return kinds;
-  }, [hasWatchableShare, activePaintSessionId]);
+  }, [hasWatchableShare, activePaintSessionId, spectator.spectatingChannelId]);
 
   const [explicitActivity, setExplicitActivity] = useState<ChannelActivityKind | null>(null);
   const previousStageRef = useRef<ChannelActivityKind | null>(null);
@@ -4998,6 +5020,70 @@ const handleConnect = (serverData: SavedServer) => {
     previous: previousStageRef.current,
   });
   useEffect(() => { previousStageRef.current = stage; }, [stage]);
+
+  // Copy for a refused subscribe. Written here from the server's `reason` code
+  // rather than echoing the server's own sentence, so the wording is ours and does
+  // not change under us when the server's does.
+  const [spectateError, setSpectateError] = useState<string | null>(null);
+  /**
+   * Opting in is a click, exactly as watching a share is. Setting the explicit
+   * activity makes the stage take focus under the region's "explicit click always
+   * wins" rule, and the modal closes because the activity it launched now owns the
+   * surface.
+   *
+   * Spectating is same-channel only. DuelQueueModal disables Watch when the
+   * snapshot's channel is not the joined one, but its snapshot can be a moment
+   * stale, so the server re-validates and may still refuse. That refusal is
+   * surfaced rather than swallowed: the user clicked, and a click that silently
+   * does nothing is indistinguishable from a broken button. On rejection
+   * `useSpectatorState` writes no state at all, so the only thing to unwind is the
+   * explicit activity this handler set.
+   */
+  const handleWatchDuel = useCallback((channelId: number) => {
+    setSelectedDuelChannelId(null);
+    setSpectateError(null);
+    notifQueue.unregister('spectate-error');
+    setExplicitActivity('spectate');
+    void spectator.startSpectating(channelId).catch((reason: unknown) => {
+      setExplicitActivity(null);
+      const code = reason instanceof GameApiError ? reason.reason : undefined;
+      setSpectateError(
+        code === 'notSameChannel'
+          ? 'You can only watch a game in the channel you have joined.'
+          : code === 'notPresent'
+            ? 'You are no longer connected to this channel.'
+            : 'The server refused the request. Try again in a moment.',
+      );
+      notifQueue.register('spectate-error', 'error');
+    });
+  }, [spectator.startSpectating, notifQueue]);
+
+  /**
+   * The channel row's watch toggle. Starting reuses handleWatchDuel so the modal path
+   * and the row path behave identically — same explicit-activity focus, same error
+   * surfacing. Stopping is the hook's own teardown, which unsubscribes and clears the
+   * spectate state that drops the chip and the activity region.
+   */
+  const handleToggleSpectate = useCallback((channelId: number) => {
+    if (spectator.spectatingChannelId === channelId) {
+      spectator.stopSpectating();
+      return;
+    }
+    handleWatchDuel(channelId);
+  }, [spectator.spectatingChannelId, spectator.stopSpectating, handleWatchDuel]);
+
+  /**
+   * The refusal copy names a condition ("you are not in that channel") that the user
+   * can fix by moving, and errors never auto-dismiss — so without this the notice
+   * outlives the condition it describes and sits there being false. `useSpectatorState`
+   * already resets itself on `voice.channelChanged`; this is the App-side half of that.
+   * Uses the queue ref, not `notifQueue`, so the effect fires on channel change only
+   * and not on every register/unregister elsewhere in the app.
+   */
+  useEffect(() => {
+    setSpectateError(null);
+    notifQueueRef.current.unregister('spectate-error');
+  }, [joinedChannelId]);
 
   useEffect(() => {
     setRemoteScreenSharesHidden(stage !== 'screen-share');
@@ -5113,6 +5199,70 @@ const handleConnect = (serverData: SavedServer) => {
         : {}),
     };
 
+  // Input to the spectate stage's Idle card. Null while not spectating, and null
+  // while the duel queue still reports a live match we have no frame for (see the
+  // note at the 'spectate' case below).
+  const spectateQueueSnapshot = spectator.spectatingChannelId == null
+    ? null
+    : (() => {
+      const snapshot = duelQueue.byChannel.get(spectator.spectatingChannelId) ?? null;
+      return snapshot?.active && spectator.match == null ? null : snapshot;
+    })();
+
+  const renderStage = (staged: ChannelActivityKind | null) => {
+    // A switch with assertNever, not a ternary chain: a new activity kind must not
+    // be able to fall through to `null` and render an empty stage.
+    switch (staged) {
+      case null:
+        return null;
+      case 'screen-share':
+        return (
+          <ScreenShareGrid
+            watchingShares={watchingShares}
+            focusedShare={focusedShare}
+            videoElements={remoteVideoEls}
+            roomQuality={roomQuality}
+            shareQualities={shareQualities}
+            viewerQualities={viewerQualities}
+            onFocus={setFocusedShare}
+            onClose={handleCloseWatchedShare}
+            onViewerQualityChange={setViewerQuality}
+          />
+        );
+      case 'paint':
+        return activePaintSessionId ? (
+          <PaintSessionView
+            key={activePaintSessionId}
+            sessionId={activePaintSessionId}
+            matrixClient={matrixClient.client}
+            channelRoomMap={matrixCredentials?.roomMap}
+            currentVoiceChannelId={paintVoiceChannelId}
+            onClose={handleClosePaint}
+          />
+        ) : null;
+      case 'spectate':
+        return (
+          <SpectatorActivity
+            match={spectator.match}
+            ended={spectator.ended}
+            /*
+             * The Idle card reads `readyCheck ?? queue[0]` and never the queue's
+             * `active`, so handing it a snapshot that claims a live match while we
+             * hold no spectator frame would advertise the pair AFTER the live one as
+             * "Next up" — a wrong pair, not merely a late one. The two feeds are
+             * independent broadcasts and can disagree for a beat, so during that
+             * disagreement the snapshot is withheld and the card says it is waiting.
+             */
+            queueSnapshot={spectateQueueSnapshot}
+            resolveName={resolveGamePlayerName}
+            onStopWatching={spectator.stopSpectating}
+          />
+        );
+      default:
+        return assertNever(staged);
+    }
+  };
+
   const activityRegion = joinedChannelId !== null
     && joinedChannelId !== SERVER_ROOT_CHANNEL_ID
     && availableActivities.length > 0
@@ -5122,33 +5272,12 @@ const handleConnect = (serverData: SavedServer) => {
           channelName={joinedChannelName}
           activities={availableActivities.map(kind => ({
             kind,
-            label: kind === 'screen-share' ? 'Screen share' : 'Paint',
+            label: ACTIVITY_LABELS[kind],
           }))}
           stage={stage}
           onSelect={setExplicitActivity}
         >
-          {stage === 'screen-share' ? (
-            <ScreenShareGrid
-              watchingShares={watchingShares}
-              focusedShare={focusedShare}
-              videoElements={remoteVideoEls}
-              roomQuality={roomQuality}
-              shareQualities={shareQualities}
-              viewerQualities={viewerQualities}
-              onFocus={setFocusedShare}
-              onClose={handleCloseWatchedShare}
-              onViewerQualityChange={setViewerQuality}
-            />
-          ) : stage === 'paint' && activePaintSessionId ? (
-            <PaintSessionView
-              key={activePaintSessionId}
-              sessionId={activePaintSessionId}
-              matrixClient={matrixClient.client}
-              channelRoomMap={matrixCredentials?.roomMap}
-              currentVoiceChannelId={paintVoiceChannelId}
-              onClose={handleClosePaint}
-            />
-          ) : null}
+          {renderStage(stage)}
         </ChannelActivityRegion>
       </ErrorBoundary>
     )
@@ -5158,7 +5287,7 @@ const handleConnect = (serverData: SavedServer) => {
   const gameSurface = participatingMatchId !== null ? (
     <GameSurface>
       {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-        <RpsModal
+        <RpsBoard
           key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
           view={gameState.view}
           ended={gameState.ended}
@@ -5174,7 +5303,7 @@ const handleConnect = (serverData: SavedServer) => {
           rematchPending={rematchPending}
         />
       ) : (
-        <DeathrollModal
+        <DeathrollBoard
           view={gameState.view}
           ended={gameState.ended}
           myUserId={selfSession}
@@ -5270,6 +5399,8 @@ const handleConnect = (serverData: SavedServer) => {
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={setSelectedDuelChannelId}
+          spectatingChannelId={spectator.spectatingChannelId}
+          onToggleSpectate={handleToggleSpectate}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
@@ -5437,6 +5568,8 @@ const handleConnect = (serverData: SavedServer) => {
         <DuelQueueModal
           snapshot={selectedDuelSnapshot}
           resolveName={resolveGamePlayerName}
+          joinedChannelId={joinedChannelId}
+          onWatch={() => handleWatchDuel(selectedDuelSnapshot.channelId)}
           onClose={() => setSelectedDuelChannelId(null)}
         />
       )}
@@ -5565,6 +5698,22 @@ const handleConnect = (serverData: SavedServer) => {
               }}
             />
           )}
+        {spectateError && notifQueue.isVisible('spectate-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={true}
+            title="Cannot watch this channel"
+            detail={spectateError}
+            onDismiss={() => {
+              notifQueue.unregister('spectate-error');
+              setSpectateError(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('spectate-error');
+            }}
+          />
+        )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"

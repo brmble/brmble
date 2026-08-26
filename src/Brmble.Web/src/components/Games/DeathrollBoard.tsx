@@ -3,9 +3,9 @@ import { Icon } from '../Icon/Icon';
 import type { DeathrollView, EndedMatch, GameView } from './useGameState';
 import { isRpsView } from './useGameState';
 import { HeadToHead } from './HeadToHead';
-import styles from './DeathrollModal.module.css';
+import styles from './DeathrollBoard.module.css';
 
-interface DeathrollModalProps {
+interface DeathrollBoardProps {
   view: GameView | null;
   ended: EndedMatch | null;
   myUserId: number;
@@ -20,7 +20,7 @@ interface DeathrollModalProps {
   rematchPending?: boolean;
 }
 
-export function DeathrollModal({
+export function DeathrollBoard({
   view: rawView,
   ended,
   myUserId,
@@ -33,7 +33,7 @@ export function DeathrollModal({
   onClose,
   onRematch,
   rematchPending = false,
-}: DeathrollModalProps) {
+}: DeathrollBoardProps) {
   const [now, setNow] = useState(() => Date.now());
   // This modal only understands the Deathroll view shape; ignore any other.
   const view: DeathrollView | null = rawView && !isRpsView(rawView) ? rawView : null;
@@ -80,7 +80,7 @@ export function DeathrollModal({
   // Not a dialog: a live match owns the whole main panel, so there is no overlay,
   // no click-outside dismissal and no focus trap. Close/Forfeit remain the exits.
   return (
-    <div className={`deathroll-modal glass-panel animate-slide-up ${styles.modal}`}>
+    <div className={`deathroll-board glass-panel animate-slide-up ${styles.modal}`}>
         <button className="modal-close" onClick={onClose} aria-label="Close deathroll">
           <Icon name="x" size={20} />
         </button>

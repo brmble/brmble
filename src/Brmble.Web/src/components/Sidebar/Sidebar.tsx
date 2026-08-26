@@ -48,6 +48,9 @@ interface SidebarProps {
   /** Sessions with a live duel commitment; challenging them is refused by the server. */
   committedDuelSessions?: ReadonlySet<number>;
   onOpenDuelQueue?: (channelId: number) => void;
+  /** Channel currently being spectated, if any. Lights the matching row's watch toggle. */
+  spectatingChannelId?: number | null;
+  onToggleSpectate?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -90,6 +93,8 @@ export function Sidebar({
   personalDuelChannelIds,
   committedDuelSessions,
   onOpenDuelQueue,
+  spectatingChannelId,
+  onToggleSpectate,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -463,6 +468,8 @@ export function Sidebar({
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={onOpenDuelQueue}
+          spectatingChannelId={spectatingChannelId}
+          onToggleSpectate={onToggleSpectate}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}

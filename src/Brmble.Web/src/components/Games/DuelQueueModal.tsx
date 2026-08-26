@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { gameDisplayName } from '../../utils/games';
 import { ceilToSecondMs, estimateMs, estimateText, formatDuration, pairLabel, playerName } from './duelFormatting';
 import { Icon } from '../Icon/Icon';
+import { Tooltip } from '../Tooltip/Tooltip';
+import { activityChannelMatchesPresence } from '../../workspace/activityPresence';
 import type { DuelQueueSnapshot } from './useDuelQueueState';
 import styles from './DuelQueueModal.module.css';
 
@@ -9,6 +11,14 @@ interface DuelQueueModalProps {
   snapshot: DuelQueueSnapshot;
   /** Resolves a voice **session** id to a display name (see App's resolveGamePlayerName). */
   resolveName: (sessionId: number) => string;
+  /**
+   * The joined voice channel, in the same `string | null` encoding
+   * `selectJoinedChannelId` produces. Watch is enabled only when the snapshot's
+   * channel matches it: spectating is same-channel only, and this modal can peek
+   * at other channels' queues. Root owns no activities, so it never matches.
+   */
+  joinedChannelId: string | null;
+  onWatch: () => void;
   onClose: () => void;
 }
 
@@ -29,7 +39,7 @@ function useSecondTick(startedAt: string | null): number {
   return now;
 }
 
-export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModalProps) {
+export function DuelQueueModal({ snapshot, resolveName, joinedChannelId, onWatch, onClose }: DuelQueueModalProps) {
   const active = snapshot.active;
   const now = useSecondTick(active?.startedAt ?? null);
   const startedMs = active ? Date.parse(active.startedAt) : NaN;
@@ -37,6 +47,9 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
   const estimatedMs = active ? estimateMs(active.estimatedDuration) : null;
   const overMs = estimatedMs != null ? elapsedMs - estimatedMs : null;
   const isEmpty = !active && !snapshot.readyCheck && snapshot.queue.length === 0;
+  // Same invariant every other channel activity uses: you may only watch what the
+  // channel you are standing in owns. Root owns nothing.
+  const canWatch = activityChannelMatchesPresence(joinedChannelId, String(snapshot.channelId));
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -104,6 +117,30 @@ export function DuelQueueModal({ snapshot, resolveName, onClose }: DuelQueueModa
                   ? <span className={styles.over}>{formatDuration(ceilToSecondMs(overMs))} over estimate</span>
                   : <span className={styles.eta}>Ends in about {formatDuration(ceilToSecondMs(-overMs))}</span>
               )}
+              <Tooltip content={canWatch ? 'Watch this duel' : 'You can only watch a duel in the channel you have joined'}>
+                {/*
+                  * Focusable only while the button is disabled. `Tooltip` shows on the
+                  * trigger's focus, and a disabled button takes no focus, so without this
+                  * the same-channel explanation is hover-only. Conditional rather than a
+                  * bare `tabIndex={0}`: when the button is enabled it already provides the
+                  * tab stop, and a second one on a role-less span would be an unnamed stop.
+                  * Same pattern as the channel-row watch toggle in ChannelTree.
+                  */}
+                <span
+                  className={`tooltip-wrapper ${styles.watch}`}
+                  data-testid="duel-watch-trigger"
+                  tabIndex={canWatch ? undefined : 0}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={onWatch}
+                    disabled={!canWatch}
+                  >
+                    Watch
+                  </button>
+                </span>
+              </Tooltip>
             </section>
           )}
 

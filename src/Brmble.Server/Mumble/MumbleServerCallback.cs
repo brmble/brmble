@@ -2,6 +2,7 @@ using Brmble.Server.Auth;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.LiveKit;
 using Brmble.Server.Paint;
 
@@ -19,6 +20,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     private readonly LiveKitParticipantTracker _liveKitParticipantTracker;
     private readonly IDuelOrchestrator _duels;
     private readonly IPaintParticipationLifecycle _paintParticipation;
+    private readonly ISpectatorLifecycle _spectators;
     private readonly ILogger<MumbleServerCallback> _logger;
     private MumbleServer.ServerPrx? _serverProxy;
 
@@ -33,6 +35,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         LiveKitParticipantTracker liveKitParticipantTracker,
         IDuelOrchestrator duels,
         IPaintParticipationLifecycle paintParticipation,
+        ISpectatorLifecycle spectators,
         ILogger<MumbleServerCallback> logger)
     {
         _handlers = handlers;
@@ -45,6 +48,7 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         _liveKitParticipantTracker = liveKitParticipantTracker;
         _duels = duels;
         _paintParticipation = paintParticipation;
+        _spectators = spectators;
         _logger = logger;
     }
 
@@ -168,6 +172,12 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
     {
         IReadOnlyList<string> stoppedRooms = [];
 
+        // Ahead of every destructive step below: the session mapping and channel membership
+        // this drop is decided against are both about to be torn down.
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandlePresenceLostAsync(user.SessionId, SpectatorCloseReason.Disconnected),
+            "user disconnect", user.SessionId);
+
         // Check if user was sharing and stop all shares before removing session
         var snapshot = _sessionMapping.GetSnapshot();
         if (snapshot.TryGetValue(user.SessionId, out var mapping))
@@ -234,6 +244,58 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
                 "channel change",
                 user.SessionId);
 
+        // AUTHORITATIVE NOTE on this ordering. Two other comments point here rather than
+        // restating it: the XML doc on SpectatorService.HandleChannelChangedAsync, and
+        // DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate.
+        //
+        // Ordered before the membership update because a redundant user-state dispatch — the
+        // same channel reported twice — must not kill a live subscription, and the lifecycle
+        // decides that by comparing channelId against its OWN subscription table.
+        //
+        // It does NOT read IChannelMembershipService, so this ordering is not what makes the
+        // drop correct; inverting it would still drop the subscription. Inverting would in
+        // fact be STRICTLY BETTER for one race, so this order is the worse of the two rather
+        // than a neutral choice: as it stands, between here and Update a concurrent
+        // SubscribeAsync for the OLD channel still sees the old membership via IGamePresence,
+        // passes the same-channel gate, and re-subscribes a session that has already left.
+        // With Update first, that subscribe fails NotSameChannel, and a subscribe for the NEW
+        // channel writes _sessionChannel[session] = newChannelId so this call then sees
+        // subscribed == newChannelId and correctly does nothing.
+        //
+        // The order is nevertheless mandated by the spectating spec and pinned by a test, so
+        // leave it, and accept the race. Its consequence is a session subscribed to a channel
+        // it has already left — cross-channel spectating, an explicit non-goal — until that
+        // session's next channel move or disconnect drops the subscription.
+        //
+        // Moving SubscribeAsync's presence.TryGetChannel read under SpectatorService._gate
+        // is a NO-OP for this race. Do not implement it and believe the race closed.
+        // HandleChannelChangedAsync acquires and RELEASES _gate before returning, and only
+        // then does Update run, so a SubscribeAsync landing entirely in that window reads the
+        // old channel whether it reads inside the gate or outside it. The read is stale on
+        // both sides of the gate; the race is a function of the CALL-SITE ordering here, not
+        // of the lock scope. What would actually close it:
+        //   (a) inverting the order below — Update first — which the spec forbids and
+        //       DispatchUserStateChanged_DropsSpectatorSubscriptionBeforeMembershipUpdate pins; or
+        //   (b) a _sessionChannel tombstone, so a subscribe for the OLD channel is rejected
+        //       against the service's own state rather than against stale presence. This is
+        //       THREE changes, not one, and the tombstone alone is inert: SubscribeAsync's
+        //       only gated read of _sessionChannel is DropSessionLocked, which deletes the
+        //       entry without comparing it to the requested channel and then overwrites it,
+        //       so SubscribeAsync must ALSO reject when that read disagrees with the channel
+        //       asked for. The write must be unconditional — including the path where
+        //       HandleChannelChangedAsync currently early-returns for a session with no
+        //       subscription, otherwise (b) covers only already-subscribed sessions and
+        //       leaves a FIRST subscribe racing its own channel move wide open, which is the
+        //       most natural instance of this race. Note that making it unconditional turns
+        //       _sessionChannel into a full membership mirror. It also needs its own gate
+        //       acquisition AFTER the CloseSessionAsync call, not the existing gated read
+        //       block, because that close removes the entry again.
+        // Doing the membership update itself under the same gate would also close it, but
+        // that couples this callback to SpectatorService's internal lock and is worse.
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandleChannelChangedAsync(user.SessionId, channelId),
+            "channel change", user.SessionId);
+
         _channelMembership.Update(user.SessionId, channelId);
         var currentRoom = $"channel-{channelId}";
         _liveKitParticipantTracker.MarkSessionRoom(user.SessionId, currentRoom);
@@ -260,6 +322,8 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
 
     public async Task DispatchChannelRemoved(MumbleChannel channel)
     {
+        await TryNotifySpectatorsAsync(
+            () => _spectators.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await TryNotifyDuelsAsync(() => _duels.HandleChannelRemovedAsync(channel.Id), "channel removal", channel.Id);
         await Task.WhenAll(_handlers.Select(h => h.OnChannelRemoved(channel)));
     }
@@ -273,6 +337,23 @@ public class MumbleServerCallback : MumbleServer.ServerCallbackDisp_
         catch (Exception ex)
         {
             _logger.LogError(ex, "Duel cleanup failed during {Operation} for {Id}", operation, id);
+        }
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="TryNotifyDuelsAsync"/>: spectator teardown is best-effort and must
+    /// never break a Mumble dispatch. A failed drop leaves a subscription that the next
+    /// teardown or an explicit unsubscribe will clear.
+    /// </summary>
+    private async Task TryNotifySpectatorsAsync(Func<Task> notify, string operation, long id)
+    {
+        try
+        {
+            await notify();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Spectator teardown failed during {Operation} for {Id}", operation, id);
         }
     }
 
