@@ -485,4 +485,38 @@ describe('DuelQueueModal', () => {
     act(() => { vi.advanceTimersByTime(400); });
     expect(screen.getByRole('tooltip')).toHaveTextContent('Watch this duel');
   });
+
+  it('makes the tooltip wrapper focusable while Watch is disabled', () => {
+    // A disabled button takes no focus, and Tooltip shows on the trigger's focus, so
+    // without a focusable wrapper the same-channel explanation is hover-only.
+    render(
+      <DuelQueueModal
+        snapshot={snapshotWithActive(8)}
+        resolveName={resolveName}
+        joinedChannelId="7"
+        onWatch={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Watch' })).toBeDisabled();
+    expect(screen.getByTestId('duel-watch-trigger')).toHaveAttribute('tabindex', '0');
+  });
+
+  it('leaves the tooltip wrapper out of the tab order while Watch is enabled', () => {
+    // The enabled button already provides the tab stop; a second one on a role-less
+    // span would be an unnamed stop, so the wrapper must not be focusable here.
+    render(
+      <DuelQueueModal
+        snapshot={snapshotWithActive(7)}
+        resolveName={resolveName}
+        joinedChannelId="7"
+        onWatch={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Watch' })).toBeEnabled();
+    expect(screen.getByTestId('duel-watch-trigger')).not.toHaveAttribute('tabindex');
+  });
 });

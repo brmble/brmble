@@ -118,7 +118,19 @@ export function DuelQueueModal({ snapshot, resolveName, joinedChannelId, onWatch
                   : <span className={styles.eta}>Ends in about {formatDuration(ceilToSecondMs(-overMs))}</span>
               )}
               <Tooltip content={canWatch ? 'Watch this duel' : 'You can only watch a duel in the channel you have joined'}>
-                <span className={`tooltip-wrapper ${styles.watch}`} data-testid="duel-watch-trigger">
+                {/*
+                  * Focusable only while the button is disabled. `Tooltip` shows on the
+                  * trigger's focus, and a disabled button takes no focus, so without this
+                  * the same-channel explanation is hover-only. Conditional rather than a
+                  * bare `tabIndex={0}`: when the button is enabled it already provides the
+                  * tab stop, and a second one on a role-less span would be an unnamed stop.
+                  * Same pattern as the channel-row watch toggle in ChannelTree.
+                  */}
+                <span
+                  className={`tooltip-wrapper ${styles.watch}`}
+                  data-testid="duel-watch-trigger"
+                  tabIndex={canWatch ? undefined : 0}
+                >
                   <button
                     type="button"
                     className="btn btn-sm btn-primary"
