@@ -53,6 +53,13 @@ internal static class NativeBridgeTestHarness
     public static void Enqueue(NativeBridge bridge, string json)
         => ((ConcurrentQueue<string>)GetField(bridge, "_pendingMessages")).Enqueue(json);
 
+    /// <summary>
+    /// Number of payloads still sitting in the bridge's pending queue.
+    /// Lets tests observe the drain performed by ProcessUiMessage.
+    /// </summary>
+    public static int PendingCount(NativeBridge bridge)
+        => ((ConcurrentQueue<string>)GetField(bridge, "_pendingMessages")).Count;
+
     public static async Task InvokeAsync(NativeBridge bridge, string type, JsonElement data)
     {
         var handlers = (Dictionary<string, List<Func<JsonElement, Task>>>)GetField(bridge, "_handlers");
