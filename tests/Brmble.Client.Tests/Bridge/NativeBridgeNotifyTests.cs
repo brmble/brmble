@@ -101,4 +101,25 @@ public class NativeBridgeNotifyTests
             "A notify issued mid-drain was swallowed: the claim is being released after the " +
             "drain instead of before it, so its payload has no pending flush.");
     }
+
+    [TestMethod]
+    public void Notify_WhenPostFails_NextNotifyPostsAgain()
+    {
+        var bridge = NativeBridgeTestHarness.Create();
+        var succeed = false;
+        var posts = NativeBridgeTestHarness.RecordPosts(bridge, () => succeed);
+
+        // First post fails: the claim must be released rather than held forever.
+        bridge.NotifyUiThread();
+        Assert.AreEqual(1, posts.Count);
+
+        // A later event must be able to retry.
+        succeed = true;
+        bridge.NotifyUiThread();
+        Assert.AreEqual(2, posts.Count);
+
+        // And once a post succeeds, coalescing resumes.
+        bridge.NotifyUiThread();
+        Assert.AreEqual(2, posts.Count);
+    }
 }

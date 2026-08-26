@@ -36,6 +36,7 @@ public sealed class NativeBridge
     private readonly ConcurrentQueue<string> _pendingMessages = new();
     private Func<IntPtr, uint, IntPtr, IntPtr, bool> _postMessage = PostMessage;
     private int _notifyPending;
+    private int _postFailureReported;
 
     // Test seam: runs once per drain iteration so tests can act from inside the drain
     // window and pin the release-before-drain ordering in ProcessUiMessage. Always null
@@ -162,7 +163,25 @@ public sealed class NativeBridge
         if (Interlocked.CompareExchange(ref _notifyPending, 1, 0) != 0)
             return;
 
-        _postMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
+        if (_postMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero))
+        {
+            Interlocked.Exchange(ref _postFailureReported, 0);
+            return;
+        }
+
+        // The post failed, so nothing will drain the queue. Release the claim so the
+        // next event reposts — this is the only retry, and it is enough because
+        // NotifyUiThread is called on essentially every forwarded event.
+        Interlocked.Exchange(ref _notifyPending, 0);
+
+        // Reported once per failure episode. A wedged message queue fails for every
+        // subsequent event too, and one line per event would bury the log.
+        if (Interlocked.Exchange(ref _postFailureReported, 1) == 0)
+        {
+            Console.WriteLine(
+                $"[NativeBridge] PostMessage(WM_USER) failed, win32={Marshal.GetLastWin32Error()}; " +
+                "UI flush deferred to the next event.");
+        }
     }
 
     /// <summary>
