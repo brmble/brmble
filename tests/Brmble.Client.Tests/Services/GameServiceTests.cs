@@ -160,6 +160,26 @@ public class GameServiceTests
     }
 
     [TestMethod]
+    public void ParseHttpResponse_ChunkSizeOverflowsInt_DoesNotThrowAndKeepsEarlierChunks()
+    {
+        // 7FFFFFFF parses to int.MaxValue, so it clears the `size < 0` guard. The
+        // bounds check must do its arithmetic in 64-bit or `offset + size` wraps
+        // negative, the guard misses, and the slice throws. A malformed chunk stream
+        // breaks the loop, so the decoder yields only what it read before it.
+        const string firstChunk = "{\"error\":\"Not your offer\"}";
+        var rawResponse = "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n"
+            + $"{Encoding.UTF8.GetByteCount(firstChunk):X}\r\n{firstChunk}\r\n"
+            + "7FFFFFFF\r\nnever mind\r\n"
+            + "0\r\n\r\n";
+
+        var result = MumbleAdapter.ParseHttpResponse(Encoding.UTF8.GetBytes(rawResponse));
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(400, result.StatusCode);
+        Assert.AreEqual(firstChunk, result.Body);
+    }
+
+    [TestMethod]
     public async Task QueueRequest_MalformedApiUrl_ReturnsCorrelatedError()
     {
         using var cert = CreateCertificate();

@@ -40,8 +40,10 @@ public sealed class NativeBridge
 
     // Test seam: runs once per drain iteration so tests can act from inside the drain
     // window and pin the release-before-drain ordering in ProcessUiMessage. Always null
-    // in production — the cost is one null check per message.
-    private Action? _onDrainStep;
+    // in production — the cost is one null check per message. Assigned only by
+    // NativeBridgeTestHarness via reflection; the explicit initialiser is what keeps
+    // the compiler from flagging it as never assigned (CS0649).
+    private Action? _onDrainStep = null;
 
     /// <summary>
     /// Occurs when a message is received from the frontend.

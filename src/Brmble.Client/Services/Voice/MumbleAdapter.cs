@@ -1413,7 +1413,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 break;
             offset += lineEnd + 2;
             if (size == 0) break;
-            if (size < 0 || offset + size > body.Length) break;
+            // 64-bit arithmetic: a 7FFFFFFF size line clears `size < 0`, and a 32-bit
+            // `offset + size` would wrap negative and slip past the bounds check.
+            if (size < 0 || (long)offset + size > body.Length) break;
             result.Write(body.Slice(offset, size));
             offset += size;
             if (offset + 2 > body.Length || !body.Slice(offset, 2).SequenceEqual("\r\n"u8)) break;
