@@ -28,8 +28,30 @@ internal static class NativeBridgeTestHarness
         var bridge = (NativeBridge)RuntimeHelpers.GetUninitializedObject(typeof(NativeBridge));
         SetField(bridge, "_handlers", new Dictionary<string, List<Func<JsonElement, Task>>>());
         SetField(bridge, "_pendingMessages", new ConcurrentQueue<string>());
+        // GetUninitializedObject skips field initialisers, so _postMessage would be null
+        // and every NotifyUiThread() call through MumbleAdapter would throw.
+        SetField(bridge, "_postMessage", new Func<IntPtr, uint, IntPtr, IntPtr, bool>((_, _, _, _) => true));
         return bridge;
     }
+
+    /// <summary>
+    /// Replaces the bridge's post delegate with a recorder. The returned list
+    /// accumulates one entry per PostMessage call. <paramref name="result"/>
+    /// controls what the fake PostMessage returns; null means always succeed.
+    /// </summary>
+    public static List<(IntPtr Hwnd, uint Msg)> RecordPosts(NativeBridge bridge, Func<bool>? result = null)
+    {
+        var posts = new List<(IntPtr Hwnd, uint Msg)>();
+        SetField(bridge, "_postMessage", new Func<IntPtr, uint, IntPtr, IntPtr, bool>((hwnd, msg, _, _) =>
+        {
+            posts.Add((hwnd, msg));
+            return result?.Invoke() ?? true;
+        }));
+        return posts;
+    }
+
+    public static void Enqueue(NativeBridge bridge, string json)
+        => ((ConcurrentQueue<string>)GetField(bridge, "_pendingMessages")).Enqueue(json);
 
     public static async Task InvokeAsync(NativeBridge bridge, string type, JsonElement data)
     {

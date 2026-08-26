@@ -30,10 +30,12 @@ public sealed class NativeBridge
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly CoreWebView2 _webView;
+    private readonly CoreWebView2? _webView;
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
     private IntPtr _hwnd;
     private readonly ConcurrentQueue<string> _pendingMessages = new();
+    private Func<IntPtr, uint, IntPtr, IntPtr, bool> _postMessage = PostMessage;
+    private int _notifyPending;
 
     /// <summary>
     /// Occurs when a message is received from the frontend.
@@ -49,7 +51,7 @@ public sealed class NativeBridge
     {
         _webView = webView;
         _hwnd = hwnd;
-        _webView.WebMessageReceived += OnWebMessageReceived;
+        webView.WebMessageReceived += OnWebMessageReceived;
     }
 
     /// <summary>
@@ -87,6 +89,14 @@ public sealed class NativeBridge
     /// </remarks>
     public void ProcessUiMessage()
     {
+        // Released before the drain, not after. Releasing afterwards leaves a window
+        // where a Send enqueues a payload, sees the claim still held, skips its post,
+        // and leaves that payload queued with nothing scheduled to flush it. Releasing
+        // first means anything enqueued after the drain triggers a fresh post, and
+        // anything enqueued during the drain is drained anyway — at worst costing one
+        // redundant WM_USER that finds an empty queue.
+        Interlocked.Exchange(ref _notifyPending, 0);
+
         // Drain all pending messages
         var batch = new List<string>();
         while (_pendingMessages.TryDequeue(out var json))
@@ -95,6 +105,9 @@ public sealed class NativeBridge
         }
 
         if (batch.Count == 0)
+            return;
+
+        if (_webView is null)
             return;
 
         if (batch.Count == 1)
@@ -123,9 +136,21 @@ public sealed class NativeBridge
     /// Posts a WM_USER message to trigger ProcessUiMessage on the UI thread.
     /// Safe to call from any thread.
     /// </summary>
+    /// <remarks>
+    /// Coalescing: the claim below means at most one WM_USER is outstanding at a
+    /// time, no matter how many events fire. Without it every forwarded event
+    /// posted its own message, and a stalled UI thread could push past the 10,000
+    /// per-thread posted-message cap, past which PostMessage fails and the flush
+    /// trigger is lost entirely. ProcessUiMessage always drains the whole queue,
+    /// so one pending post is sufficient to deliver any number of payloads.
+    /// </remarks>
     public void NotifyUiThread()
     {
-        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
+        // A post is already outstanding; it will drain whatever we just enqueued.
+        if (Interlocked.CompareExchange(ref _notifyPending, 1, 0) != 0)
+            return;
+
+        _postMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
     }
 
     /// <summary>
