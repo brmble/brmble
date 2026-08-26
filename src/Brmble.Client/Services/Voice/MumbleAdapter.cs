@@ -1281,7 +1281,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 // The response data already in ms is valid — treat as end-of-stream.
             }
 
-            var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+            var parsed = ParseHttpResponse(ms.ToArray());
             if (parsed.StatusCode != 200)
             {
                 Debug.WriteLine($"[Brmble:mTLS] Non-200 response: {parsed.StatusCode}");
@@ -1335,7 +1335,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 }
                 catch (Org.BouncyCastle.Tls.TlsNoCloseNotifyException) { }
 
-                var parsed = ParseHttpResponse(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+                var parsed = ParseHttpResponse(ms.ToArray());
                 return new TlsResult(parsed.Success, parsed.Body, parsed.StatusCode, parsed.Error);
             }
             finally
@@ -1349,29 +1349,34 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
-    internal static ChannelRequestBridgeHandler.TlsCallResult ParseHttpResponse(string response)
+    internal static ChannelRequestBridgeHandler.TlsCallResult ParseHttpResponse(byte[] response)
     {
-        var statusEnd = response.IndexOf('\n');
+        var statusEnd = Array.IndexOf(response, (byte)'\n');
         if (statusEnd < 0)
             return new(false, null, 0, "No response from server");
 
-        var statusLine = response[..statusEnd].Trim();
+        var statusLine = System.Text.Encoding.UTF8.GetString(response, 0, statusEnd).Trim();
         var parts = statusLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2 || !int.TryParse(parts[1], out var statusCode))
             return new(false, null, 0, $"Unparseable status line: {statusLine}");
 
-        var bodyStart = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-        if (bodyStart < 0) bodyStart = response.IndexOf("\n\n", StringComparison.Ordinal);
+        var separatorLength = 4;
+        var bodyStart = response.AsSpan().IndexOf("\r\n\r\n"u8);
+        if (bodyStart < 0)
+        {
+            separatorLength = 2;
+            bodyStart = response.AsSpan().IndexOf("\n\n"u8);
+        }
+
         string? body = null;
         if (bodyStart >= 0)
         {
-            var separatorLength = response[bodyStart] == '\r' ? 4 : 2;
-            body = response[(bodyStart + separatorLength)..];
-            var headers = response[..bodyStart];
+            var headers = System.Text.Encoding.UTF8.GetString(response, 0, bodyStart);
+            var bodyBytes = response.AsSpan(bodyStart + separatorLength);
             if (headers.Contains("Transfer-Encoding: chunked", StringComparison.OrdinalIgnoreCase))
-                body = DecodeChunkedBody(body);
+                body = DecodeChunkedBody(bodyBytes);
             else
-                body = body.Trim();
+                body = System.Text.Encoding.UTF8.GetString(bodyBytes).Trim();
         }
 
         if (string.IsNullOrWhiteSpace(body)) body = null;
@@ -1382,29 +1387,39 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return new(success, body, statusCode, error);
     }
 
-    private static string DecodeChunkedBody(string body)
+    /// <summary>
+    /// Decodes an HTTP chunked transfer body.
+    /// </summary>
+    /// <remarks>
+    /// Operates on raw bytes because RFC 7230 chunk sizes are BYTE counts. An earlier
+    /// version indexed the UTF-8-decoded string, so any non-ASCII byte made the chunk
+    /// over-read into the following CRLF and size line, breaking the loop and silently
+    /// truncating the body. UTF-8 decoding happens once, over the assembled result.
+    /// </remarks>
+    private static string DecodeChunkedBody(ReadOnlySpan<byte> body)
     {
-        var result = new System.Text.StringBuilder();
+        using var result = new MemoryStream();
         var offset = 0;
         while (offset < body.Length)
         {
-            var lineEnd = body.IndexOf("\r\n", offset, StringComparison.Ordinal);
+            var remaining = body[offset..];
+            var lineEnd = remaining.IndexOf("\r\n"u8);
             if (lineEnd < 0) break;
-            var sizeText = body[offset..lineEnd];
+            var sizeText = System.Text.Encoding.ASCII.GetString(remaining[..lineEnd]);
             var extension = sizeText.IndexOf(';');
             if (extension >= 0) sizeText = sizeText[..extension];
             if (!int.TryParse(sizeText.Trim(), System.Globalization.NumberStyles.HexNumber,
                     System.Globalization.CultureInfo.InvariantCulture, out var size))
                 break;
-            offset = lineEnd + 2;
+            offset += lineEnd + 2;
             if (size == 0) break;
             if (size < 0 || offset + size > body.Length) break;
-            result.Append(body.AsSpan(offset, size));
+            result.Write(body.Slice(offset, size));
             offset += size;
-            if (offset + 2 > body.Length || body.AsSpan(offset, 2) is not "\r\n") break;
+            if (offset + 2 > body.Length || !body.Slice(offset, 2).SequenceEqual("\r\n"u8)) break;
             offset += 2;
         }
-        return result.ToString().Trim();
+        return System.Text.Encoding.UTF8.GetString(result.ToArray()).Trim();
     }
 
     private static async Task<TlsResult> PostViaBcTls(X509Certificate2 cert, Uri uri, string jsonBody)

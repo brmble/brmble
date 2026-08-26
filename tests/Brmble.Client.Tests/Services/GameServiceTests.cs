@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using Brmble.Client.Services.Games;
 using Brmble.Client.Services.Voice;
@@ -121,7 +122,7 @@ public class GameServiceTests
             + "0\r\nRequest-Id: abc\r\n\r\n";
         using var cert = CreateCertificate();
         var bridge = NativeBridgeTestHarness.Create();
-        var service = CreateService(bridge, cert, (_, _) => MumbleAdapter.ParseHttpResponse(rawResponse));
+        var service = CreateService(bridge, cert, (_, _) => MumbleAdapter.ParseHttpResponse(Encoding.UTF8.GetBytes(rawResponse)));
         service.RegisterHandlers(bridge);
 
         await NativeBridgeTestHarness.InvokeAsync(bridge, "game.cancelOffer",
@@ -130,6 +131,31 @@ public class GameServiceTests
         var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
         using var document = JsonDocument.Parse(error.DataJson);
         Assert.AreEqual("Not your offer", document.RootElement.GetProperty("error").GetString());
+        Assert.AreEqual("notParticipant", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task Command_ChunkedMultibyteServerError_PreservesStructuredReason()
+    {
+        // Chunk sizes are byte counts. These chunks are longer in bytes than in
+        // chars, which is what desynchronises a char-indexed decoder.
+        const string firstChunk = "{\"error\":\"Not Zoë's ";
+        const string secondChunk = "offer 日本\",\"reason\":\"notParticipant\"}";
+        var rawResponse = "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n"
+            + $"{Encoding.UTF8.GetByteCount(firstChunk):X};source=Kestrel\r\n{firstChunk}\r\n"
+            + $"{Encoding.UTF8.GetByteCount(secondChunk):X}\r\n{secondChunk}\r\n"
+            + "0\r\nRequest-Id: abc\r\n\r\n";
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = CreateService(bridge, cert, (_, _) => MumbleAdapter.ParseHttpResponse(Encoding.UTF8.GetBytes(rawResponse)));
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "game.cancelOffer",
+            JsonSerializer.SerializeToElement(new { offerId = 9 }));
+
+        var error = NativeBridgeTestHarness.DrainMessages(bridge).Single(x => x.Type == "game.error");
+        using var document = JsonDocument.Parse(error.DataJson);
+        Assert.AreEqual("Not Zoë's offer 日本", document.RootElement.GetProperty("error").GetString());
         Assert.AreEqual("notParticipant", document.RootElement.GetProperty("reason").GetString());
     }
 
