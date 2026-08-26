@@ -71,55 +71,34 @@ public class NativeBridgeNotifyTests
     [TestMethod]
     public void ProcessUiMessage_NotifyDuringDrain_PostsAgain()
     {
-        // The drain window is only observable from another thread, so widen it with a
-        // large queue and retry if the drain outran us before we could notify.
-        for (var attempt = 1; attempt <= 5; attempt++)
+        var bridge = NativeBridgeTestHarness.Create();
+        NativeBridgeTestHarness.Enqueue(bridge, "{\"type\":\"t\",\"data\":0}");
+        NativeBridgeTestHarness.Enqueue(bridge, "{\"type\":\"t\",\"data\":1}");
+
+        var posts = NativeBridgeTestHarness.RecordPosts(bridge);
+
+        // Notify from inside the drain, on the first dequeued message only — the same
+        // position a producer thread would occupy while the UI thread is mid-drain.
+        var notified = false;
+        NativeBridgeTestHarness.OnDrainStep(bridge, () =>
         {
-            var count = 500_000 * attempt;
-            var bridge = NativeBridgeTestHarness.Create();
-            const string payload = "{\"type\":\"t\",\"data\":0}";
-            for (var i = 0; i < count; i++)
-                NativeBridgeTestHarness.Enqueue(bridge, payload);
-
-            var posts = NativeBridgeTestHarness.RecordPosts(bridge);
-
-            // Take the claim, as a real producer would before the UI thread wakes up.
-            bridge.NotifyUiThread();
-            Assert.AreEqual(1, posts.Count);
-
-            var worker = new Thread(bridge.ProcessUiMessage) { IsBackground = true };
-            worker.Start();
-
-            // Notify once the drain has visibly started but is not yet finished.
-            var remainingWhenNotified = 0;
-            while (true)
-            {
-                var pending = NativeBridgeTestHarness.PendingCount(bridge);
-                if (pending == 0)
-                    break; // drain completed before we caught it; retry wider
-
-                if (pending <= count - (count / 10))
-                {
-                    bridge.NotifyUiThread();
-                    remainingWhenNotified = NativeBridgeTestHarness.PendingCount(bridge);
-                    break;
-                }
-            }
-
-            worker.Join();
-
-            // Only trust the attempt if the drain was demonstrably still in flight.
-            if (remainingWhenNotified > count / 10)
-            {
-                Assert.AreEqual(
-                    2,
-                    posts.Count,
-                    "A notify issued mid-drain was swallowed: the claim is being released " +
-                    "after the drain instead of before it, so its payload has no pending flush.");
+            if (notified)
                 return;
-            }
-        }
+            notified = true;
+            bridge.NotifyUiThread();
+        });
 
-        Assert.Fail("Could not observe a mid-drain window; the ordering was never exercised.");
+        // Take the claim, as a real producer does before the UI thread wakes up.
+        bridge.NotifyUiThread();
+        Assert.AreEqual(1, posts.Count);
+
+        bridge.ProcessUiMessage();
+
+        Assert.IsTrue(notified, "The drain seam never ran, so the ordering was not exercised.");
+        Assert.AreEqual(
+            2,
+            posts.Count,
+            "A notify issued mid-drain was swallowed: the claim is being released after the " +
+            "drain instead of before it, so its payload has no pending flush.");
     }
 }

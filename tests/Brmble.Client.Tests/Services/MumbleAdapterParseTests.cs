@@ -50,6 +50,14 @@ internal static class NativeBridgeTestHarness
         return posts;
     }
 
+    /// <summary>
+    /// Seeds the bridge's per-drain-iteration test seam. <paramref name="onDrainStep"/>
+    /// runs once for each message the drain loop dequeues, letting a test act from
+    /// inside the drain window.
+    /// </summary>
+    public static void OnDrainStep(NativeBridge bridge, Action onDrainStep)
+        => SetField(bridge, "_onDrainStep", onDrainStep);
+
     public static void Enqueue(NativeBridge bridge, string json)
         => ((ConcurrentQueue<string>)GetField(bridge, "_pendingMessages")).Enqueue(json);
 

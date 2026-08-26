@@ -37,6 +37,11 @@ public sealed class NativeBridge
     private Func<IntPtr, uint, IntPtr, IntPtr, bool> _postMessage = PostMessage;
     private int _notifyPending;
 
+    // Test seam: runs once per drain iteration so tests can act from inside the drain
+    // window and pin the release-before-drain ordering in ProcessUiMessage. Always null
+    // in production — the cost is one null check per message.
+    private Action? _onDrainStep;
+
     /// <summary>
     /// Occurs when a message is received from the frontend.
     /// </summary>
@@ -103,6 +108,7 @@ public sealed class NativeBridge
         while (_pendingMessages.TryDequeue(out var json))
         {
             batch.Add(json);
+            _onDrainStep?.Invoke();
         }
 
         if (batch.Count == 0)
