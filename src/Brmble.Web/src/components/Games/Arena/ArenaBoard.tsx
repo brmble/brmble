@@ -40,10 +40,13 @@ function radiusBand(radius: number): string {
   return `${lower} to ${lower + 499}`;
 }
 
-function cooldownBand(ticks: number): string {
-  if (ticks <= 0) return 'ready';
-  const upper = Math.ceil(ticks / 6) * 6;
-  return `cooldown, ${upper - 5} to ${upper} ticks remaining`;
+function forcedFireState(ticks: number | null): string {
+  if (ticks === null) return '';
+  return ticks <= 6 ? ', forced fire imminent' : ', forced fire armed';
+}
+
+function cooldownState(ticks: number): string {
+  return ticks <= 0 ? 'ready' : 'cooling down';
 }
 
 function projectileSummary(state: ArenaStateSnapshot): string {
@@ -118,7 +121,12 @@ export function ArenaBoard({
   const countdownSeconds = Math.ceil(countdownTicks / (connection.welcome?.tickRate ?? 60));
   const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
   const score = authoritative?.score ?? state.score;
-  const round = Math.max(1, score[0] + score[1] + (authoritative?.phase === 'ended' ? 0 : 1));
+  const round = score[0] + score[1] + 1;
+  const roundLabel = ended
+    ? 'Match complete'
+    : `Round ${round}${(authoritative?.consecutiveDoubleKos ?? 0) > 0
+      ? ` · Double KO replay ${authoritative!.consecutiveDoubleKos}`
+      : ''}`;
   const local = players.find(player => player.sessionId === selfSessionId) ?? null;
   const outcome = ended
     ? score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
@@ -126,10 +134,10 @@ export function ArenaBoard({
   const liveText = [
     `${phase}${authoritative?.phaseEndsAtTick == null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
     `Score ${score[0]} to ${score[1]}.`,
-    ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${player.forcedFireTicks === null ? '' : `, forced fire in ${player.forcedFireTicks} ticks`}.`),
+    ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${forcedFireState(player.forcedFireTicks)}.`),
     authoritative ? projectileSummary(authoritative) : '0 projectiles present.',
     authoritative ? `Arena radius ${radiusBand(authoritative.arena.radius)}, shrink phase ${authoritative.arena.shrinkPhase}.` : 'Arena unavailable.',
-    local ? `Shot ${cooldownBand(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
+    local ? `Shot ${cooldownState(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
     `Outcome: ${outcome}.`,
   ].join(' ');
 
@@ -141,7 +149,7 @@ export function ArenaBoard({
       <header className={`modal-header ${styles.header}`}>
         <div className={styles.titleBlock}>
           <h2 className="heading-title modal-title">Arena Knockoff</h2>
-          <p className="modal-subtitle">Round {round}</p>
+          <p className="modal-subtitle">{roundLabel}</p>
         </div>
         <div className={styles.hud}>
           <span data-testid="arena-score" className={styles.score}>{score[0]} – {score[1]}</span>

@@ -75,15 +75,15 @@ describe('ArenaBoard', () => {
   it('exposes the stable HUD and every canvas gameplay datum as DOM text', () => {
     render(<ArenaBoard {...props()} />);
     expect(screen.getByTestId('arena-score')).toHaveTextContent('1 – 0');
-    expect(screen.getByText(/Round 2/)).toBeInTheDocument();
+    expect(screen.getByText('Round 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /audio/i })).toHaveAttribute('aria-disabled', 'true');
     const live = screen.getByTestId('arena-live-region');
     expect(live).toHaveTextContent(/Live.*1 second/i);
-    expect(live).toHaveTextContent(/Local.*side 1.*aim east.*charge 50 to 74 percent.*forced fire in 18 ticks/i);
+    expect(live).toHaveTextContent(/Local.*side 1.*aim east.*charge 50 to 74 percent.*forced fire armed/i);
     expect(live).toHaveTextContent(/Remote.*side 2.*aim east/i);
     expect(live).toHaveTextContent(/1 projectile.*side 2/i);
     expect(live).toHaveTextContent(/radius 7500 to 7999.*collapse/i);
-    expect(live).toHaveTextContent(/cooldown.*7 to 12 ticks.*dash used/i);
+    expect(live).toHaveTextContent(/shot cooling down.*dash used/i);
   });
 
   it('keeps the live region polite and ignores frame-position-only changes', () => {
@@ -110,7 +110,7 @@ describe('ArenaBoard', () => {
     expect(live.textContent).toBe(first);
   });
 
-  it('renders terminal final state through the real state hook without adding an unplayed round', () => {
+  it('renders a normal 2-1 terminal state as match complete through the real state hook', () => {
     state.useReal = true;
     connection.current = { ...connection.current, welcome: null, latestSnapshot: null, status: 'closed' };
     const finalState = {
@@ -121,11 +121,96 @@ describe('ArenaBoard', () => {
     const ended = { type: 'matchClosed' as const, protocolVersion: 1 as const, matchId: 91, sequence: 4,
       serverTick: 200, reason: 'completed' as const, finalState };
     render(<ArenaBoard {...props({ ended })} />);
-    expect(screen.getByText('Round 3')).toBeInTheDocument();
+    expect(screen.getByText('Match complete')).toBeInTheDocument();
     expect(screen.getByTestId('arena-score')).toHaveTextContent('2 – 1');
     const live = screen.getByTestId('arena-live-region');
     expect(live).toHaveTextContent(/Local.*radius 7000 to 7499/i);
     expect(live).toHaveTextContent(/Outcome: Victory/i);
+  });
+
+  it('labels an ongoing double KO as a replay of the same scoring round', () => {
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, score: [1, 0], consecutiveDoubleKos: 2 },
+    };
+    render(<ArenaBoard {...props()} />);
+    expect(screen.getByText('Round 2 · Double KO replay 2')).toBeInTheDocument();
+  });
+
+  it('labels a four-double-KO terminal draw as match complete', () => {
+    const finalState = {
+      ...connection.current.welcome!.state,
+      phase: 'ended' as const, phaseEndsAtTick: null, score: [0, 0] as [number, number], consecutiveDoubleKos: 4,
+    };
+    const ended = { type: 'matchClosed' as const, protocolVersion: 1 as const, matchId: 91, sequence: 5,
+      serverTick: 220, reason: 'completed' as const, finalState };
+    render(<ArenaBoard {...props({ ended })} />);
+    expect(screen.getByText('Match complete')).toBeInTheDocument();
+    expect(screen.queryByText(/Round/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent(/Outcome: Draw/i);
+  });
+
+  it('keeps 20 Hz snapshots quiet within combat semantic states and updates at their boundaries', () => {
+    const initial = connection.current.welcome!.state;
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    const first = live.textContent;
+
+    for (let index = 1; index <= 5; index++) {
+      connection.current = {
+        ...connection.current,
+        latestSnapshot: {
+          type: 'snapshot', protocolVersion: 1, matchId: 91, sequence: index + 1,
+          serverTick: 100 + index, generatedAtUnixMs: Date.now() + index * 50,
+          ...initial,
+          players: initial.players.map(candidate => candidate.sessionId === 10
+            ? { ...candidate, forcedFireTicks: 18 - index, cooldownTicks: 12 - index, chargePermille: 640 + index }
+            : candidate),
+        },
+      };
+      rendered.rerender(<ArenaBoard {...props()} />);
+      expect(live.textContent).toBe(first);
+    }
+
+    const imminent = connection.current.latestSnapshot!;
+    connection.current = {
+      ...connection.current,
+      latestSnapshot: {
+        ...imminent, sequence: imminent.sequence + 1,
+        players: imminent.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, forcedFireTicks: 6 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expect(live).toHaveTextContent(/forced fire imminent/i);
+    expect(live.textContent).not.toBe(first);
+    const imminentText = live.textContent;
+
+    connection.current = {
+      ...connection.current,
+      latestSnapshot: {
+        ...connection.current.latestSnapshot!, sequence: connection.current.latestSnapshot!.sequence + 1,
+        players: connection.current.latestSnapshot!.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, forcedFireTicks: 5, cooldownTicks: 1 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expect(live.textContent).toBe(imminentText);
+
+    connection.current = {
+      ...connection.current,
+      latestSnapshot: {
+        ...connection.current.latestSnapshot!, sequence: connection.current.latestSnapshot!.sequence + 1,
+        players: connection.current.latestSnapshot!.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, forcedFireTicks: null, cooldownTicks: 0 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expect(live).toHaveTextContent(/shot ready/i);
+    expect(live).not.toHaveTextContent(/forced fire/i);
   });
 
   it('keeps authoritative announcements stable while the real state hook interpolates visual frames', () => {
