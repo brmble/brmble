@@ -5,6 +5,7 @@ using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Engines;
+using Brmble.Server.Games.Continuous;
 using Brmble.Server.Games.Spectators;
 using Brmble.Server.Tests.Integration;
 using Microsoft.AspNetCore.Hosting;
@@ -19,6 +20,118 @@ namespace Brmble.Server.Tests.Games;
 [TestClass]
 public class GameEndpointsTests
 {
+    [DataTestMethod]
+    [DataRow("participant", "matchNotLive")]
+    [DataRow("spectator", "wrongRole")]
+    public async Task RealtimeTicket_InvalidAuthorization_ReturnsStableReason(
+        string role, string expectedReason)
+    {
+        await using var factory = CreateRealtimeFactory(hasSession: true);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = 91, role });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual(expectedReason, document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task RealtimeTicket_WithoutCurrentSession_ReturnsNotPresent()
+    {
+        await using var factory = CreateRealtimeFactory(hasSession: false);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = 91, role = "participant" });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("notPresent", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task RealtimeTicket_LiveContinuousParticipant_ReturnsTicketEnvelope()
+    {
+        await using var factory = CreateRealtimeFactory(hasSession: true);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        var coordinator = factory.Services.GetRequiredService<ContinuousGameCoordinator>();
+        var started = await coordinator.StartAsync(new DuelReservation(
+            9, 7,
+            new DuelPlayer(55, factory.AliceUserId, "Alice"),
+            new DuelPlayer(66, factory.AliceUserId + 1, "Bob"),
+            new DuelConfiguration("arena-knockoff", "bo3", 1,
+                new Dictionary<string, object?>(), "continuous"),
+            DateTimeOffset.UtcNow, 1, null));
+        Assert.IsTrue(started.Success, started.Error);
+
+        var response = await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = started.MatchId, role = "participant" });
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual(1, document.RootElement.GetProperty("protocolVersion").GetInt32());
+        Assert.IsFalse(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("ticket").GetString()));
+        Assert.AreEqual("wss://brmble.example.com/games/realtime", document.RootElement.GetProperty("url").GetString());
+        Assert.AreNotEqual(default, document.RootElement.GetProperty("expiresAt").GetDateTimeOffset());
+    }
+
+    [TestMethod]
+    public async Task RealtimeTicket_ThirdOutstandingTicket_ReturnsTicketLimit()
+    {
+        await using var factory = CreateRealtimeFactory(hasSession: true);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+        var coordinator = factory.Services.GetRequiredService<ContinuousGameCoordinator>();
+        var started = await coordinator.StartAsync(new DuelReservation(
+            9, 7,
+            new DuelPlayer(55, factory.AliceUserId, "Alice"),
+            new DuelPlayer(66, factory.AliceUserId + 1, "Bob"),
+            new DuelConfiguration("arena-knockoff", "bo3", 1,
+                new Dictionary<string, object?>(), "continuous"),
+            DateTimeOffset.UtcNow, 1, null));
+        Assert.IsTrue(started.Success, started.Error);
+
+        await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = started.MatchId, role = "participant" });
+        await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = started.MatchId, role = "participant" });
+        var response = await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = started.MatchId, role = "participant" });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("ticketLimit", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task RealtimeTicket_DiscreteRunnerMatch_ReturnsMatchNotLive()
+    {
+        var router = new Mock<IDuelMatchRunnerRouter>();
+        router.Setup(x => x.TryGetActiveMatch(It.IsAny<long>(), out It.Ref<ActiveMatchReference>.IsAny))
+            .Returns((long _, out ActiveMatchReference active) =>
+            {
+                active = new ActiveMatchReference(91, 9, 7, "discrete");
+                return true;
+            });
+        await using var factory = CreateFactory(new Mock<IDuelOrchestrator>(), router);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        var response = await client.PostAsJsonAsync("/games/realtime-ticket", new { matchId = 91, role = "participant" });
+
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual("matchNotLive", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    private static BrmbleServerFactory CreateRealtimeFactory(bool hasSession)
+    {
+        var factory = new BrmbleServerFactory();
+        factory.SessionMappingMock
+            .Setup(x => x.TryGetSessionByUserId(It.IsAny<long>(), out It.Ref<int>.IsAny))
+            .Returns((long _, out int session) => { session = 55; return hasSession; });
+        return factory;
+    }
+
     [TestMethod]
     public async Task Invite_ResolvesAuthenticatedSessionAndPreservesNumericOptions()
     {

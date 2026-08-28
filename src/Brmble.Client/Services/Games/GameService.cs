@@ -172,6 +172,15 @@ internal sealed class GameService : IService
                     SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
                     break;
                 }
+                case "realtime-ticket":
+                {
+                    var matchId = data.GetProperty("matchId").GetInt64();
+                    var role = data.GetProperty("role").GetString();
+                    var body = JsonSerializer.Serialize(new { matchId, role });
+                    var result = await _postJsonAsync(cert, new Uri(baseUri, "games/realtime-ticket"), body);
+                    SendResponse(requestId, result.Success, result.Body, result.StatusCode, result.Error);
+                    break;
+                }
                 default:
                     SendResponse(requestId, false, null, 0, $"Unknown games request action '{action}'");
                     break;

@@ -1,5 +1,9 @@
 using Brmble.Server.Games.Engines;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Auth;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using System.Threading.RateLimiting;
 
 namespace Brmble.Server.Games;
 
@@ -7,6 +11,25 @@ public static class GamesExtensions
 {
     public static IServiceCollection AddGames(this IServiceCollection services)
     {
+        services.AddOptions<Continuous.GamesRealtimeOptions>()
+            .BindConfiguration("Games")
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Continuous.GamesRealtimeOptions>, Continuous.GamesRealtimeOptionsValidator>();
+        services.AddSingleton<Continuous.RealtimeTicketStore>();
+        services.Configure<RateLimiterOptions>(options =>
+            options.AddPolicy("games-realtime-ticket", context =>
+            {
+                var certificates = context.RequestServices.GetRequiredService<ICertificateHashExtractor>();
+                var partition = certificates.GetCertHash(context) ?? "missing-client-certificate";
+                return RateLimitPartition.GetFixedWindowLimiter(partition, _ =>
+                    new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    });
+            }));
         services.AddSingleton<IRandomSource, CryptoRandomSource>();
         services.AddSingleton<DeathrollEngine>();
         services.AddSingleton<RpsEngine>();

@@ -70,6 +70,42 @@ public class GameServiceTests
     }
 
     [TestMethod]
+    public async Task RealtimeTicketRequest_PostsExactBodyAndReturnsCorrelatedResult()
+    {
+        Uri? uri = null;
+        string? body = null;
+        var postCount = 0;
+        using var cert = CreateCertificate();
+        var bridge = NativeBridgeTestHarness.Create();
+        var service = CreateService(bridge, cert, (calledUri, calledBody) =>
+        {
+            postCount++;
+            uri = calledUri;
+            body = calledBody;
+            return new(true, "{\"ticket\":\"opaque\"}", 200, null);
+        });
+        service.RegisterHandlers(bridge);
+
+        await NativeBridgeTestHarness.InvokeAsync(bridge, "games.request",
+            JsonSerializer.SerializeToElement(new
+            {
+                action = "realtime-ticket", matchId = 91, role = "participant", requestId = 7,
+                ignored = "must-not-be-forwarded",
+            }));
+
+        Assert.AreEqual(1, postCount);
+        Assert.AreEqual(new Uri("https://api.example/games/realtime-ticket"), uri);
+        AssertJsonEqual("{\"matchId\":91,\"role\":\"participant\"}", body!);
+        var responses = NativeBridgeTestHarness.DrainMessages(bridge)
+            .Where(x => x.Type == "games.response").ToList();
+        Assert.AreEqual(1, responses.Count);
+        using var document = JsonDocument.Parse(responses[0].DataJson);
+        Assert.AreEqual(7, document.RootElement.GetProperty("requestId").GetInt32());
+        Assert.IsTrue(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.AreEqual("{\"ticket\":\"opaque\"}", document.RootElement.GetProperty("body").GetString());
+    }
+
+    [TestMethod]
     public async Task Command_ServerErrorBody_PreservesStructuredReason()
     {
         using var cert = CreateCertificate();
