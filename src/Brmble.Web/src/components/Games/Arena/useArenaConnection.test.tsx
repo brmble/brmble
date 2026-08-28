@@ -147,6 +147,46 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent[3]).toMatchObject({ type: 'input', sequence: 3, dash: true });
   });
 
+  it.each([
+    ['movement', { ...held, moveX: -32767, aimX: 0, aimY: 32767 }],
+    ['dash', { ...held, aimX: 0, aimY: 32767, dash: true }],
+    ['fire', { ...held, aimX: 0, aimY: 32767, fireReleased: true }],
+  ])('sends an immediate %s change with transmitted aim and queues requested aim', async (_label, input) => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    act(() => h.result.current.sendInput(input));
+
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'input', sequence: 2, moveX: input.moveX,
+      fireReleased: input.fireReleased, dash: input.dash, aimX: 32767, aimY: 0,
+    });
+    expect(h.result.current.currentInput).toMatchObject({ aimX: 0, aimY: 32767 });
+    await act(() => vi.advanceTimersByTimeAsync(23));
+    expect(h.socket.sent).toHaveLength(3);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'input', sequence: 3, aimX: 0, aimY: 32767, fireReleased: false, dash: false,
+    });
+    expect(h.socket.sent.filter(message => (
+      message as { fireReleased?: boolean; dash?: boolean }
+    ).fireReleased || (message as { dash?: boolean }).dash)).toHaveLength(input.fireReleased || input.dash ? 1 : 0);
+  });
+
+  it('coalesces queued aim to the latest request without delaying immediate held state', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(5));
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 0, aimY: 32767 }));
+    act(() => h.result.current.sendInput({ ...held, moveX: 0, aimX: -32767, aimY: 0 }));
+    expect(h.socket.sent.slice(-2)).toMatchObject([
+      { sequence: 2, moveX: -32767, aimX: 32767, aimY: 0 },
+      { sequence: 3, moveX: 0, aimX: 32767, aimY: 0 },
+    ]);
+    await act(() => vi.advanceTimersByTimeAsync(29));
+    expect(h.socket.sent.at(-1)).toMatchObject({ sequence: 4, moveX: 0, aimX: -32767, aimY: 0 });
+  });
+
   it('resumes at acknowledged input plus one and keeps final state through close', async () => {
     const h = await connect(87);
     act(() => h.result.current.sendInput(held));
@@ -230,14 +270,61 @@ describe('useArenaConnection', () => {
     await act(() => vi.advanceTimersByTimeAsync(10));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     act(() => h.result.current.sendHeartbeat());
-    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', aimX: 0, aimY: 32767 });
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', aimX: 32767, aimY: 0 });
+    await act(() => vi.advanceTimersByTimeAsync(24));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: 0, aimY: 32767 });
     act(() => h.result.current.sendInput({ ...held, aimX: -32767, aimY: 0 }));
     await act(() => vi.advanceTimersByTimeAsync(24));
-    expect(h.socket.sent).toHaveLength(3);
+    expect(h.socket.sent).toHaveLength(4);
     await act(() => vi.advanceTimersByTimeAsync(9));
-    expect(h.socket.sent).toHaveLength(3);
+    expect(h.socket.sent).toHaveLength(4);
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: -32767, aimY: 0 });
+  });
+
+  it('lets the heartbeat cadence satisfy a queued aim at its legal slot', async () => {
+    const h = await connect();
+    await act(() => vi.advanceTimersByTimeAsync(216));
+    act(() => h.result.current.sendInput(held));
+    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
+    await act(() => vi.advanceTimersByTimeAsync(34));
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'heartbeat', sequence: 2, aimX: 0, aimY: 32767,
+    });
+    expect(h.socket.sent).toHaveLength(3);
+  });
+
+  it('rewinds a rejected newest sequence without creating a sequence gap', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason: 'rateLimited' });
+    expect(h.result.current.pendingInputs).toEqual([]);
+    await act(() => vi.advanceTimersByTimeAsync(34));
+    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', sequence: 1 });
+  });
+
+  it('cancels queued aim on rejection instead of retrying the rejected sequence', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 0, aimY: 32767 }));
+    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 2, reason: 'rateLimited' });
+    await act(() => vi.advanceTimersByTimeAsync(24));
+    expect(h.socket.sent).toHaveLength(3);
+    act(() => h.result.current.sendHeartbeat());
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', sequence: 2, aimX: 0, aimY: 32767 });
+  });
+
+  it('reconnects when a rejected sequence already has later frames', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
+    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason: 'rateLimited' });
+    expect(h.result.current.status).toBe('reconnecting');
+    expect(h.socket.close).toHaveBeenCalledOnce();
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
   });
 
   it('fails and clears the heartbeat when an active socket sends a duplicate welcome', async () => {

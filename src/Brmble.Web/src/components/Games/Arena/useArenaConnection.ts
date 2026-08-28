@@ -68,10 +68,14 @@ interface Runtime {
   tickRate: number;
   clockStartedAt: number;
   lastSnapshotSequence: number;
-  lastSentAt: number;
+  lastAimSentAt: number;
+  transmittedAimX: number;
+  transmittedAimY: number;
   lastSentInput: ArenaInputState;
   currentInput: ArenaInputState;
   queuedAimInput: ArenaInputState | null;
+  pendingInputs: PendingArenaInput[];
+  sentFrames: Array<{ sequence: number; aimX: number; aimY: number; aimSentAt: number }>;
   terminal: boolean;
 }
 
@@ -115,24 +119,63 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     if (!sendMessage(runtime, message)) return;
 
     runtime.nextSequence++;
-    runtime.lastSentAt = performance.now();
+    const aimChanged = input.aimX !== runtime.transmittedAimX || input.aimY !== runtime.transmittedAimY;
+    const aimSentAt = aimChanged || runtime.sentFrames.length === 0
+      ? performance.now()
+      : runtime.lastAimSentAt;
+    if (aimChanged || runtime.sentFrames.length === 0) runtime.lastAimSentAt = aimSentAt;
+    runtime.transmittedAimX = input.aimX;
+    runtime.transmittedAimY = input.aimY;
     runtime.lastSentInput = recordedInput;
-    setPendingInputs(previous => {
-      const extended = previous.map((pending, index) => index === previous.length - 1
+    runtime.sentFrames.push({ sequence, aimX: input.aimX, aimY: input.aimY, aimSentAt });
+    const extended = runtime.pendingInputs.map((pending, index) => index === runtime.pendingInputs.length - 1
         ? { ...pending, toTick: predictedTick - 1 }
         : pending);
-      return [...extended, { sequence, predictedTick, fromTick: predictedTick, toTick: predictedTick, input: recordedInput }];
-    });
+    runtime.pendingInputs = [...extended, {
+      sequence, predictedTick, fromTick: predictedTick, toTick: predictedTick, input: recordedInput,
+    }];
+    setPendingInputs(runtime.pendingInputs);
   };
   sendStateRef.current = sendState;
+
+  const queueAim = (runtime: Runtime, input: ArenaInputState) => {
+    runtime.queuedAimInput = input;
+    if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+    const wait = Math.max(0, AIM_INTERVAL_MS - (performance.now() - runtime.lastAimSentAt));
+    runtime.aimTimer = setTimeout(() => {
+      runtime.aimTimer = null;
+      const queued = runtime.queuedAimInput;
+      runtime.queuedAimInput = null;
+      if (!queued) return;
+      sendStateRef.current(runtime, {
+        ...runtime.currentInput,
+        aimX: queued.aimX,
+        aimY: queued.aimY,
+        fireReleased: false,
+        dash: false,
+      }, false);
+    }, wait);
+  };
+
+  const withLegalAim = (runtime: Runtime, input: ArenaInputState): ArenaInputState => {
+    const aimChanged = input.aimX !== runtime.transmittedAimX || input.aimY !== runtime.transmittedAimY;
+    if (!aimChanged || performance.now() - runtime.lastAimSentAt >= AIM_INTERVAL_MS) return input;
+    return { ...input, aimX: runtime.transmittedAimX, aimY: runtime.transmittedAimY };
+  };
 
   const sendHeartbeat = () => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
-    if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
-    runtime.aimTimer = null;
-    runtime.queuedAimInput = null;
-    sendStateRef.current(runtime, runtime.currentInput, true);
+    const frame = withLegalAim(runtime, runtime.currentInput);
+    if (frame.aimX === runtime.currentInput.aimX && frame.aimY === runtime.currentInput.aimY) {
+      if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+      runtime.aimTimer = null;
+      runtime.queuedAimInput = null;
+    }
+    sendStateRef.current(runtime, frame, true);
+    if (frame.aimX !== runtime.currentInput.aimX || frame.aimY !== runtime.currentInput.aimY) {
+      queueAim(runtime, runtime.currentInput);
+    }
   };
 
   const sendInput = (input: ArenaInputState) => {
@@ -143,24 +186,24 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     setCurrentInput(input);
 
     const immediate = !sameHeldState(previous, input) || input.fireReleased || input.dash;
-    if (immediate || performance.now() - runtime.lastSentAt >= AIM_INTERVAL_MS) {
-      if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
-      runtime.aimTimer = null;
-      runtime.queuedAimInput = null;
-      sendStateRef.current(runtime, input, false);
+    const aimChanged = input.aimX !== runtime.transmittedAimX || input.aimY !== runtime.transmittedAimY;
+    if (immediate) {
+      const frame = withLegalAim(runtime, input);
+      if (frame.aimX === input.aimX && frame.aimY === input.aimY) {
+        if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+        runtime.aimTimer = null;
+        runtime.queuedAimInput = null;
+      }
+      sendStateRef.current(runtime, frame, false);
+      if (frame.aimX !== input.aimX || frame.aimY !== input.aimY) queueAim(runtime, input);
       return;
     }
-    if (input.aimX === previous.aimX && input.aimY === previous.aimY) return;
-
-    runtime.queuedAimInput = input;
-    if (runtime.aimTimer !== null) return;
-    const wait = Math.max(0, AIM_INTERVAL_MS - (performance.now() - runtime.lastSentAt));
-    runtime.aimTimer = setTimeout(() => {
-      runtime.aimTimer = null;
-      const queued = runtime.queuedAimInput;
-      runtime.queuedAimInput = null;
-      if (queued) sendStateRef.current(runtime, queued, false);
-    }, wait);
+    if (!aimChanged) return;
+    if (performance.now() - runtime.lastAimSentAt >= AIM_INTERVAL_MS) {
+      sendStateRef.current(runtime, { ...input, fireReleased: false, dash: false }, false);
+    } else {
+      queueAim(runtime, input);
+    }
   };
 
   useEffect(() => {
@@ -170,8 +213,9 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       aimTimer: null, heartbeatTimer: null, reconnectStartedAt: null, retryIndex: 0,
       attemptGeneration: 0, sessionId: null, nextSequence: null, serverTick: 0,
       tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastSnapshotSequence: -1,
-      lastSentAt: Number.NEGATIVE_INFINITY, lastSentInput: neutralInput,
-      currentInput: neutralInput, queuedAimInput: null, terminal: false,
+      lastAimSentAt: Number.NEGATIVE_INFINITY, transmittedAimX: neutralInput.aimX,
+      transmittedAimY: neutralInput.aimY, lastSentInput: neutralInput,
+      currentInput: neutralInput, queuedAimInput: null, pendingInputs: [], sentFrames: [], terminal: false,
     };
     runtimeRef.current = runtime;
 
@@ -188,6 +232,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       runtime.lastSentInput = neutralInput;
       setCurrentInput(neutralInput);
       setPendingInputs([]);
+      runtime.pendingInputs = [];
+      runtime.sentFrames = [];
       runtime.nextSequence = null;
     };
     const failReconnect = () => {
@@ -250,6 +296,12 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       runtime.deadlineTimer = null;
       runtime.currentInput = neutralInput;
       runtime.lastSentInput = neutralInput;
+      const self = message.state.players.find(player => player.sessionId === message.sessionId);
+      runtime.transmittedAimX = self?.aimX ?? neutralInput.aimX;
+      runtime.transmittedAimY = self?.aimY ?? neutralInput.aimY;
+      runtime.lastAimSentAt = Number.NEGATIVE_INFINITY;
+      runtime.pendingInputs = [];
+      runtime.sentFrames = [];
       setCurrentInput(neutralInput);
       setPendingInputs([]);
       setWelcome(message);
@@ -260,10 +312,16 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       });
       runtime.heartbeatTimer = setInterval(() => {
         if (current()) {
-          if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
-          runtime.aimTimer = null;
-          runtime.queuedAimInput = null;
-          sendStateRef.current(runtime, runtime.currentInput, true);
+          const frame = withLegalAim(runtime, runtime.currentInput);
+          if (frame.aimX === runtime.currentInput.aimX && frame.aimY === runtime.currentInput.aimY) {
+            if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+            runtime.aimTimer = null;
+            runtime.queuedAimInput = null;
+          }
+          sendStateRef.current(runtime, frame, true);
+          if (frame.aimX !== runtime.currentInput.aimX || frame.aimY !== runtime.currentInput.aimY) {
+            queueAim(runtime, runtime.currentInput);
+          }
         }
       }, message.inputHeartbeatMs || DEFAULT_HEARTBEAT_MS);
     };
@@ -294,8 +352,27 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             const self = message.players.find(player => player.sessionId === runtime.sessionId);
             const acknowledged = self?.acknowledgedInput;
             if (acknowledged !== undefined) {
-              setPendingInputs(previous => previous.filter(input => input.sequence > acknowledged));
+              runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence > acknowledged);
+              runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence > acknowledged);
+              setPendingInputs(runtime.pendingInputs);
             }
+          } else if (message.type === 'inputRejected') {
+            if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+            runtime.aimTimer = null;
+            runtime.queuedAimInput = null;
+            const newestSequence = runtime.nextSequence === null ? null : runtime.nextSequence - 1;
+            if (message.sequence !== newestSequence) {
+              scheduleReconnect();
+              return;
+            }
+            runtime.nextSequence = message.sequence;
+            runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence !== message.sequence);
+            runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence !== message.sequence);
+            const priorFrame = runtime.sentFrames.at(-1);
+            runtime.transmittedAimX = priorFrame?.aimX ?? neutralInput.aimX;
+            runtime.transmittedAimY = priorFrame?.aimY ?? neutralInput.aimY;
+            runtime.lastAimSentAt = priorFrame?.aimSentAt ?? Number.NEGATIVE_INFINITY;
+            setPendingInputs(runtime.pendingInputs);
           } else if (message.type === 'matchClosed') {
             if (message.sequence < runtime.lastSnapshotSequence) return;
             runtime.lastSnapshotSequence = message.sequence;
