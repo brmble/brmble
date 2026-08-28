@@ -48,9 +48,16 @@ export function useArenaState({
   const correctionRef = useRef<{ x: number; y: number; startedAt: number } | null>(null);
   const snappedRef = useRef(false);
   const inputsRef = useRef({ pendingInputs, selfSessionId, finalState });
+  const dirtyRef = useRef(true);
+  const inputKeyRef = useRef('');
 
   useEffect(() => {
     inputsRef.current = { pendingInputs, selfSessionId, finalState };
+    const inputKey = JSON.stringify([selfSessionId, finalState, pendingInputs]);
+    if (inputKey !== inputKeyRef.current) {
+      inputKeyRef.current = inputKey;
+      dirtyRef.current = true;
+    }
   }, [finalState, pendingInputs, selfSessionId]);
 
   useEffect(() => {
@@ -58,9 +65,19 @@ export function useArenaState({
       timelineRef.current = [];
       predictedRef.current = undefined;
       snapCountRef.current = 0;
+      correctionRef.current = null;
+      snappedRef.current = false;
+      dirtyRef.current = false;
+      inputKeyRef.current = '';
       welcomeRef.current = null;
       return;
     }
+    predictedRef.current = undefined;
+    correctionRef.current = null;
+    snappedRef.current = false;
+    snapCountRef.current = 0;
+    dirtyRef.current = true;
+    inputKeyRef.current = '';
     welcomeRef.current = welcome;
     const frame = asSnapshot(welcome);
     timelineRef.current = [frame];
@@ -73,6 +90,7 @@ export function useArenaState({
     timelineRef.current = [...timelineRef.current, latestSnapshot]
       .sort((left, right) => left.generatedAtUnixMs - right.generatedAtUnixMs || left.sequence - right.sequence)
       .slice(-20);
+    dirtyRef.current = true;
   }, [latestSnapshot, welcome]);
 
   useEffect(() => {
@@ -85,34 +103,33 @@ export function useArenaState({
         const authority = current.finalState
           ? asSnapshot(welcome, current.finalState)
           : timeline.reduce((latest, candidate) => candidate.sequence > latest.sequence ? candidate : latest);
-        const result = reconcile(
-          { snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current },
-          current.finalState ? [] : current.pendingInputs,
-          welcome.prediction,
-        );
-        if (result.snapped && predictedRef.current && !snappedRef.current) snapCountRef.current++;
-        snappedRef.current = result.snapped;
-        if (result.correction) {
-          const existing = correctionRef.current;
-          if (!existing || existing.x !== result.correction.x || existing.y !== result.correction.y) {
-            correctionRef.current = { x: result.correction.x, y: result.correction.y, startedAt: Date.now() };
-          }
-        } else if (result.snapped || (correctionRef.current && Date.now() - correctionRef.current.startedAt >= 100)) {
-          correctionRef.current = null;
+        if (dirtyRef.current || !predictedRef.current) {
+          const result = reconcile(
+            { snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current },
+            current.finalState ? [] : current.pendingInputs,
+            welcome.prediction,
+          );
+          if (result.snapped && predictedRef.current && !snappedRef.current) snapCountRef.current++;
+          snappedRef.current = result.snapped;
+          correctionRef.current = result.correction
+            ? { x: result.correction.x, y: result.correction.y, startedAt: Date.now() }
+            : null;
+          predictedRef.current = result.local;
+          dirtyRef.current = false;
         }
-        predictedRef.current = result.local;
+        const predicted = predictedRef.current;
         const sampled = current.finalState
           ? authority
           : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
         const correction = correctionRef.current;
         const remaining = correction ? Math.max(0, 1 - (Date.now() - correction.startedAt) / 100) : 0;
         const local = correction ? {
-          ...result.local.player,
-          x: Math.trunc(result.local.player.x - correction.x * remaining),
-          y: Math.trunc(result.local.player.y - correction.y * remaining),
-        } : result.local.player;
+          ...predicted.player,
+          x: Math.trunc(predicted.player.x - correction.x * remaining),
+          y: Math.trunc(predicted.player.y - correction.y * remaining),
+        } : predicted.player;
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
-        const predictedProjectiles = result.local.projectiles.filter(projectile => projectile.id < 0);
+        const predictedProjectiles = predicted.projectiles.filter(projectile => projectile.id < 0);
         setRendered({
           localPlayer: local, remotePlayer: remote, projectiles: [...sampled.projectiles, ...predictedProjectiles],
           arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,

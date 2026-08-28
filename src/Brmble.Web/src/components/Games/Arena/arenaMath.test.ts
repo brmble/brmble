@@ -108,6 +108,16 @@ describe('arena client prediction', () => {
     expect(next.local.player.x).toBe(1450);
   });
 
+  it('clips replay intervals to ticks after authority and does not carry historical edges', () => {
+    const next = reconcile(authority(snapshot({ serverTick: 103 })), [
+      pending(8, 101, 102, { ...right, dash: true }),
+      pending(9, 103, 105),
+    ], prediction);
+    expect(next.replayedTicks).toBe(2);
+    expect(next.local.player.x).toBe(1180);
+    expect(next.local.player.dashAvailable).toBe(true);
+  });
+
   it('discards acknowledged sequences before replaying', () => {
     const authority = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
       ? { ...player, acknowledgedInput: 9 }
@@ -129,17 +139,58 @@ describe('arena client prediction', () => {
     expect(next.local.projectiles).toHaveLength(1);
   });
 
+  it('continues only the remaining acknowledged dash ticks after a mid-burst snapshot', () => {
+    const started = reconcile(authority(), [pending(8, 101, 106, { ...right, dash: true })], prediction).local;
+    const midDash = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10
+        ? { ...player, x: 1990, dashAvailable: false, acknowledgedInput: 8 }
+        : player),
+    });
+    const continued = reconcile(authority(midDash, started), [pending(9, 104, 106)], prediction);
+    expect(continued.replayedTicks).toBe(3);
+    expect(continued.local.dashTicks).toBe(0);
+    expect(continued.local.player.x).toBe(2980);
+  });
+
   it('smooths a 300-unit correction and snaps a 301-unit correction', () => {
     const predicted = reconcile(authority(), [pending(8, 101, 101)], prediction).local;
     const authority300 = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
-      ? { ...player, x: predicted.player.x + 300 }
+      ? { ...player, x: predicted.player.x + 210 }
       : player) });
     const authority301 = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
-      ? { ...player, x: predicted.player.x + 301 }
+      ? { ...player, x: predicted.player.x + 211 }
       : player) });
-    expect(reconcile(authority(authority300, predicted), [], prediction).snapped).toBe(false);
-    expect(reconcile(authority(authority300, predicted), [], prediction).correction).toEqual({ x: 300, y: 0, durationMs: 100 });
-    expect(reconcile(authority(authority301, predicted), [], prediction).snapped).toBe(true);
+    expect(reconcile(authority(authority300, predicted), [pending(8, 101, 101)], prediction).snapped).toBe(false);
+    expect(reconcile(authority(authority300, predicted), [pending(8, 101, 101)], prediction).correction).toEqual({ x: 300, y: 0, durationMs: 100 });
+    expect(reconcile(authority(authority301, predicted), [pending(8, 101, 101)], prediction).snapped).toBe(true);
+  });
+
+  it('does not predict KO and detects authority KO changes independently', () => {
+    const previous = reconcile(authority(snapshot({ arena: { radius: 2000, shrinkPhase: 'hold' } })), [], prediction).local;
+    const moved = stepLocal({ ...previous, player: { ...previous.player, x: 1990 } }, right, prediction);
+    expect(moved.player.x).toBeGreaterThan(2000);
+    expect(moved.localKo).toBe(false);
+    const knockedOut = snapshot({
+      arena: { radius: 2000, shrinkPhase: 'hold' },
+      players: snapshot().players.map(player => player.sessionId === 10 ? { ...player, x: 2001 } : player),
+    });
+    expect(reconcile(authority(knockedOut, previous), [], prediction).snapped).toBe(true);
+  });
+
+  it.each([
+    ['loading', 1000, 10, 5, 32767],
+    ['positioning', 1090, 10, null, 0],
+    ['live', 1340, 9, null, 0],
+  ] as const)('mirrors %s phase gates', (phase, expectedX, expectedCooldown, expectedForcedFire, expectedAimX) => {
+    const base = reconcile(authority(snapshot({ phase })), [], prediction).local;
+    const next = stepLocal({ ...base, player: { ...base.player, cooldownTicks: 10, forcedFireTicks: 5, vx: 10 } },
+      { ...right, aimX: 0, aimY: 32767, dash: true, fireReleased: true }, prediction);
+    expect(next.player.x).toBe(expectedX);
+    expect(next.player.aimX).toBe(expectedAimX);
+    expect(next.player.cooldownTicks).toBe(expectedCooldown);
+    expect(next.player.forcedFireTicks).toBe(expectedForcedFire);
+    expect(next.projectiles).toHaveLength(0);
   });
 
   it.each([
@@ -189,6 +240,35 @@ describe('arena interpolation and layout', () => {
     expect(sampled.phase).toBe('roundReset');
     expect(sampled.score).toEqual([1, 0]);
     expect(sampled.projectiles).toEqual(second.projectiles);
+  });
+
+  it('keeps left discrete state and membership until the right timestamp', () => {
+    const shared = { id: 1, ownerSessionId: 20, x: 0, y: 0, vx: 0, vy: 0, chargePermille: 0 };
+    const removed = { ...shared, id: 2 };
+    const created = { ...shared, id: 3 };
+    const first = snapshot({ generatedAtUnixMs: 0, sequence: 1, phase: 'live', score: [0, 0], projectiles: [shared, removed] });
+    const second = snapshot({
+      generatedAtUnixMs: 50, sequence: 2, phase: 'roundReset', score: [1, 0], projectiles: [{ ...shared, x: 100 }, created],
+      players: snapshot().players.map(player => ({ ...player, cooldownTicks: 9, dashAvailable: false })),
+    });
+    const before = sampleTimeline([first, second], 125, 100, 50);
+    expect(before.phase).toBe('live');
+    expect(before.score).toEqual([0, 0]);
+    expect(before.players[0].cooldownTicks).toBe(0);
+    expect(before.players[0].dashAvailable).toBe(true);
+    expect(before.projectiles.map(projectile => projectile.id)).toEqual([1, 2]);
+    expect(sampleTimeline([first, second], 150, 100, 50).projectiles.map(projectile => projectile.id)).toEqual([1, 3]);
+  });
+
+  it('selects the highest sequence at equal timestamps and preserves zero aim', () => {
+    const low = snapshot({ generatedAtUnixMs: 50, sequence: 2 });
+    const high = snapshot({ generatedAtUnixMs: 50, sequence: 3, score: [1, 0],
+      players: snapshot().players.map(player => player.sessionId === 20 ? { ...player, aimX: 0, aimY: 0 } : player) });
+    const later = snapshot({ generatedAtUnixMs: 100, sequence: 4 });
+    const sampled = sampleTimeline([later, high, low], 175, 100, 50);
+    expect(sampled.score).toEqual([1, 0]);
+    expect(sampled.players.find(player => player.sessionId === 20)?.aimX).toBe(0);
+    expect(sampled.players.find(player => player.sessionId === 20)?.aimY).toBe(0);
   });
 
   it('maps the fixed 20k world through exact letterboxing and back', () => {

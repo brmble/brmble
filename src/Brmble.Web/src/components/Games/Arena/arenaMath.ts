@@ -125,8 +125,10 @@ export interface PredictedArenaState {
   phase: ArenaStateSnapshot['phase'];
   score: [number, number];
   localKo: boolean;
+  serverTick: number;
   chargeTicks: number;
   dashTicks: number;
+  dashEndsAtTick: number | null;
   nextProjectileId: number;
 }
 
@@ -184,19 +186,25 @@ export function stepLocal(
 ): PredictedArenaState {
   const next = cloneState(current);
   const player = next.player;
+  const tick = current.serverTick + 1;
+  next.serverTick = tick;
+  if (next.phase === 'loading') return next;
   const movement = normalizeQ15(rawInput.moveX, rawInput.moveY);
   const aim = normalizeQ15(rawInput.aimX, rawInput.aimY);
   player.aimX = aim.x;
   player.aimY = aim.y;
 
-  const forcedFire = player.forcedFireTicks === 1;
-  if (player.cooldownTicks > 0) player.cooldownTicks--;
-  if (player.forcedFireTicks !== null) {
-    player.forcedFireTicks--;
-    if (player.forcedFireTicks <= 0) player.forcedFireTicks = null;
+  const live = next.phase === 'live';
+  const forcedFire = live && player.forcedFireTicks === 1;
+  if (live) {
+    if (player.cooldownTicks > 0) player.cooldownTicks--;
+    if (player.forcedFireTicks !== null) {
+      player.forcedFireTicks--;
+      if (player.forcedFireTicks <= 0) player.forcedFireTicks = null;
+    }
   }
 
-  if (next.phase !== 'live' || player.cooldownTicks > 0) {
+  if (!live || player.cooldownTicks > 0) {
     next.chargeTicks = 0;
     player.forcedFireTicks = null;
   } else if (rawInput.charging && next.chargeTicks < constants.chargeTicks) {
@@ -205,12 +213,12 @@ export function stepLocal(
   }
   player.chargePermille = chargeFromTicks(next.chargeTicks, constants);
 
-  if (rawInput.dash && next.phase === 'live' && player.dashAvailable) {
+  if (rawInput.dash && live && player.dashAvailable) {
     player.dashAvailable = false;
-    next.dashTicks = constants.dashTicks;
+    next.dashEndsAtTick = tick + constants.dashTicks;
   }
 
-  if (next.phase === 'live' && player.cooldownTicks === 0 && (rawInput.fireReleased || forcedFire)) {
+  if (live && player.cooldownTicks === 0 && (rawInput.fireReleased || forcedFire)) {
     const spawn = scaleBy(aim, constants.playerRadius + constants.projectileRadius);
     const velocity = scaleBy(aim, constants.projectilePerTick);
     const recoilVector = scaleBy(aim, recoilAmount(player.chargePermille, constants));
@@ -234,20 +242,19 @@ export function stepLocal(
   const movementDelta = scaleBy(movement, moveAmount(player.chargePermille, constants));
   player.x += movementDelta.x;
   player.y += movementDelta.y;
-  if (next.phase === 'live' && next.dashTicks > 0) {
+  if (live && next.dashEndsAtTick !== null && tick < next.dashEndsAtTick) {
     const dashDirection = movement.x === 0 && movement.y === 0 ? aim : movement;
     const dashDelta = scaleBy(dashDirection, constants.dashPerTick);
     player.x += dashDelta.x;
     player.y += dashDelta.y;
-    next.dashTicks--;
   }
-  if (next.phase === 'live') {
+  next.dashTicks = next.dashEndsAtTick === null ? 0 : Math.max(0, next.dashEndsAtTick - tick - 1);
+  if (live) {
     player.x += player.vx;
     player.y += player.vy;
     player.vx = multiplyDivideTruncated(player.vx, constants.momentumRetentionPermille, 1000);
     player.vy = multiplyDivideTruncated(player.vy, constants.momentumRetentionPermille, 1000);
   }
-  next.localKo = !insideRadius(player, next.arena.radius);
   return next;
 }
 
@@ -268,12 +275,19 @@ function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionCons
   const player = authority.snapshot.players.find(candidate => candidate.sessionId === authority.selfSessionId);
   if (!player) throw new Error('Arena authority does not contain the current session');
   const opponent = authority.snapshot.players.find(candidate => candidate.sessionId !== authority.selfSessionId) ?? null;
+  const previousDashEnd = authority.previous?.dashEndsAtTick;
+  const dashEndsAtTick = !player.dashAvailable && previousDashEnd !== undefined
+    && previousDashEnd !== null && previousDashEnd > authority.snapshot.serverTick
+    ? previousDashEnd
+    : null;
   return {
     player: { ...player }, opponent: opponent ? { ...opponent } : null,
     projectiles: authority.snapshot.projectiles.map(projectile => ({ ...projectile })),
     arena: { ...authority.snapshot.arena }, phase: authority.snapshot.phase,
     score: [...authority.snapshot.score], localKo: !insideRadius(player, authority.snapshot.arena.radius),
-    chargeTicks: ticksFromCharge(player.chargePermille, constants), dashTicks: 0, nextProjectileId: -1,
+    serverTick: authority.snapshot.serverTick, chargeTicks: ticksFromCharge(player.chargePermille, constants),
+    dashTicks: dashEndsAtTick === null ? 0 : Math.max(0, dashEndsAtTick - authority.snapshot.serverTick - 1),
+    dashEndsAtTick, nextProjectileId: -1,
   };
 }
 
@@ -291,15 +305,19 @@ export function reconcile(
 
   for (const interval of pending) {
     if (interval.fromTick > interval.toTick) {
-      carriedFire ||= interval.input.fireReleased;
-      carriedDash ||= interval.input.dash;
+      if (interval.fromTick > authority.snapshot.serverTick) {
+        carriedFire ||= interval.input.fireReleased;
+        carriedDash ||= interval.input.dash;
+      }
       continue;
     }
-    for (let tick = interval.fromTick; tick <= interval.toTick; tick++) {
+    const fromTick = Math.max(interval.fromTick, authority.snapshot.serverTick + 1);
+    if (interval.toTick <= authority.snapshot.serverTick) continue;
+    for (let tick = fromTick; tick <= interval.toTick; tick++) {
       local = stepLocal(local, {
         ...interval.input,
-        fireReleased: tick === interval.fromTick && (carriedFire || interval.input.fireReleased),
-        dash: tick === interval.fromTick && (carriedDash || interval.input.dash),
+        fireReleased: tick === fromTick && (carriedFire || interval.input.fireReleased),
+        dash: tick === fromTick && (carriedDash || interval.input.dash),
       }, constants);
       carriedFire = false;
       carriedDash = false;
@@ -308,8 +326,8 @@ export function reconcile(
   }
 
   const previous = authority.previous;
-  const dx = previous ? authoritative.player.x - previous.player.x : 0;
-  const dy = previous ? authoritative.player.y - previous.player.y : 0;
+  const dx = previous ? local.player.x - previous.player.x : 0;
+  const dy = previous ? local.player.y - previous.player.y : 0;
   const correctionSquared = BigInt(dx) * BigInt(dx) + BigInt(dy) * BigInt(dy);
   const discreteChanged = previous !== undefined && (
     previous.phase !== authoritative.phase
@@ -332,6 +350,9 @@ function interpolateInteger(left: number, right: number, fraction: number): numb
 }
 
 function interpolateAim(left: FixedVec, right: FixedVec, fraction: number): FixedVec {
+  if ((left.x === 0 && left.y === 0) || (right.x === 0 && right.y === 0)) {
+    return left;
+  }
   const leftAngle = Math.atan2(left.y, left.x);
   const rightAngle = Math.atan2(right.y, right.x);
   let difference = rightAngle - leftAngle;
@@ -342,7 +363,7 @@ function interpolateAim(left: FixedVec, right: FixedVec, fraction: number): Fixe
 }
 
 function interpolatePlayer(left: ArenaPlayerSnapshot, right: ArenaPlayerSnapshot, fraction: number): ArenaPlayerSnapshot {
-  const aim = interpolateAim(left, right, fraction);
+  const aim = interpolateAim({ x: left.aimX, y: left.aimY }, { x: right.aimX, y: right.aimY }, fraction);
   return {
     ...right,
     x: interpolateInteger(left.x, right.x, fraction), y: interpolateInteger(left.y, right.y, fraction),
@@ -365,7 +386,9 @@ export function sampleTimeline(
   frames: ArenaSnapshot[], nowMs: number, interpolationMs: number, maxExtrapolationMs: number,
 ): ArenaSnapshot {
   if (frames.length === 0) throw new Error('Cannot sample an empty arena timeline');
-  const ordered = [...frames].sort((left, right) => left.generatedAtUnixMs - right.generatedAtUnixMs || left.sequence - right.sequence);
+  const ordered = [...frames]
+    .sort((left, right) => left.generatedAtUnixMs - right.generatedAtUnixMs || left.sequence - right.sequence)
+    .filter((frame, index, values) => values[index + 1]?.generatedAtUnixMs !== frame.generatedAtUnixMs);
   const renderAt = nowMs - interpolationMs;
   const latest = ordered[ordered.length - 1];
   if (renderAt >= latest.generatedAtUnixMs) {
@@ -389,24 +412,26 @@ export function sampleTimeline(
       })),
     };
   }
-  const rightIndex = ordered.findIndex(frame => frame.generatedAtUnixMs >= renderAt);
+  const rightIndex = ordered.findIndex(frame => frame.generatedAtUnixMs > renderAt);
   if (rightIndex <= 0) return ordered[0];
   const left = ordered[rightIndex - 1];
   const right = ordered[rightIndex];
   const fraction = (renderAt - left.generatedAtUnixMs) / (right.generatedAtUnixMs - left.generatedAtUnixMs || 1);
-  const leftPlayers = new Map(left.players.map(player => [player.sessionId, player]));
-  const leftProjectiles = new Map(left.projectiles.map(projectile => [projectile.id, projectile]));
+  const rightPlayers = new Map(right.players.map(player => [player.sessionId, player]));
+  const rightProjectiles = new Map(right.projectiles.map(projectile => [projectile.id, projectile]));
   return {
-    ...right,
-    players: right.players.map(player => {
-      const earlier = leftPlayers.get(player.sessionId);
-      return earlier ? interpolatePlayer(earlier, player, fraction) : player;
+    ...left,
+    players: left.players.map(player => {
+      const later = rightPlayers.get(player.sessionId);
+      return later ? { ...player, ...interpolatePlayer(player, later, fraction),
+        forcedFireTicks: player.forcedFireTicks, cooldownTicks: player.cooldownTicks,
+        dashAvailable: player.dashAvailable, acknowledgedInput: player.acknowledgedInput } : player;
     }),
-    projectiles: right.projectiles.map(projectile => {
-      const earlier = leftProjectiles.get(projectile.id);
-      return earlier ? interpolateProjectile(earlier, projectile, fraction) : projectile;
+    projectiles: left.projectiles.map(projectile => {
+      const later = rightProjectiles.get(projectile.id);
+      return later ? interpolateProjectile(projectile, later, fraction) : projectile;
     }),
-    arena: { ...right.arena, radius: interpolateInteger(left.arena.radius, right.arena.radius, fraction) },
+    arena: { ...left.arena, radius: interpolateInteger(left.arena.radius, right.arena.radius, fraction) },
   };
 }
 

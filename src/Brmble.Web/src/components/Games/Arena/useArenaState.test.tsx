@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ArenaSnapshot, ArenaWelcome } from './arenaProtocol';
+import type { ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import { useArenaState } from './useArenaState';
 
@@ -104,10 +104,37 @@ describe('useArenaState', () => {
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(955);
     vi.setSystemTime(1050);
+    hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1077);
     vi.setSystemTime(1100);
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1200);
+    vi.setSystemTime(1250);
+    act(() => frame?.(performance.now()));
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1200);
+  });
+
+  it('resets prediction, correction and snap count when the current session is replaced', () => {
+    vi.setSystemTime(1000);
+    const initial = welcome();
+    const hook = renderHook(({ currentWelcome, selfSessionId, finalState }) => useArenaState({
+      welcome: currentWelcome, latestSnapshot: null, pendingInputs: [], selfSessionId, finalState,
+    }), { initialProps: {
+      currentWelcome: initial as ArenaWelcome,
+      selfSessionId: 10,
+      finalState: undefined as ArenaStateSnapshot | undefined,
+    } });
+    hook.rerender({ currentWelcome: initial, selfSessionId: 10,
+      finalState: { ...state(5000), phase: 'ended', score: [2, 0] } });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.snapCount).toBe(1);
+    const replacement = { ...initial, matchId: 92, sessionId: 20, state: state(2222) };
+    hook.rerender({ currentWelcome: replacement, selfSessionId: 20, finalState: undefined });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.sessionId).toBe(20);
+    expect(hook.result.current.remotePlayer?.x).toBe(2222);
+    expect(hook.result.current.snapCount).toBe(0);
   });
 });
