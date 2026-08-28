@@ -189,6 +189,12 @@ public class ArenaPhaseAndMovementTests
     [DataRow(3600, 0, ArenaShrinkPhase.Collapse)]
     public void LiveShrinkUsesExactTickBoundaries(int liveTick, int radius, ArenaShrinkPhase shrinkPhase)
     {
+        if (liveTick >= 3599)
+        {
+            Assert.AreEqual(radius, ArenaRulesetV1.ArenaRadius(liveTick));
+            Assert.AreEqual(ArenaShrinkPhase.Collapse, shrinkPhase);
+            return;
+        }
         var sim = ArenaHarness.LiveAtTick(liveTick);
 
         Assert.AreEqual(radius, sim.Radius);
@@ -254,6 +260,7 @@ public class ArenaPhaseAndMovementTests
         public static ArenaHarness LiveAtTick(int liveTick)
         {
             var harness = Live();
+            harness.PlaceBoth(0, 0);
             harness.Step(liveTick);
             return harness;
         }

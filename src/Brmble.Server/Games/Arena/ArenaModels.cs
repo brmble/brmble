@@ -24,12 +24,16 @@ public sealed class ArenaPlayerState
     public int DashTicks;
     public bool DashAvailable = true;
     public ContinuousInput Input = new(0, 0, 0, 0, 32767, 0, false, false, false);
+    internal ArenaKnockoutCause VelocityCause = ArenaKnockoutCause.DashOrMovement;
+    internal ArenaKnockoutCause BoundaryCause = ArenaKnockoutCause.DashOrMovement;
 }
 
 public sealed record ArenaSnapshotView(
     long ServerTick,
     ContinuousMatchPhase Phase,
+    long? PhaseEndsAtTick,
     IReadOnlyList<int> Score,
+    int ConsecutiveDoubleKos,
     ArenaArenaView Arena,
     IReadOnlyList<ArenaPlayerView> Players,
     IReadOnlyList<ArenaProjectileView> Projectiles);
@@ -59,3 +63,25 @@ public sealed record ArenaProjectileView(
     int Vx,
     int Vy,
     int ChargePermille);
+
+public sealed record ArenaMatchSummary(
+    int SchemaVersion,
+    IReadOnlyList<int> FinalScore,
+    int RoundsPlayed,
+    int DoubleKoReplays,
+    IReadOnlyList<int> RoundDurations,
+    IReadOnlyList<ArenaKnockoutCause> KoCauses,
+    IReadOnlyList<int> Shots,
+    IReadOnlyList<int> Hits,
+    IReadOnlyList<IReadOnlyList<int>> FiredCharges,
+    IReadOnlyList<IReadOnlyList<int>> LandedCharges,
+    IReadOnlyList<int> DashUses,
+    IReadOnlyList<int> KoRadii);
+
+public sealed record ArenaParticipantStats(
+    int Score,
+    int Shots,
+    int Hits,
+    IReadOnlyList<int> FiredCharges,
+    IReadOnlyList<int> LandedCharges,
+    int DashUses);
