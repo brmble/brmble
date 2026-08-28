@@ -4,7 +4,6 @@ using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Spectators;
 using Brmble.Server.Games.Continuous;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -28,10 +27,11 @@ public static class GameEndpoints
         app.MapPost("/games/realtime-ticket", async (RealtimeTicketDto dto, HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, ISessionMappingService sessions,
             ContinuousGameCoordinator coordinator, RealtimeTicketStore tickets,
-            IOptions<GamesRealtimeOptions> options) =>
+            RealtimeTicketRateLimiter rateLimiter, IOptions<GamesRealtimeOptions> options) =>
         {
             var user = await ResolveUserAsync(ctx, certs, users);
             if (user is null) return Results.Unauthorized();
+            if (!rateLimiter.TryAcquire(user.UserId)) return Results.StatusCode(StatusCodes.Status429TooManyRequests);
             if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
                 return RealtimeError("You must be connected to Brmble.", "notPresent");
             if (!string.Equals(dto.Role, "participant", StringComparison.Ordinal))
@@ -56,7 +56,7 @@ public static class GameEndpoints
             {
                 return RealtimeError("The realtime ticket limit was reached.", "ticketLimit");
             }
-        }).RequireRateLimiting("games-realtime-ticket");
+        });
 
         app.MapGet("/games/queue", async (HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, IDuelSnapshotProvider snapshots,

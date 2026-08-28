@@ -3,6 +3,8 @@ using System.Text;
 using Brmble.Server.Games.Continuous;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -88,6 +90,97 @@ public sealed class RealtimeTicketStoreTests
         Assert.IsTrue(result.Failed);
     }
 
+    [TestMethod]
+    public void ProductionDefaultsOmitRealtimeUrlAndExplicitWssConfigPasses()
+    {
+        var appSettings = FindRepositoryFile("src", "Brmble.Server", "appsettings.json");
+        var defaults = new ConfigurationBuilder().AddJsonFile(appSettings).Build();
+        Assert.IsNull(defaults["Games:RealtimePublicWebSocketUrl"]);
+        var environment = new Mock<IHostEnvironment>();
+        environment.SetupGet(x => x.EnvironmentName).Returns(Environments.Production);
+        var validator = new GamesRealtimeOptionsValidator(environment.Object);
+
+        Assert.IsTrue(validator.Validate(null, new GamesRealtimeOptions()).Failed);
+        Assert.IsTrue(validator.Validate(null, new GamesRealtimeOptions
+        {
+            RealtimePublicWebSocketUrl = "wss://realtime.test.example/games",
+        }).Succeeded);
+    }
+
+    [TestMethod]
+    public async Task ProductionOptionsValidationFailsStartupWithoutUrlAndPassesWithExplicitWssUrl()
+    {
+        await Assert.ThrowsExceptionAsync<OptionsValidationException>(() =>
+            StartOptionsHostAsync(null));
+
+        using var host = await StartOptionsHostAsync("wss://realtime.test.example/games");
+    }
+
+    private static async Task<IHost> StartOptionsHostAsync(string? url)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Environment.EnvironmentName = Environments.Production;
+        builder.Services.AddSingleton<IValidateOptions<GamesRealtimeOptions>, GamesRealtimeOptionsValidator>();
+        builder.Services.AddOptions<GamesRealtimeOptions>()
+            .Configure(options => options.RealtimePublicWebSocketUrl = url)
+            .ValidateOnStart();
+        var host = builder.Build();
+        try
+        {
+            await host.StartAsync();
+            return host;
+        }
+        catch
+        {
+            host.Dispose();
+            throw;
+        }
+    }
+
+    [TestMethod]
+    public async Task PeriodicScavenger_RemovesExpiredTicketsAtFiveSecondTick()
+    {
+        using var harness = TicketHarness.Create();
+        harness.Store.Issue(100, 10, 91, RealtimeRole.Participant);
+
+        harness.Advance(TimeSpan.FromSeconds(15));
+        await YieldUntilAsync(() => harness.Store.Count == 0);
+
+        Assert.AreEqual(0, harness.Store.Count);
+    }
+
+    [TestMethod]
+    public void Dispose_CancelsAndDisposesPeriodicScavengerSafely()
+    {
+        var harness = TicketHarness.Create();
+
+        harness.Store.Dispose();
+        harness.Store.Dispose();
+
+        Assert.IsTrue(harness.Time.AllTimersDisposed);
+        Assert.ThrowsException<ObjectDisposedException>(() =>
+            harness.Store.Issue(100, 10, 91, RealtimeRole.Participant));
+    }
+
+    private static async Task YieldUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Yield();
+        Assert.IsTrue(condition(), "The timer continuation did not complete.");
+    }
+
+    private static string FindRepositoryFile(params string[] path)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine([directory.FullName, .. path]);
+            if (File.Exists(candidate)) return candidate;
+            directory = directory.Parent;
+        }
+        throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, path));
+    }
+
     private sealed class TicketHarness : IDisposable
     {
         private TicketHarness(ManualTimeProvider time, RealtimeTicketStore store)
@@ -117,8 +210,55 @@ public sealed class RealtimeTicketStoreTests
 
     private sealed class ManualTimeProvider : TimeProvider
     {
+        private readonly List<ManualTimer> _timers = [];
         private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
         public override DateTimeOffset GetUtcNow() => _now;
-        public void Advance(TimeSpan by) => _now += by;
+        public bool AllTimersDisposed => _timers.All(x => x.Disposed);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state, dueTime, period);
+            _timers.Add(timer);
+            return timer;
+        }
+        public void Advance(TimeSpan by)
+        {
+            _now += by;
+            foreach (var timer in _timers.ToArray()) timer.FireIfDue();
+        }
+
+        private sealed class ManualTimer : ITimer
+        {
+            private readonly ManualTimeProvider _owner;
+            private readonly TimerCallback _callback;
+            private readonly object? _state;
+            private DateTimeOffset _dueAt;
+            private TimeSpan _period;
+            public bool Disposed { get; private set; }
+            public ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state,
+                TimeSpan dueTime, TimeSpan period)
+            {
+                _owner = owner;
+                _callback = callback;
+                _state = state;
+                Change(dueTime, period);
+            }
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (Disposed) return false;
+                _dueAt = dueTime == Timeout.InfiniteTimeSpan ? DateTimeOffset.MaxValue : _owner._now + dueTime;
+                _period = period;
+                return true;
+            }
+            public void FireIfDue()
+            {
+                while (!Disposed && _owner._now >= _dueAt)
+                {
+                    _dueAt = _period == Timeout.InfiniteTimeSpan ? DateTimeOffset.MaxValue : _dueAt + _period;
+                    _callback(_state);
+                }
+            }
+            public void Dispose() => Disposed = true;
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
     }
 }

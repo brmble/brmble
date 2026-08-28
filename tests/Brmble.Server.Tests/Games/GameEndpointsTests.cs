@@ -73,7 +73,7 @@ public class GameEndpointsTests
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.AreEqual(1, document.RootElement.GetProperty("protocolVersion").GetInt32());
         Assert.IsFalse(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("ticket").GetString()));
-        Assert.AreEqual("wss://brmble.example.com/games/realtime", document.RootElement.GetProperty("url").GetString());
+        Assert.AreEqual("wss://realtime.test/games", document.RootElement.GetProperty("url").GetString());
         Assert.AreNotEqual(default, document.RootElement.GetProperty("expiresAt").GetDateTimeOffset());
     }
 
@@ -121,6 +121,30 @@ public class GameEndpointsTests
         Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.AreEqual("matchNotLive", document.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
+    public async Task RealtimeTicket_EleventhRequestForStableUserIsRateLimited()
+    {
+        await using var factory = CreateRealtimeFactory(hasSession: true);
+        var client = factory.CreateClient();
+        await client.PostAsJsonAsync("/auth/token", new { mumbleUsername = "maui" });
+
+        for (var request = 0; request < 10; request++)
+        {
+            var accepted = await client.PostAsJsonAsync("/games/realtime-ticket", new
+            {
+                matchId = 91, role = "spectator",
+            });
+            Assert.AreEqual(HttpStatusCode.BadRequest, accepted.StatusCode);
+        }
+
+        var rejected = await client.PostAsJsonAsync("/games/realtime-ticket", new
+        {
+            matchId = 91, role = "spectator",
+        });
+
+        Assert.AreEqual(HttpStatusCode.TooManyRequests, rejected.StatusCode);
     }
 
     private static BrmbleServerFactory CreateRealtimeFactory(bool hasSession)

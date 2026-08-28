@@ -7,6 +7,7 @@ using Brmble.Server.Games.Spectators;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,10 @@ public class GamesExtensionsTests
         db.Initialize();
 
         var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Games:RealtimePublicWebSocketUrl"] = "wss://realtime.test/games",
+        });
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(db);
         builder.Services.AddSingleton(new Mock<ISessionMappingService>().Object);

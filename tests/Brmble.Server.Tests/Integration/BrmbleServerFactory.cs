@@ -110,6 +110,7 @@ internal class BrmbleServerFactory : WebApplicationFactory<Program>, IDisposable
                 ["Matrix:ServerDomain"] = "test",
                 ["LiveKit:ApiKey"] = "test-api-key",
                 ["LiveKit:ApiSecret"] = "testsecret0123456789abcdef01234567890abcdef01234567890abcdef0123",
+                ["Games:RealtimePublicWebSocketUrl"] = "wss://realtime.test/games",
             });
         });
         builder.ConfigureServices(services =>

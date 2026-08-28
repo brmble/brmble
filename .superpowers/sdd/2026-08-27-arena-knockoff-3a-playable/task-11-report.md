@@ -36,3 +36,36 @@ Implemented and verified.
 ## Commit
 
 This report is included in `feat: issue scoped one-time realtime game tickets`; the resulting SHA is returned with the task handoff.
+
+## Fix Round 1
+
+### Status
+
+Implemented all review findings.
+
+### Changes
+
+- Removed `Games:RealtimePublicWebSocketUrl` from production `appsettings.json`. Development alone supplies `wss://localhost:8080/games/realtime`; test hosts supply explicit non-production values.
+- Replaced the pre-handler certificate-hash ASP.NET policy with a singleton fixed-window limiter keyed by the resolved stable user ID and driven by the injected `TimeProvider`.
+- Added deterministic `TimeProvider` coverage for the five-second periodic ticket scavenger and idempotent disposal/cancellation.
+- Preserved ticket generation, hashing, expiry, scope, one-time consumption, participant authorization, stable reasons, and the absence of spectator authorization calls.
+
+### RED And Mutation Evidence
+
+- Initial focused RED failed with `CS0246` for the missing `RealtimeTicketRateLimiter`, proving the new tests did not exercise the old certificate policy.
+- Endpoint mutation bypassed `TryAcquire`; `RealtimeTicket_EleventhRequestForStableUserIsRateLimited` failed because the 11th response was 400 instead of 429.
+- Window mutation changed one minute to two; `WindowResetsAtExactlyOneMinute` failed at the exact-minute acceptance assertion.
+- Scavenger mutation changed five seconds to twenty; `PeriodicScavenger_RemovesExpiredTicketsAtFiveSecondTick` failed because the expired ticket remained.
+- All mutations were restored before final verification.
+
+### Verification
+
+- Focused server tests covering tickets, limiter, endpoints, options, and affected fixtures: 68 passed, 0 failed.
+- Full server suite: 1002 passed, 0 failed.
+- Full client suite: 383 passed, 0 failed.
+- `dotnet build`: succeeded with 0 warnings and 0 errors.
+
+### Concerns
+
+- Production deployment must now explicitly provide an absolute `wss` value for `Games:RealtimePublicWebSocketUrl`; omission intentionally prevents startup.
+- The in-memory stable-user limiter resets on server restart, matching the requested minimal singleton fixed-window scope.
