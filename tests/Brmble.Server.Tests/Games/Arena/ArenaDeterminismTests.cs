@@ -40,6 +40,11 @@ public class ArenaDeterminismTests
         var normal = RunToCompletion(inputs);
         var mirrored = RunToCompletion(DeterministicInputGenerator.Mirror(inputs));
 
+        Assert.IsFalse(inputs.SequenceEqual(DeterministicInputGenerator.Mirror(inputs)));
+        Assert.AreEqual("decided", normal.Outcome);
+        Assert.AreEqual("decided", mirrored.Outcome);
+        CollectionAssert.AreEqual(new[] { 2, 0 }, normal.Score);
+        CollectionAssert.AreEqual(new[] { 0, 2 }, mirrored.Score);
         CollectionAssert.AreEqual(normal.Score.Reverse().ToArray(), mirrored.Score);
     }
 
@@ -87,10 +92,10 @@ public class ArenaDeterminismTests
             for (var tick = 0; tick < ticks; tick++)
             {
                 var lowY = (short)((Next(ref state) & 1) == 0 ? 0 : 4096);
-                var highY = (short)-lowY;
+                var highY = (short)((Next(ref state) & 1) == 0 ? 0 : -4096);
                 result[tick] = new InputPair(
-                    new ContinuousInput(0, 0, 32767, lowY, 32767, 0, false, false, false),
-                    new ContinuousInput(0, 0, -32767, highY, -32767, 0, false, false, false));
+                    new ContinuousInput(0, 0, 0, lowY, 32767, 0, false, false, false),
+                    new ContinuousInput(0, 0, 32767, highY, -32767, 0, false, false, false));
             }
             return result;
         }

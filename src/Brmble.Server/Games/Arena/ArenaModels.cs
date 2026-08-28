@@ -25,11 +25,10 @@ public sealed class ArenaPlayerState
     public bool DashAvailable = true;
     public ContinuousInput Input = new(0, 0, 0, 0, 32767, 0, false, false, false);
     internal ArenaKnockoutCause VelocityCause = ArenaKnockoutCause.DashOrMovement;
-    internal ArenaKnockoutCause BoundaryCause = ArenaKnockoutCause.DashOrMovement;
+    internal ArenaKnockoutCause? BoundaryCause;
 }
 
 public sealed record ArenaSnapshotView(
-    long ServerTick,
     ContinuousMatchPhase Phase,
     long? PhaseEndsAtTick,
     IReadOnlyList<int> Score,

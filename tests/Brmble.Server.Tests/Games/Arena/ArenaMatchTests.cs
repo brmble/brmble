@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Brmble.Server.Games.Arena;
 using Brmble.Server.Games.Continuous;
 using Brmble.Server.Games.Duels;
@@ -143,18 +144,101 @@ public class ArenaMatchTests
     }
 
     [TestMethod]
-    public void ParticipantSnapshotMatchesProtocolAndIsImmutable()
+    public void MovementExitIsNotOverwrittenByLaterRecoilVelocityWhileAlreadyOutside()
     {
         var sim = ArenaHarness.Live();
+        sim.Place(10, -8940, 0);
+        sim.Input(10, moveX: -32767, aimX: 32767, fire: true);
+
+        sim.Step();
+        sim.StepRoundIntroduction();
+        sim.WinRound(20, advanceNextRound: false);
+
+        Assert.AreEqual(ArenaKnockoutCause.DashOrMovement, sim.CompletionSummary.KoCauses[0]);
+    }
+
+    [TestMethod]
+    public void RecoilVelocityExitIsNotOverwrittenByLaterCollisionWhileAlreadyOutside()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, -8990, 0);
+        sim.Place(20, -7900, 0);
+        sim.ReleaseFire(10, 32767, 0);
+
+        sim.Step();
+        sim.StepRoundIntroduction();
+        sim.WinRound(20, advanceNextRound: false);
+
+        Assert.AreEqual(ArenaKnockoutCause.Recoil, sim.CompletionSummary.KoCauses[0]);
+    }
+
+    [TestMethod]
+    public void DashExitIsNotOverwrittenByLaterVelocityWhileAlreadyOutside()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(20, 8830, 0);
+        sim.Player(20).Vx = 20;
+        sim.Input(20, moveX: 0, aimX: 32767, dash: true);
+
+        sim.Step();
+        sim.StepRoundIntroduction();
+        sim.WinRound(10, advanceNextRound: false);
+
+        Assert.AreEqual(ArenaKnockoutCause.DashOrMovement, sim.CompletionSummary.KoCauses[0]);
+    }
+
+    [TestMethod]
+    public void ProjectileVelocityExitIsNotOverwrittenByLaterCollisionWhileAlreadyOutside()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 7010, 0);
+        sim.Place(20, 8990, 0);
+        sim.ReleaseFire(10, 32767, 0);
+        sim.Step(2);
+        sim.Place(10, 8030, 0);
+
+        sim.Step();
+        sim.StepRoundIntroduction();
+        sim.WinRound(10, advanceNextRound: false);
+
+        Assert.AreEqual(ArenaKnockoutCause.OpponentProjectile, sim.CompletionSummary.KoCauses[0]);
+    }
+
+    [TestMethod]
+    public void ParticipantSnapshotMatchesExactProtocolShapeAndIsImmutable()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 0, 0);
+        sim.ReleaseFire(10, aimX: 0, aimY: 32767);
+        sim.Step();
         var participant = (ArenaSnapshotView)sim.Simulation.ParticipantSnapshot(10,
             new Dictionary<long, long> { [10] = 42, [20] = 37 });
-        var json = JsonSerializer.Serialize(participant, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        };
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(participant, options));
+        var root = document.RootElement;
 
         Assert.AreEqual(42, participant.Players.Single(p => p.SessionId == 10).AcknowledgedInput);
         Assert.AreEqual(37, participant.Players.Single(p => p.SessionId == 20).AcknowledgedInput);
-        StringAssert.Contains(json, "\"phaseEndsAtTick\":");
-        StringAssert.Contains(json, "\"consecutiveDoubleKos\":0");
+        CollectionAssert.AreEquivalent(
+            new[] { "phase", "phaseEndsAtTick", "score", "consecutiveDoubleKos", "arena", "players", "projectiles" },
+            root.EnumerateObject().Select(x => x.Name).ToArray());
+        CollectionAssert.DoesNotContain(root.EnumerateObject().Select(x => x.Name).ToArray(), "serverTick");
+        CollectionAssert.AreEquivalent(new[] { "radius", "shrinkPhase" },
+            root.GetProperty("arena").EnumerateObject().Select(x => x.Name).ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "sessionId", "side", "x", "y", "vx", "vy", "aimX", "aimY", "chargePermille", "forcedFireTicks", "cooldownTicks", "dashAvailable", "acknowledgedInput" },
+            root.GetProperty("players")[0].EnumerateObject().Select(x => x.Name).ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "id", "ownerSessionId", "x", "y", "vx", "vy", "chargePermille" },
+            root.GetProperty("projectiles")[0].EnumerateObject().Select(x => x.Name).ToArray());
+        Assert.AreEqual("live", root.GetProperty("phase").GetString());
+        Assert.AreEqual("hold", root.GetProperty("arena").GetProperty("shrinkPhase").GetString());
         Assert.ThrowsException<NotSupportedException>(() => ((IList<int>)participant.Score)[0] = 9);
+        Assert.ThrowsException<NotSupportedException>(() => ((IList<ArenaPlayerView>)participant.Players)[0] = participant.Players[1]);
+        Assert.ThrowsException<NotSupportedException>(() => ((IList<ArenaProjectileView>)participant.Projectiles).Clear());
         sim.WinRound(10, advanceNextRound: false);
         CollectionAssert.AreEqual(new[] { 0, 0 }, participant.Score.ToArray());
 
@@ -248,7 +332,7 @@ public class ArenaMatchTests
                 StepRoundIntroduction();
         }
 
-        private void Input(long id, short moveX = 0, short moveY = 0, short aimX = 32767, short aimY = 0, bool fire = false, bool dash = false) =>
+        public void Input(long id, short moveX = 0, short moveY = 0, short aimX = 32767, short aimY = 0, bool fire = false, bool dash = false) =>
             Simulation.SetInput(id, new ContinuousInput(1, Simulation.Tick, moveX, moveY, aimX, aimY, false, fire, dash));
     }
 

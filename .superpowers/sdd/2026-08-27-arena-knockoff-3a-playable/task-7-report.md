@@ -73,3 +73,84 @@ Additional validation: `git diff --check` produced no output.
 - `"abandoned"` remains a valid `ContinuousCompletion` outcome contract, but simulation-driven terminal paths produce only `"decided"` or `"draw"`; abandonment is coordinator/forfeit-driven and was explicitly outside this task's coordinator boundary.
 - No `SpectatorService`, event-bus snapshot, coordinator behavior, `SpectatorSourceFrame`, new service abstraction, or production randomness was added.
 - The protected untracked `.opencode/plans` files were not read, edited, staged, or removed.
+
+## Fix Round 1
+
+### Review Findings Addressed
+
+- Removed `ServerTick` from `ArenaSnapshotView`; the later realtime transport envelope owns simulation `Tick`.
+- Replaced array-backed `Players` and `Projectiles` projections with `ReadOnlyCollection` instances. Snapshot tests now attempt mutation of score, players, and projectiles and require `NotSupportedException` for all three.
+- Replaced persistent last-displacement KO attribution with per-tick inside-to-outside transition evidence. Movement, dash, velocity integration using the remembered recoil/projectile source, body collision, and radius collapse record a cause only when that stage actually crosses the boundary. A later displacement while already outside cannot overwrite it.
+- Replaced the symmetric determinism fixture with an asymmetric seeded stream. The normal run has literal expected score `[2,0]` and outcome `decided`; its distinct transformed mirror has literal expected score `[0,2]` and outcome `decided`.
+- Snapshot serialization now asserts the exact top-level, arena, player, and projectile property sets; absence of `serverTick`; `live` and `hold` enum values under web camel-case options plus `JsonStringEnumConverter(JsonNamingPolicy.CamelCase)`; and immutable collections.
+
+### RED Evidence
+
+Focused command before production changes:
+
+```powershell
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter "FullyQualifiedName~ArenaMatchTests|FullyQualifiedName~ArenaDeterminismTests"
+```
+
+Result: 3 failed, 10 passed, 0 skipped.
+
+- `MovementExitIsNotOverwrittenByLaterRecoilVelocityWhileAlreadyOutside`: expected `DashOrMovement`, actual `Recoil`.
+- `RecoilVelocityExitIsNotOverwrittenByLaterCollisionWhileAlreadyOutside`: expected `Recoil`, actual `DashOrMovement`.
+- `ParticipantSnapshotMatchesExactProtocolShapeAndIsImmutable`: expected 7 top-level properties, actual 8 because `serverTick` leaked into final state.
+
+### Mutation Evidence
+
+Temporarily mutated decisive scoring from `outside[0] == 0 ? 1 : 0` to unconditional side `0`, then ran:
+
+```powershell
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter "FullyQualifiedName~MirroredInputsAndSides_ProduceMirroredScores"
+```
+
+Result: 1 failed, 0 passed. The mirrored literal expected score was `[0,2]`; the side-biased mutation produced `[2,0]`. The mutation was immediately reverted before GREEN verification.
+
+The competing-event tests also serve as overwrite mutation evidence: they failed against the prior implementation's unconditional later-stage cause assignments and pass only when attribution is gated by an actual inside-to-outside transition.
+
+### GREEN Evidence
+
+Focused Task 7 tests after correction:
+
+```text
+Passed: 14, Failed: 0, Skipped: 0
+```
+
+All Arena tests:
+
+```text
+Passed: 57, Failed: 0, Skipped: 0
+```
+
+Exact 20-run loop:
+
+```powershell
+1..20 | ForEach-Object { dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter "FullyQualifiedName~Arena"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+```
+
+All 20 runs completed; every run reported 57 passed, 0 failed, 0 skipped.
+
+Sequential full server suite:
+
+```powershell
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj
+```
+
+Result: 918 passed, 0 failed, 0 skipped, duration 39 seconds.
+
+### Files
+
+- `src/Brmble.Server/Games/Arena/ArenaModels.cs`
+- `src/Brmble.Server/Games/Arena/ArenaSimulation.cs`
+- `tests/Brmble.Server.Tests/Games/Arena/ArenaMatchTests.cs`
+- `tests/Brmble.Server.Tests/Games/Arena/ArenaDeterminismTests.cs`
+- `.superpowers/sdd/2026-08-27-arena-knockoff-3a-playable/task-7-report.md`
+
+### Concerns
+
+- The intended serializer configuration is asserted explicitly in Task 7 tests. The later coordinator/endpoint task must use equivalent web camel-case naming and camel-case enum conversion when placing this view into snapshot and `matchClosed.finalState` envelopes.
+- Direct test placement outside the arena has no simulated transition event, so terminal classification retains the documented `DashOrMovement` fallback. Runtime movement, dash, velocity, collision, and collapse exits all carry explicit transition evidence.
+- No stage was inserted, removed, or reordered; the existing 15-stage simulation sequence and timing remain unchanged.
+- No spectator routing, event-bus snapshot, coordinator change, production RNG, or `.opencode/plans` change was introduced.

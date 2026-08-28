@@ -144,7 +144,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
             Write(player.Vx); Write(player.Vy); Write(player.AimX); Write(player.AimY);
             Write(player.ChargeTicks); Write(player.ForcedFireTicks); Write(player.CooldownTicks);
             Write(player.DashTicks); WriteBool(player.DashAvailable); Write((int)player.VelocityCause);
-            Write((int)player.BoundaryCause);
+            Write(player.BoundaryCause is null ? -1 : (int)player.BoundaryCause.Value);
             Write(player.Input.Sequence); Write(player.Input.PredictedTick);
             Write(player.Input.MoveX); Write(player.Input.MoveY); Write(player.Input.AimX); Write(player.Input.AimY);
             WriteBool(player.Input.Charging); WriteBool(player.Input.FireReleased); WriteBool(player.Input.Dash);
@@ -188,6 +188,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
         foreach (var player in Players)
         {
+            player.BoundaryCause = null;
             if (player.CooldownTicks > 0)
                 player.CooldownTicks--;
             if (player.ForcedFireTicks > 0)
@@ -312,13 +313,13 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
         foreach (var player in Players)
         {
+            var wasInside = IsInsideArena(player.X, player.Y);
             var chargePermille = ArenaRulesetV1.ChargePermille(player.ChargeTicks);
             var displacement = new FixedVec(player.Input.MoveX, player.Input.MoveY)
                 .Scale(ArenaRulesetV1.MovePerTick(chargePermille));
             player.X = checked(player.X + displacement.X);
             player.Y = checked(player.Y + displacement.Y);
-            if (displacement.X != 0 || displacement.Y != 0)
-                player.BoundaryCause = ArenaKnockoutCause.DashOrMovement;
+            RecordBoundaryTransition(player, wasInside, ArenaKnockoutCause.DashOrMovement);
         }
     }
 
@@ -332,13 +333,14 @@ public sealed class ArenaSimulation : IContinuousSimulation
             if (player.DashTicks == 0)
                 continue;
 
+            var wasInside = IsInsideArena(player.X, player.Y);
             var direction = player.Input.MoveX == 0 && player.Input.MoveY == 0
                 ? new FixedVec(player.AimX, player.AimY)
                 : new FixedVec(player.Input.MoveX, player.Input.MoveY);
             var displacement = direction.Scale(ArenaRulesetV1.DashPerTick);
             player.X = checked(player.X + displacement.X);
             player.Y = checked(player.Y + displacement.Y);
-            player.BoundaryCause = ArenaKnockoutCause.DashOrMovement;
+            RecordBoundaryTransition(player, wasInside, ArenaKnockoutCause.DashOrMovement);
             player.DashTicks = checked(player.DashTicks - 1);
         }
     }
@@ -350,10 +352,10 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
         foreach (var player in Players)
         {
+            var wasInside = IsInsideArena(player.X, player.Y);
             player.X = checked(player.X + player.Vx);
             player.Y = checked(player.Y + player.Vy);
-            if (player.Vx != 0 || player.Vy != 0)
-                player.BoundaryCause = player.VelocityCause;
+            RecordBoundaryTransition(player, wasInside, player.VelocityCause);
         }
     }
 
@@ -392,13 +394,15 @@ public sealed class ArenaSimulation : IContinuousSimulation
         var penetration = diameter - distance;
         var lowShare = penetration / 2;
         var highShare = penetration - lowShare;
+        var lowWasInside = IsInsideArena(low.X, low.Y);
+        var highWasInside = IsInsideArena(high.X, high.Y);
 
         low.X = checked(low.X - (int)(normal.X * (long)lowShare / ArenaRulesetV1.AimQuantizationMax));
         low.Y = checked(low.Y - (int)(normal.Y * (long)lowShare / ArenaRulesetV1.AimQuantizationMax));
         high.X = checked(high.X + (int)(normal.X * (long)highShare / ArenaRulesetV1.AimQuantizationMax));
         high.Y = checked(high.Y + (int)(normal.Y * (long)highShare / ArenaRulesetV1.AimQuantizationMax));
-        low.BoundaryCause = ArenaKnockoutCause.DashOrMovement;
-        high.BoundaryCause = ArenaKnockoutCause.DashOrMovement;
+        RecordBoundaryTransition(low, lowWasInside, ArenaKnockoutCause.DashOrMovement);
+        RecordBoundaryTransition(high, highWasInside, ArenaKnockoutCause.DashOrMovement);
     }
 
     private void AdvanceProjectilesAndResolveHits()
@@ -482,7 +486,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
                 continue;
             }
 
-            _boundaryCauses[index] = player.BoundaryCause;
+            _boundaryCauses[index] = player.BoundaryCause ?? ArenaKnockoutCause.DashOrMovement;
         }
     }
 
@@ -566,7 +570,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.AimY = 0; player.ChargeTicks = 0; player.ForcedFireTicks = 0;
             player.CooldownTicks = 0; player.DashTicks = 0; player.DashAvailable = true;
             player.Input = NeutralInput; player.VelocityCause = ArenaKnockoutCause.DashOrMovement;
-            player.BoundaryCause = ArenaKnockoutCause.DashOrMovement;
+            player.BoundaryCause = null;
         }
     }
 
@@ -598,7 +602,6 @@ public sealed class ArenaSimulation : IContinuousSimulation
         Array.AsReadOnly((int[])_dashUses.Clone()), Array.AsReadOnly(_koRadii.ToArray()));
 
     private ArenaSnapshotView CreateSnapshot(IReadOnlyDictionary<long, long>? acknowledgedInputs) => new(
-        Tick,
         Phase,
         Phase switch
         {
@@ -624,7 +627,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.DashAvailable,
             acknowledgedInputs is not null && acknowledgedInputs.TryGetValue(player.SessionId, out var sequence)
                 ? sequence
-                : null)).ToArray(),
+                : null)).ToList().AsReadOnly(),
         _projectiles.Select(projectile => new ArenaProjectileView(
             projectile.Id,
             projectile.OwnerSessionId,
@@ -632,5 +635,12 @@ public sealed class ArenaSimulation : IContinuousSimulation
             projectile.Y,
             projectile.Vx,
             projectile.Vy,
-            projectile.ChargePermille)).ToArray());
+            projectile.ChargePermille)).ToList().AsReadOnly());
+
+    private void RecordBoundaryTransition(
+        ArenaPlayerState player, bool wasInside, ArenaKnockoutCause cause)
+    {
+        if (wasInside && !IsInsideArena(player.X, player.Y))
+            player.BoundaryCause = cause;
+    }
 }
