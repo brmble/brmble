@@ -1,6 +1,7 @@
 using Brmble.Server.Games;
 using Brmble.Server.Games.Continuous;
 using Brmble.Server.Games.Duels;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -119,6 +120,19 @@ public class ContinuousContractTests
         await coordinator.ForfeitAsync(started.MatchId, reservation.PlayerOne.UserId, "disconnect");
 
         Assert.IsTrue(laterSubscriberRan);
+    }
+
+    [TestMethod]
+    public void StaleCleanupDoesNotRemoveReassignedOwnership()
+    {
+        var ownership = new ConcurrentDictionary<long, long>();
+        ownership[501] = 1;
+        ownership[501] = 2;
+
+        ContinuousGameCoordinator.RemoveIndex(ownership, stableUserId: 501, matchId: 1);
+
+        Assert.IsTrue(ownership.TryGetValue(501, out var activeMatchId));
+        Assert.AreEqual(2L, activeMatchId);
     }
 
     private static DuelReservation TestReservation(

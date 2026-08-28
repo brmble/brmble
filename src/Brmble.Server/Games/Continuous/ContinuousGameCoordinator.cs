@@ -49,14 +49,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 "Player one already has an active game."));
         if (!_matchByStableUser.TryAdd(reservation.PlayerTwo.UserId, matchId))
         {
-            RemoveIndex(reservation.PlayerOne.UserId, matchId);
+            RemoveIndex(_matchByStableUser, reservation.PlayerOne.UserId, matchId);
             return Task.FromResult(new GameStartResult(false, 0, null,
                 "Player two already has an active game."));
         }
         if (!_matches.TryAdd(matchId, state))
         {
-            RemoveIndex(reservation.PlayerOne.UserId, matchId);
-            RemoveIndex(reservation.PlayerTwo.UserId, matchId);
+            RemoveIndex(_matchByStableUser, reservation.PlayerOne.UserId, matchId);
+            RemoveIndex(_matchByStableUser, reservation.PlayerTwo.UserId, matchId);
             return Task.FromResult(new GameStartResult(false, 0, null,
                 "The match could not be started."));
         }
@@ -86,8 +86,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             || !_matches.TryRemove(matchId, out var state))
             return;
 
-        RemoveIndex(state.Reservation.PlayerOne.UserId, matchId);
-        RemoveIndex(state.Reservation.PlayerTwo.UserId, matchId);
+        RemoveIndex(_matchByStableUser, state.Reservation.PlayerOne.UserId, matchId);
+        RemoveIndex(_matchByStableUser, state.Reservation.PlayerTwo.UserId, matchId);
 
         // Persistence, publishing, and completion metadata are added by later tasks.
         _ = reason;
@@ -121,8 +121,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         }
     }
 
-    private void RemoveIndex(long stableUserId, long matchId) =>
-        ((ICollection<KeyValuePair<long, long>>)_matchByStableUser).Remove(new(stableUserId, matchId));
+    internal static void RemoveIndex(
+        ConcurrentDictionary<long, long> index, long stableUserId, long matchId) =>
+        ((ICollection<KeyValuePair<long, long>>)index).Remove(new(stableUserId, matchId));
 
     private sealed record ContinuousMatchState(
         DuelReservation Reservation,
