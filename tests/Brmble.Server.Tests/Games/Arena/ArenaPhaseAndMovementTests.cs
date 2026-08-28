@@ -82,6 +82,22 @@ public class ArenaPhaseAndMovementTests
     }
 
     [TestMethod]
+    public void PositioningIgnoresVelocityWhileApplyingHeldMovement()
+    {
+        var sim = ArenaHarness.Positioning();
+        sim.Player(10).Vx = 350;
+        sim.Player(10).Vy = -151;
+        sim.Hold(10, moveX: 32767, moveY: 0);
+
+        sim.Step();
+
+        Assert.AreEqual(-3500 + 90, sim.Player(10).X);
+        Assert.AreEqual(0, sim.Player(10).Y);
+        Assert.AreEqual(350, sim.Player(10).Vx);
+        Assert.AreEqual(-151, sim.Player(10).Vy);
+    }
+
+    [TestMethod]
     public void MaximumChargeSlowsMovementWithoutChangingVelocity()
     {
         var sim = ArenaHarness.Live();
@@ -145,13 +161,13 @@ public class ArenaPhaseAndMovementTests
         var sim = ArenaHarness.Live();
         sim.Place(10, 0, 0);
         sim.Place(20, 1000, 0);
-        sim.Player(10).Vx = 1;
-        sim.Player(20).Vx = -1;
+        sim.Player(10).Vx = 350;
+        sim.Player(20).Vx = -151;
 
         sim.Step();
 
-        Assert.AreEqual(0, sim.Player(10).Vx);
-        Assert.AreEqual(0, sim.Player(20).Vx);
+        Assert.AreEqual(322, sim.Player(10).Vx);
+        Assert.AreEqual(-138, sim.Player(20).Vx);
         Assert.IsTrue(sim.DistanceSquared() >= 1_440_000L);
     }
 

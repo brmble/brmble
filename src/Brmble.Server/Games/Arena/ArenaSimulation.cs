@@ -220,7 +220,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     private void IntegrateVelocity()
     {
-        if (Phase == ContinuousMatchPhase.Loading)
+        if (Phase != ContinuousMatchPhase.Live)
             return;
 
         foreach (var player in Players)
@@ -232,7 +232,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     private void DampVelocity()
     {
-        if (Phase == ContinuousMatchPhase.Loading)
+        if (Phase != ContinuousMatchPhase.Live)
             return;
 
         foreach (var player in Players)
