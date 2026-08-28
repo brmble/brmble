@@ -304,6 +304,44 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', sequence: 1 });
   });
 
+  it.each(['staleSequence', 'sequenceGap'] as const)(
+    'reconnects on %s without repeating the rejected sequence',
+    async reason => {
+      const h = await connect();
+      act(() => h.result.current.sendInput(held));
+      h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
+      expect(h.result.current.status).toBe('reconnecting');
+      expect(h.socket.close).toHaveBeenCalledOnce();
+      await act(() => vi.advanceTimersByTimeAsync(250));
+      expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
+      expect(h.socket.sent.filter(message => (message as { sequence?: number }).sequence === 1)).toHaveLength(1);
+    },
+  );
+
+  it.each(['wrongMatch', 'wrongRole'] as const)('fails and closes on terminal rejection %s', async reason => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
+    expect(h.result.current.status).toBe('failed');
+    expect(h.socket.close).toHaveBeenCalledOnce();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(requestRealtimeTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['invalidRange', 'rateLimited', 'phaseDenied', 'cooldown', 'dashSpent'] as const)(
+    'safely rewinds newest %s rejection without auto-resending an edge',
+    async reason => {
+      const h = await connect();
+      act(() => h.result.current.sendInput({ ...held, dash: true }));
+      h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
+      expect(h.result.current.pendingInputs).toEqual([]);
+      await act(() => vi.advanceTimersByTimeAsync(250));
+      expect(h.socket.sent.filter(message => (message as { dash?: boolean }).dash)).toHaveLength(1);
+      expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', sequence: 1 });
+      expect(h.socket.sent.at(-1)).not.toHaveProperty('dash');
+    },
+  );
+
   it('cancels queued aim on rejection instead of retrying the rejected sequence', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -314,6 +352,26 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent).toHaveLength(3);
     act(() => h.result.current.sendHeartbeat());
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', sequence: 2, aimX: 0, aimY: 32767 });
+  });
+
+  it('keeps rejected wire aim direction and timestamp for subsequent aim spacing', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(34));
+    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
+    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 2, reason: 'rateLimited' });
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 32767, aimY: 0, dash: true }));
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'input', sequence: 2, moveX: -32767, dash: true, aimX: 0, aimY: 32767,
+    });
+    await act(() => vi.advanceTimersByTimeAsync(23));
+    expect(h.socket.sent.at(-1)).toMatchObject({ dash: true, aimX: 0, aimY: 32767 });
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'input', sequence: 3, dash: false, aimX: 32767, aimY: 0,
+    });
+    expect(h.result.current.currentInput).toMatchObject({ moveX: -32767, aimX: 32767, aimY: 0, dash: true });
   });
 
   it('reconnects when a rejected sequence already has later frames', async () => {

@@ -360,6 +360,14 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
             runtime.aimTimer = null;
             runtime.queuedAimInput = null;
+            if (message.reason === 'wrongMatch' || message.reason === 'wrongRole') {
+              failReconnect();
+              return;
+            }
+            if (message.reason === 'staleSequence' || message.reason === 'sequenceGap') {
+              scheduleReconnect();
+              return;
+            }
             const newestSequence = runtime.nextSequence === null ? null : runtime.nextSequence - 1;
             if (message.sequence !== newestSequence) {
               scheduleReconnect();
@@ -368,10 +376,6 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             runtime.nextSequence = message.sequence;
             runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence !== message.sequence);
             runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence !== message.sequence);
-            const priorFrame = runtime.sentFrames.at(-1);
-            runtime.transmittedAimX = priorFrame?.aimX ?? neutralInput.aimX;
-            runtime.transmittedAimY = priorFrame?.aimY ?? neutralInput.aimY;
-            runtime.lastAimSentAt = priorFrame?.aimSentAt ?? Number.NEGATIVE_INFINITY;
             setPendingInputs(runtime.pendingInputs);
           } else if (message.type === 'matchClosed') {
             if (message.sequence < runtime.lastSnapshotSequence) return;
