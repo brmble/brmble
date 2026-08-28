@@ -410,6 +410,68 @@ describe('ArenaBoard', () => {
     expect(live.textContent).toBe(first);
   });
 
+  it('does not mutate live DOM during equivalent real-hook snapshot and RAF interpolation updates', () => {
+    state.useReal = true;
+    const prediction = {
+      unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
+      momentumRetentionPermille: 920, chargeTicks: 90, forcedFireTicks: 30, shotCooldownTicks: 24,
+      projectileRadius: 180, projectilePerTick: 240, projectileBaseKnockback: 130,
+      projectileBonusKnockback: 220, recoilBase: 45, recoilBonus: 105, dashTicks: 6, dashPerTick: 240,
+    } as const;
+    const welcomeState = {
+      phase: 'live' as const, phaseEndsAtTick: 160, score: [1, 0] as [number, number], consecutiveDoubleKos: 0,
+      arena: { radius: 7600, shrinkPhase: 'collapse' as const }, projectiles: [],
+      players: [player(10, 0), player(20, 1, { chargePermille: 0, forcedFireTicks: null })],
+    };
+    const welcome: ArenaWelcome = {
+      type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91, role: 'participant', sessionId: 10,
+      snapshotSequence: 1, serverTick: 100, tickRate: 60, snapshotRate: 20, interpolationMs: 100,
+      maxExtrapolationMs: 50, inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
+      prediction, state: welcomeState, acknowledgedInput: 0,
+    };
+    connection.current = { ...connection.current, welcome, latestSnapshot: null };
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    const textNode = live.firstChild;
+    const text = live.textContent;
+    expect(textNode).toBeInstanceOf(Text);
+    const observer = new MutationObserver(() => {});
+    observer.observe(live, { characterData: true, childList: true, subtree: true });
+
+    const snapshots: ArenaSnapshot[] = [
+      {
+        type: 'snapshot', protocolVersion: 1, matchId: 91, sequence: 2, serverTick: 101,
+        generatedAtUnixMs: Date.now(), ...welcomeState,
+        arena: { radius: 7595, shrinkPhase: 'collapse' },
+        players: welcomeState.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 120, aimX: 32600, aimY: 80, chargePermille: 641, forcedFireTicks: 17, cooldownTicks: 11 }
+          : { ...candidate, x: -120 }),
+      },
+      {
+        type: 'snapshot', protocolVersion: 1, matchId: 91, sequence: 3, serverTick: 102,
+        generatedAtUnixMs: Date.now() + 50, ...welcomeState,
+        arena: { radius: 7590, shrinkPhase: 'collapse' },
+        players: welcomeState.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 240, aimX: 32500, aimY: 100, chargePermille: 642, forcedFireTicks: 16, cooldownTicks: 10 }
+          : { ...candidate, x: -240 }),
+      },
+    ];
+
+    for (const latestSnapshot of snapshots) {
+      connection.current = { ...connection.current, latestSnapshot };
+      rendered.rerender(<ArenaBoard {...props()} />);
+      act(() => {
+        const pendingFrames = frames.splice(0);
+        for (const callback of pendingFrames) callback(performance.now());
+      });
+      expect(observer.takeRecords()).toHaveLength(0);
+      expect(screen.getByTestId('arena-live-region')).toBe(live);
+      expect(live.firstChild).toBe(textNode);
+      expect(live.textContent).toBe(text);
+    }
+    observer.disconnect();
+  });
+
   it('makes the audio placeholder keyboard reachable and exposes its exact explanation', async () => {
     render(<ArenaBoard {...props()} />);
     const audio = screen.getByRole('button', { name: /audio/i });
