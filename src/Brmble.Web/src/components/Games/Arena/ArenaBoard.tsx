@@ -64,12 +64,13 @@ function projectileSummary(state: ArenaStateSnapshot): string {
 export function ArenaBoard({
   matchId, selfSessionId, resolveName, resolveAvatarUrl, onForfeit, onClose, ended,
 }: ArenaBoardProps) {
-  // Final state renders independently below, so a terminal board needs no new transport.
-  const connection = useArenaConnection({ matchId, enabled: !ended });
+  const connection = useArenaConnection({ matchId, enabled: true });
+  const endedFinalState = ended && 'finalState' in ended ? ended.finalState : undefined;
+  const finalState = connection.closed?.finalState ?? endedFinalState;
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs, recentInputs: connection.recentInputs,
-    selfSessionId, finalState: ended?.finalState,
+    selfSessionId, finalState,
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ArenaRenderer | null>(null);
@@ -115,9 +116,13 @@ export function ArenaBoard({
     return () => cancelAnimationFrame(frame);
   }, [reducedMotion, resolveAvatarUrl, resolveName, selfSessionId]);
 
-  const authoritative = ended?.finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
+  const authoritative = finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
   const players = authoritative?.players ?? [];
-  const serverTick = ended?.serverTick ?? connection.latestSnapshot?.serverTick ?? connection.welcome?.serverTick ?? 0;
+  const serverTick = connection.closed?.serverTick
+    ?? (ended && 'serverTick' in ended ? ended.serverTick : undefined)
+    ?? connection.latestSnapshot?.serverTick
+    ?? connection.welcome?.serverTick
+    ?? 0;
   const countdownTicks = authoritative?.phaseEndsAtTick == null ? 0 : Math.max(0, authoritative.phaseEndsAtTick - serverTick);
   const countdownSeconds = Math.ceil(countdownTicks / (connection.welcome?.tickRate ?? 60));
   const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;

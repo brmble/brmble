@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import bridge from '../../bridge';
 import * as gamesApi from '../../api/games';
-import type { ArenaStateSnapshot } from './Arena/arenaProtocol';
 import { isGameType } from './gameTypes';
 
 /** Fallback turn window in ms if the server omits `turnMs` (normal turn). */
@@ -105,11 +104,6 @@ export interface EndedMatch {
   reason?: string;
   winnerId?: number;
   draw?: boolean;
-  type?: 'matchClosed';
-  protocolVersion?: 1;
-  sequence?: number;
-  serverTick?: number;
-  finalState?: ArenaStateSnapshot;
 }
 
 export type InviteOutcomeKind = 'declined' | 'expired' | 'blocked' | 'busy';
@@ -310,7 +304,7 @@ export function useGameState(myUserId: number): GameState {
     };
 
     const handleEnded = (data: unknown) => {
-      const d = data as { matchId?: number; gameType?: string; format?: string; rulesetVersion?: number; options?: Record<string, unknown>; abandoned?: boolean; reason?: string; winnerId?: number; draw?: boolean; type?: 'matchClosed'; protocolVersion?: 1; sequence?: number; serverTick?: number; finalState?: ArenaStateSnapshot };
+      const d = data as { matchId?: number; gameType?: string; format?: string; rulesetVersion?: number; options?: Record<string, unknown>; abandoned?: boolean; reason?: string; winnerId?: number; draw?: boolean };
       // Prefer the server-supplied winnerId (authoritative, and correct even for
       // forfeits where the local view has no loserId). Fall back to deriving it
       // from the local view for older servers that omit it.
@@ -332,11 +326,6 @@ export function useGameState(myUserId: number): GameState {
         reason: d.reason,
         winnerId,
         draw: d.draw,
-        type: d.type,
-        protocolVersion: d.protocolVersion,
-        sequence: d.sequence,
-        serverTick: d.serverTick,
-        finalState: d.finalState,
       });
       setActiveMatch(null);
       setView(null);
