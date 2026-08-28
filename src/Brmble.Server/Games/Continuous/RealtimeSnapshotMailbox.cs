@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 
 namespace Brmble.Server.Games.Continuous;
@@ -36,6 +37,7 @@ public sealed class RealtimeSnapshotMailbox
             SingleReader = true
         });
     private readonly SemaphoreSlim _available = new(0);
+    private readonly CancellationTokenSource _terminalOrOverload = new();
     private int _controlCount;
     private int _ordinaryControlCount;
     private int _snapshotCount;
@@ -43,9 +45,12 @@ public sealed class RealtimeSnapshotMailbox
     private int _droppedSnapshots;
     private bool _overloaded;
     private bool _sealed;
+    private long _terminalAvailableTimestamp;
 
     public int DroppedSnapshots => Volatile.Read(ref _droppedSnapshots);
     public bool Overloaded => Volatile.Read(ref _overloaded);
+    public CancellationToken TerminalOrOverload => _terminalOrOverload.Token;
+    public long TerminalAvailableTimestamp => Volatile.Read(ref _terminalAvailableTimestamp);
 
     public void WriteControl(RealtimeControl control)
     {
@@ -63,7 +68,10 @@ public sealed class RealtimeSnapshotMailbox
                 !_controls.Writer.TryWrite(control))
             {
                 if (terminal)
+                {
                     Volatile.Write(ref _overloaded, true);
+                    _ = _terminalOrOverload.CancelAsync();
+                }
                 return;
             }
 
@@ -107,16 +115,19 @@ public sealed class RealtimeSnapshotMailbox
         {
             if (_sealed) return false;
             _sealed = true;
+            Volatile.Write(ref _terminalAvailableTimestamp, Stopwatch.GetTimestamp());
             while (_snapshots.Reader.TryRead(out _)) { }
             _snapshotCount = 0;
             if (_controlCount >= ControlCapacity || !_controls.Writer.TryWrite(terminal))
             {
                 _overloaded = true;
+                _ = _terminalOrOverload.CancelAsync();
                 return false;
             }
 
             _controlCount++;
             _available.Release();
+            _ = _terminalOrOverload.CancelAsync();
             return true;
         }
     }

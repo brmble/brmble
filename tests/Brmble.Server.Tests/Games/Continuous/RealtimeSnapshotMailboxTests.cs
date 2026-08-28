@@ -208,6 +208,33 @@ public class RealtimeSnapshotMailboxTests
             await box.ReadNextAsync(timeout.Token));
     }
 
+    [TestMethod]
+    public void SuccessfulTerminalSealSignalsAnInProgressOrdinarySend()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        var signal = box.TerminalOrOverload;
+
+        Assert.IsTrue(box.SealTerminal(MatchClosed(121)));
+
+        Assert.IsTrue(signal.IsCancellationRequested);
+        Assert.IsFalse(box.Overloaded);
+    }
+
+    [TestMethod]
+    public void FailedTerminalSealSignalsOverloadImmediately()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        for (var i = 1; i <= 14; i++) box.WriteControl(ConnectionState(i, "full"));
+        box.WriteControl(Welcome());
+        box.WriteControl(MatchClosed(120));
+        var signal = box.TerminalOrOverload;
+
+        Assert.IsFalse(box.SealTerminal(MatchClosed(121)));
+
+        Assert.IsTrue(signal.IsCancellationRequested);
+        Assert.IsTrue(box.Overloaded);
+    }
+
     private static async Task<List<RealtimeOutbound>> TakeAsync(RealtimeSnapshotMailbox box, int count)
     {
         var result = new List<RealtimeOutbound>(count);

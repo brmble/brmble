@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,6 +11,7 @@ public static class RealtimeGameEndpoint
 {
     private const int MaxPayloadBytes = 65_536;
     private static readonly TimeSpan TerminalSendTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan CloseOutputTimeout = TimeSpan.FromSeconds(2);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
@@ -53,6 +55,9 @@ public static class RealtimeGameEndpoint
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
+        var hooks = context.RequestServices.GetService<RealtimeGameEndpointHooks>();
+        if (hooks?.BeforeRevalidateAsync is not null)
+            await hooks.BeforeRevalidateAsync(scope);
         if (scope.Role != RealtimeRole.Participant)
         {
             await WriteErrorAsync(context, StatusCodes.Status403Forbidden, "wrongRole");
@@ -75,9 +80,11 @@ public static class RealtimeGameEndpoint
             scope.MatchId, scope.StableUserId, scope.SessionId, connectionId, mailbox);
         if (!attached.Ok)
         {
-            await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, attached.Error, context.RequestAborted);
+            await CloseOutputBoundedAsync(
+                socket, WebSocketCloseStatus.PolicyViolation, attached.Error, CloseOutputTimeout);
             return;
         }
+        hooks?.AfterAttach?.Invoke(mailbox);
 
         logger.LogInformation("Realtime connection {ConnectionId} attached to match {MatchId} as {Role}.",
             connectionId, scope.MatchId, scope.Role);
@@ -100,8 +107,13 @@ public static class RealtimeGameEndpoint
                     : outcome == LoopOutcome.Terminal
                         ? WebSocketCloseStatus.NormalClosure
                         : WebSocketCloseStatus.EndpointUnavailable;
-                var description = outcome == LoopOutcome.Overloaded ? "overloaded" : null;
-                await socket.CloseOutputAsync(status, description, CancellationToken.None);
+                var description = outcome switch
+                {
+                    LoopOutcome.Overloaded => "overloaded",
+                    LoopOutcome.TerminalTimedOut => "terminal timeout",
+                    _ => null,
+                };
+                await CloseOutputBoundedAsync(socket, status, description, CloseOutputTimeout);
             }
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
@@ -140,7 +152,7 @@ public static class RealtimeGameEndpoint
                     length += result.Count;
                 } while (!result.EndOfMessage);
 
-                if (!HandlePayload(rented.AsSpan(0, length), coordinator, mailbox, scope, connectionId))
+                if (!HandlePayload(rented.AsMemory(0, length), coordinator, mailbox, scope, connectionId))
                     return LoopOutcome.InvalidPayload;
             }
             return LoopOutcome.Cancelled;
@@ -155,12 +167,12 @@ public static class RealtimeGameEndpoint
         }
     }
 
-    private static bool HandlePayload(ReadOnlySpan<byte> utf8, ContinuousGameCoordinator coordinator,
+    private static bool HandlePayload(ReadOnlyMemory<byte> utf8, ContinuousGameCoordinator coordinator,
         RealtimeSnapshotMailbox mailbox, TicketScope scope, string connectionId)
     {
         try
         {
-            using var document = JsonDocument.Parse(utf8.ToArray());
+            using var document = JsonDocument.Parse(utf8);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !TryString(root, "type", out var type)
@@ -210,7 +222,7 @@ public static class RealtimeGameEndpoint
         }
     }
 
-    private static async Task<LoopOutcome> SendLoopAsync(
+    internal static async Task<LoopOutcome> SendLoopAsync(
         WebSocket socket, RealtimeSnapshotMailbox mailbox, CancellationToken cancellationToken)
     {
         try
@@ -218,25 +230,37 @@ public static class RealtimeGameEndpoint
             while (!cancellationToken.IsCancellationRequested)
             {
                 if (mailbox.Overloaded) return LoopOutcome.Overloaded;
-                RealtimeOutbound outbound;
-                using (var poll = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-                {
-                    poll.CancelAfter(TimeSpan.FromMilliseconds(100));
-                    try { outbound = await mailbox.ReadNextAsync(poll.Token); }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        continue;
-                    }
-                }
+                var outbound = await mailbox.ReadNextAsync(cancellationToken);
                 var payload = System.Text.Encoding.UTF8.GetBytes(outbound.Json);
                 if (outbound.Type == "matchClosed")
                 {
+                    var elapsed = Stopwatch.GetElapsedTime(mailbox.TerminalAvailableTimestamp);
+                    var remaining = TerminalSendTimeout - elapsed;
+                    if (remaining <= TimeSpan.Zero) return LoopOutcome.TerminalTimedOut;
                     using var terminal = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    terminal.CancelAfter(TerminalSendTimeout);
-                    await socket.SendAsync(payload, WebSocketMessageType.Text, true, terminal.Token);
+                    terminal.CancelAfter(remaining);
+                    try
+                    {
+                        await socket.SendAsync(payload, WebSocketMessageType.Text, true, terminal.Token);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        return LoopOutcome.TerminalTimedOut;
+                    }
                     return LoopOutcome.Terminal;
                 }
-                await socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
+                using var ordinary = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken, mailbox.TerminalOrOverload);
+                try
+                {
+                    await socket.SendAsync(payload, WebSocketMessageType.Text, true, ordinary.Token);
+                }
+                catch (OperationCanceledException) when (
+                    mailbox.TerminalOrOverload.IsCancellationRequested
+                    && !cancellationToken.IsCancellationRequested)
+                {
+                    if (mailbox.Overloaded) return LoopOutcome.Overloaded;
+                }
             }
             return LoopOutcome.Cancelled;
         }
@@ -244,6 +268,18 @@ public static class RealtimeGameEndpoint
         {
             return LoopOutcome.Cancelled;
         }
+    }
+
+    internal static async Task CloseOutputBoundedAsync(WebSocket socket,
+        WebSocketCloseStatus status, string? description, TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        try
+        {
+            await socket.CloseOutputAsync(status, description, cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (WebSocketException) { }
     }
 
     private static bool TryString(JsonElement root, string name, out string value)
@@ -287,5 +323,14 @@ public static class RealtimeGameEndpoint
         catch (WebSocketException) { }
     }
 
-    private enum LoopOutcome { Cancelled, PeerClosed, InvalidPayload, Overloaded, Terminal }
+    internal enum LoopOutcome
+    {
+        Cancelled, PeerClosed, InvalidPayload, Overloaded, Terminal, TerminalTimedOut
+    }
+}
+
+internal sealed class RealtimeGameEndpointHooks
+{
+    public Func<TicketScope, Task>? BeforeRevalidateAsync { get; init; }
+    public Action<RealtimeSnapshotMailbox>? AfterAttach { get; init; }
 }

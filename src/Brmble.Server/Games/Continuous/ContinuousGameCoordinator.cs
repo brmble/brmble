@@ -64,6 +64,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     public string RunnerKey => "continuous";
     public event Func<MatchCompletion, Task>? MatchCompleted;
+    internal event Action<string>? ParticipantDetached;
 
     public async Task<GameStartResult> StartAsync(DuelReservation reservation)
     {
@@ -240,6 +241,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 .Where(x => x.Mailbox is not null).Select(x => x.Mailbox!).ToList();
             foreach (var mailbox in survivors) mailbox.WriteControl(control);
         }
+        ParticipantDetached?.Invoke(connectionId);
         return Task.CompletedTask;
     }
 
