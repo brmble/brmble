@@ -273,9 +273,11 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
         return;
       }
       runtime.retryIndex++;
+      const retryGeneration = runtime.attemptGeneration;
       runtime.retryTimer = setTimeout(() => {
         runtime.retryTimer = null;
-        void connect();
+        if (!current() || runtime.terminal || retryGeneration !== runtime.attemptGeneration) return;
+        void connect(retryGeneration);
       }, delay);
     };
 
@@ -327,12 +329,12 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       }, message.inputHeartbeatMs || DEFAULT_HEARTBEAT_MS);
     };
 
-    const connect = async () => {
-      if (!current() || !enabled) return;
+    const connect = async (expectedGeneration = runtime.attemptGeneration) => {
+      if (!current() || runtime.terminal || !enabled || expectedGeneration !== runtime.attemptGeneration) return;
       const attempt = ++runtime.attemptGeneration;
       try {
         const ticket = await requestRealtimeTicket(matchId, 'participant');
-        if (!current() || attempt !== runtime.attemptGeneration) return;
+        if (!current() || runtime.terminal || attempt !== runtime.attemptGeneration) return;
         const socketUrl = new URL(ticket.url);
         socketUrl.searchParams.set('ticket', ticket.ticket);
         const socket = new WebSocket(socketUrl.toString());
@@ -382,6 +384,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             if (message.sequence < runtime.lastSnapshotSequence) return;
             runtime.lastSnapshotSequence = message.sequence;
             runtime.terminal = true;
+            runtime.attemptGeneration++;
             if (runtime.retryTimer !== null) clearTimeout(runtime.retryTimer);
             if (runtime.deadlineTimer !== null) clearTimeout(runtime.deadlineTimer);
             runtime.retryTimer = null;

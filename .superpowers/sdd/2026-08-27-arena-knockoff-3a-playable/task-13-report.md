@@ -157,3 +157,33 @@ The initial Round 4 hook run produced two expected failures: public sends after 
 - `git diff --check`: passed.
 - `npm test -- --run`: 167 files, 2,098 tests passed.
 - Full suite retains pre-existing intentional error-path/jsdom stderr; no tests failed.
+
+## Fix Round 5
+
+Status: complete.
+
+### Changes
+
+- Captured the active attempt generation when scheduling each retry and required the runtime, terminal state and generation to remain valid when its callback executes.
+- Added the same terminal and generation checks at `connect` entry before ticket acquisition, and retained terminal validation after the ticket promise resolves before socket creation.
+- Advanced the attempt generation on `matchClosed`, invalidating both queued retry callbacks and in-flight ticket completions while preserving terminal status, pending state and final state.
+
+### RED Evidence
+
+The initial Round 5 hook run produced the expected failure: manually invoking a captured retry callback after a valid replacement socket delivered `matchClosed` made a third realtime-ticket request.
+
+### Mutation Evidence
+
+- Removing the retry-callback terminal or generation guard permits a captured stale callback to enter `connect` and fails the ticket-count assertion.
+- Removing the `connect` entry terminal or generation guard permits direct stale re-entry to acquire a ticket.
+- Removing terminal generation invalidation or the post-ticket terminal/generation guard permits an in-flight stale ticket completion to create a socket.
+- Any stale callback mutation of status, pending input or closed final state fails the terminal-state assertions.
+
+### Fix Verification
+
+- `npm test -- --run src/api/games.realtime.test.ts src/components/Games/Arena/arenaProtocol.test.ts src/components/Games/Arena/useArenaConnection.test.tsx`: 3 files, 60 tests passed.
+- `npm run type-check`: passed.
+- ESLint for the two changed source/test files: passed.
+- `git diff --check`: passed.
+- `npm test -- --run`: 167 files, 2,099 tests passed.
+- Full suite retains pre-existing intentional error-path/jsdom stderr; no tests failed.
