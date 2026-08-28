@@ -10,10 +10,17 @@ public sealed class ArenaSimulation : IContinuousSimulation
         new(0, 0, 0, 0, 32767, 0, false, false, false);
 
     private readonly HashSet<long> _readySessionIds = [];
+    private readonly HashSet<long> _fireReleasedSessionIds = [];
+    private readonly HashSet<long> _dashSessionIds = [];
+    private readonly HashSet<long> _forcedFireSessionIds = [];
+    private readonly HashSet<long> _hitProjectileIds = [];
     private readonly int[] _score = [0, 0];
+    private readonly int[] _shots = [0, 0];
+    private readonly int[] _hits = [0, 0];
     private readonly List<ArenaProjectile> _projectiles = [];
     private int _phaseTick;
     private int _liveTick;
+    private long _nextProjectileId = 1;
 
     public ArenaSimulation(DuelReservation reservation)
     {
@@ -171,31 +178,92 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.AimX = aim.X;
             player.AimY = aim.Y;
 
-            if (Phase == ContinuousMatchPhase.Live && player.Input.Charging && player.CooldownTicks == 0)
+            if (Phase != ContinuousMatchPhase.Live || player.CooldownTicks > 0)
+            {
+                player.ChargeTicks = 0;
+                player.ForcedFireTicks = 0;
+                _forcedFireSessionIds.Remove(player.SessionId);
+            }
+            else if (player.Input.Charging)
             {
                 if (player.ChargeTicks < ArenaRulesetV1.ChargeTicks)
                 {
                     player.ChargeTicks++;
                     if (player.ChargeTicks == ArenaRulesetV1.ChargeTicks)
+                    {
                         player.ForcedFireTicks = ArenaRulesetV1.ForcedFireTicks;
+                        _forcedFireSessionIds.Add(player.SessionId);
+                    }
                 }
-            }
-            else
-            {
-                player.ChargeTicks = 0;
-                player.ForcedFireTicks = 0;
             }
         }
     }
 
     private void ProcessDashEdges()
     {
-        // Task 6.
+        foreach (var player in Players)
+        {
+            var risingEdge = player.Input.Dash && !_dashSessionIds.Contains(player.SessionId);
+            if (risingEdge && Phase == ContinuousMatchPhase.Live && player.DashAvailable)
+            {
+                player.DashAvailable = false;
+                player.DashTicks = ArenaRulesetV1.DashTicks;
+            }
+
+            if (player.Input.Dash)
+                _dashSessionIds.Add(player.SessionId);
+            else
+                _dashSessionIds.Remove(player.SessionId);
+        }
     }
 
     private void ProcessFire()
     {
-        // Task 6.
+        foreach (var player in Players)
+        {
+            var releaseEdge = player.Input.FireReleased
+                && !_fireReleasedSessionIds.Contains(player.SessionId);
+            var forcedFire = _forcedFireSessionIds.Contains(player.SessionId)
+                && player.ForcedFireTicks == 0;
+
+            if (Phase == ContinuousMatchPhase.Live
+                && player.CooldownTicks == 0
+                && (releaseEdge || forcedFire))
+            {
+                Fire(player);
+            }
+
+            if (player.Input.FireReleased)
+                _fireReleasedSessionIds.Add(player.SessionId);
+            else
+                _fireReleasedSessionIds.Remove(player.SessionId);
+        }
+    }
+
+    private void Fire(ArenaPlayerState player)
+    {
+        var aim = new FixedVec(player.AimX, player.AimY);
+        var spawnOffset = aim.Scale(ArenaRulesetV1.PlayerRadius + ArenaRulesetV1.ProjectileRadius);
+        var velocity = aim.Scale(ArenaRulesetV1.ProjectilePerTick);
+        var chargePermille = ArenaRulesetV1.ChargePermille(player.ChargeTicks);
+        var recoil = aim.Scale(ArenaRulesetV1.Recoil(chargePermille));
+
+        _projectiles.Add(new ArenaProjectile(
+            _nextProjectileId,
+            player.SessionId,
+            checked(player.X + spawnOffset.X),
+            checked(player.Y + spawnOffset.Y),
+            velocity.X,
+            velocity.Y,
+            chargePermille));
+        _nextProjectileId = checked(_nextProjectileId + 1);
+        player.Vx = checked(player.Vx - recoil.X);
+        player.Vy = checked(player.Vy - recoil.Y);
+        player.ChargeTicks = 0;
+        player.ForcedFireTicks = 0;
+        player.CooldownTicks = ArenaRulesetV1.ShotCooldownTicks;
+        _forcedFireSessionIds.Remove(player.SessionId);
+        _shots[player.Side] = checked(_shots[player.Side] + 1);
     }
 
     private void ApplyMovement()
@@ -215,7 +283,22 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     private void ApplyDashMovement()
     {
-        // Task 6.
+        if (Phase != ContinuousMatchPhase.Live)
+            return;
+
+        foreach (var player in Players)
+        {
+            if (player.DashTicks == 0)
+                continue;
+
+            var direction = player.Input.MoveX == 0 && player.Input.MoveY == 0
+                ? new FixedVec(player.AimX, player.AimY)
+                : new FixedVec(player.Input.MoveX, player.Input.MoveY);
+            var displacement = direction.Scale(ArenaRulesetV1.DashPerTick);
+            player.X = checked(player.X + displacement.X);
+            player.Y = checked(player.Y + displacement.Y);
+            player.DashTicks = checked(player.DashTicks - 1);
+        }
     }
 
     private void IntegrateVelocity()
@@ -274,12 +357,50 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     private void AdvanceProjectilesAndResolveHits()
     {
-        // Task 6.
+        if (Phase != ContinuousMatchPhase.Live)
+            return;
+
+        for (var index = 0; index < _projectiles.Count; index++)
+        {
+            var projectile = _projectiles[index];
+            projectile = projectile with
+            {
+                X = checked(projectile.X + projectile.Vx),
+                Y = checked(projectile.Y + projectile.Vy),
+            };
+            _projectiles[index] = projectile;
+
+            var opponent = Players[0].SessionId == projectile.OwnerSessionId
+                ? Players[1]
+                : Players[0];
+            var dx = checked((long)opponent.X - projectile.X);
+            var dy = checked((long)opponent.Y - projectile.Y);
+            var hitRadius = ArenaRulesetV1.PlayerRadius + ArenaRulesetV1.ProjectileRadius;
+            if (checked(dx * dx + dy * dy) > checked((long)hitRadius * hitRadius))
+                continue;
+
+            var speed = FixedVec.IntegerSqrt(checked(
+                (long)projectile.Vx * projectile.Vx + (long)projectile.Vy * projectile.Vy));
+            var direction = new FixedVec(
+                checked((int)(projectile.Vx * (long)ArenaRulesetV1.AimQuantizationMax / speed)),
+                checked((int)(projectile.Vy * (long)ArenaRulesetV1.AimQuantizationMax / speed)));
+            var impulse = direction.Scale(ArenaRulesetV1.Knockback(projectile.ChargePermille));
+            opponent.Vx = checked(opponent.Vx + impulse.X);
+            opponent.Vy = checked(opponent.Vy + impulse.Y);
+            _hitProjectileIds.Add(projectile.Id);
+            var ownerSide = opponent.Side == 0 ? 1 : 0;
+            _hits[ownerSide] = checked(_hits[ownerSide] + 1);
+        }
     }
 
     private void RemoveExpiredProjectiles()
     {
-        // Task 6.
+        if (Phase != ContinuousMatchPhase.Live)
+            return;
+
+        _projectiles.RemoveAll(projectile =>
+            _hitProjectileIds.Contains(projectile.Id) || !IsInsideArena(projectile.X, projectile.Y));
+        _hitProjectileIds.Clear();
     }
 
     private void UpdateShrink()
