@@ -14,6 +14,9 @@ public static class GamesExtensions
         services.AddSingleton<IGameEngine>(sp => sp.GetRequiredService<RpsEngine>());
         services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<DeathrollEngine>());
         services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<RpsEngine>());
+        services.AddSingleton<Arena.ArenaGameDefinition>();
+        services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<Arena.ArenaGameDefinition>());
+        services.AddSingleton<Continuous.IContinuousGameDefinition>(sp => sp.GetRequiredService<Arena.ArenaGameDefinition>());
         services.AddSingleton<GameDefinitionCatalog>();
         services.AddSingleton<GameRepository>();
         services.AddSingleton<IDurationSampleRepository>(sp => sp.GetRequiredService<GameRepository>());
@@ -31,6 +34,9 @@ public static class GamesExtensions
         services.AddSingleton<Spectators.ISpectatorLifecycle>(sp => sp.GetRequiredService<Spectators.SpectatorService>());
         services.AddSingleton<GameSessionManager>();
         services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<GameSessionManager>());
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<Continuous.ContinuousGameCoordinator>();
+        services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<Continuous.ContinuousGameCoordinator>());
         services.AddSingleton<DuelMatchRunnerRouter>();
         services.AddSingleton<IDuelMatchRunnerRouter>(sp => sp.GetRequiredService<DuelMatchRunnerRouter>());
         services.AddSingleton<DuelOrchestrator>();

@@ -1,10 +1,31 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Brmble.Server.Games.Arena;
 using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.Games.Continuous;
 
 public sealed record InputResult(bool Accepted, ContinuousRejectReason Reason, long AcknowledgedInput);
+public sealed record WelcomeMessage(
+    int ProtocolVersion,
+    int RulesetVersion,
+    long MatchId,
+    RealtimeRole Role,
+    long SessionId,
+    long SnapshotSequence,
+    long ServerTick,
+    int TickRate,
+    int SnapshotRate,
+    int InterpolationMs,
+    int MaxExtrapolationMs,
+    int InputHeartbeatMs,
+    int NeutralAfterMs,
+    int ReconnectGraceMs,
+    object Prediction,
+    object State,
+    long AcknowledgedInput);
+public sealed record AttachResult(bool Ok, WelcomeMessage? Welcome, string? Error);
 
 public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 {
@@ -12,6 +33,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     private const int MaxAimChangesPerSecond = 30;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan NeutralTimeout = TimeSpan.FromMilliseconds(750);
+    private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(5);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
     private readonly IReadOnlyDictionary<string, IContinuousGameDefinition> _definitions;
     private readonly TimeProvider _time;
     private readonly ICompletedMatchSink _sink;
@@ -38,38 +65,180 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     public string RunnerKey => "continuous";
     public event Func<MatchCompletion, Task>? MatchCompleted;
 
-    public Task<GameStartResult> StartAsync(DuelReservation reservation)
+    public async Task<GameStartResult> StartAsync(DuelReservation reservation)
     {
         if (!string.Equals(reservation.Configuration.RunnerKey, RunnerKey, StringComparison.Ordinal))
-            return Task.FromResult(new GameStartResult(false, 0, null,
-                $"Runner '{reservation.Configuration.RunnerKey}' is not supported."));
+            return new GameStartResult(false, 0, null,
+                $"Runner '{reservation.Configuration.RunnerKey}' is not supported.");
 
         if (!_definitions.TryGetValue(reservation.Configuration.GameType, out var definition))
-            return Task.FromResult(new GameStartResult(false, 0, null,
-                $"Continuous game '{reservation.Configuration.GameType}' is unavailable."));
+            return new GameStartResult(false, 0, null,
+                $"Continuous game '{reservation.Configuration.GameType}' is unavailable.");
+        if (reservation.PlayerOne.UserId == reservation.PlayerTwo.UserId
+            || reservation.PlayerOne.SessionId == reservation.PlayerTwo.SessionId)
+            return new GameStartResult(false, 0, null, "Continuous games require two distinct participants.");
+        if (string.Equals(reservation.Configuration.GameType, "arena-knockoff", StringComparison.OrdinalIgnoreCase)
+            && (reservation.Configuration.GameType != "arena-knockoff"
+                || reservation.Configuration.Format != "bo3"
+                || reservation.Configuration.RulesetVersion != ArenaRulesetV1.Version
+                || reservation.Configuration.Options.Count != 0))
+            return new GameStartResult(false, 0, null, "Arena configuration is not canonical.");
 
         var matchId = Interlocked.Increment(ref _nextMatchId);
         var startedAt = _time.GetUtcNow();
-        var state = new ContinuousMatchState(reservation, definition.Create(reservation), startedAt);
+        var state = new ContinuousMatchState(reservation, definition, definition.Create(reservation), startedAt)
+        {
+            MatchId = matchId,
+        };
         if (!_matchByStableUser.TryAdd(reservation.PlayerOne.UserId, matchId))
-            return Task.FromResult(new GameStartResult(false, 0, null,
-                "Player one already has an active game."));
+            return new GameStartResult(false, 0, null, "Player one already has an active game.");
         if (!_matchByStableUser.TryAdd(reservation.PlayerTwo.UserId, matchId))
         {
             RemoveIndex(_matchByStableUser, reservation.PlayerOne.UserId, matchId);
-            return Task.FromResult(new GameStartResult(false, 0, null,
-                "Player two already has an active game."));
+            return new GameStartResult(false, 0, null, "Player two already has an active game.");
         }
         if (!_matches.TryAdd(matchId, state))
         {
             RemoveIndex(_matchByStableUser, reservation.PlayerOne.UserId, matchId);
             RemoveIndex(_matchByStableUser, reservation.PlayerTwo.UserId, matchId);
-            return Task.FromResult(new GameStartResult(false, 0, null,
-                "The match could not be started."));
+            return new GameStartResult(false, 0, null, "The match could not be started.");
         }
 
-        // Scheduler, realtime sockets, and the participant attach gate are added by later tasks.
-        return Task.FromResult(new GameStartResult(true, matchId, startedAt, null));
+        lock (state.SyncRoot)
+        {
+            var generation = ++state.AttachGeneration;
+            state.AttachTimer = _time.CreateTimer(
+                _ => AttachExpired(matchId, state, generation), null, AttachTimeout, Timeout.InfiniteTimeSpan);
+        }
+        try
+        {
+            await _publisher.PublishToUsersAsync(ParticipantUserIds(reservation), new
+            {
+                type = "game.started",
+                matchId,
+                gameType = reservation.Configuration.GameType,
+                format = reservation.Configuration.Format,
+                rulesetVersion = reservation.Configuration.RulesetVersion,
+                options = reservation.Configuration.Options,
+            });
+        }
+        catch
+        {
+            await CompleteAsync(matchId, state, null, "start_failed", reservation.PlayerOne.UserId);
+            throw;
+        }
+        return new GameStartResult(true, matchId, startedAt, null);
+    }
+
+    public Task<AttachResult> AttachParticipantAsync(
+        long matchId, long stableUserId, long sessionId, string connectionId, RealtimeSnapshotMailbox mailbox)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(connectionId);
+        ArgumentNullException.ThrowIfNull(mailbox);
+        if (!_matches.TryGetValue(matchId, out var state))
+            return Task.FromResult(new AttachResult(false, null, "wrongMatch"));
+
+        WelcomeMessage welcome;
+        string snapshot;
+        lock (state.SyncRoot)
+        {
+            if (!state.Active || !state.ParticipantsByUser.TryGetValue(stableUserId, out var participant))
+                return Task.FromResult(new AttachResult(false, null, "notParticipant"));
+            if (participant.Mailbox is not null && participant.ConnectionId != connectionId)
+                return Task.FromResult(new AttachResult(false, null, "alreadyAttached"));
+            if (participant.ConnectionId is not null)
+                state.Connections.Remove(participant.ConnectionId);
+            state.Participants.Remove(participant.SessionId);
+            participant.SessionId = sessionId;
+            participant.ConnectionId = connectionId;
+            participant.Mailbox = mailbox;
+            participant.AttachAcknowledged = false;
+            participant.AttachSequence = checked(participant.NextSnapshotSequence++);
+            state.Participants[sessionId] = participant;
+            state.Connections[connectionId] = participant;
+
+            var acknowledged = AcknowledgedInputs(state);
+            var view = state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledged);
+            welcome = new WelcomeMessage(
+                1, state.Reservation.Configuration.RulesetVersion, matchId, RealtimeRole.Participant,
+                sessionId, participant.AttachSequence, state.Simulation.Tick,
+                ArenaRulesetV1.TickRate, ArenaRulesetV1.SnapshotRate, 100, 50, 250, 750, 5000,
+                state.Definition.PredictionConstants, view, participant.AcknowledgedInput);
+            snapshot = SerializeSnapshot(matchId, participant.AttachSequence, state.Simulation.Tick,
+                _time.GetUtcNow(), view);
+        }
+
+        mailbox.WriteControl(new RealtimeControl("welcome", sessionId, welcome.SnapshotSequence,
+            SerializeWelcome(welcome), Coalescible: false));
+        mailbox.ReplaceSnapshot(snapshot);
+        return Task.FromResult(new AttachResult(true, welcome, null));
+    }
+
+    public void AcknowledgeAttach(string connectionId, long snapshotSequence)
+    {
+        if (!TryFindConnection(connectionId, out var state, out var participant)) return;
+        var startScheduler = false;
+        lock (state.SyncRoot)
+        {
+            if (!state.Active || participant.ConnectionId != connectionId
+                || participant.AttachSequence != snapshotSequence)
+                return;
+            participant.AttachAcknowledged = true;
+            participant.ConnectionGeneration++;
+            participant.ReconnectTimer?.Dispose();
+            participant.ReconnectTimer = null;
+            if (state.Simulation.Phase == ContinuousMatchPhase.AwaitingParticipants
+                && state.ParticipantsByUser.Values.All(x => x.AttachAcknowledged))
+            {
+                state.AttachTimer?.Dispose();
+                state.AttachTimer = null;
+                state.AttachGeneration++;
+                if (state.Simulation is ArenaSimulation arena)
+                    foreach (var slot in state.ParticipantsByUser.Values)
+                        arena.MarkParticipantReady(slot.SimulationSessionId);
+                startScheduler = true;
+            }
+        }
+        if (startScheduler) StartScheduler(state);
+    }
+
+    public Task DetachAsync(string connectionId)
+    {
+        if (!TryFindConnection(connectionId, out var state, out var participant))
+            return Task.CompletedTask;
+        RealtimeControl? control = null;
+        List<RealtimeSnapshotMailbox> survivors = [];
+        lock (state.SyncRoot)
+        {
+            if (!state.Active || participant.ConnectionId != connectionId)
+                return Task.CompletedTask;
+            state.Connections.Remove(connectionId);
+            participant.ConnectionId = null;
+            participant.Mailbox = null;
+            participant.AttachAcknowledged = false;
+            state.Simulation.SetNeutralInput(participant.SimulationSessionId);
+            participant.NeutralTimer?.Dispose();
+            participant.NeutralTimer = null;
+            if (state.Simulation.Phase != ContinuousMatchPhase.AwaitingParticipants)
+            {
+                var generation = ++participant.ConnectionGeneration;
+                participant.ReconnectTimer?.Dispose();
+                participant.ReconnectTimer = _time.CreateTimer(
+                    _ => ReconnectExpired(state, participant, generation), null,
+                    ReconnectGrace, Timeout.InfiniteTimeSpan);
+            }
+            control = new RealtimeControl("connectionState", participant.SessionId, null,
+                JsonSerializer.Serialize(new
+                {
+                    type = "connectionState", protocolVersion = 1, matchId = state.MatchId,
+                    sessionId = participant.SessionId, state = "reconnecting",
+                    graceEndsAtUnixMs = _time.GetUtcNow().Add(ReconnectGrace).ToUnixTimeMilliseconds(),
+                }, JsonOptions), Coalescible: true);
+            survivors = state.ParticipantsByUser.Values
+                .Where(x => x.Mailbox is not null).Select(x => x.Mailbox!).ToList();
+        }
+        foreach (var mailbox in survivors) mailbox.WriteControl(control);
+        return Task.CompletedTask;
     }
 
     public bool TryGetActiveMatch(long stableUserId, out ActiveMatchReference match)
@@ -102,6 +271,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return new InputResult(false, ContinuousRejectReason.WrongMatch, 0);
             if (role != RealtimeRole.Participant)
                 return Reject(ContinuousRejectReason.WrongRole, participant);
+            if (participant.ConnectionId is not null && !participant.AttachAcknowledged)
+                return Reject(ContinuousRejectReason.WrongMatch, participant);
 
             var now = _time.GetTimestamp();
             RemoveExpired(participant.MessageTimestamps, now);
@@ -116,7 +287,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return Reject(ContinuousRejectReason.InvalidRange, participant);
 
             var arenaPlayer = state.Simulation is ArenaSimulation arena
-                ? arena.Players.First(player => player.SessionId == sessionId)
+                ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
                 : null;
             if (state.Simulation is ArenaSimulation arenaSimulation
                 && participant.RoundGeneration != arenaSimulation.RoundGeneration)
@@ -154,7 +325,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participant.MessageTimestamps.Enqueue(now);
             if (aimChanged)
                 participant.AimChangeTimestamps.Enqueue(now);
-            state.Simulation.SetInput(sessionId, input);
+            state.Simulation.SetInput(participant.SimulationSessionId, input);
 
             participant.AimX = input.AimX;
             participant.AimY = input.AimY;
@@ -183,52 +354,255 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     {
         if (!_matchByStableUser.TryGetValue(stableUserId, out var ownedMatchId)
             || ownedMatchId != matchId
-            || !_matches.TryRemove(matchId, out var state))
+            || !_matches.TryGetValue(matchId, out var state))
             return;
+        await CompleteAsync(matchId, state, null, reason, stableUserId);
+    }
 
-        RemoveIndex(_matchByStableUser, state.Reservation.PlayerOne.UserId, matchId);
-        RemoveIndex(_matchByStableUser, state.Reservation.PlayerTwo.UserId, matchId);
-
+    private async Task CompleteAsync(
+        long matchId, ContinuousMatchState state, ContinuousCompletion? outcome,
+        string? abandonReason, long? forfeitingUserId)
+    {
+        List<(RealtimeSnapshotMailbox Mailbox, string Json)> terminalControls;
+        CompletedMatch completed;
+        DateTimeOffset endedAt;
         lock (state.SyncRoot)
         {
+            if (!state.Active || !((ICollection<KeyValuePair<long, ContinuousMatchState>>)_matches)
+                    .Remove(new(matchId, state)))
+                return;
             state.Active = false;
-            foreach (var participant in state.Participants.Values)
+            state.Cancellation.Cancel();
+            state.AttachTimer?.Dispose();
+            endedAt = _time.GetUtcNow();
+            var acknowledged = AcknowledgedInputs(state);
+            terminalControls = state.ParticipantsByUser.Values.Where(x => x.Mailbox is not null)
+                .Select(participant =>
+                {
+                    var finalView = state.Simulation.ParticipantSnapshot(
+                        participant.SimulationSessionId, acknowledged);
+                    var sequence = participant.NextSnapshotSequence++;
+                    return (participant.Mailbox!, JsonSerializer.Serialize(new
+                    {
+                        type = "matchClosed", protocolVersion = 1, matchId, sequence,
+                        serverTick = state.Simulation.Tick,
+                        reason = abandonReason is null ? "completed" : "forfeited",
+                        finalState = finalView,
+                    }, JsonOptions));
+                }).ToList();
+            foreach (var participant in state.ParticipantsByUser.Values)
             {
                 participant.NeutralTimer?.Dispose();
-                state.Simulation.SetNeutralInput(participant.SessionId);
+                participant.ReconnectTimer?.Dispose();
+                state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             }
+            var participants = outcome is null
+                ? ForfeitParticipants(state.Reservation, forfeitingUserId!.Value)
+                : outcome.Participants.Select(participant => participant with
+                {
+                    MetadataJson = outcome.ParticipantStats.TryGetValue(participant.UserId, out var stats)
+                        ? JsonSerializer.Serialize(stats, JsonOptions)
+                        : participant.MetadataJson,
+                }).ToArray();
+            completed = new CompletedMatch(
+                "arena-knockoff", state.Reservation.ChannelId, "bo3", 1,
+                outcome?.Outcome ?? "abandoned", abandonReason, state.StartedAt, endedAt,
+                participants, JsonSerializer.Serialize(outcome?.MatchSummary ?? new { schemaVersion = 1 }, JsonOptions));
         }
 
-        // Persistence, publishing, and completion metadata are added by later tasks.
-        _ = reason;
-        _ = _sink;
-        _ = _publisher;
-        _ = _logger;
-        var completion = new MatchCompletion(
-            matchId,
-            state.Reservation.ReservationId,
-            state.Reservation.ChannelId,
-            state.Reservation.PlayerOne,
-            state.Reservation.PlayerTwo,
-            state.Reservation.Configuration,
-            _time.GetUtcNow());
-        var handlers = MatchCompleted;
-        if (handlers is null)
-            return;
-
-        foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
+        foreach (var terminal in terminalControls)
+            terminal.Mailbox.WriteControl(new RealtimeControl(
+                "matchClosed", null, null, terminal.Json, Coalescible: false));
+        try { _sink.Enqueue(completed); }
+        catch (Exception ex)
         {
-            try
+            _logger.LogCritical(ex, "Failed to enqueue completed continuous match {MatchId}.", matchId);
+        }
+        RemoveIndex(_matchByStableUser, state.Reservation.PlayerOne.UserId, matchId);
+        RemoveIndex(_matchByStableUser, state.Reservation.PlayerTwo.UserId, matchId);
+        var completion = new MatchCompletion(matchId, state.Reservation.ReservationId,
+            state.Reservation.ChannelId, state.Reservation.PlayerOne, state.Reservation.PlayerTwo,
+            state.Reservation.Configuration, endedAt);
+        var handlers = MatchCompleted;
+        if (handlers is not null)
+        {
+            foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
             {
-                await handler(completion);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Match completion subscriber failed for continuous match {MatchId} (reservation {ReservationId}).",
-                    completion.MatchId, completion.ReservationId);
+                try { await handler(completion); }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Match completion subscriber failed for continuous match {MatchId} (reservation {ReservationId}).",
+                        completion.MatchId, completion.ReservationId);
+                }
             }
         }
+        try
+        {
+            await _publisher.PublishToUsersAsync(ParticipantUserIds(state.Reservation), new
+            {
+                type = "game.ended", matchId,
+                gameType = "arena-knockoff", format = "bo3", rulesetVersion = 1,
+                options = state.Reservation.Configuration.Options,
+                abandoned = abandonReason is not null, reason = abandonReason,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish game.ended for continuous match {MatchId}.", matchId);
+        }
+    }
+
+    private static IReadOnlyList<CompletedParticipant> ForfeitParticipants(
+        DuelReservation reservation, long forfeitingUserId)
+    {
+        var winner = reservation.PlayerOne.UserId == forfeitingUserId
+            ? reservation.PlayerTwo.UserId : reservation.PlayerOne.UserId;
+        return
+        [
+            new CompletedParticipant(winner, 1, null, "win"),
+            new CompletedParticipant(forfeitingUserId, 2, null, "abandoned"),
+        ];
+    }
+
+    private void AttachExpired(long matchId, ContinuousMatchState state, long generation)
+    {
+        long? missingUser = null;
+        lock (state.SyncRoot)
+        {
+            if (state.Active && state.AttachGeneration == generation
+                && state.Simulation.Phase == ContinuousMatchPhase.AwaitingParticipants)
+                missingUser = state.ParticipantsByUser.Values.FirstOrDefault(x => !x.AttachAcknowledged)?.StableUserId;
+        }
+        if (missingUser is not null)
+            _ = CompleteAsync(matchId, state, null, "connection_timeout", missingUser.Value);
+    }
+
+    private void ReconnectExpired(
+        ContinuousMatchState state, ParticipantInputState participant, long generation)
+    {
+        lock (state.SyncRoot)
+        {
+            if (!state.Active || participant.ConnectionGeneration != generation
+                || participant.AttachAcknowledged)
+                return;
+        }
+        _ = CompleteAsync(state.MatchId, state, null, "realtime_disconnect", participant.StableUserId);
+    }
+
+    private void StartScheduler(ContinuousMatchState state)
+    {
+        lock (state.SyncRoot)
+        {
+            if (state.SchedulerTask is not null) return;
+            state.SchedulerTask = Task.Run(() => RunSchedulerAsync(state));
+        }
+    }
+
+    private async Task RunSchedulerAsync(ContinuousMatchState state)
+    {
+        var scheduler = new FixedStepScheduler(_time, ArenaRulesetV1.TickRate, ArenaRulesetV1.MaxCatchUpTicks);
+        scheduler.Start(_time.GetTimestamp());
+        try
+        {
+            while (!state.Cancellation.IsCancellationRequested)
+            {
+                var plan = scheduler.PlanCycle();
+                for (var index = 0; index < plan.Ticks; index++)
+                {
+                    ContinuousCompletion? completion = null;
+                    List<(RealtimeSnapshotMailbox Mailbox, string Json)> snapshots = [];
+                    lock (state.SyncRoot)
+                    {
+                        if (!state.Active) return;
+                        var result = state.Simulation.Step();
+                        if (result.Completed) completion = result.Completion;
+                        if (state.Simulation.Tick % ArenaRulesetV1.SnapshotEveryTicks == 0)
+                        {
+                            var acknowledged = AcknowledgedInputs(state);
+                            foreach (var participant in state.ParticipantsByUser.Values.Where(x => x.Mailbox is not null))
+                            {
+                                var view = state.Simulation.ParticipantSnapshot(
+                                    participant.SimulationSessionId, acknowledged);
+                                snapshots.Add((participant.Mailbox!, SerializeSnapshot(state.MatchId,
+                                    participant.NextSnapshotSequence++, state.Simulation.Tick, _time.GetUtcNow(), view)));
+                            }
+                        }
+                    }
+                    foreach (var snapshot in snapshots) snapshot.Mailbox.ReplaceSnapshot(snapshot.Json);
+                    if (completion is not null)
+                    {
+                        await CompleteAsync(state.MatchId, state, completion, completion.AbandonReason, null);
+                        return;
+                    }
+                }
+                var delay = _time.GetElapsedTime(_time.GetTimestamp(), plan.NextDeadline);
+                if (delay > TimeSpan.Zero)
+                    await Task.Delay(delay, _time, state.Cancellation.Token);
+                else
+                    await Task.Yield();
+            }
+        }
+        catch (OperationCanceledException) when (state.Cancellation.IsCancellationRequested) { }
+    }
+
+    private bool TryFindConnection(
+        string connectionId, out ContinuousMatchState state, out ParticipantInputState participant)
+    {
+        foreach (var candidate in _matches.Values)
+        {
+            lock (candidate.SyncRoot)
+            {
+                if (candidate.Connections.TryGetValue(connectionId, out participant!))
+                {
+                    state = candidate;
+                    return true;
+                }
+            }
+        }
+        state = null!;
+        participant = null!;
+        return false;
+    }
+
+    private static Dictionary<long, long> AcknowledgedInputs(ContinuousMatchState state) =>
+        state.ParticipantsByUser.Values.ToDictionary(x => x.SimulationSessionId, x => x.AcknowledgedInput);
+
+    private static HashSet<long> ParticipantUserIds(DuelReservation reservation) =>
+        [reservation.PlayerOne.UserId, reservation.PlayerTwo.UserId];
+
+    private static string SerializeSnapshot(
+        long matchId, long sequence, long serverTick, DateTimeOffset generatedAt, object view)
+    {
+        var viewJson = JsonSerializer.SerializeToElement(view, JsonOptions);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("type", "snapshot");
+            writer.WriteNumber("protocolVersion", 1);
+            writer.WriteNumber("matchId", matchId);
+            writer.WriteNumber("sequence", sequence);
+            writer.WriteNumber("serverTick", serverTick);
+            writer.WriteNumber("generatedAtUnixMs", generatedAt.ToUnixTimeMilliseconds());
+            foreach (var property in viewJson.EnumerateObject()) property.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string SerializeWelcome(WelcomeMessage welcome)
+    {
+        var welcomeJson = JsonSerializer.SerializeToElement(welcome, JsonOptions);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("type", "welcome");
+            foreach (var property in welcomeJson.EnumerateObject()) property.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
     internal static void RemoveIndex(
@@ -272,32 +646,49 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (!state.Active || participant.AcceptedGeneration != acceptedGeneration)
                 return;
 
-            state.Simulation.SetNeutralInput(participant.SessionId);
+            state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
         }
     }
 
-    private sealed class ContinuousMatchState(
-        DuelReservation reservation,
-        IContinuousSimulation simulation,
-        DateTimeOffset startedAt)
+    private sealed class ContinuousMatchState
     {
-        public DuelReservation Reservation { get; } = reservation;
-        public IContinuousSimulation Simulation { get; } = simulation;
-        public DateTimeOffset StartedAt { get; } = startedAt;
+        public ContinuousMatchState(
+            DuelReservation reservation,
+            IContinuousGameDefinition definition,
+            IContinuousSimulation simulation,
+            DateTimeOffset startedAt)
+        {
+            Reservation = reservation;
+            Definition = definition;
+            Simulation = simulation;
+            StartedAt = startedAt;
+            Participants = CreateParticipants(reservation, simulation);
+            ParticipantsByUser = Participants.Values.ToDictionary(x => x.StableUserId);
+        }
+
+        public DuelReservation Reservation { get; }
+        public IContinuousGameDefinition Definition { get; }
+        public IContinuousSimulation Simulation { get; }
+        public DateTimeOffset StartedAt { get; }
         public object SyncRoot { get; } = new();
         public bool Active { get; set; } = true;
-        public Dictionary<long, ParticipantInputState> Participants { get; } = CreateParticipants(reservation, simulation);
+        public long MatchId { get; set; }
+        public long AttachGeneration;
+        public ITimer? AttachTimer;
+        public CancellationTokenSource Cancellation { get; } = new();
+        public Task? SchedulerTask;
+        public Dictionary<long, ParticipantInputState> Participants { get; }
+        public Dictionary<long, ParticipantInputState> ParticipantsByUser { get; }
+        public Dictionary<string, ParticipantInputState> Connections { get; } = [];
 
         private static Dictionary<long, ParticipantInputState> CreateParticipants(
             DuelReservation reservation, IContinuousSimulation simulation)
         {
-            var participants = new Dictionary<long, ParticipantInputState>
-            {
-                [reservation.PlayerOne.SessionId] = new(reservation.PlayerOne.SessionId),
-                [reservation.PlayerTwo.SessionId] = new(reservation.PlayerTwo.SessionId),
-            };
+            var byUser = new[] { reservation.PlayerOne, reservation.PlayerTwo }
+                .ToDictionary(x => x.UserId, x => new ParticipantInputState(x.UserId, x.SessionId));
+            var participants = byUser.Values.ToDictionary(x => x.SessionId);
             if (simulation is ArenaSimulation arena)
             {
                 foreach (var player in arena.Players)
@@ -311,9 +702,18 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         }
     }
 
-    private sealed class ParticipantInputState(long sessionId)
+    private sealed class ParticipantInputState(long stableUserId, long sessionId)
     {
-        public long SessionId { get; } = sessionId;
+        public long StableUserId { get; } = stableUserId;
+        public long SimulationSessionId { get; } = sessionId;
+        public long SessionId = sessionId;
+        public string? ConnectionId;
+        public RealtimeSnapshotMailbox? Mailbox;
+        public bool AttachAcknowledged;
+        public long AttachSequence;
+        public long NextSnapshotSequence = 1;
+        public long ConnectionGeneration;
+        public ITimer? ReconnectTimer;
         public long AcknowledgedInput;
         public short AimX = 32_767;
         public short AimY;
