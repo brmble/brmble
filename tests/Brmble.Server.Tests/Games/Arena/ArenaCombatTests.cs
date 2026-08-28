@@ -100,17 +100,62 @@ public class ArenaCombatTests
     }
 
     [TestMethod]
-    public void ProjectilesPassThroughEachOtherAndNeverHitTheirOwner()
+    public void OpposingProjectilesSurviveTheirFirstOverlap()
     {
         var sim = ArenaHarness.Live();
         sim.ReleaseFire(10);
         sim.ReleaseFire(20, aimX: -32767, aimY: 0);
 
-        sim.Step(10);
+        sim.Step(11);
 
         Assert.AreEqual(2, sim.Projectiles.Count);
-        Assert.AreEqual(-17, sim.Player(10).Vx);
-        Assert.AreEqual(17, sim.Player(20).Vx);
+        CollectionAssert.AreEqual(new long[] { 1, 2 }, sim.Projectiles.Select(p => p.Id).ToArray());
+    }
+
+    [TestMethod]
+    public void ProjectileCrossingItsOwnerSurvivesWithoutApplyingAHitImpulse()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 0, 0);
+        sim.Place(20, 5000, 0);
+        sim.ReleaseFire(10, aimX: 0, aimY: 32767);
+        sim.Step();
+        sim.Place(10, 0, 1260);
+        sim.Player(10).Vx = 0;
+        sim.Player(10).Vy = 0;
+
+        sim.Step();
+
+        Assert.AreEqual(1, sim.Projectiles.Count);
+        Assert.AreEqual(1260, sim.Projectiles[0].Y);
+        Assert.AreEqual(0, sim.Player(10).Vx);
+        Assert.AreEqual(0, sim.Player(10).Vy);
+    }
+
+    [TestMethod]
+    public void ProjectileAdvancementPreservesAscendingIdOrderAfterSelectiveRemoval()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, -4000, 0);
+        sim.Place(20, 4000, 0);
+        sim.ReleaseFire(10, aimX: 0, aimY: 32767);
+        sim.ReleaseFire(20, aimX: 0, aimY: 32767);
+        sim.Step();
+        sim.Neutral(10); sim.Neutral(20); sim.Step(24);
+        sim.Place(10, -4000, 0); sim.Place(20, 4000, 0);
+        sim.Player(10).Vx = 0; sim.Player(10).Vy = 0;
+        sim.Player(20).Vx = 0; sim.Player(20).Vy = 0;
+        sim.ReleaseFire(10, aimX: 0, aimY: 32767);
+        sim.ReleaseFire(20, aimX: 0, aimY: 32767);
+        sim.Step();
+        sim.Place(20, -4000, 7260);
+        sim.Player(20).Vx = 0;
+        sim.Player(20).Vy = 0;
+
+        sim.Step();
+
+        CollectionAssert.AreEqual(new long[] { 2, 3, 4 }, sim.Projectiles.Select(p => p.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { 7260, 1260, 1260 }, sim.Projectiles.Select(p => p.Y).ToArray());
     }
 
     [TestMethod]
