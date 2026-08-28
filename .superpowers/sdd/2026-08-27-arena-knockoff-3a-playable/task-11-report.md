@@ -69,3 +69,29 @@ Implemented all review findings.
 
 - Production deployment must now explicitly provide an absolute `wss` value for `Games:RealtimePublicWebSocketUrl`; omission intentionally prevents startup.
 - The in-memory stable-user limiter resets on server restart, matching the requested minimal singleton fixed-window scope.
+
+## Fix Round 2
+
+### Status
+
+Implemented deterministic cleanup of expired stable-user rate-limit windows.
+
+### Changes
+
+- `RealtimeTicketRateLimiter.TryAcquire` now samples the current time once under its existing lock and removes every window where `now - StartedAt >= one minute` before evaluating the current stable user.
+- The current user's expired window resets normally to count 1, active windows remain, and cleanup introduces no timer or additional abstraction.
+- Added an internal locked `Count` solely for deterministic retention tests through the existing `InternalsVisibleTo` configuration.
+
+### RED Evidence
+
+- The focused limiter test run failed with `CS1061` because `RealtimeTicketRateLimiter.Count` did not exist, proving the new retention assertions could not pass against the prior implementation.
+
+### Verification
+
+- Limiter tests: 7 passed, 0 failed.
+- Focused limiter, ticket store, and endpoint tests: 62 passed, 0 failed.
+- Full server suite: 1004 passed, 0 failed.
+
+### Concerns
+
+- Cleanup is an O(number of tracked users) scan on each ticket request. This is the explicitly selected minimal approach and is bounded by the endpoint's expected request scale.

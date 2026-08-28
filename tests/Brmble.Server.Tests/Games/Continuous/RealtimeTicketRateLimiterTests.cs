@@ -65,6 +65,39 @@ public sealed class RealtimeTicketRateLimiterTests
         Assert.AreEqual(10, results.Count(x => x));
     }
 
+    [TestMethod]
+    public void CheckRemovesExpiredInactiveUsersAndKeepsActiveAndNewWindows()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new RealtimeTicketRateLimiter(time);
+        Assert.IsTrue(limiter.TryAcquire(100));
+        time.Advance(TimeSpan.FromSeconds(30));
+        Assert.IsTrue(limiter.TryAcquire(200));
+        Assert.AreEqual(2, limiter.Count);
+
+        time.Advance(TimeSpan.FromSeconds(30));
+        Assert.IsTrue(limiter.TryAcquire(300));
+
+        Assert.AreEqual(2, limiter.Count);
+        Assert.IsTrue(limiter.TryAcquire(200));
+        Assert.AreEqual(2, limiter.Count);
+    }
+
+    [TestMethod]
+    public void ExpiredCurrentUserResetsWithoutRetainingOldWindow()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new RealtimeTicketRateLimiter(time);
+        for (var request = 0; request < 10; request++) Assert.IsTrue(limiter.TryAcquire(100));
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        Assert.IsTrue(limiter.TryAcquire(100));
+
+        Assert.AreEqual(1, limiter.Count);
+        for (var request = 1; request < 10; request++) Assert.IsTrue(limiter.TryAcquire(100));
+        Assert.IsFalse(limiter.TryAcquire(100));
+    }
+
     private sealed class ManualTimeProvider : TimeProvider
     {
         private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
