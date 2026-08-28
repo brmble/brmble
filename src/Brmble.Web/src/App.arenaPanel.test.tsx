@@ -182,6 +182,15 @@ describe('App arena main-panel integration', () => {
       act(() => { emitBridgeEvent('game.ended', leanEnded()); });
       expect(socket.close).not.toHaveBeenCalled();
       expect(screen.getByTestId('arena-board')).toBeInTheDocument();
+      expect(screen.getByText('Finalizing match')).toBeInTheDocument();
+      expect(screen.queryByText('Match complete')).toBeNull();
+      expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
+      const pendingClose = screen.getByRole('button', { name: 'Close arena' });
+      expect(pendingClose).toBeDisabled();
+      expect(pendingClose).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(pendingClose);
+      expect(socket.close).not.toHaveBeenCalled();
+      expect(screen.getByTestId('arena-board')).toBeInTheDocument();
       act(() => { socket.serverMessage(matchClosed()); });
     } else {
       act(() => { socket.serverMessage(matchClosed()); });
@@ -195,7 +204,9 @@ describe('App arena main-panel integration', () => {
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Me, side 1');
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Player 20, side 2');
     expect(socket.close).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Close arena' }));
+    const close = screen.getByRole('button', { name: 'Close arena' });
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
 
     expect(socket.close).toHaveBeenCalledTimes(1);
     expect(composer.value).toBe('half a message');
@@ -214,6 +225,30 @@ describe('App arena main-panel integration', () => {
     expect(screen.queryByTestId('arena-board')).toBeNull();
     expect(document.querySelector('[data-main-panel-layer="split"]')).not.toHaveAttribute('inert');
     expect(screen.getByTestId('spectator-unsupported-game')).toHaveTextContent('arena-knockoff');
+  });
+
+  it('allows Close with no fabricated outcome when terminal finalization fails', async () => {
+    renderConnectedApp({ joinedChannelId: '7', channels: [{ id: 7, name: 'General' }] });
+    const socket = await mountedArena();
+    act(() => { emitBridgeEvent('game.ended', leanEnded()); });
+    expect(screen.getByText('Finalizing match')).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    try {
+      act(() => { socket.onerror?.(); });
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+
+      expect(screen.getByText('Finalization failed')).toBeInTheDocument();
+      expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
+      expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome unavailable.');
+      expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
+      const close = screen.getByRole('button', { name: 'Close arena' });
+      expect(close).toBeEnabled();
+      fireEvent.click(close);
+      expect(screen.queryByTestId('arena-board')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('closes the arena connection once when the participant leaves the channel', async () => {

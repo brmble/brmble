@@ -117,6 +117,9 @@ export function ArenaBoard({
   }, [reducedMotion, resolveAvatarUrl, resolveName, selfSessionId]);
 
   const authoritative = finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
+  const finalized = ended !== null && finalState !== undefined;
+  const finalizationPending = ended !== null && !finalized && connection.status !== 'failed';
+  const finalizationFailed = ended !== null && !finalized && connection.status === 'failed';
   const players = authoritative?.players ?? [];
   const serverTick = connection.closed?.serverTick
     ?? (ended && 'serverTick' in ended ? ended.serverTick : undefined)
@@ -128,29 +131,44 @@ export function ArenaBoard({
   const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
   const score = authoritative?.score ?? state.score;
   const round = score[0] + score[1] + 1;
-  const roundLabel = ended
-    ? 'Match complete'
+  const roundLabel = finalizationPending
+    ? 'Finalizing match'
+    : finalizationFailed
+      ? 'Finalization failed'
+      : finalized
+        ? 'Match complete'
     : `Round ${round}${(authoritative?.consecutiveDoubleKos ?? 0) > 0
       ? ` · Double KO replay ${authoritative!.consecutiveDoubleKos}`
       : ''}`;
   const local = players.find(player => player.sessionId === selfSessionId) ?? null;
-  const outcome = ended
+  const outcome = finalized
     ? score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
-    : 'Match in progress';
+    : finalizationFailed
+      ? 'unavailable'
+      : finalizationPending
+        ? 'pending final state'
+        : 'Match in progress';
   const liveText = [
     `${roundLabel}.`,
+    ...(finalizationFailed ? ['Final match state unavailable.'] : []),
     `${phase}${authoritative?.phaseEndsAtTick == null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
     `Score ${score[0]} to ${score[1]}.`,
     ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${forcedFireState(player.forcedFireTicks)}.`),
     authoritative ? projectileSummary(authoritative) : '0 projectiles present.',
     authoritative ? `Arena radius ${radiusBand(authoritative.arena.radius)}, shrink phase ${authoritative.arena.shrinkPhase}.` : 'Arena unavailable.',
     local ? `Shot ${cooldownState(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
-    `Outcome: ${outcome}.`,
+    finalizationFailed ? 'Outcome unavailable.' : `Outcome: ${outcome}.`,
   ].join(' ');
 
   return (
     <section className={`arena-board glass-panel animate-slide-up ${styles.board}`} data-testid="arena-board">
-      <button className="modal-close" onClick={ended ? onClose : onForfeit} aria-label={ended ? 'Close arena' : 'Forfeit arena'}>
+      <button
+        className="modal-close"
+        onClick={ended ? onClose : onForfeit}
+        aria-label={ended ? 'Close arena' : 'Forfeit arena'}
+        disabled={finalizationPending}
+        aria-disabled={finalizationPending || undefined}
+      >
         <Icon name="x" />
       </button>
       <header className={`modal-header ${styles.header}`}>

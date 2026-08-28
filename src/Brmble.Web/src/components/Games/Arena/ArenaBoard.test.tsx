@@ -86,6 +86,29 @@ describe('ArenaBoard', () => {
     expect(live).toHaveTextContent(/shot cooling down.*dash used/i);
   });
 
+  it('allows closing without fabricating an outcome when finalization fails', () => {
+    const onClose = vi.fn();
+    connection.current = {
+      ...connection.current,
+      status: 'failed',
+      welcome: null,
+      latestSnapshot: null,
+      closed: null,
+    };
+
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff' },
+      onClose,
+    })} />);
+
+    expect(screen.getByText('Finalization failed')).toBeInTheDocument();
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome unavailable.');
+    expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
+    fireEvent.click(screen.getByRole('button', { name: 'Close arena' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('keeps the live region polite and ignores frame-position-only changes', () => {
     const { rerender } = render(<ArenaBoard {...props()} />);
     const live = screen.getByTestId('arena-live-region');
