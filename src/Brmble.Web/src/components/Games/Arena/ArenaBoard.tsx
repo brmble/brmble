@@ -132,6 +132,7 @@ export function ArenaBoard({
     ? score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
     : 'Match in progress';
   const liveText = [
+    `${roundLabel}.`,
     `${phase}${authoritative?.phaseEndsAtTick == null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
     `Score ${score[0]} to ${score[1]}.`,
     ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${forcedFireState(player.forcedFireTicks)}.`),

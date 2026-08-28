@@ -150,6 +150,57 @@ describe('ArenaBoard', () => {
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent(/Outcome: Draw/i);
   });
 
+  it('announces normal round advancement exactly once', () => {
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    expect(live.textContent?.match(/Round 2/g)).toHaveLength(1);
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, score: [2, 0], consecutiveDoubleKos: 0 },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+
+    expect(live.textContent?.match(/Round 3/g)).toHaveLength(1);
+    expect(live).not.toHaveTextContent('Round 2');
+  });
+
+  it('announces a same-score double KO replay count change exactly once', () => {
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, score: [1, 0], consecutiveDoubleKos: 1 },
+    };
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    expect(live.textContent?.match(/Round 2 · Double KO replay 1/g)).toHaveLength(1);
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, consecutiveDoubleKos: 2 },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+
+    expect(live.textContent?.match(/Round 2 · Double KO replay 2/g)).toHaveLength(1);
+    expect(live).not.toHaveTextContent('Double KO replay 1');
+  });
+
+  it('announces terminal match completion exactly once', () => {
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    expect(live).toHaveTextContent('Round 2');
+
+    const finalState = {
+      ...connection.current.welcome!.state,
+      phase: 'ended' as const, phaseEndsAtTick: null, score: [2, 1] as [number, number], consecutiveDoubleKos: 0,
+    };
+    const ended = { type: 'matchClosed' as const, protocolVersion: 1 as const, matchId: 91, sequence: 6,
+      serverTick: 240, reason: 'completed' as const, finalState };
+    rendered.rerender(<ArenaBoard {...props({ ended })} />);
+
+    expect(live.textContent?.match(/Match complete/g)).toHaveLength(1);
+    expect(live).not.toHaveTextContent(/Round \d/);
+  });
+
   it('keeps 20 Hz snapshots quiet within combat semantic states and updates at their boundaries', () => {
     const initial = connection.current.welcome!.state;
     const rendered = render(<ArenaBoard {...props()} />);
