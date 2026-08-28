@@ -56,6 +56,7 @@ public class FixedPointTests
     {
         var a = FixedPointHash.OfFields(1, -2, 3, -4);
         var b = FixedPointHash.OfFields(1, -2, 3, -4);
+        Assert.AreEqual(7_956_192_837_767_188_637UL, a);
         Assert.AreEqual(a, b);
         Assert.AreNotEqual(a, FixedPointHash.OfFields(1, -2, 3, -5));
     }

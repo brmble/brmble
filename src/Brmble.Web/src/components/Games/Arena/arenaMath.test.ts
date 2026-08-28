@@ -10,6 +10,10 @@ describe('arenaMath golden vectors', () => {
   ])('normalizeQ15(%i,%i)', (x, y, ex, ey) =>
     expect(normalizeQ15(x, y)).toEqual({ x: ex, y: ey }));
 
+  it('normalizes safe integers whose squared magnitude exceeds 64 bits', () => {
+    expect(normalizeQ15(Number.MAX_SAFE_INTEGER, 0)).toEqual({ x: 32767, y: 0 });
+  });
+
   it('curves at q=333', () => {
     expect(movePerTick(333)).toBe(76);
     expect(knockback(333)).toBe(203);

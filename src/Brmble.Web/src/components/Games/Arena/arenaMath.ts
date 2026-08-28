@@ -25,10 +25,10 @@ function integerSqrt(value: bigint): bigint {
 
   let remainder = value;
   let result = 0n;
-  let bit = 1n << 62n;
+  let bit = 1n;
 
-  while (bit > remainder) {
-    bit >>= 2n;
+  while (bit <= (remainder >> 2n)) {
+    bit <<= 2n;
   }
 
   while (bit !== 0n) {

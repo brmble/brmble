@@ -102,3 +102,94 @@ Exit code 0
 ## Concerns
 
 None. The initial C# RED required removing an impossible namespace import to expose the requested missing-type diagnostics; that correction occurred before production code was written and is documented above.
+
+## Fix Round 1
+
+### Findings Addressed
+
+- Changed the TypeScript restoring integer square root to choose the largest power-of-four bit not exceeding the BigInt radicand. This supports the full safe-integer coordinate domain accepted by the exported API, including radicands wider than 64 bits.
+- Added a literal FNV-1a 64 expected value for signed fields `(1, -2, 3, -4)` serialized in declared order as little-endian `int32` bytes.
+- Did not address the three deferred Minor findings.
+
+### Independent Hash Calculation
+
+The expected hash was calculated independently from the production implementation using these literal bytes:
+
+```text
+01 00 00 00 FE FF FF FF 03 00 00 00 FC FF FF FF
+```
+
+Starting with FNV-1a offset basis `14695981039346656037`, XORing each byte in order, and multiplying modulo `2^64` by prime `1099511628211` gives:
+
+```text
+decimal: 7956192837767188637
+hex:     0x6e6a133b739ed09d
+```
+
+The test asserts the decimal literal `7_956_192_837_767_188_637UL`; it does not call production code to derive the expected value.
+
+### RED Evidence
+
+TypeScript command from `src/Brmble.Web`:
+
+```text
+npm test -- --run src/components/Games/Arena/arenaMath.test.ts
+Test Files 1 failed (1)
+Tests 1 failed | 12 passed (13)
+AssertionError: expected { x: 68717379599, y: +0 } to deeply equal { x: 32767, y: +0 }
+```
+
+The new regression used `normalizeQ15(Number.MAX_SAFE_INTEGER, 0)`. Its squared radicand is wider than 64 bits, proving that fixed `1n << 62n` initialization skipped high-order radicand bits and leaked an unsafe normalized component.
+
+C# command:
+
+```text
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter FullyQualifiedName~FixedPointTests -a x64
+Passed! - Failed: 0, Passed: 14, Skipped: 0, Total: 14
+```
+
+The hash assertion strengthens already-correct production behavior, so it passed when introduced. Its expected value was independently calculated as documented above.
+
+### GREEN Evidence
+
+TypeScript command from `src/Brmble.Web`:
+
+```text
+npm test -- --run src/components/Games/Arena/arenaMath.test.ts
+Test Files 1 passed (1)
+Tests 13 passed (13)
+```
+
+C# x64 command:
+
+```text
+dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj --filter FullyQualifiedName~FixedPointTests -a x64
+Passed! - Failed: 0, Passed: 14, Skipped: 0, Total: 14
+```
+
+TypeScript type-check from `src/Brmble.Web`:
+
+```text
+npm run type-check
+tsc -b tsconfig.test.json --force
+Exit code 0
+```
+
+Repository whitespace check:
+
+```text
+git diff --check
+Exit code 0
+```
+
+### Mutation Reasoning
+
+- Restoring the fixed `1n << 62n` initial bit makes the `Number.MAX_SAFE_INTEGER` axis regression fail with `x = 68717379599`, so the test specifically detects truncated high-order square-root work and unsafe output leakage.
+- Reversing field order changes the literal byte stream and fails the fixed hash assertion.
+- Writing big-endian rather than little-endian changes each four-byte group and fails the fixed hash assertion.
+- Encoding negative values without their signed two's-complement `int32` bytes changes `FE FF FF FF` or `FC FF FF FF` and fails the fixed hash assertion.
+- Changing the FNV offset basis, prime, XOR/multiply order, or 64-bit wrap behavior changes `0x6e6a133b739ed09d` and fails the fixed hash assertion.
+
+### Concerns
+
+None. Dynamic BigInt initialization preserves the restoring algorithm and existing golden vectors while matching the exported TypeScript functions' safe-integer input range.
