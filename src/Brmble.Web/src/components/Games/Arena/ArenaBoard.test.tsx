@@ -201,6 +201,114 @@ describe('ArenaBoard', () => {
     expect(live).not.toHaveTextContent(/Round \d/);
   });
 
+  it('mutates the same live text node once per round semantic transition and never for equivalent raw state', () => {
+    const rendered = render(<ArenaBoard {...props()} />);
+    const live = screen.getByTestId('arena-live-region');
+    const textNode = live.firstChild;
+    expect(textNode).toBeInstanceOf(Text);
+    const observer = new MutationObserver(() => {});
+    observer.observe(live, { characterData: true, childList: true, subtree: true });
+
+    const expectSemanticMutation = (label: string) => {
+      const records = observer.takeRecords();
+      expect(records).toHaveLength(1);
+      expect(records[0].type).toBe('characterData');
+      expect(live).toHaveTextContent(label);
+      expect(live.firstChild).toBe(textNode);
+    };
+    const expectEquivalentStateIsStable = (text: string) => {
+      expect(observer.takeRecords()).toHaveLength(0);
+      expect(live.textContent).toBe(text);
+      expect(live.firstChild).toBe(textNode);
+    };
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, score: [2, 0], consecutiveDoubleKos: 0 },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectSemanticMutation('Round 3');
+    const roundText = live.textContent!;
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: {
+        ...connection.current.welcome!.state,
+        arena: { ...connection.current.welcome!.state.arena, radius: 7591 },
+        players: connection.current.welcome!.state.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 80, aimX: 32600, aimY: 100, chargePermille: 641, forcedFireTicks: 17, cooldownTicks: 11 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectEquivalentStateIsStable(roundText);
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, consecutiveDoubleKos: 1 },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectSemanticMutation('Round 3 · Double KO replay 1');
+    const replayOneText = live.textContent!;
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: {
+        ...connection.current.welcome!.state,
+        players: connection.current.welcome!.state.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 120, chargePermille: 642, forcedFireTicks: 16, cooldownTicks: 10 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectEquivalentStateIsStable(replayOneText);
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, consecutiveDoubleKos: 2 },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectSemanticMutation('Round 3 · Double KO replay 2');
+    const replayTwoText = live.textContent!;
+
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: {
+        ...connection.current.welcome!.state,
+        players: connection.current.welcome!.state.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 160, chargePermille: 643, forcedFireTicks: 15, cooldownTicks: 9 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props()} />);
+    expectEquivalentStateIsStable(replayTwoText);
+
+    const finalState = {
+      ...connection.current.welcome!.state,
+      phase: 'ended' as const, phaseEndsAtTick: null, consecutiveDoubleKos: 2,
+    };
+    const ended = { type: 'matchClosed' as const, protocolVersion: 1 as const, matchId: 91, sequence: 7,
+      serverTick: 260, reason: 'completed' as const, finalState };
+    rendered.rerender(<ArenaBoard {...props({ ended })} />);
+    expectSemanticMutation('Match complete');
+    const terminalText = live.textContent!;
+
+    const equivalentEnded = {
+      ...ended,
+      sequence: 8,
+      finalState: {
+        ...finalState,
+        arena: { ...finalState.arena, radius: 7592 },
+        players: finalState.players.map(candidate => candidate.sessionId === 10
+          ? { ...candidate, x: 200, aimX: 32500, aimY: 120, chargePermille: 644, forcedFireTicks: 14, cooldownTicks: 8 }
+          : candidate),
+      },
+    };
+    rendered.rerender(<ArenaBoard {...props({ ended: equivalentEnded })} />);
+    expectEquivalentStateIsStable(terminalText);
+    observer.disconnect();
+  });
+
   it('keeps 20 Hz snapshots quiet within combat semantic states and updates at their boundaries', () => {
     const initial = connection.current.welcome!.state;
     const rendered = render(<ArenaBoard {...props()} />);
