@@ -17,6 +17,10 @@ const RECONNECT_GRACE_MS = 5000;
 
 export type ArenaConnectionStatus = 'disabled' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'failed';
 
+/**
+ * Task 14 replays each pending interval inclusively. `fromTick > toTick` is an
+ * empty held-state interval; edge flags still apply once and must not be dropped.
+ */
 export interface PendingArenaInput {
   sequence: number;
   predictedTick: number;
@@ -52,10 +56,12 @@ interface Runtime {
   matchId: number;
   socket: WebSocket | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
+  deadlineTimer: ReturnType<typeof setTimeout> | null;
   aimTimer: ReturnType<typeof setTimeout> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   reconnectStartedAt: number | null;
   retryIndex: number;
+  attemptGeneration: number;
   sessionId: number | null;
   nextSequence: number | null;
   serverTick: number;
@@ -75,7 +81,7 @@ function sameHeldState(left: ArenaInputState, right: ArenaInputState): boolean {
 
 function currentPredictedTick(runtime: Runtime): number {
   const elapsedTicks = Math.floor((performance.now() - runtime.clockStartedAt) * runtime.tickRate / 1000);
-  return runtime.serverTick + Math.max(0, elapsedTicks);
+  return runtime.serverTick + Math.max(1, elapsedTicks);
 }
 
 export function useArenaConnection({ matchId, enabled }: { matchId: number; enabled: boolean }): ArenaConnection {
@@ -113,7 +119,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     runtime.lastSentInput = recordedInput;
     setPendingInputs(previous => {
       const extended = previous.map((pending, index) => index === previous.length - 1
-        ? { ...pending, toTick: Math.max(pending.fromTick, predictedTick - 1) }
+        ? { ...pending, toTick: predictedTick - 1 }
         : pending);
       return [...extended, { sequence, predictedTick, fromTick: predictedTick, toTick: predictedTick, input: recordedInput }];
     });
@@ -122,7 +128,11 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
 
   const sendHeartbeat = () => {
     const runtime = runtimeRef.current;
-    if (runtime) sendStateRef.current(runtime, runtime.currentInput, true);
+    if (!runtime) return;
+    if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+    runtime.aimTimer = null;
+    runtime.queuedAimInput = null;
+    sendStateRef.current(runtime, runtime.currentInput, true);
   };
 
   const sendInput = (input: ArenaInputState) => {
@@ -156,8 +166,9 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   useEffect(() => {
     const generation = (runtimeRef.current?.generation ?? 0) + 1;
     const runtime: Runtime = {
-      generation, matchId, socket: null, retryTimer: null, aimTimer: null, heartbeatTimer: null,
-      reconnectStartedAt: null, retryIndex: 0, sessionId: null, nextSequence: null, serverTick: 0,
+      generation, matchId, socket: null, retryTimer: null, deadlineTimer: null,
+      aimTimer: null, heartbeatTimer: null, reconnectStartedAt: null, retryIndex: 0,
+      attemptGeneration: 0, sessionId: null, nextSequence: null, serverTick: 0,
       tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastSnapshotSequence: -1,
       lastSentAt: Number.NEGATIVE_INFINITY, lastSentInput: neutralInput,
       currentInput: neutralInput, queuedAimInput: null, terminal: false,
@@ -179,6 +190,24 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       setPendingInputs([]);
       runtime.nextSequence = null;
     };
+    const failReconnect = () => {
+      if (!current() || runtime.terminal) return;
+      runtime.attemptGeneration++;
+      if (runtime.retryTimer !== null) clearTimeout(runtime.retryTimer);
+      runtime.retryTimer = null;
+      if (runtime.deadlineTimer !== null) clearTimeout(runtime.deadlineTimer);
+      runtime.deadlineTimer = null;
+      clearConnectionTimers();
+      const staleSocket = runtime.socket;
+      runtime.socket = null;
+      if (staleSocket && staleSocket.readyState < WebSocket.CLOSING) staleSocket.close();
+      installNeutral();
+      setStatus('failed');
+    };
+    const startReconnectDeadline = () => {
+      if (runtime.deadlineTimer !== null) return;
+      runtime.deadlineTimer = setTimeout(failReconnect, RECONNECT_GRACE_MS);
+    };
 
     const scheduleReconnect = () => {
       if (!current() || runtime.terminal || runtime.retryTimer !== null) return;
@@ -188,6 +217,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       if (failedSocket && failedSocket.readyState < WebSocket.CLOSING) failedSocket.close();
       installNeutral();
       runtime.reconnectStartedAt ??= performance.now();
+      startReconnectDeadline();
       setStatus('reconnecting');
       const elapsed = performance.now() - runtime.reconnectStartedAt;
       const delay = RECONNECT_DELAYS[runtime.retryIndex];
@@ -204,6 +234,10 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
 
     const handleWelcome = (socket: WebSocket, message: ArenaWelcome) => {
       if (!current() || runtime.socket !== socket || message.matchId !== matchId) return;
+      if (runtime.nextSequence !== null) {
+        failReconnect();
+        return;
+      }
       runtime.serverTick = message.serverTick;
       runtime.sessionId = message.sessionId;
       runtime.tickRate = message.tickRate;
@@ -212,6 +246,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       runtime.lastSnapshotSequence = message.snapshotSequence;
       runtime.retryIndex = 0;
       runtime.reconnectStartedAt = null;
+      if (runtime.deadlineTimer !== null) clearTimeout(runtime.deadlineTimer);
+      runtime.deadlineTimer = null;
       runtime.currentInput = neutralInput;
       runtime.lastSentInput = neutralInput;
       setCurrentInput(neutralInput);
@@ -223,19 +259,28 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
         type: 'attachAck', protocolVersion: 1, matchId, snapshotSequence: message.snapshotSequence,
       });
       runtime.heartbeatTimer = setInterval(() => {
-        if (current()) sendStateRef.current(runtime, runtime.currentInput, true);
+        if (current()) {
+          if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
+          runtime.aimTimer = null;
+          runtime.queuedAimInput = null;
+          sendStateRef.current(runtime, runtime.currentInput, true);
+        }
       }, message.inputHeartbeatMs || DEFAULT_HEARTBEAT_MS);
     };
 
     const connect = async () => {
       if (!current() || !enabled) return;
+      const attempt = ++runtime.attemptGeneration;
       try {
         const ticket = await requestRealtimeTicket(matchId, 'participant');
-        if (!current()) return;
-        const socket = new WebSocket(`${ticket.url}?ticket=${encodeURIComponent(ticket.ticket)}`);
+        if (!current() || attempt !== runtime.attemptGeneration) return;
+        const socketUrl = new URL(ticket.url);
+        socketUrl.searchParams.set('ticket', ticket.ticket);
+        const socket = new WebSocket(socketUrl.toString());
         runtime.socket = socket;
         socket.onmessage = event => {
-          if (!current() || runtime.socket !== socket || typeof event.data !== 'string') return;
+          if (!current() || attempt !== runtime.attemptGeneration
+            || runtime.socket !== socket || typeof event.data !== 'string') return;
           const message = parseServerMessage(event.data);
           if (!message || message.matchId !== matchId) return;
           if (message.type === 'welcome') {
@@ -261,15 +306,15 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
           }
         };
         socket.onerror = () => {
-          if (current() && runtime.socket === socket) scheduleReconnect();
+          if (current() && attempt === runtime.attemptGeneration && runtime.socket === socket) scheduleReconnect();
         };
         socket.onclose = () => {
-          if (!current() || runtime.socket !== socket) return;
+          if (!current() || attempt !== runtime.attemptGeneration || runtime.socket !== socket) return;
           if (runtime.terminal) setStatus('closed');
           else scheduleReconnect();
         };
       } catch {
-        scheduleReconnect();
+        if (current() && attempt === runtime.attemptGeneration) scheduleReconnect();
       }
     };
 
@@ -288,6 +333,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     return () => {
       if (runtimeRef.current === runtime) runtimeRef.current = null;
       if (runtime.retryTimer !== null) clearTimeout(runtime.retryTimer);
+      if (runtime.deadlineTimer !== null) clearTimeout(runtime.deadlineTimer);
       clearConnectionTimers();
       runtime.socket?.close();
     };

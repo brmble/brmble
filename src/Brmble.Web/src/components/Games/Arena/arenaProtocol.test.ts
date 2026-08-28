@@ -59,6 +59,16 @@ describe('parseServerMessage', () => {
     ['unknown reject reason', { type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 44, reason: 'other' }],
     ['unknown phase', { ...snapshot(), phase: 'paused' }],
     ['extra field', { ...snapshot(), extra: true }],
+    ['unsafe integer', { ...snapshot(), serverTick: Number.MAX_SAFE_INTEGER + 1 }],
+    ['wrong ruleset', { ...welcome(), rulesetVersion: 2 }],
+    ['zero tick rate', { ...welcome(), tickRate: 0 }],
+    ['wrong snapshot rate', { ...welcome(), snapshotRate: 21 }],
+    ['wrong interpolation', { ...welcome(), interpolationMs: 99 }],
+    ['wrong extrapolation', { ...welcome(), maxExtrapolationMs: 51 }],
+    ['wrong heartbeat', { ...welcome(), inputHeartbeatMs: 251 }],
+    ['wrong neutral timeout', { ...welcome(), neutralAfterMs: 0 }],
+    ['wrong reconnect grace', { ...welcome(), reconnectGraceMs: -5000 }],
+    ['wrong prediction constant', { ...welcome(), prediction: { ...welcome().prediction, dashPerTick: 241 } }],
   ])('rejects %s', (_name, message) => {
     expect(parseServerMessage(JSON.stringify(message))).toBeNull();
   });

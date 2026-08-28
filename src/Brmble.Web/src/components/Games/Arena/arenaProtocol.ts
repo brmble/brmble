@@ -1,20 +1,20 @@
 export interface ArenaPredictionConstants {
-  unitsPerWorldUnit: number;
-  playerRadius: number;
-  baseMovePerTick: number;
-  chargedMovePerTick: number;
-  momentumRetentionPermille: number;
-  chargeTicks: number;
-  forcedFireTicks: number;
-  shotCooldownTicks: number;
-  projectileRadius: number;
-  projectilePerTick: number;
-  projectileBaseKnockback: number;
-  projectileBonusKnockback: number;
-  recoilBase: number;
-  recoilBonus: number;
-  dashTicks: number;
-  dashPerTick: number;
+  unitsPerWorldUnit: 1000;
+  playerRadius: 600;
+  baseMovePerTick: 90;
+  chargedMovePerTick: 45;
+  momentumRetentionPermille: 920;
+  chargeTicks: 90;
+  forcedFireTicks: 30;
+  shotCooldownTicks: 24;
+  projectileRadius: 180;
+  projectilePerTick: 240;
+  projectileBaseKnockback: 130;
+  projectileBonusKnockback: 220;
+  recoilBase: 45;
+  recoilBonus: 105;
+  dashTicks: 6;
+  dashPerTick: 240;
 }
 
 export interface ArenaPlayerSnapshot {
@@ -59,19 +59,19 @@ export interface ArenaStateSnapshot {
 export interface ArenaWelcome {
   type: 'welcome';
   protocolVersion: 1;
-  rulesetVersion: number;
+  rulesetVersion: 1;
   matchId: number;
   role: 'participant';
   sessionId: number;
   snapshotSequence: number;
   serverTick: number;
-  tickRate: number;
-  snapshotRate: number;
-  interpolationMs: number;
-  maxExtrapolationMs: number;
-  inputHeartbeatMs: number;
-  neutralAfterMs: number;
-  reconnectGraceMs: number;
+  tickRate: 60;
+  snapshotRate: 20;
+  interpolationMs: 100;
+  maxExtrapolationMs: 50;
+  inputHeartbeatMs: 250;
+  neutralAfterMs: 750;
+  reconnectGraceMs: 5000;
   prediction: ArenaPredictionConstants;
   state: ArenaStateSnapshot;
   acknowledgedInput: number;
@@ -167,14 +167,38 @@ function validState(value: unknown): value is ArenaStateSnapshot {
 }
 
 function validPrediction(value: unknown): value is ArenaPredictionConstants {
-  const keys = ['unitsPerWorldUnit', 'playerRadius', 'baseMovePerTick', 'chargedMovePerTick', 'momentumRetentionPermille', 'chargeTicks', 'forcedFireTicks', 'shotCooldownTicks', 'projectileRadius', 'projectilePerTick', 'projectileBaseKnockback', 'projectileBonusKnockback', 'recoilBase', 'recoilBonus', 'dashTicks', 'dashPerTick'];
-  return objectWithKeys(value, keys) && keys.every(key => integer(value[key]));
+  return objectWithKeys(value, Object.keys(PREDICTION_V1))
+    && Object.entries(PREDICTION_V1).every(([key, expected]) => value[key] === expected);
 }
+
+const PREDICTION_V1: ArenaPredictionConstants = {
+  unitsPerWorldUnit: 1000,
+  playerRadius: 600,
+  baseMovePerTick: 90,
+  chargedMovePerTick: 45,
+  momentumRetentionPermille: 920,
+  chargeTicks: 90,
+  forcedFireTicks: 30,
+  shotCooldownTicks: 24,
+  projectileRadius: 180,
+  projectilePerTick: 240,
+  projectileBaseKnockback: 130,
+  projectileBonusKnockback: 220,
+  recoilBase: 45,
+  recoilBonus: 105,
+  dashTicks: 6,
+  dashPerTick: 240,
+};
 
 function validWelcome(value: JsonObject): value is JsonObject & ArenaWelcome {
   const keys = ['type', 'protocolVersion', 'rulesetVersion', 'matchId', 'role', 'sessionId', 'snapshotSequence', 'serverTick', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'prediction', 'state', 'acknowledgedInput'];
   return objectWithKeys(value, keys) && value.type === 'welcome' && value.protocolVersion === 1
-    && value.role === 'participant' && ['rulesetVersion', 'matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'acknowledgedInput'].every(key => integer(value[key]))
+    && value.role === 'participant' && value.rulesetVersion === 1
+    && value.tickRate === 60 && value.snapshotRate === 20
+    && value.interpolationMs === 100 && value.maxExtrapolationMs === 50
+    && value.inputHeartbeatMs === 250 && value.neutralAfterMs === 750
+    && value.reconnectGraceMs === 5000
+    && ['matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'acknowledgedInput'].every(key => integer(value[key]))
     && validPrediction(value.prediction) && validState(value.state);
 }
 

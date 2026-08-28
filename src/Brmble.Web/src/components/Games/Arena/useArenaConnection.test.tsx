@@ -7,11 +7,14 @@ vi.mock('../../../api/games', () => ({ requestRealtimeTicket }));
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  static readonly CONNECTING = 0;
   static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
   readonly url: string;
-  readyState = FakeWebSocket.OPEN;
+  readyState = FakeWebSocket.CONNECTING;
   sent: unknown[] = [];
-  close = vi.fn(() => { this.readyState = 3; });
+  close = vi.fn(() => { this.readyState = FakeWebSocket.CLOSED; });
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
@@ -20,10 +23,10 @@ class FakeWebSocket {
   constructor(url: string) {
     this.url = url;
     FakeWebSocket.instances.push(this);
-    queueMicrotask(() => this.onopen?.(new Event('open')));
   }
 
   send(raw: string) { this.sent.push(JSON.parse(raw)); }
+  open() { act(() => { this.readyState = FakeWebSocket.OPEN; this.onopen?.(new Event('open')); }); }
   message(value: unknown) { act(() => this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value) }))); }
   fail() { act(() => this.onerror?.(new Event('error'))); }
   closed() { act(() => this.onclose?.(new CloseEvent('close'))); }
@@ -72,6 +75,7 @@ async function connect(acknowledgedInput = 0) {
   const rendered = renderHook(() => useArenaConnection({ matchId: 91, enabled: true }));
   await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
   const socket = FakeWebSocket.instances[0];
+  socket.open();
   socket.message(welcome(acknowledgedInput));
   return { ...rendered, socket };
 }
@@ -94,7 +98,7 @@ describe('useArenaConnection', () => {
 
   it('opens the direct URL, acknowledges welcome, sequences input, and sends a complete heartbeat', async () => {
     const h = await connect();
-    expect(h.socket.url).toBe('wss://chat.example/games/realtime?ticket=ticket%20%2B%2F%3D');
+    expect(h.socket.url).toBe('wss://chat.example/games/realtime?ticket=ticket+%2B%2F%3D');
     expect(h.socket.sent[0]).toEqual({ type: 'attachAck', protocolVersion: 1, matchId: 91, snapshotSequence: 1 });
 
     act(() => h.result.current.sendInput(held));
@@ -111,10 +115,23 @@ describe('useArenaConnection', () => {
     const h = await connect(10);
     act(() => h.result.current.sendInput(held));
     expect(h.result.current.pendingInputs).toEqual([{
-      sequence: 11, predictedTick: 100, fromTick: 100, toTick: 100, input: held,
+      sequence: 11, predictedTick: 101, fromTick: 101, toTick: 101, input: held,
     }]);
     h.socket.message(world(2, 11));
     expect(h.result.current.pendingInputs).toEqual([]);
+  });
+
+  it('uses non-overlapping inclusive intervals and preserves same-tick edges in empty intervals', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    act(() => h.result.current.sendInput({ ...held, dash: true }));
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
+
+    expect(h.result.current.pendingInputs).toEqual([
+      { sequence: 1, predictedTick: 101, fromTick: 101, toTick: 100, input: held },
+      { sequence: 2, predictedTick: 101, fromTick: 101, toTick: 100, input: { ...held, dash: true } },
+      { sequence: 3, predictedTick: 101, fromTick: 101, toTick: 101, input: { ...held, moveX: -32767 } },
+    ]);
   });
 
   it('sends held changes and edges immediately but coalesces aim-only changes for 34ms', async () => {
@@ -151,9 +168,85 @@ describe('useArenaConnection', () => {
     for (const [index, delay] of [250, 500, 1000, 2000].entries()) {
       await act(() => vi.advanceTimersByTimeAsync(delay));
       await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(index + 2));
+      FakeWebSocket.instances[index + 1].open();
       FakeWebSocket.instances[index + 1].fail();
     }
     expect(requestRealtimeTicket).toHaveBeenCalledTimes(5);
+  });
+
+  it('fails at the reconnect deadline when a ticket request stalls', async () => {
+    const h = await connect();
+    let resolveTicket!: (ticket: object) => void;
+    requestRealtimeTicket.mockImplementationOnce(() => new Promise(resolve => { resolveTicket = resolve; }));
+    h.socket.fail();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(h.result.current.status).toBe('failed');
+    resolveTicket({ protocolVersion: 1, ticket: 'stale', url: 'wss://chat.example/stale', expiresAt: 'later' });
+    await act(async () => {});
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('closes a CONNECTING replacement socket and fails at the reconnect deadline', async () => {
+    const h = await connect();
+    h.socket.fail();
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    const stalled = FakeWebSocket.instances[1];
+    expect(stalled.readyState).toBe(FakeWebSocket.CONNECTING);
+    await act(() => vi.advanceTimersByTimeAsync(4750));
+    expect(stalled.close).toHaveBeenCalledOnce();
+    expect(h.result.current.status).toBe('failed');
+    stalled.open();
+    stalled.message(welcome());
+    expect(h.result.current.status).toBe('failed');
+  });
+
+  it('fails at the reconnect deadline when an OPEN socket never sends welcome', async () => {
+    const h = await connect();
+    h.socket.fail();
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    const stalled = FakeWebSocket.instances[1];
+    stalled.open();
+    await act(() => vi.advanceTimersByTimeAsync(4750));
+    expect(stalled.close).toHaveBeenCalledOnce();
+    expect(h.result.current.status).toBe('failed');
+  });
+
+  it('preserves URL query and fragment while replacing one ticket parameter', async () => {
+    requestRealtimeTicket.mockResolvedValueOnce({
+      protocolVersion: 1, ticket: 'new token',
+      url: 'wss://chat.example/games/realtime?transport=websocket&ticket=old#arena',
+      expiresAt: '2026-08-28T12:00:15Z',
+    });
+    renderHook(() => useArenaConnection({ matchId: 91, enabled: true }));
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    expect(FakeWebSocket.instances[0].url).toBe(
+      'wss://chat.example/games/realtime?transport=websocket&ticket=new+token#arena',
+    );
+  });
+
+  it('rebases queued aim on heartbeat and keeps aim-changing sends 34ms apart', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
+    act(() => h.result.current.sendHeartbeat());
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', aimX: 0, aimY: 32767 });
+    act(() => h.result.current.sendInput({ ...held, aimX: -32767, aimY: 0 }));
+    await act(() => vi.advanceTimersByTimeAsync(24));
+    expect(h.socket.sent).toHaveLength(3);
+    await act(() => vi.advanceTimersByTimeAsync(9));
+    expect(h.socket.sent).toHaveLength(3);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: -32767, aimY: 0 });
+  });
+
+  it('fails and clears the heartbeat when an active socket sends a duplicate welcome', async () => {
+    const h = await connect();
+    h.socket.message(welcome(20, 2));
+    expect(h.socket.close).toHaveBeenCalledOnce();
+    expect(h.result.current.status).toBe('failed');
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(h.socket.sent).toHaveLength(1);
   });
 
   it('clears pending input, installs neutral, and uses the new welcome acknowledgement', async () => {
@@ -165,6 +258,7 @@ describe('useArenaConnection', () => {
     expect(h.result.current.currentInput).toMatchObject({ moveX: 0, moveY: 0, charging: false });
     await act(() => vi.advanceTimersByTimeAsync(250));
     const replacement = FakeWebSocket.instances[1];
+    replacement.open();
     replacement.message(welcome(11, 40));
     act(() => h.result.current.sendInput(held));
     expect(replacement.sent.at(-1)).toMatchObject({ type: 'input', sequence: 12 });
@@ -190,6 +284,7 @@ describe('useArenaConnection', () => {
       { initialProps: { matchId: 91, enabled: true } },
     );
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    FakeWebSocket.instances[0].open();
     FakeWebSocket.instances[0].message(welcome());
     rerender({ matchId: 92, enabled: false });
     expect(FakeWebSocket.instances[0].close).toHaveBeenCalledOnce();
