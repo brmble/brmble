@@ -37,6 +37,7 @@ public sealed class RealtimeSnapshotMailbox
         });
     private readonly SemaphoreSlim _available = new(0);
     private int _controlCount;
+    private int _ordinaryControlCount;
     private int _snapshotCount;
     private int _controlsSinceSnapshot;
     private int _droppedSnapshots;
@@ -55,8 +56,9 @@ public sealed class RealtimeSnapshotMailbox
                 return;
 
             var terminal = IsTerminal(control);
-            var capacity = terminal ? ControlCapacity : OrdinaryControlCapacity;
-            if (_controlCount >= capacity || !_controls.Writer.TryWrite(control))
+            if (_controlCount >= ControlCapacity ||
+                (!terminal && _ordinaryControlCount >= OrdinaryControlCapacity) ||
+                !_controls.Writer.TryWrite(control))
             {
                 if (terminal)
                     Volatile.Write(ref _overloaded, true);
@@ -64,6 +66,8 @@ public sealed class RealtimeSnapshotMailbox
             }
 
             _controlCount++;
+            if (!terminal)
+                _ordinaryControlCount++;
             _available.Release();
         }
     }
@@ -140,6 +144,8 @@ public sealed class RealtimeSnapshotMailbox
             return false;
 
         _controlCount--;
+        if (!IsTerminal(control))
+            _ordinaryControlCount--;
         _controlsSinceSnapshot++;
         return true;
     }

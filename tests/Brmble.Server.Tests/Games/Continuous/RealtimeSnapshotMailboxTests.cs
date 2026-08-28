@@ -84,6 +84,48 @@ public class RealtimeSnapshotMailboxTests
     }
 
     [TestMethod]
+    public async Task TerminalsEnqueuedFirst_DoNotReduceFourteenOrdinarySlots()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        box.WriteControl(Welcome());
+        box.WriteControl(MatchClosed(121));
+        for (var i = 1; i <= 15; i++)
+            box.WriteControl(ConnectionState(i, "reconnecting"));
+
+        var controls = await TakeAsync(box, 16);
+
+        Assert.AreEqual(14, controls.Count(x => x.Type == "connectionState"));
+        Assert.AreEqual(1, controls.Count(x => x.Type == "welcome"));
+        Assert.AreEqual(1, controls.Count(x => x.Type == "matchClosed"));
+        Assert.IsFalse(box.Overloaded);
+    }
+
+    [TestMethod]
+    public async Task MixedDrainAndRefill_RestoresOrdinarySlotsWithoutExceedingPhysicalCapacity()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        box.WriteControl(Welcome());
+        for (var i = 1; i <= 14; i++)
+            box.WriteControl(ConnectionState(i, "initial"));
+        box.WriteControl(MatchClosed(121));
+
+        var first = await TakeAsync(box, 5);
+        for (var i = 15; i <= 19; i++)
+            box.WriteControl(ConnectionState(i, "refill"));
+        box.WriteControl(MatchClosed(122));
+        box.WriteControl(MatchClosed(123));
+
+        var remaining = await TakeAsync(box, 16);
+
+        Assert.AreEqual(1, first.Count(x => x.Type == "welcome"));
+        Assert.AreEqual(18, first.Concat(remaining).Count(x => x.Type == "connectionState"));
+        Assert.IsTrue(remaining.Any(x => x.Type == "matchClosed" && x.Sequence == 121));
+        Assert.IsTrue(remaining.Any(x => x.Type == "matchClosed" && x.Sequence == 122));
+        Assert.IsFalse(remaining.Any(x => x.Type == "matchClosed" && x.Sequence == 123));
+        Assert.IsTrue(box.Overloaded);
+    }
+
+    [TestMethod]
     public async Task FullTerminalReserve_MarksOverloadedWithoutLosingQueuedTerminalControls()
     {
         var box = new RealtimeSnapshotMailbox();
