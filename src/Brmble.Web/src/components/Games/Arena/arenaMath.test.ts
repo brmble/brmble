@@ -167,9 +167,13 @@ describe('arena client prediction', () => {
   });
 
   it.each([
-    ['far behind', 90, 1],
-    ['future skew', 120, 5],
-  ])('bounds %s acknowledged dash timing to the acknowledgement snapshot', (_label, predictedTick, expectedTicks) => {
+    ['far behind', 90, 99, 105, [104]],
+    ['lagging within the active window', 100, 100, 106, [104, 105]],
+    ['exact', 103, 103, 109, [104, 105, 106, 107, 108]],
+    ['future skew', 120, 103, 109, [104, 105, 106, 107, 108]],
+  ])('keeps %s inferred dash movement within six ticks and stops at its exclusive end', (
+    _label, predictedTick, expectedStart, expectedEnd, expectedMovementTicks,
+  ) => {
     const accepted = snapshot({
       serverTick: 103,
       players: snapshot().players.map(player => player.sessionId === 10
@@ -177,7 +181,20 @@ describe('arena client prediction', () => {
         : player),
     });
     const dash = { ...pending(8, predictedTick, predictedTick, { ...right, dash: true }), acknowledgedAtTick: 103 };
-    expect(reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local.dashTicks).toBe(expectedTicks);
+    let local = reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local;
+    const movementTicks: number[] = [];
+    while (local.serverTick <= expectedEnd) {
+      const before = local.player.x;
+      local = stepLocal(local, right, prediction);
+      if (local.player.x - before === prediction.baseMovePerTick + prediction.dashPerTick) {
+        movementTicks.push(local.serverTick);
+      }
+    }
+
+    expect(expectedEnd - expectedStart).toBeLessThanOrEqual(6);
+    expect(local.dashEndsAtTick).toBe(expectedEnd);
+    expect(movementTicks).toEqual(expectedMovementTicks);
+    expect(movementTicks).not.toContain(expectedEnd);
   });
 
   it('ends inferred dash at its bounded end and never extends it past six authoritative ticks', () => {

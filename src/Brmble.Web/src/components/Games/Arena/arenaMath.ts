@@ -287,12 +287,12 @@ function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionCons
   const inferredDashStart = acknowledgedDash
     ? Math.min(acknowledgedAtTick, Math.max(
         acknowledgedDash.predictedTick,
-        acknowledgedAtTick - (constants.dashTicks - 1),
+        acknowledgedAtTick - (constants.dashTicks - 2),
       ))
     : null;
   const reconstructedDashEnd = inferredDashStart === null
     ? null
-    : Math.min(inferredDashStart + constants.dashTicks + 1, acknowledgedAtTick + constants.dashTicks);
+    : inferredDashStart + constants.dashTicks;
   const dashEndsAtTick = !player.dashAvailable
     ? [previousDashEnd ?? 0, reconstructedDashEnd ?? 0]
         .filter(tick => tick > authority.snapshot.serverTick)
