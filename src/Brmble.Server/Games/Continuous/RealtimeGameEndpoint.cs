@@ -93,28 +93,9 @@ public static class RealtimeGameEndpoint
         try
         {
             var receive = ReceiveLoopAsync(socket, coordinator, mailbox, scope, connectionId, loops.Token);
-            var send = SendLoopAsync(socket, mailbox, loops.Token);
-            var completed = await Task.WhenAny(receive, send);
-            var outcome = await completed;
+            var outcome = await RunWriterAsync(socket, mailbox, receive, loops.Token);
             loops.Cancel();
             await ObserveAsync(receive);
-            await ObserveAsync(send);
-
-            if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
-            {
-                var status = outcome == LoopOutcome.InvalidPayload
-                    ? WebSocketCloseStatus.InvalidPayloadData
-                    : outcome == LoopOutcome.Terminal
-                        ? WebSocketCloseStatus.NormalClosure
-                        : WebSocketCloseStatus.EndpointUnavailable;
-                var description = outcome switch
-                {
-                    LoopOutcome.Overloaded => "overloaded",
-                    LoopOutcome.TerminalTimedOut => "terminal timeout",
-                    _ => null,
-                };
-                await CloseOutputBoundedAsync(socket, status, description, CloseOutputTimeout);
-            }
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
         catch (WebSocketException) { }
@@ -222,53 +203,176 @@ public static class RealtimeGameEndpoint
         }
     }
 
-    internal static async Task<LoopOutcome> SendLoopAsync(
-        WebSocket socket, RealtimeSnapshotMailbox mailbox, CancellationToken cancellationToken)
+    internal static async Task<LoopOutcome> RunWriterAsync(WebSocket socket,
+        RealtimeSnapshotMailbox mailbox, Task<LoopOutcome> receive, CancellationToken cancellationToken)
     {
-        try
+        while (!cancellationToken.IsCancellationRequested)
         {
-            while (!cancellationToken.IsCancellationRequested)
+            if (mailbox.Overloaded)
             {
-                if (mailbox.Overloaded) return LoopOutcome.Overloaded;
-                var outbound = await mailbox.ReadNextAsync(cancellationToken);
-                var payload = System.Text.Encoding.UTF8.GetBytes(outbound.Json);
-                if (outbound.Type == "matchClosed")
+                socket.Abort();
+                return LoopOutcome.Overloaded;
+            }
+            if (mailbox.TerminalAvailableTimestamp != 0
+                && mailbox.TryTakeTerminal(out var sealedTerminal))
+                return await SendTerminalAndCloseAsync(socket, mailbox, sealedTerminal, cancellationToken);
+            if (receive.IsCompleted)
+                return await CloseForReceiveOutcomeAsync(socket, await receive);
+
+            using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var read = mailbox.ReadNextAsync(readCancellation.Token).AsTask();
+            var transition = WaitForCancellationAsync(mailbox.TerminalOrOverload);
+            var ready = await Task.WhenAny(read, receive, transition);
+            if (ready == receive)
+            {
+                readCancellation.Cancel();
+                await ObserveIoAsync(read);
+                return await CloseForReceiveOutcomeAsync(socket, await receive);
+            }
+            if (ready == transition)
+            {
+                if (mailbox.Overloaded)
                 {
-                    var elapsed = Stopwatch.GetElapsedTime(mailbox.TerminalAvailableTimestamp);
-                    var remaining = TerminalSendTimeout - elapsed;
-                    if (remaining <= TimeSpan.Zero) return LoopOutcome.TerminalTimedOut;
-                    using var terminal = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    terminal.CancelAfter(remaining);
-                    try
+                    readCancellation.Cancel();
+                    await ObserveIoAsync(read);
+                    socket.Abort();
+                    return LoopOutcome.Overloaded;
+                }
+                readCancellation.Cancel();
+                RealtimeOutbound? consumed = null;
+                try { consumed = await read; }
+                catch (OperationCanceledException) { }
+                if (!mailbox.TryTakeTerminal(out var terminal))
+                {
+                    if (consumed?.Type != "matchClosed")
                     {
-                        await socket.SendAsync(payload, WebSocketMessageType.Text, true, terminal.Token);
-                    }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                    {
+                        socket.Abort();
                         return LoopOutcome.TerminalTimedOut;
                     }
-                    return LoopOutcome.Terminal;
+                    terminal = consumed;
                 }
-                using var ordinary = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken, mailbox.TerminalOrOverload);
-                try
-                {
-                    await socket.SendAsync(payload, WebSocketMessageType.Text, true, ordinary.Token);
-                }
-                catch (OperationCanceledException) when (
-                    mailbox.TerminalOrOverload.IsCancellationRequested
-                    && !cancellationToken.IsCancellationRequested)
-                {
-                    if (mailbox.Overloaded) return LoopOutcome.Overloaded;
-                }
+                return await SendTerminalAndCloseAsync(socket, mailbox, terminal, cancellationToken);
             }
-            return LoopOutcome.Cancelled;
+
+            var outbound = await read;
+            if (mailbox.TerminalAvailableTimestamp != 0 && outbound.Type != "matchClosed")
+                continue;
+            if (outbound.Type == "matchClosed")
+                return await SendTerminalAndCloseAsync(socket, mailbox, outbound, cancellationToken);
+
+            var payload = System.Text.Encoding.UTF8.GetBytes(outbound.Json);
+            var send = socket.SendAsync(
+                new ArraySegment<byte>(payload), WebSocketMessageType.Text, true, CancellationToken.None);
+            var sendOutcome = await WaitForOrdinarySendAsync(
+                socket, mailbox, send, receive, cancellationToken);
+            if (sendOutcome is not null) return sendOutcome.Value;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return LoopOutcome.Cancelled;
-        }
+        socket.Abort();
+        return LoopOutcome.Cancelled;
     }
+
+    private static async Task<LoopOutcome?> WaitForOrdinarySendAsync(WebSocket socket,
+        RealtimeSnapshotMailbox mailbox, Task send, Task<LoopOutcome> receive,
+        CancellationToken cancellationToken)
+    {
+        var transition = WaitForCancellationAsync(mailbox.TerminalOrOverload);
+        var stopping = WaitForCancellationAsync(cancellationToken);
+        var completed = await Task.WhenAny(send, receive, transition, stopping);
+        if (completed == send)
+        {
+            await send;
+            return null;
+        }
+        if (completed == stopping)
+        {
+            socket.Abort();
+            await ObserveIoAsync(send);
+            return LoopOutcome.Cancelled;
+        }
+
+        if (completed == transition && mailbox.Overloaded)
+        {
+            socket.Abort();
+            await ObserveIoAsync(send);
+            return LoopOutcome.Overloaded;
+        }
+
+        var outcome = completed == receive ? await receive : (LoopOutcome?)null;
+        var timeout = outcome is null
+            ? RemainingTerminalTime(mailbox)
+            : CloseOutputTimeout;
+        if (timeout <= TimeSpan.Zero || await Task.WhenAny(send, Task.Delay(timeout)) != send)
+        {
+            socket.Abort();
+            await ObserveIoAsync(send);
+            return outcome ?? LoopOutcome.TerminalTimedOut;
+        }
+        await send;
+        if (outcome is not null)
+            return await CloseForReceiveOutcomeAsync(socket, outcome.Value);
+        return null;
+    }
+
+    private static async Task<LoopOutcome> SendTerminalAndCloseAsync(WebSocket socket,
+        RealtimeSnapshotMailbox mailbox, RealtimeOutbound outbound, CancellationToken cancellationToken)
+    {
+        var remaining = RemainingTerminalTime(mailbox);
+        if (remaining <= TimeSpan.Zero)
+        {
+            socket.Abort();
+            return LoopOutcome.TerminalTimedOut;
+        }
+        using var terminal = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        terminal.CancelAfter(remaining);
+        try
+        {
+            var payload = System.Text.Encoding.UTF8.GetBytes(outbound.Json);
+            await socket.SendAsync(payload, WebSocketMessageType.Text, true, terminal.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            socket.Abort();
+            return LoopOutcome.TerminalTimedOut;
+        }
+        catch (WebSocketException)
+        {
+            socket.Abort();
+            return LoopOutcome.TerminalTimedOut;
+        }
+
+        await CloseOutputBoundedAsync(
+            socket, WebSocketCloseStatus.NormalClosure, null, CloseOutputTimeout);
+        return LoopOutcome.Terminal;
+    }
+
+    private static async Task<LoopOutcome> CloseForReceiveOutcomeAsync(
+        WebSocket socket, LoopOutcome outcome)
+    {
+        if (outcome == LoopOutcome.PeerClosed)
+        {
+            await CloseOutputBoundedAsync(socket,
+                socket.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                socket.CloseStatusDescription, CloseOutputTimeout);
+            return outcome;
+        }
+        if (outcome == LoopOutcome.Cancelled)
+        {
+            socket.Abort();
+            return outcome;
+        }
+        var status = outcome == LoopOutcome.InvalidPayload
+            ? WebSocketCloseStatus.InvalidPayloadData
+            : WebSocketCloseStatus.EndpointUnavailable;
+        await CloseOutputBoundedAsync(socket, status,
+            outcome == LoopOutcome.Overloaded ? "overloaded" : null, CloseOutputTimeout);
+        return outcome;
+    }
+
+    private static TimeSpan RemainingTerminalTime(RealtimeSnapshotMailbox mailbox) =>
+        TerminalSendTimeout - Stopwatch.GetElapsedTime(mailbox.TerminalAvailableTimestamp);
+
+    private static Task WaitForCancellationAsync(CancellationToken cancellationToken) =>
+        Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
 
     internal static async Task CloseOutputBoundedAsync(WebSocket socket,
         WebSocketCloseStatus status, string? description, TimeSpan timeout)
@@ -278,8 +382,14 @@ public static class RealtimeGameEndpoint
         {
             await socket.CloseOutputAsync(status, description, cancellation.Token);
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-        catch (WebSocketException) { }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            socket.Abort();
+        }
+        catch (WebSocketException)
+        {
+            socket.Abort();
+        }
     }
 
     private static bool TryString(JsonElement root, string name, out string value)
@@ -317,6 +427,13 @@ public static class RealtimeGameEndpoint
     }
 
     private static async Task ObserveAsync(Task<LoopOutcome> task)
+    {
+        try { await task; }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
+    }
+
+    private static async Task ObserveIoAsync(Task task)
     {
         try { await task; }
         catch (OperationCanceledException) { }

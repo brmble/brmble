@@ -277,21 +277,25 @@ public class RealtimeGameEndpointTests
     }
 
     [TestMethod]
-    public async Task QueuedTerminalInterruptsBlockedOrdinarySendAndIsSentNext()
+    public async Task TerminalDuringOrdinarySendWaitsForSendThenSendsTerminalAndClosesNormally()
     {
         var mailbox = new RealtimeSnapshotMailbox();
         mailbox.ReplaceSnapshot("{\"type\":\"snapshot\"}");
-        var socket = new BlockingWebSocket(blockTerminal: false);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var sending = RealtimeGameEndpoint.SendLoopAsync(socket, mailbox, cancellation.Token);
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writing = RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default);
         await socket.OrdinarySendStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.IsTrue(mailbox.SealTerminal(new RealtimeControl(
             "matchClosed", null, 2, "{\"type\":\"matchClosed\"}", false)));
+        socket.CompleteOrdinarySend();
 
         Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.Terminal,
-            await sending.WaitAsync(TimeSpan.FromSeconds(1)));
-        CollectionAssert.AreEqual(new[] { "matchClosed" }, socket.CompletedTypes.ToArray());
+            await writing.WaitAsync(TimeSpan.FromSeconds(1)));
+        CollectionAssert.AreEqual(new[] { "snapshot", "matchClosed" }, socket.CompletedTypes.ToArray());
+        CollectionAssert.AreEqual(new[] { WebSocketCloseStatus.NormalClosure }, socket.CloseStatuses.ToArray());
+        Assert.IsFalse(socket.SendCancellationObserved);
         Assert.AreEqual(1, socket.MaxConcurrentSends);
     }
 
@@ -300,9 +304,10 @@ public class RealtimeGameEndpointTests
     {
         var mailbox = new RealtimeSnapshotMailbox();
         mailbox.ReplaceSnapshot("{\"type\":\"snapshot\"}");
-        var socket = new BlockingWebSocket(blockTerminal: false);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var sending = RealtimeGameEndpoint.SendLoopAsync(socket, mailbox, cancellation.Token);
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writing = RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default);
         await socket.OrdinarySendStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         for (var i = 0; i < 14; i++) mailbox.WriteControl(new RealtimeControl(
             "connectionState", i, null, "{}", true));
@@ -312,8 +317,10 @@ public class RealtimeGameEndpointTests
         Assert.IsFalse(mailbox.SealTerminal(new RealtimeControl("matchClosed", null, 2, "{}", false)));
 
         Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.Overloaded,
-            await sending.WaitAsync(TimeSpan.FromSeconds(1)));
+            await writing.WaitAsync(TimeSpan.FromSeconds(1)));
         Assert.AreEqual(0, socket.CompletedTypes.Count);
+        Assert.IsTrue(socket.Aborted);
+        Assert.IsFalse(socket.SendCancellationObserved);
     }
 
     [TestMethod]
@@ -322,25 +329,108 @@ public class RealtimeGameEndpointTests
         var mailbox = new RealtimeSnapshotMailbox();
         Assert.IsTrue(mailbox.SealTerminal(new RealtimeControl(
             "matchClosed", null, 2, "{\"type\":\"matchClosed\"}", false)));
-        var socket = new BlockingWebSocket(blockTerminal: true);
+        var socket = new ManagedCancellationWebSocket(blockTerminal: true);
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var outcome = await RealtimeGameEndpoint.SendLoopAsync(socket, mailbox, default)
+        var outcome = await RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default)
             .WaitAsync(TimeSpan.FromSeconds(3));
 
         Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.TerminalTimedOut, outcome);
         Assert.AreEqual(0, socket.CompletedTypes.Count);
+        Assert.IsTrue(socket.Aborted);
+        Assert.IsTrue(socket.SendCancellationObserved);
     }
 
     [TestMethod]
     public async Task TerminalTimeoutUsesBoundedControlledAbnormalClose()
     {
-        var socket = new BlockingWebSocket(blockTerminal: false, blockClose: true);
+        var socket = new ManagedCancellationWebSocket(blockClose: true);
 
         await RealtimeGameEndpoint.CloseOutputBoundedAsync(
             socket, WebSocketCloseStatus.EndpointUnavailable, "terminal timeout", TimeSpan.FromMilliseconds(25));
 
         Assert.IsTrue(socket.CloseCancellationObserved);
         Assert.AreEqual(WebSocketCloseStatus.EndpointUnavailable, socket.RequestedCloseStatus);
+        Assert.IsTrue(socket.Aborted);
+    }
+
+    [TestMethod]
+    public async Task OrdinarySendPastTerminalDeadlineAbortsWithoutClaimingTerminalDelivery()
+    {
+        var mailbox = new RealtimeSnapshotMailbox();
+        mailbox.ReplaceSnapshot("{\"type\":\"snapshot\"}");
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writing = RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default);
+        await socket.OrdinarySendStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.IsTrue(mailbox.SealTerminal(new RealtimeControl(
+            "matchClosed", null, 2, "{\"type\":\"matchClosed\"}", false)));
+
+        Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.TerminalTimedOut,
+            await writing.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.IsTrue(socket.Aborted);
+        Assert.IsFalse(socket.SendCancellationObserved);
+        Assert.IsFalse(socket.CompletedTypes.Contains("matchClosed"));
+        Assert.AreEqual(0, socket.CloseStatuses.Count);
+    }
+
+    [TestMethod]
+    public async Task TerminalNormalCloseIsAttemptedBeforePendingReceiveIsCanceled()
+    {
+        var mailbox = new RealtimeSnapshotMailbox();
+        Assert.IsTrue(mailbox.SealTerminal(new RealtimeControl(
+            "matchClosed", null, 2, "{\"type\":\"matchClosed\"}", false)));
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.Terminal,
+            await RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default));
+
+        CollectionAssert.AreEqual(new[] { WebSocketCloseStatus.NormalClosure }, socket.CloseStatuses.ToArray());
+        Assert.IsFalse(receive.Task.IsCompleted);
+    }
+
+    [TestMethod]
+    public async Task TerminalSealSkipsQueuedOrdinaryControlsBeforeStartingAnotherSend()
+    {
+        var mailbox = new RealtimeSnapshotMailbox();
+        mailbox.WriteControl(new RealtimeControl(
+            "connectionState", 20, null, "{\"type\":\"connectionState\"}", true));
+        Assert.IsTrue(mailbox.SealTerminal(new RealtimeControl(
+            "matchClosed", null, 2, "{\"type\":\"matchClosed\"}", false)));
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.Terminal,
+            await RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default));
+
+        CollectionAssert.AreEqual(new[] { "matchClosed" }, socket.CompletedTypes.ToArray());
+    }
+
+    [TestMethod]
+    public async Task ProtocolFailureDuringBlockedSendWaitsForSendThenClosesInvalidPayload()
+    {
+        var mailbox = new RealtimeSnapshotMailbox();
+        mailbox.ReplaceSnapshot("{\"type\":\"snapshot\"}");
+        var socket = new ManagedCancellationWebSocket();
+        var receive = new TaskCompletionSource<RealtimeGameEndpoint.LoopOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writing = RealtimeGameEndpoint.RunWriterAsync(socket, mailbox, receive.Task, default);
+        await socket.OrdinarySendStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        receive.TrySetResult(RealtimeGameEndpoint.LoopOutcome.InvalidPayload);
+        socket.CompleteOrdinarySend();
+
+        Assert.AreEqual(RealtimeGameEndpoint.LoopOutcome.InvalidPayload,
+            await writing.WaitAsync(TimeSpan.FromSeconds(1)));
+        CollectionAssert.AreEqual(new[] { WebSocketCloseStatus.InvalidPayloadData }, socket.CloseStatuses.ToArray());
+        Assert.IsFalse(socket.SendCancellationObserved);
+        Assert.IsFalse(socket.Aborted);
     }
 
     [TestMethod]
@@ -608,27 +698,37 @@ public class RealtimeGameEndpointTests
         }
     }
 
-    private sealed class BlockingWebSocket(
-        bool blockTerminal, bool blockClose = false) : WebSocket
+    private sealed class ManagedCancellationWebSocket(
+        bool blockTerminal = false, bool blockClose = false) : WebSocket
     {
         private int _activeSends;
+        private readonly TaskCompletionSource _ordinaryRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource OrdinarySendStarted { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         public List<string> CompletedTypes { get; } = [];
         public int MaxConcurrentSends { get; private set; }
         public bool CloseCancellationObserved { get; private set; }
+        public bool SendCancellationObserved { get; private set; }
+        public bool Aborted { get; private set; }
         public WebSocketCloseStatus? RequestedCloseStatus { get; private set; }
+        public List<WebSocketCloseStatus> CloseStatuses { get; } = [];
         public override WebSocketCloseStatus? CloseStatus => null;
         public override string? CloseStatusDescription => null;
         public override WebSocketState State => WebSocketState.Open;
         public override string? SubProtocol => null;
-        public override void Abort() { }
+        public override void Abort()
+        {
+            Aborted = true;
+            _ordinaryRelease.TrySetResult();
+        }
         public override Task CloseAsync(WebSocketCloseStatus closeStatus, string? statusDescription,
             CancellationToken cancellationToken) => Task.CompletedTask;
         public override async Task CloseOutputAsync(WebSocketCloseStatus closeStatus, string? statusDescription,
             CancellationToken cancellationToken)
         {
             RequestedCloseStatus = closeStatus;
+            CloseStatuses.Add(closeStatus);
             if (!blockClose) return;
             try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -638,6 +738,7 @@ public class RealtimeGameEndpointTests
             }
         }
         public override void Dispose() { }
+        public void CompleteOrdinarySend() => _ordinaryRelease.TrySetResult();
         public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer,
             CancellationToken cancellationToken) => throw new NotSupportedException();
         public override async Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType,
@@ -650,9 +751,20 @@ public class RealtimeGameEndpointTests
                 using var json = JsonDocument.Parse(buffer);
                 var type = json.RootElement.GetProperty("type").GetString()!;
                 if (type != "matchClosed") OrdinarySendStarted.TrySetResult();
-                if (type != "matchClosed" || blockTerminal)
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                CompletedTypes.Add(type);
+                try
+                {
+                    if (type == "matchClosed" && blockTerminal)
+                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    else if (type != "matchClosed")
+                        await _ordinaryRelease.Task.WaitAsync(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    SendCancellationObserved = true;
+                    Abort();
+                    throw;
+                }
+                if (!Aborted) CompletedTypes.Add(type);
             }
             finally
             {

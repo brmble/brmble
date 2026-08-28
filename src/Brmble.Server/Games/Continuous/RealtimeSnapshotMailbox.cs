@@ -152,6 +152,35 @@ public sealed class RealtimeSnapshotMailbox
         }
     }
 
+    internal bool TryTakeTerminal(out RealtimeOutbound outbound)
+    {
+        lock (_gate)
+        {
+            RealtimeControl? terminal = null;
+            while (_controls.Reader.TryRead(out var control))
+            {
+                _controlCount--;
+                if (IsTerminal(control))
+                {
+                    if (control.Type == "matchClosed") terminal = control;
+                }
+                else
+                {
+                    _ordinaryControlCount--;
+                }
+            }
+
+            if (terminal is null)
+            {
+                outbound = null!;
+                return false;
+            }
+
+            outbound = Control(terminal);
+            return true;
+        }
+    }
+
     private bool TryReplaceControl(RealtimeControl replacement)
     {
         var pending = new List<RealtimeControl>(_controlCount);
