@@ -1,4 +1,5 @@
 using Brmble.Server.Games;
+using Brmble.Server.Games.Arena;
 using Brmble.Server.Games.Continuous;
 using Brmble.Server.Games.Duels;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -177,6 +178,87 @@ public class ContinuousInputTests
         Assert.IsTrue(h.Simulation.IsNeutral(20));
     }
 
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Arena_StationaryAimOnlyMessagePreservesSubmittedAim(bool heartbeat)
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+
+        Assert.IsTrue(h.Submit(
+            Input(1, predictedTick: h.Simulation.Tick, aimX: 0, aimY: 32_767), heartbeat).Accepted);
+        h.Simulation.Step();
+
+        Assert.AreEqual(0, h.Player.AimX);
+        Assert.AreEqual(32_767, h.Player.AimY);
+    }
+
+    [TestMethod]
+    public async Task Arena_DashEdgeSurvivesHeartbeatUntilStepAndDoesNotRepeat()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, dash: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick), heartbeat: true).Accepted);
+
+        h.Simulation.Step();
+        Assert.IsFalse(h.Player.DashAvailable);
+        Assert.AreEqual(5, h.Player.DashTicks);
+        h.Simulation.Step();
+
+        Assert.AreEqual(4, h.Player.DashTicks);
+    }
+
+    [TestMethod]
+    public async Task Arena_FireEdgeSurvivesExplicitNeutralUntilStepAndDoesNotRepeat()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick, aimX: 0, aimY: 32_767)).Accepted);
+
+        h.Simulation.Step();
+        Assert.AreEqual(1, h.Simulation.Projectiles.Count);
+        Assert.AreEqual(0, h.Simulation.Projectiles[0].Vx);
+        Assert.AreEqual(240, h.Simulation.Projectiles[0].Vy);
+        h.Simulation.Step();
+
+        Assert.AreEqual(1, h.Simulation.Projectiles.Count);
+    }
+
+    [TestMethod]
+    public async Task Arena_NeutralTimeoutDoesNotErasePendingDashEdge()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, moveX: 100, dash: true)).Accepted);
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(751));
+        h.Simulation.Step();
+
+        Assert.IsFalse(h.Player.DashAvailable);
+        Assert.AreEqual(5, h.Player.DashTicks);
+        Assert.AreEqual(240, h.Player.X + ArenaRulesetV1.SpawnOffset);
+    }
+
+    [TestMethod]
+    public async Task Arena_DashReservationRemainsSpentUntilAuthoritativeRoundReset()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, dash: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick)).Accepted);
+
+        Assert.AreEqual(ContinuousRejectReason.DashSpent,
+            h.Submit(Input(3, predictedTick: h.Simulation.Tick, dash: true)).Reason);
+        h.Simulation.Step();
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: h.Simulation.Tick)).Accepted);
+        Assert.AreEqual(ContinuousRejectReason.DashSpent,
+            h.Submit(Input(4, predictedTick: h.Simulation.Tick, dash: true)).Reason);
+
+        h.Player.X = 9_001;
+        h.Simulation.Step();
+        while (h.Simulation.Phase is ContinuousMatchPhase.Loading or ContinuousMatchPhase.Positioning)
+            h.Simulation.Step();
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: h.Simulation.Tick, dash: true)).Accepted);
+    }
+
     private static ContinuousInput Input(
         long sequence,
         long predictedTick = 0,
@@ -237,6 +319,67 @@ public class ContinuousInputTests
             Assert.IsTrue(result.Success);
             return new CoordinatorHarness(coordinator, result.MatchId, time, definition.Simulation!);
         }
+    }
+
+    private sealed class ArenaCoordinatorHarness
+    {
+        private ArenaCoordinatorHarness(
+            ContinuousGameCoordinator coordinator, long matchId, ManualTimeProvider time, ArenaSimulation simulation)
+        {
+            Coordinator = coordinator;
+            MatchId = matchId;
+            Time = time;
+            Simulation = simulation;
+        }
+
+        public ContinuousGameCoordinator Coordinator { get; }
+        public long MatchId { get; }
+        public ManualTimeProvider Time { get; }
+        public ArenaSimulation Simulation { get; }
+        public ArenaPlayerState Player => Simulation.Players.Single(player => player.SessionId == 10);
+
+        public InputResult Submit(ContinuousInput input, bool heartbeat = false) =>
+            Coordinator.SubmitInput(MatchId, 10, RealtimeRole.Participant, input, heartbeat);
+
+        public static async Task<ArenaCoordinatorHarness> Live()
+        {
+            var time = new ManualTimeProvider();
+            var definition = new CapturingArenaDefinition();
+            var coordinator = new ContinuousGameCoordinator(
+                [definition],
+                time,
+                new NullCompletedMatchSink(),
+                new NullGameEventPublisher(),
+                NullLogger<ContinuousGameCoordinator>.Instance);
+            var result = await coordinator.StartAsync(new DuelReservation(
+                9,
+                7,
+                new DuelPlayer(10, 501, "Alice"),
+                new DuelPlayer(20, 502, "Bob"),
+                new DuelConfiguration("arena-knockoff", "bo3", 1,
+                    new Dictionary<string, object?>(), "continuous"),
+                DateTimeOffset.UtcNow,
+                1,
+                null));
+            Assert.IsTrue(result.Success);
+
+            var simulation = definition.Simulation!;
+            simulation.MarkParticipantReady(10);
+            simulation.MarkParticipantReady(20);
+            for (var tick = 0; tick < ArenaRulesetV1.LoadingTicks + ArenaRulesetV1.PositioningTicks; tick++)
+                simulation.Step();
+            Assert.AreEqual(ContinuousMatchPhase.Live, simulation.Phase);
+            return new ArenaCoordinatorHarness(coordinator, result.MatchId, time, simulation);
+        }
+    }
+
+    private sealed class CapturingArenaDefinition : IContinuousGameDefinition
+    {
+        public ArenaSimulation? Simulation { get; private set; }
+        public string GameType => "arena-knockoff";
+        public int RulesetVersion => ArenaRulesetV1.Version;
+        public object PredictionConstants => ArenaRulesetV1.PredictionConstants;
+        public IContinuousSimulation Create(DuelReservation reservation) => Simulation = new ArenaSimulation(reservation);
     }
 
     private sealed class TestDefinition(long tick, ContinuousMatchPhase phase) : IContinuousGameDefinition

@@ -63,6 +63,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
     public IReadOnlyList<ArenaProjectile> Projectiles => _projectiles;
     public int ArenaRadius { get; private set; } = ArenaRulesetV1.InitialArenaRadius;
     public int ConsecutiveDoubleKos => _consecutiveDoubleKos;
+    public long RoundGeneration { get; private set; }
     public ArenaShrinkPhase ShrinkPhase => _liveTick switch
     {
         < ArenaRulesetV1.OpeningHoldTicks => ArenaShrinkPhase.Hold,
@@ -83,9 +84,26 @@ public sealed class ArenaSimulation : IContinuousSimulation
         }
     }
 
-    public void SetInput(long sessionId, ContinuousInput input) => FindPlayer(sessionId).Input = input;
+    public void SetInput(long sessionId, ContinuousInput input)
+    {
+        var player = FindPlayer(sessionId);
+        player.Input = input with
+        {
+            FireReleased = input.FireReleased || player.Input.FireReleased,
+            Dash = input.Dash || player.Input.Dash,
+        };
+    }
 
-    public void SetNeutralInput(long sessionId) => FindPlayer(sessionId).Input = NeutralInput;
+    public void SetNeutralInput(long sessionId)
+    {
+        var player = FindPlayer(sessionId);
+        player.Input = player.Input with
+        {
+            MoveX = 0,
+            MoveY = 0,
+            Charging = false,
+        };
+    }
 
     public ContinuousStepResult Step()
     {
@@ -252,6 +270,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
                 _dashSessionIds.Add(player.SessionId);
             else
                 _dashSessionIds.Remove(player.SessionId);
+
+            player.Input = player.Input with { Dash = false };
         }
     }
 
@@ -275,6 +295,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
                 _fireReleasedSessionIds.Add(player.SessionId);
             else
                 _fireReleasedSessionIds.Remove(player.SessionId);
+
+            player.Input = player.Input with { FireReleased = false };
         }
     }
 
@@ -551,6 +573,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     private void ResetRound()
     {
+        RoundGeneration = checked(RoundGeneration + 1);
         _roundResetThisTick = true;
         Phase = ContinuousMatchPhase.Loading;
         _phaseTick = 0;

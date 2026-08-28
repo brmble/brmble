@@ -115,18 +115,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (!IsInRange(input, state.Simulation.Tick, isHeartbeat))
                 return Reject(ContinuousRejectReason.InvalidRange, participant);
 
-            if (state.Simulation.Phase == ContinuousMatchPhase.Live
-                && participant.LastObservedPhase != ContinuousMatchPhase.Live)
-                participant.DashSpent = false;
-            participant.LastObservedPhase = state.Simulation.Phase;
-
             var arenaPlayer = state.Simulation is ArenaSimulation arena
                 ? arena.Players.First(player => player.SessionId == sessionId)
                 : null;
-            if (participant.DashSpent
-                && arenaPlayer is { DashAvailable: true, DashTicks: 0 }
-                && state.Simulation.Tick > participant.DashSpentTick)
+            if (state.Simulation is ArenaSimulation arenaSimulation
+                && participant.RoundGeneration != arenaSimulation.RoundGeneration)
+            {
                 participant.DashSpent = false;
+                participant.RoundGeneration = arenaSimulation.RoundGeneration;
+            }
 
             var aimChanged = input.AimX != participant.AimX || input.AimY != participant.AimY;
             var aimRateExceeded = false;
@@ -157,10 +154,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participant.MessageTimestamps.Enqueue(now);
             if (aimChanged)
                 participant.AimChangeTimestamps.Enqueue(now);
-            if (IsNeutral(input))
-                state.Simulation.SetNeutralInput(sessionId);
-            else
-                state.Simulation.SetInput(sessionId, input);
+            state.Simulation.SetInput(sessionId, input);
 
             participant.AimX = input.AimX;
             participant.AimY = input.AimY;
@@ -168,11 +162,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (input.FireReleased)
                 participant.CooldownUntilTick = checked(state.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks);
             if (input.Dash)
-            {
                 participant.DashSpent = true;
-                participant.DashSpentTick = state.Simulation.Tick;
-            }
-            participant.LastAcceptedTimestamp = now;
             participant.AcceptedGeneration = checked(participant.AcceptedGeneration + 1);
             participant.NeutralTimer?.Dispose();
             var timerResolution = TimeSpan.FromTicks(Math.Max(
@@ -274,13 +264,6 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                && aimSquared <= maxLengthSquared;
     }
 
-    private static bool IsNeutral(ContinuousInput input) =>
-        input.MoveX == 0
-        && input.MoveY == 0
-        && !input.Charging
-        && !input.FireReleased
-        && !input.Dash;
-
     private void NeutralizeIfStale(
         ContinuousMatchState state, ParticipantInputState participant, long acceptedGeneration)
     {
@@ -336,9 +319,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public short AimY;
         public long CooldownUntilTick;
         public bool DashSpent;
-        public long DashSpentTick;
-        public ContinuousMatchPhase LastObservedPhase = ContinuousMatchPhase.AwaitingParticipants;
-        public long LastAcceptedTimestamp;
+        public long RoundGeneration;
         public long AcceptedGeneration;
         public Queue<long> MessageTimestamps { get; } = [];
         public Queue<long> AimChangeTimestamps { get; } = [];
