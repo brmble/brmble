@@ -8,3 +8,11 @@
   padding: var(--space-lg);
   overflow: auto;
 }
+
+/* Arena's fixed world needs the panel's available area; discrete boards stay centered. */
+.game-surface--fill {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: var(--space-sm);
+  overflow: hidden;
+}

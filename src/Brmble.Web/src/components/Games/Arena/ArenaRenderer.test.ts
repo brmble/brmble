@@ -1,0 +1,125 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ArenaPlayerSnapshot } from './arenaProtocol';
+import { ArenaRenderer, FALLBACK_AVATAR_SRC, type ArenaRenderView } from './ArenaRenderer';
+
+type Recorded = { op: string; args: unknown[]; strokeStyle?: string; lineWidth?: number };
+
+function player(sessionId: number, side: 0 | 1, overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot {
+  return {
+    sessionId, side, x: side ? 3000 : -3000, y: 0, vx: 0, vy: 0,
+    aimX: side ? -32767 : 32767, aimY: 0, chargePermille: 0,
+    forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true,
+    acknowledgedInput: 0, ...overrides,
+  };
+}
+
+function view(overrides: Partial<ArenaRenderView> = {}): ArenaRenderView {
+  return {
+    selfSessionId: 10,
+    players: [player(10, 0), player(20, 1)],
+    projectiles: [], arena: { radius: 8000, shrinkPhase: 'hold' },
+    names: { 10: 'Local', 20: 'Remote' }, avatarUrls: {}, ...overrides,
+  };
+}
+
+function setup() {
+  const calls: Recorded[] = [];
+  const context = new Proxy({
+    canvas: null, strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: 'start', textBaseline: 'alphabetic',
+    globalAlpha: 1,
+  } as unknown as CanvasRenderingContext2D, {
+    get(target, property) {
+      if (property in target) return target[property as keyof CanvasRenderingContext2D];
+      return (...args: unknown[]) => calls.push({
+        op: String(property), args, strokeStyle: String(target.strokeStyle), lineWidth: target.lineWidth,
+      });
+    },
+    set(target, property, value) {
+      Reflect.set(target, property, value);
+      return true;
+    },
+  });
+  const canvas = document.createElement('canvas');
+  Object.defineProperty(canvas, 'getContext', { value: () => context });
+  Object.defineProperty(canvas, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ left: 50, top: 25, width: 1000, height: 600, right: 1050, bottom: 625, x: 50, y: 25, toJSON: () => ({}) }),
+  });
+  const style = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+    getPropertyValue: (name: string) => ({
+      '--bg-surface': 'surface', '--text-primary': 'text', '--text-muted': 'muted',
+      '--accent-primary': 'primary', '--accent-danger': 'danger', '--font-body': 'body', '--font-mono': 'mono',
+      '--text-xs': '12px', '--text-sm': '14px',
+    })[name] ?? '',
+  } as CSSStyleDeclaration);
+  const renderer = new ArenaRenderer(canvas);
+  renderer.resize(1000, 600, 2);
+  return { renderer, canvas, calls, style };
+}
+
+describe('ArenaRenderer', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  });
+
+  it('uses a DPR-correct letterbox and maps pointer client coordinates through its exact inverse', () => {
+    const { renderer, canvas } = setup();
+    expect(canvas.width).toBe(2000);
+    expect(canvas.height).toBe(1200);
+    expect(renderer.pointerToWorld(550, 325)).toEqual({ x: 0, y: 0 });
+    renderer.resize(600, 1000, 1);
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 50, top: 25, width: 600, height: 1000, right: 650, bottom: 1025, x: 50, y: 25, toJSON: () => ({}) }),
+    });
+    expect(renderer.pointerToWorld(350, 525)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('draws every body aim, caps charge at 2200, and includes forced-fire text', () => {
+    const { renderer, calls } = setup();
+    renderer.render(view({ players: [
+      player(10, 0, { chargePermille: 1000, forcedFireTicks: 18 }), player(20, 1),
+    ] }), { reducedMotion: false });
+    expect(calls.filter(call => call.op === 'lineTo' && call.args[0] === 500)).toHaveLength(2);
+    expect(calls.filter(call => call.op === 'lineTo' && call.args[0] === 476)).toHaveLength(1);
+    expect(calls.some(call => call.op === 'fillText' && call.args[0] === '18')).toBe(true);
+  });
+
+  it('draws cooldown and dash markers only for the local body', () => {
+    const { renderer, calls } = setup();
+    calls.length = 0;
+    renderer.render(view({ players: [
+      player(10, 0, { cooldownTicks: 12, dashAvailable: true }),
+      player(20, 1, { cooldownTicks: 12, dashAvailable: true }),
+    ] }), { reducedMotion: false });
+    expect(calls.filter(call => call.op === 'fillText' && call.args[0] === '12')).toHaveLength(1);
+    expect(calls.filter(call => call.op === 'fillText' && call.args[0] === 'DASH')).toHaveLength(1);
+  });
+
+  it('uses the Brmble logo immediately when an avatar is missing or fails', () => {
+    const { renderer, calls } = setup();
+    renderer.render(view({ avatarUrls: { 10: 'broken-avatar' } }), { reducedMotion: false });
+    const images = calls.filter(call => call.op === 'drawImage').map(call => (call.args[0] as HTMLImageElement).src);
+    expect(images.some(source => source.includes(FALLBACK_AVATAR_SRC))).toBe(true);
+  });
+
+  it('removes moving trails under reduced motion without changing body positions or state cues', () => {
+    const projectile = { id: 1, ownerSessionId: 10, x: 0, y: 0, vx: 240, vy: 0, chargePermille: 500 };
+    const normal = setup();
+    normal.renderer.render(view({ projectiles: [projectile] }), { reducedMotion: false });
+    const reduced = setup();
+    reduced.renderer.render(view({ projectiles: [projectile] }), { reducedMotion: true });
+    expect(normal.calls.filter(call => call.op === 'lineTo').length).toBeGreaterThan(reduced.calls.filter(call => call.op === 'lineTo').length);
+    expect(normal.calls.filter(call => call.op === 'arc').map(call => call.args.slice(0, 3)))
+      .toEqual(reduced.calls.filter(call => call.op === 'arc').map(call => call.args.slice(0, 3)));
+  });
+
+  it('stops rendering and releases image handlers when disposed', () => {
+    const { renderer, calls } = setup();
+    calls.length = 0;
+    renderer.dispose();
+    renderer.render(view(), { reducedMotion: false });
+    expect(calls).toHaveLength(0);
+  });
+});

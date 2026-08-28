@@ -353,6 +353,36 @@ shell has **two different owners** across the two surfaces: for a participant th
 *board* wears it, while for a spectator the *stage host* wears it and the boards are
 bare bodies (see the Game Spectator Pattern).
 
+Two boards fit the surface in two different ways, and `GameSurface` supports both. By
+default it centers a content-sized child with `padding: var(--space-lg)`, which is right
+for Deathroll and RPS: they are small cards and centering them reads as deliberate. A
+continuous board with a fixed-geometry canvas is the opposite case — Arena's world is
+20 000 units square and the letterboxed canvas should be as large as the panel allows —
+so `<GameSurface fill>` stretches its single child to the full surface instead. The board
+still wears the same shared card shell; only `align-items` / `justify-content` / `padding`
+change. Do not add a third layout mode, and do not make `fill` the default: centering is
+correct for every discrete board.
+
+**Arena's HUD split.** A continuous board splits its HUD between real DOM and the canvas,
+and the split is not a free choice. The header holds what is textual and stable — match
+title, round and score, the phase countdown, session mute, and close/forfeit — as ordinary
+DOM, so it is focusable, selectable, translatable and reachable by a screen reader without
+any parallel implementation. The canvas draws what is spatial: bodies with clipped avatars,
+names and non-colour side markers, the always-visible thin aim line, the growing charge
+line with its attached forced-fire countdown, projectiles with presentation-only trails,
+the arena circle, a shrink-phase label at the canvas edge, and — **on the player's own
+body** — the shot-cooldown arc and the dash marker. Combat state sits at the player because
+a knockback brawler is unplayable if you have to look away from your character to learn
+whether you can shoot.
+
+Everything drawn on the canvas is also mirrored into an `.sr-only` live region on the
+board. **No gameplay information may exist only on the canvas, and none may be conveyed by
+colour or sound alone.** Colour is always supplementary: names, distinct outlines and side
+notches carry identity, and thickness or texture carries charge intensity.
+
+`prefers-reduced-motion` removes shake, flashes and decorative trail motion. It must not
+change simulation timing, state, or any information the player needs.
+
 Each game gets its **own** board component (Deathroll and RPS do not share a body). The
 `view` prop is the generic `GameView` union from `useGameState`; each one narrows it to its
 own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which

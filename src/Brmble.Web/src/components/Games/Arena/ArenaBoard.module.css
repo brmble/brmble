@@ -1,0 +1,55 @@
+.board {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding-right: var(--space-xl);
+}
+
+.titleBlock {
+  min-width: 0;
+}
+
+.titleBlock p {
+  margin: var(--space-2xs) 0 0;
+}
+
+.hud {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.score {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.canvasBox {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-top: var(--space-sm);
+  overflow: hidden;
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.canvas {
+  display: block;
+}
