@@ -129,6 +129,23 @@ describe('useArenaConnection', () => {
     }]);
     h.socket.message(world(2, 11));
     expect(h.result.current.pendingInputs).toEqual([]);
+    expect(h.result.current.recentInputs).toEqual([]);
+  });
+
+  it('retains acknowledged dash edges for six ticks and clears them on terminal state', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput({ ...held, dash: true }));
+    h.socket.message({ ...world(2, 101), serverTick: 101,
+      players: world(2, 1).players.map(player => player.sessionId === 10
+        ? { ...player, dashAvailable: false, acknowledgedInput: 1 }
+        : player) });
+    expect(h.result.current.pendingInputs).toEqual([]);
+    expect(h.result.current.recentInputs[0].input.dash).toBe(true);
+    h.socket.message({ ...world(3, 1), serverTick: 108 });
+    expect(h.result.current.recentInputs).toEqual([]);
+    act(() => h.result.current.sendInput({ ...held, dash: true }));
+    h.socket.message(matchClosed());
+    expect(h.result.current.recentInputs).toEqual([]);
   });
 
   it('uses non-overlapping inclusive intervals and preserves same-tick edges in empty intervals', async () => {

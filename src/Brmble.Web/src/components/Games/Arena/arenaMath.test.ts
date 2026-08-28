@@ -153,6 +153,19 @@ describe('arena client prediction', () => {
     expect(continued.local.player.x).toBe(2980);
   });
 
+  it('reconstructs acknowledged dash before prediction exists and clamps future predicted tick skew', () => {
+    const dash = pending(8, 110, 110, { ...right, dash: true });
+    const accepted = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10
+        ? { ...player, x: 1990, dashAvailable: false, acknowledgedInput: 8 }
+        : player),
+    });
+    const next = reconcile({ ...authority(accepted), recentInputs: [dash] }, [pending(9, 104, 106)], prediction);
+    expect(next.local.player.x).toBe(2980);
+    expect(next.local.dashTicks).toBe(2);
+  });
+
   it('smooths a 300-unit correction and snaps a 301-unit correction', () => {
     const predicted = reconcile(authority(), [pending(8, 101, 101)], prediction).local;
     const authority300 = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
@@ -179,9 +192,11 @@ describe('arena client prediction', () => {
   });
 
   it.each([
+    ['awaitingParticipants', 1000, 10, 5, 32767],
     ['loading', 1000, 10, 5, 32767],
     ['positioning', 1090, 10, null, 0],
     ['live', 1340, 9, null, 0],
+    ['ended', 1000, 10, 5, 32767],
   ] as const)('mirrors %s phase gates', (phase, expectedX, expectedCooldown, expectedForcedFire, expectedAimX) => {
     const base = reconcile(authority(snapshot({ phase })), [], prediction).local;
     const next = stepLocal({ ...base, player: { ...base.player, cooldownTicks: 10, forcedFireTicks: 5, vx: 10 } },

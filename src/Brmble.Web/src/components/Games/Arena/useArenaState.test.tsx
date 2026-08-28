@@ -97,7 +97,7 @@ describe('useArenaState', () => {
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot, pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
     expect(hook.result.current.projectiles).toHaveLength(1);
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -114,6 +114,73 @@ describe('useArenaState', () => {
     act(() => frame?.(performance.now()));
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1200);
+  });
+
+  it('continues a dash acknowledged before the first RAF using recent input history', () => {
+    const initial = welcome();
+    const dash: PendingArenaInput = {
+      sequence: 1, predictedTick: 110, fromTick: 110, toTick: 110,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
+    };
+    const acknowledged = {
+      ...snapshot(2, 1000, 1990), serverTick: 103,
+      players: snapshot(2, 1000, 1990).players.map(player => player.sessionId === 10
+        ? { ...player, dashAvailable: false, acknowledgedInput: 1 }
+        : player),
+    };
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: acknowledged, pendingInputs: [], recentInputs: [dash], selfSessionId: 10,
+    }));
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1990);
+    expect(hook.result.current.snapCount).toBe(0);
+  });
+
+  it('replaces an active authority correction from the current blended position without jumping', () => {
+    vi.setSystemTime(1000);
+    const initial = welcome();
+    const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[] } });
+    hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
+    act(() => frame?.(performance.now()));
+    vi.setSystemTime(1050);
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1100);
+    hook.rerender({ latestSnapshot: snapshot(3, 1050, 1300), pendingInputs: [] });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1100);
+    vi.setSystemTime(1100);
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1200);
+  });
+
+  it('advances an input-only target without creating an authority correction', () => {
+    const initial = welcome();
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(({ pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+    }), { initialProps: { pendingInputs: [] as PendingArenaInput[] } });
+    hook.rerender({ pendingInputs: [move] });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1090);
+  });
+
+  it('resets caches when selfSessionId changes with the same welcome object', () => {
+    const initial = welcome();
+    const hook = renderHook(({ selfSessionId, finalState }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [], recentInputs: [], selfSessionId, finalState,
+    }), { initialProps: { selfSessionId: 10, finalState: undefined as ArenaStateSnapshot | undefined } });
+    hook.rerender({ selfSessionId: 10, finalState: { ...state(5000), phase: 'ended', score: [2, 0] } });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.snapCount).toBe(1);
+    hook.rerender({ selfSessionId: 20, finalState: undefined });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.sessionId).toBe(20);
+    expect(hook.result.current.snapCount).toBe(0);
   });
 
   it('resets prediction, correction and snap count when the current session is replaced', () => {

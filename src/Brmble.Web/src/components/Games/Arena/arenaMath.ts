@@ -2,7 +2,7 @@ import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot,
   ArenaSnapshot, ArenaStateSnapshot,
 } from './arenaProtocol';
-import type { PendingArenaInput } from './useArenaConnection';
+import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
 
 export interface FixedVec {
   x: number;
@@ -140,6 +140,8 @@ export interface ArenaAuthority {
   snapshot: ArenaSnapshot;
   selfSessionId: number;
   previous?: PredictedArenaState;
+  recentInputs?: RecentArenaInput[];
+  correctionOrigin?: FixedVec;
 }
 
 function scaleBy(vector: FixedVec, amount: number): FixedVec {
@@ -184,11 +186,13 @@ export function stepLocal(
   rawInput: ArenaInputState,
   constants: ArenaPredictionConstants,
 ): PredictedArenaState {
+  if (current.phase === 'awaitingParticipants' || current.phase === 'loading' || current.phase === 'ended') {
+    return cloneState(current);
+  }
   const next = cloneState(current);
   const player = next.player;
   const tick = current.serverTick + 1;
   next.serverTick = tick;
-  if (next.phase === 'loading') return next;
   const movement = normalizeQ15(rawInput.moveX, rawInput.moveY);
   const aim = normalizeQ15(rawInput.aimX, rawInput.aimY);
   player.aimX = aim.x;
@@ -276,9 +280,17 @@ function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionCons
   if (!player) throw new Error('Arena authority does not contain the current session');
   const opponent = authority.snapshot.players.find(candidate => candidate.sessionId !== authority.selfSessionId) ?? null;
   const previousDashEnd = authority.previous?.dashEndsAtTick;
-  const dashEndsAtTick = !player.dashAvailable && previousDashEnd !== undefined
-    && previousDashEnd !== null && previousDashEnd > authority.snapshot.serverTick
-    ? previousDashEnd
+  const acknowledgedDash = authority.recentInputs
+    ?.filter(input => input.input.dash && input.sequence <= player.acknowledgedInput)
+    .at(-1);
+  const reconstructedDashEnd = acknowledgedDash
+    ? Math.min(acknowledgedDash.predictedTick, acknowledgedDash.acknowledgedAtTick ?? authority.snapshot.serverTick)
+      + constants.dashTicks
+    : null;
+  const dashEndsAtTick = !player.dashAvailable
+    ? [previousDashEnd ?? 0, reconstructedDashEnd ?? 0]
+        .filter(tick => tick > authority.snapshot.serverTick)
+        .reduce<number | null>((latest, tick) => latest === null ? tick : Math.max(latest, tick), null)
     : null;
   return {
     player: { ...player }, opponent: opponent ? { ...opponent } : null,
@@ -326,8 +338,9 @@ export function reconcile(
   }
 
   const previous = authority.previous;
-  const dx = previous ? local.player.x - previous.player.x : 0;
-  const dy = previous ? local.player.y - previous.player.y : 0;
+  const correctionOrigin = authority.correctionOrigin ?? previous?.player;
+  const dx = correctionOrigin ? local.player.x - correctionOrigin.x : 0;
+  const dy = correctionOrigin ? local.player.y - correctionOrigin.y : 0;
   const correctionSquared = BigInt(dx) * BigInt(dx) + BigInt(dy) * BigInt(dy);
   const discreteChanged = previous !== undefined && (
     previous.phase !== authoritative.phase
