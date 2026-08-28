@@ -13,6 +13,13 @@ export interface GameSettings {
   challengesBlocked: boolean;
 }
 
+export interface RealtimeTicket {
+  protocolVersion: 1;
+  ticket: string;
+  url: string;
+  expiresAt: string;
+}
+
 /** Per-game head-to-head record from the requesting user's perspective. */
 export interface HeadToHeadGame {
   gameType: string;
@@ -479,6 +486,26 @@ export async function getQueueSnapshot(): Promise<DuelQueueSnapshot> {
     throw await toGameApiError(response);
   }
   return response.json() as Promise<DuelQueueSnapshot>;
+}
+
+export async function requestRealtimeTicket(
+  matchId: number,
+  role: 'participant',
+): Promise<RealtimeTicket> {
+  const payload = { action: 'realtime-ticket', matchId, role };
+  if (isWebViewBridgeAvailable()) {
+    return bridgeRequest<RealtimeTicket>(payload);
+  }
+
+  const response = await fetch('/games/realtime-ticket', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ matchId, role }),
+  });
+  if (!response.ok) {
+    throw await toGameApiError(response);
+  }
+  return response.json() as Promise<RealtimeTicket>;
 }
 
 export async function getStats(
