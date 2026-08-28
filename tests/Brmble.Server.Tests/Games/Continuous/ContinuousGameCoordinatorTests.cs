@@ -74,6 +74,65 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task ReconnectWireProjectionUsesCurrentSessionIdsEverywhere()
+    {
+        var h = await Harness.LiveAsync();
+        while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
+        h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
+        h.Simulation.Step();
+        Assert.IsTrue(h.Simulation.Projectiles.Any(x => x.OwnerSessionId == 10));
+        await h.Coordinator.DetachAsync("one");
+
+        var replacement = await h.AttachAsync(501, 11, "replacement");
+        var welcome = await h.Mailboxes[11].ReadNextAsync(default);
+        var snapshot = await h.Mailboxes[11].ReadNextAsync(default);
+
+        Assert.AreEqual(11, replacement.Welcome!.SessionId);
+        AssertCurrentWireIds(welcome.Json, expectedPlayer: 11, forbiddenPlayer: 10);
+        AssertCurrentWireIds(snapshot.Json, expectedPlayer: 11, forbiddenPlayer: 10);
+        using var snapshotJson = JsonDocument.Parse(snapshot.Json);
+        Assert.AreEqual(11, snapshotJson.RootElement.GetProperty("projectiles")[0]
+            .GetProperty("ownerSessionId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task DetachedAndReplacementPreAckInputsCannotAdvanceAcknowledgement()
+    {
+        var h = await Harness.LiveAsync();
+        await h.Coordinator.DetachAsync("one");
+
+        Assert.IsFalse(h.Submit(10, 1).Accepted);
+        var replacement = await h.AttachAsync(501, 11, "replacement");
+        Assert.IsFalse(h.Submit(10, 1).Accepted);
+        Assert.IsFalse(h.Submit(11, 1).Accepted);
+        Assert.AreEqual(0, replacement.Welcome!.AcknowledgedInput);
+
+        h.Coordinator.AcknowledgeAttach("replacement", replacement.Welcome.SnapshotSequence);
+        Assert.IsTrue(h.Submit(11, 1).Accepted);
+    }
+
+    [TestMethod]
+    public async Task UnacknowledgedReconnectKeepsAttachSnapshotWhileSimulationAdvances()
+    {
+        var h = await Harness.LiveAsync();
+        await h.Coordinator.DetachAsync("one");
+        var replacement = await h.AttachAsync(501, 11, "replacement");
+        var expectedSequence = replacement.Welcome!.SnapshotSequence;
+        var before = h.Simulation.Tick;
+
+        h.Time.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => h.Simulation.Tick > before);
+        _ = await h.Mailboxes[11].ReadNextAsync(default);
+        var snapshot = await h.Mailboxes[11].ReadNextAsync(default);
+
+        using var json = JsonDocument.Parse(snapshot.Json);
+        Assert.AreEqual(expectedSequence, json.RootElement.GetProperty("sequence").GetInt64());
+        Assert.IsTrue(h.Simulation.Tick > before);
+    }
+
+    [TestMethod]
     public async Task SimulationContinuesDuringGraceAndExpiryForfeitsWholeMatch()
     {
         var h = await Harness.LiveAsync();
@@ -164,6 +223,145 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task SinkFailureStillReleasesOwnershipRaisesCompletionAndPublishesEnded()
+    {
+        var h = await Harness.LiveAsync(throwingSink: true);
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 501, "failure_test");
+
+        Assert.IsFalse(h.Coordinator.TryGetActiveMatch(501, out _));
+        Assert.AreEqual(1, h.MatchCompletedCount);
+        Assert.AreEqual(1, h.Publisher.Types.Count(x => x == "game.ended"));
+    }
+
+    [TestMethod]
+    public async Task MatchClosedSealsMailboxAndNoSnapshotOrControlCanFollowIt()
+    {
+        var mailbox = new RealtimeSnapshotMailbox();
+        mailbox.ReplaceSnapshot("{\"sequence\":1}");
+        mailbox.SealTerminal(new RealtimeControl("matchClosed", null, 2, "{}", false));
+        mailbox.ReplaceSnapshot("{\"sequence\":3}");
+        mailbox.WriteControl(new RealtimeControl("connectionState", 10, null, "{}", true));
+
+        Assert.AreEqual("matchClosed", (await mailbox.ReadNextAsync(default)).Type);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(25));
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () =>
+            await mailbox.ReadNextAsync(timeout.Token));
+    }
+
+    [TestMethod]
+    public async Task AttachRacingCompletionNeverWritesAfterTerminal()
+    {
+        for (var iteration = 0; iteration < 25; iteration++)
+        {
+            var h = await Harness.LiveAsync();
+            await h.Coordinator.DetachAsync("one");
+            var mailbox = new RealtimeSnapshotMailbox();
+
+            var attachTask = h.Coordinator.AttachParticipantAsync(h.MatchId, 501, 11, "replacement", mailbox);
+            var completionTask = h.Coordinator.ForfeitAsync(h.MatchId, 502, "race");
+            await Task.WhenAll(attachTask, completionTask);
+
+            if (attachTask.Result.Ok)
+            {
+                Assert.AreEqual("matchClosed", await DrainThroughTerminalAsync(mailbox));
+                await AssertMailboxEmptyAsync(mailbox);
+            }
+            else
+            {
+                Assert.IsNull(attachTask.Result.Welcome);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task ReconnectFinalStateUsesCurrentSessionAndProjectileOwnerIds()
+    {
+        var h = await Harness.LiveAsync();
+        while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
+        h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
+        h.Simulation.Step();
+        await h.Coordinator.DetachAsync("one");
+        var replacement = await h.AttachAsync(501, 11, "replacement", acknowledge: true);
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 502, "wire_test");
+        var terminal = await ReadTerminalAsync(h.Mailboxes[11]);
+
+        AssertCurrentWireIds(terminal.Json, expectedPlayer: 11, forbiddenPlayer: 10);
+        using var json = JsonDocument.Parse(terminal.Json);
+        Assert.AreEqual(11, json.RootElement.GetProperty("finalState").GetProperty("projectiles")[0]
+            .GetProperty("ownerSessionId").GetInt64());
+        Assert.AreEqual(replacement.Welcome!.AcknowledgedInput,
+            json.RootElement.GetProperty("finalState").GetProperty("players").EnumerateArray()
+                .Single(x => x.GetProperty("sessionId").GetInt64() == 11)
+            .GetProperty("acknowledgedInput").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task SchedulerFaultCompletesAndReleasesOwnership()
+    {
+        var h = await FaultHarness.StartAsync(new FaultSimulation(throwOnStep: true));
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => !h.Coordinator.TryGetActiveMatch(501, out _));
+
+        Assert.AreEqual("scheduler_error", h.Sink.Match!.AbandonReason);
+        Assert.AreEqual(1, h.MatchCompletedCount);
+        await WaitUntilAsync(() => h.Time.AllTimersDisposed);
+    }
+
+    [TestMethod]
+    public async Task FinalProjectionFaultStillReleasesOwnershipAndAttemptsCompletionStages()
+    {
+        var simulation = new FaultSimulation(throwAfterSnapshotCount: 2);
+        var h = await FaultHarness.StartAsync(simulation);
+        await h.AttachBothAsync();
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 501, "projection_test");
+
+        Assert.IsFalse(h.Coordinator.TryGetActiveMatch(501, out _));
+        Assert.AreEqual(1, h.MatchCompletedCount);
+        Assert.AreEqual(1, h.Sink.Count);
+        Assert.AreEqual(1, h.Publisher.Types.Count(x => x == "game.ended"));
+    }
+
+    [TestMethod]
+    public async Task NaturalSimulationCompletionPersistsThenRaisesAndPublishesEnded()
+    {
+        var simulation = new FaultSimulation(completeOnStep: true);
+        var h = await FaultHarness.StartAsync(simulation);
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+
+        Assert.AreEqual("decided", h.Sink.Match!.Outcome);
+        Assert.IsNull(h.Sink.Match.AbandonReason);
+        CollectionAssert.AreEquivalent(new long[] { 501, 502 },
+            h.Sink.Match.Participants.Select(x => x.UserId).ToArray());
+        Assert.AreEqual(1, h.Publisher.Types.Count(x => x == "game.ended"));
+    }
+
+    [TestMethod]
+    public async Task SchedulerSnapshotsOnlyUseEveryThirdSimulationTick()
+    {
+        var h = await Harness.LiveAsync();
+        await DrainInitialAttachAsync(h.Mailboxes[10]);
+        var before = h.Simulation.Tick;
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => h.Simulation.Tick >= before + 3);
+        var snapshot = await h.Mailboxes[10].ReadNextAsync(default);
+
+        using var json = JsonDocument.Parse(snapshot.Json);
+        Assert.AreEqual("snapshot", snapshot.Type);
+        Assert.AreEqual(0, json.RootElement.GetProperty("serverTick").GetInt64() % 3);
+    }
+
+    [TestMethod]
     public void AddGamesRegistersArenaUnderBothDefinitionsAndCoordinatorAsRunner()
     {
         var path = Path.Combine(Path.GetTempPath(), $"brmble-continuous-{Guid.NewGuid():N}.db");
@@ -211,11 +409,11 @@ public sealed class ContinuousGameCoordinatorTests
         public int MatchCompletedCount { get; private set; }
         public Dictionary<long, RealtimeSnapshotMailbox> Mailboxes { get; } = [];
 
-        public static Task<Harness> CreateAsync()
+        public static Task<Harness> CreateAsync(bool throwingSink = false)
         {
             var time = new ManualTimeProvider();
             var definition = new CapturingDefinition();
-            var sink = new RecordingSink();
+            var sink = new RecordingSink(throwingSink);
             var publisher = new RecordingPublisher();
             return Task.FromResult(new Harness(time, definition, sink, publisher,
                 new ContinuousGameCoordinator([definition], time, sink, publisher,
@@ -236,14 +434,25 @@ public sealed class ContinuousGameCoordinatorTests
             return h;
         }
 
-        public static async Task<Harness> LiveAsync()
+        public static async Task<Harness> LiveAsync(bool throwingSink = false)
         {
-            var h = await StartAsync();
+            var h = throwingSink ? await CreateAsync(throwingSink: true) : await StartAsync();
+            if (throwingSink)
+            {
+                var result = await h.Coordinator.StartAsync(Reservation());
+                Assert.IsTrue(result.Success, result.Error);
+                h.MatchId = result.MatchId;
+                h.Coordinator.MatchCompleted += _ => { h.MatchCompletedCount++; return Task.CompletedTask; };
+            }
             await h.AttachAsync(501, 10, "one", acknowledge: true);
             await h.AttachAsync(502, 20, "two", acknowledge: true);
             Assert.AreEqual(ContinuousMatchPhase.Loading, h.Simulation.Phase);
             return h;
         }
+
+        public InputResult Submit(long sessionId, long sequence) => Coordinator.SubmitInput(
+            MatchId, sessionId, RealtimeRole.Participant,
+            new ContinuousInput(sequence, Simulation.Tick, 0, 0, 32767, 0, false, false, false), false);
 
         public async Task<AttachResult> AttachAsync(
             long userId, long sessionId, string connectionId, bool acknowledge = false)
@@ -274,6 +483,54 @@ public sealed class ContinuousGameCoordinatorTests
         return "missing";
     }
 
+    private static async Task<RealtimeOutbound> ReadTerminalAsync(RealtimeSnapshotMailbox mailbox)
+    {
+        for (var count = 0; count < 4; count++)
+        {
+            var message = await mailbox.ReadNextAsync(default);
+            if (message.Type == "matchClosed") return message;
+        }
+        Assert.Fail("Terminal message was not found.");
+        throw new InvalidOperationException();
+    }
+
+    private static async Task<string> DrainThroughTerminalAsync(RealtimeSnapshotMailbox mailbox) =>
+        (await ReadTerminalAsync(mailbox)).Type;
+
+    private static async Task AssertMailboxEmptyAsync(RealtimeSnapshotMailbox mailbox)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(25));
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () =>
+            await mailbox.ReadNextAsync(timeout.Token));
+    }
+
+    private static async Task DrainInitialAttachAsync(RealtimeSnapshotMailbox mailbox)
+    {
+        _ = await mailbox.ReadNextAsync(default);
+        _ = await mailbox.ReadNextAsync(default);
+    }
+
+    private static void AssertCurrentWireIds(string json, long expectedPlayer, long forbiddenPlayer)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.TryGetProperty("state", out var state)) root = state;
+        if (root.TryGetProperty("finalState", out var finalState)) root = finalState;
+        var ids = root.GetProperty("players").EnumerateArray()
+            .Select(x => x.GetProperty("sessionId").GetInt64()).ToArray();
+        CollectionAssert.Contains(ids, expectedPlayer);
+        CollectionAssert.DoesNotContain(ids, forbiddenPlayer);
+        Assert.IsTrue(root.GetProperty("players").EnumerateArray()
+            .Single(x => x.GetProperty("sessionId").GetInt64() == expectedPlayer)
+            .TryGetProperty("acknowledgedInput", out _));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++) await Task.Yield();
+        Assert.IsTrue(condition(), "Condition was not reached.");
+    }
+
     private sealed class CapturingDefinition : IContinuousGameDefinition
     {
         public string GameType => "arena-knockoff";
@@ -283,11 +540,15 @@ public sealed class ContinuousGameCoordinatorTests
         public IContinuousSimulation Create(DuelReservation reservation) => Simulation = new ArenaSimulation(reservation);
     }
 
-    private sealed class RecordingSink : ICompletedMatchSink
+    private sealed class RecordingSink(bool throwOnEnqueue = false) : ICompletedMatchSink
     {
         public CompletedMatch? Match { get; private set; }
         public int Count { get; private set; }
-        public void Enqueue(CompletedMatch match) { Match = match; Count++; }
+        public void Enqueue(CompletedMatch match)
+        {
+            Match = match; Count++;
+            if (throwOnEnqueue) throw new InvalidOperationException("sink failure");
+        }
     }
 
     private sealed class RecordingPublisher : IGameEventPublisher
@@ -306,6 +567,90 @@ public sealed class ContinuousGameCoordinatorTests
         public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
     }
 
+    private sealed class FaultHarness
+    {
+        private FaultHarness(ManualTimeProvider time, ContinuousGameCoordinator coordinator,
+            RecordingSink sink, RecordingPublisher publisher, long matchId)
+        {
+            Time = time; Coordinator = coordinator; Sink = sink; Publisher = publisher; MatchId = matchId;
+        }
+        public ManualTimeProvider Time { get; }
+        public ContinuousGameCoordinator Coordinator { get; }
+        public RecordingSink Sink { get; }
+        public RecordingPublisher Publisher { get; }
+        public long MatchId { get; }
+        public int MatchCompletedCount { get; private set; }
+
+        public static async Task<FaultHarness> StartAsync(FaultSimulation simulation)
+        {
+            var time = new ManualTimeProvider();
+            var sink = new RecordingSink();
+            var publisher = new RecordingPublisher();
+            var coordinator = new ContinuousGameCoordinator(
+                [new FaultDefinition(simulation)], time, sink, publisher,
+                NullLogger<ContinuousGameCoordinator>.Instance);
+            var started = await coordinator.StartAsync(new DuelReservation(
+                9, 7, new DuelPlayer(10, 501, "Alice"), new DuelPlayer(20, 502, "Bob"),
+                new DuelConfiguration("fault-test", "bo3", 1, new Dictionary<string, object?>(), "continuous"),
+                DateTimeOffset.UnixEpoch, 1, null));
+            Assert.IsTrue(started.Success, started.Error);
+            var harness = new FaultHarness(time, coordinator, sink, publisher, started.MatchId);
+            coordinator.MatchCompleted += _ => { harness.MatchCompletedCount++; return Task.CompletedTask; };
+            return harness;
+        }
+
+        public async Task AttachBothAsync()
+        {
+            foreach (var participant in new[] { (501L, 10L, "one"), (502L, 20L, "two") })
+            {
+                var attached = await Coordinator.AttachParticipantAsync(
+                    MatchId, participant.Item1, participant.Item2, participant.Item3,
+                    new RealtimeSnapshotMailbox());
+                Assert.IsTrue(attached.Ok, attached.Error);
+                Coordinator.AcknowledgeAttach(participant.Item3, attached.Welcome!.SnapshotSequence);
+            }
+            await Task.Delay(25);
+        }
+    }
+
+    private sealed class FaultDefinition(FaultSimulation simulation) : IContinuousGameDefinition
+    {
+        public string GameType => "fault-test";
+        public int RulesetVersion => 1;
+        public object PredictionConstants => new { };
+        public IContinuousSimulation Create(DuelReservation reservation) => simulation;
+    }
+
+    private sealed class FaultSimulation(
+        bool throwOnStep = false,
+        int throwAfterSnapshotCount = int.MaxValue,
+        bool completeOnStep = false) : IContinuousSimulation
+    {
+        private int _snapshotCount;
+        public long Tick { get; private set; }
+        public ContinuousMatchPhase Phase { get; private set; } = ContinuousMatchPhase.AwaitingParticipants;
+        public void SetInput(long sessionId, ContinuousInput input) { }
+        public void SetNeutralInput(long sessionId) { }
+        public ContinuousStepResult Step()
+        {
+            if (throwOnStep) throw new InvalidOperationException("step failure");
+            Tick++;
+            if (!completeOnStep) return new ContinuousStepResult(false, null);
+            Phase = ContinuousMatchPhase.Ended;
+            return new ContinuousStepResult(true, new ContinuousCompletion(
+                "decided", null,
+                [new CompletedParticipant(501, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")],
+                new { schemaVersion = 1 }, new Dictionary<long, object>()));
+        }
+        public object ParticipantSnapshot(long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs)
+        {
+            if (++_snapshotCount > throwAfterSnapshotCount) throw new InvalidOperationException("snapshot failure");
+            return new { phase = Phase.ToString(), players = Array.Empty<object>(), projectiles = Array.Empty<object>() };
+        }
+        public object SpectatorSnapshot() => new { };
+        public ulong DeterministicHash() => 0;
+    }
+
     private sealed class ManualTimeProvider : TimeProvider
     {
         private readonly List<ManualTimer> _timers = [];
@@ -313,6 +658,7 @@ public sealed class ContinuousGameCoordinatorTests
         public override long TimestampFrequency => 1_000;
         public override long GetTimestamp() => _timestamp;
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddMilliseconds(_timestamp);
+        public bool AllTimersDisposed => _timers.All(x => x.Disposed);
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             var timer = new ManualTimer(this, callback, state, dueTime, period);
@@ -332,6 +678,7 @@ public sealed class ContinuousGameCoordinatorTests
             private long _due;
             private long _period;
             private bool _disposed;
+            public bool Disposed => _disposed;
             public ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state,
                 TimeSpan dueTime, TimeSpan period)
             {

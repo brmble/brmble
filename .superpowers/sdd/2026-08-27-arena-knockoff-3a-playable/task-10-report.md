@@ -69,3 +69,98 @@ Passed: 962, Failed: 0, Skipped: 0
 - Task 12 remains responsible for awaiting successful `matchClosed` socket transmission before normal WebSocket close. Task 10 guarantees terminal mailbox ordering and reserves the terminal control through the existing mailbox contract.
 - `ICompletedMatchSink.Enqueue` is a synchronous queue-acceptance boundary. The coordinator does not create an unobserved task; persistence retries remain owned by `CompletedMatchPersistenceQueue`.
 - The pre-existing untracked `.opencode/plans` files were not read, modified, staged, or removed.
+
+## Fix Round 1
+
+### Review Findings Addressed
+
+- Added one deterministic `ParticipantView` projection boundary. Arena simulation IDs remain unchanged internally, while every player session ID, projectile owner session ID, acknowledgement-bearing player identity, reconnect welcome/state/snapshot, and `matchClosed.finalState` uses the participant's current realtime session ID.
+- Scheduler snapshot fan-out now includes only participants whose current connection completed the matching attach acknowledgement. The complete attach snapshot remains at its advertised sequence while simulation continues for the opponent; ordinary fan-out resumes after acknowledgement.
+- `SubmitInput` now requires both a current connection ID and completed attach acknowledgement. Detached original sessions, stale receive-loop calls during grace, and replacement sessions before acknowledgement cannot alter simulation input or advance acknowledgement.
+- Added `RealtimeSnapshotMailbox.SealTerminal`, an explicit atomic terminal operation compatible with the existing Task 8 mailbox contract. It discards pending snapshots, enqueues one `matchClosed`, and rejects all later controls/snapshots. Attach, connection-state, scheduler snapshot, and terminal writes are coordinated under match state locking, so successful attach cannot publish a post-terminal welcome.
+- Scheduler and timer completion tasks are observed. Unexpected scheduler exceptions route through exactly-once completion with `scheduler_error`; timeout completion faults are logged rather than becoming unobserved tasks.
+- Completion now claims terminal state first, detaches scheduler/timer references under lock, cancels and disposes resources outside the lock, and isolates terminal projection, neutralization, metadata serialization, sink acceptance, each completion subscriber, and lifecycle publication. Stable-user indexes and `MatchCompleted` are attempted even if terminal projection or persistence acceptance fails.
+- Scheduler completion never awaits its own task. A continuation observes scheduler termination and disposes its cancellation source after exit; matches that never started a scheduler dispose the source directly.
+- Updated pre-existing continuous input harnesses to establish an acknowledged participant connection before testing input behavior. Arena tests that manually own simulation stepping attach only after reaching Live, avoiding a competing scheduler.
+
+### RED And Race Evidence
+
+First focused RED after adding reconnect projection, detached input, and unacknowledged snapshot tests:
+
+```text
+Failed: 3, Passed: 11
+ReconnectWireProjectionUsesCurrentSessionIdsEverywhere: current session 11 absent
+DetachedAndReplacementPreAckInputsCannotAdvanceAcknowledgement: detached input accepted
+UnacknowledgedReconnectKeepsAttachSnapshotWhileSimulationAdvances: expected sequence 2, actual 4
+```
+
+Second focused RED after adding terminal seal and attach/completion race tests:
+
+```text
+Failed: 3, Passed: 14
+MatchClosedSealsMailboxAndNoSnapshotOrControlCanFollowIt: post-terminal outbound remained
+AttachRacingCompletionNeverWritesAfterTerminal: post-terminal outbound remained
+ReconnectFinalStateUsesCurrentSessionAndProjectileOwnerIds: current session 11 absent
+```
+
+The initial implicit mailbox seal regressed three existing Task 8 reserved-capacity tests because those unit tests deliberately enqueue multiple terminal controls. This proved sealing must be an explicit coordinator operation rather than changing ordinary `WriteControl` semantics. `SealTerminal` preserved all 27 combined coordinator/mailbox tests.
+
+Third focused RED after adding scheduler and projection fault tests:
+
+```text
+Failed: 3, Passed: 17
+SchedulerFaultCompletesAndReleasesOwnership: ownership remained active
+FinalProjectionFaultStillReleasesOwnershipAndAttemptsCompletionStages: snapshot exception escaped
+NaturalSimulationCompletionPersistsThenRaisesAndPublishesEnded: scheduler was not reached by the initial virtual-time harness
+```
+
+The scheduler harness was then synchronized with scheduler startup before advancing virtual time. Production fault handling completed the match and released ownership; final projection failure no longer prevented sink, index release, completion subscriber, or `game.ended` attempts.
+
+Mutation/race coverage directly protects these corrections:
+
+- Restoring raw `ParticipantSnapshot` at any attach, cadence, or terminal projection site fails exact player/projectile reconnect ID assertions.
+- Restoring mailbox fan-out for unacknowledged participants changes the retained attach snapshot sequence and fails deterministically.
+- Weakening the active acknowledged connection predicate accepts detached or replacement pre-ack input.
+- Removing terminal sealing exposes a queued snapshot/control after `matchClosed`; the 25-iteration attach/completion race also detects post-terminal output.
+- Removing scheduler exception completion leaves stable ownership indexed; throwing final projection and sink fixtures verify stage isolation.
+- Scheduler snapshots assert `serverTick % 3 == 0`; reconnect grace tests continue to prove simulation advancement.
+
+### Verification
+
+Coordinator tests:
+
+```text
+Passed: 21, Failed: 0, Skipped: 0
+```
+
+All prior Continuous and Arena tests:
+
+```text
+Passed: 128, Failed: 0, Skipped: 0
+```
+
+Exact lifecycle gate, including unmodified `SpectatorServiceTests`:
+
+```text
+Passed: 170, Failed: 0, Skipped: 0
+```
+
+Sequential full server suite:
+
+```text
+Passed: 973, Failed: 0, Skipped: 0
+```
+
+### Fix Round 1 Files
+
+- `src/Brmble.Server/Games/Continuous/ContinuousGameCoordinator.cs`
+- `src/Brmble.Server/Games/Continuous/RealtimeSnapshotMailbox.cs`
+- `tests/Brmble.Server.Tests/Games/Continuous/ContinuousGameCoordinatorTests.cs`
+- `tests/Brmble.Server.Tests/Games/Continuous/ContinuousInputTests.cs`
+- `.superpowers/sdd/2026-08-27-arena-knockoff-3a-playable/task-10-report.md`
+
+### Remaining Concerns
+
+- Task 12 still owns awaiting successful terminal socket transmission before normal WebSocket close. The mailbox now guarantees that no coordinator outbound can follow its terminal item.
+- If terminal view serialization itself fails, no valid `matchClosed.finalState` can be produced; cleanup, persistence acceptance, ownership release, completion subscribers, and `game.ended` still proceed independently and the failure is logged.
+- No Spectator service/source, spectator injection, world-state event publication, router/catalog replacement, or `.opencode/plans` file was changed.

@@ -42,6 +42,7 @@ public sealed class RealtimeSnapshotMailbox
     private int _controlsSinceSnapshot;
     private int _droppedSnapshots;
     private bool _overloaded;
+    private bool _sealed;
 
     public int DroppedSnapshots => Volatile.Read(ref _droppedSnapshots);
     public bool Overloaded => Volatile.Read(ref _overloaded);
@@ -52,6 +53,7 @@ public sealed class RealtimeSnapshotMailbox
 
         lock (_gate)
         {
+            if (_sealed) return;
             if (control.Coalescible && TryReplaceControl(control))
                 return;
 
@@ -78,6 +80,9 @@ public sealed class RealtimeSnapshotMailbox
 
         lock (_gate)
         {
+            if (_sealed)
+                return;
+
             var wasEmpty = _snapshotCount == 0;
             if (!wasEmpty)
                 Interlocked.Increment(ref _droppedSnapshots);
@@ -92,23 +97,47 @@ public sealed class RealtimeSnapshotMailbox
         }
     }
 
-    public async ValueTask<RealtimeOutbound> ReadNextAsync(CancellationToken cancellationToken)
+    public void SealTerminal(RealtimeControl terminal)
     {
-        await _available.WaitAsync(cancellationToken);
+        ArgumentNullException.ThrowIfNull(terminal);
+        if (terminal.Type != "matchClosed" || terminal.Coalescible)
+            throw new ArgumentException("A terminal seal requires a non-coalescible matchClosed control.", nameof(terminal));
 
         lock (_gate)
         {
-            if (_controlsSinceSnapshot >= ControlBurstLimit && TryReadSnapshot(out var snapshot))
-                return Snapshot(snapshot);
+            if (_sealed) return;
+            if (_controlCount >= ControlCapacity || !_controls.Writer.TryWrite(terminal))
+            {
+                _overloaded = true;
+                return;
+            }
 
-            if (TryReadControl(out var control))
-                return Control(control);
-
-            if (TryReadSnapshot(out snapshot))
-                return Snapshot(snapshot);
+            _sealed = true;
+            while (_snapshots.Reader.TryRead(out _)) { }
+            _snapshotCount = 0;
+            _controlCount++;
+            _available.Release();
         }
+    }
 
-        throw new InvalidOperationException("Mailbox availability signal was inconsistent with its queues.");
+    public async ValueTask<RealtimeOutbound> ReadNextAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await _available.WaitAsync(cancellationToken);
+
+            lock (_gate)
+            {
+                if (_controlsSinceSnapshot >= ControlBurstLimit && TryReadSnapshot(out var snapshot))
+                    return Snapshot(snapshot);
+
+                if (TryReadControl(out var control))
+                    return Control(control);
+
+                if (TryReadSnapshot(out snapshot))
+                    return Snapshot(snapshot);
+            }
+        }
     }
 
     private bool TryReplaceControl(RealtimeControl replacement)

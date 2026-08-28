@@ -158,7 +158,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             state.Connections[connectionId] = participant;
 
             var acknowledged = AcknowledgedInputs(state);
-            var view = state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledged);
+            var view = ParticipantView(state, participant, acknowledged);
             welcome = new WelcomeMessage(
                 1, state.Reservation.Configuration.RulesetVersion, matchId, RealtimeRole.Participant,
                 sessionId, participant.AttachSequence, state.Simulation.Tick,
@@ -166,12 +166,11 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 state.Definition.PredictionConstants, view, participant.AcknowledgedInput);
             snapshot = SerializeSnapshot(matchId, participant.AttachSequence, state.Simulation.Tick,
                 _time.GetUtcNow(), view);
+            mailbox.WriteControl(new RealtimeControl("welcome", sessionId, welcome.SnapshotSequence,
+                SerializeWelcome(welcome), Coalescible: false));
+            mailbox.ReplaceSnapshot(snapshot);
+            return Task.FromResult(new AttachResult(true, welcome, null));
         }
-
-        mailbox.WriteControl(new RealtimeControl("welcome", sessionId, welcome.SnapshotSequence,
-            SerializeWelcome(welcome), Coalescible: false));
-        mailbox.ReplaceSnapshot(snapshot);
-        return Task.FromResult(new AttachResult(true, welcome, null));
     }
 
     public void AcknowledgeAttach(string connectionId, long snapshotSequence)
@@ -236,8 +235,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 }, JsonOptions), Coalescible: true);
             survivors = state.ParticipantsByUser.Values
                 .Where(x => x.Mailbox is not null).Select(x => x.Mailbox!).ToList();
+            foreach (var mailbox in survivors) mailbox.WriteControl(control);
         }
-        foreach (var mailbox in survivors) mailbox.WriteControl(control);
         return Task.CompletedTask;
     }
 
@@ -271,7 +270,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return new InputResult(false, ContinuousRejectReason.WrongMatch, 0);
             if (role != RealtimeRole.Participant)
                 return Reject(ContinuousRejectReason.WrongRole, participant);
-            if (participant.ConnectionId is not null && !participant.AttachAcknowledged)
+            if (participant.ConnectionId is null || !participant.AttachAcknowledged)
                 return Reject(ContinuousRejectReason.WrongMatch, participant);
 
             var now = _time.GetTimestamp();
@@ -363,9 +362,11 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         long matchId, ContinuousMatchState state, ContinuousCompletion? outcome,
         string? abandonReason, long? forfeitingUserId)
     {
-        List<(RealtimeSnapshotMailbox Mailbox, string Json)> terminalControls;
-        CompletedMatch completed;
-        DateTimeOffset endedAt;
+        List<ParticipantInputState> participants;
+        ITimer? attachTimer;
+        List<ITimer> participantTimers;
+        Task? schedulerTask;
+        var endedAt = _time.GetUtcNow();
         lock (state.SyncRoot)
         {
             if (!state.Active || !((ICollection<KeyValuePair<long, ContinuousMatchState>>)_matches)
@@ -373,46 +374,67 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return;
             state.Active = false;
             state.Cancellation.Cancel();
-            state.AttachTimer?.Dispose();
-            endedAt = _time.GetUtcNow();
-            var acknowledged = AcknowledgedInputs(state);
-            terminalControls = state.ParticipantsByUser.Values.Where(x => x.Mailbox is not null)
-                .Select(participant =>
-                {
-                    var finalView = state.Simulation.ParticipantSnapshot(
-                        participant.SimulationSessionId, acknowledged);
-                    var sequence = participant.NextSnapshotSequence++;
-                    return (participant.Mailbox!, JsonSerializer.Serialize(new
-                    {
-                        type = "matchClosed", protocolVersion = 1, matchId, sequence,
-                        serverTick = state.Simulation.Tick,
-                        reason = abandonReason is null ? "completed" : "forfeited",
-                        finalState = finalView,
-                    }, JsonOptions));
-                }).ToList();
-            foreach (var participant in state.ParticipantsByUser.Values)
+            attachTimer = state.AttachTimer;
+            state.AttachTimer = null;
+            schedulerTask = state.SchedulerTask;
+            state.SchedulerTask = null;
+            participants = state.ParticipantsByUser.Values.ToList();
+            participantTimers = participants.SelectMany(participant =>
+                new[] { participant.NeutralTimer, participant.ReconnectTimer }.OfType<ITimer>()).ToList();
+            foreach (var participant in participants)
             {
-                participant.NeutralTimer?.Dispose();
-                participant.ReconnectTimer?.Dispose();
-                state.Simulation.SetNeutralInput(participant.SimulationSessionId);
+                participant.NeutralTimer = null;
+                participant.ReconnectTimer = null;
             }
-            var participants = outcome is null
-                ? ForfeitParticipants(state.Reservation, forfeitingUserId!.Value)
-                : outcome.Participants.Select(participant => participant with
-                {
-                    MetadataJson = outcome.ParticipantStats.TryGetValue(participant.UserId, out var stats)
-                        ? JsonSerializer.Serialize(stats, JsonOptions)
-                        : participant.MetadataJson,
-                }).ToArray();
-            completed = new CompletedMatch(
-                "arena-knockoff", state.Reservation.ChannelId, "bo3", 1,
-                outcome?.Outcome ?? "abandoned", abandonReason, state.StartedAt, endedAt,
-                participants, JsonSerializer.Serialize(outcome?.MatchSummary ?? new { schemaVersion = 1 }, JsonOptions));
         }
 
-        foreach (var terminal in terminalControls)
-            terminal.Mailbox.WriteControl(new RealtimeControl(
-                "matchClosed", null, null, terminal.Json, Coalescible: false));
+        attachTimer?.Dispose();
+        foreach (var timer in participantTimers) timer.Dispose();
+        if (schedulerTask is not null)
+            ObserveSchedulerTermination(state, schedulerTask);
+        else
+            state.Cancellation.Dispose();
+
+        var acknowledged = AcknowledgedInputs(state);
+        foreach (var participant in participants)
+        {
+            try { state.Simulation.SetNeutralInput(participant.SimulationSessionId); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to neutralize participant during continuous match {MatchId} cleanup.", matchId);
+            }
+            if (participant.Mailbox is null) continue;
+            try
+            {
+                var finalView = ParticipantView(state, participant, acknowledged);
+                var sequence = participant.NextSnapshotSequence++;
+                var json = JsonSerializer.Serialize(new
+                {
+                    type = "matchClosed", protocolVersion = 1, matchId, sequence,
+                    serverTick = state.Simulation.Tick,
+                    reason = abandonReason is null ? "completed" : "forfeited",
+                    finalState = finalView,
+                }, JsonOptions);
+                participant.Mailbox.SealTerminal(new RealtimeControl(
+                    "matchClosed", null, sequence, json, Coalescible: false));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to build terminal state for continuous match {MatchId}.", matchId);
+            }
+        }
+
+        var completedParticipants = outcome is null
+            ? ForfeitParticipants(state.Reservation, forfeitingUserId!.Value)
+            : BuildCompletedParticipants(outcome);
+        string? metadataJson = null;
+        try { metadataJson = JsonSerializer.Serialize(outcome?.MatchSummary ?? new { schemaVersion = 1 }, JsonOptions); }
+        catch (Exception ex) { _logger.LogError(ex, "Failed to serialize continuous match {MatchId} metadata.", matchId); }
+        var completed = new CompletedMatch(
+            state.Reservation.Configuration.GameType, state.Reservation.ChannelId,
+            state.Reservation.Configuration.Format, state.Reservation.Configuration.RulesetVersion,
+            outcome?.Outcome ?? "abandoned", abandonReason, state.StartedAt, endedAt,
+            completedParticipants, metadataJson);
         try { _sink.Enqueue(completed); }
         catch (Exception ex)
         {
@@ -453,6 +475,35 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         }
     }
 
+    private IReadOnlyList<CompletedParticipant> BuildCompletedParticipants(ContinuousCompletion outcome) =>
+        outcome.Participants.Select(participant =>
+        {
+            try
+            {
+                return participant with
+                {
+                    MetadataJson = outcome.ParticipantStats.TryGetValue(participant.UserId, out var stats)
+                        ? JsonSerializer.Serialize(stats, JsonOptions)
+                        : participant.MetadataJson,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to serialize continuous participant {UserId} metadata.", participant.UserId);
+                return participant;
+            }
+        }).ToArray();
+
+    private void ObserveSchedulerTermination(ContinuousMatchState state, Task schedulerTask)
+    {
+        _ = schedulerTask.ContinueWith(task =>
+        {
+            if (task.IsFaulted)
+                _logger.LogError(task.Exception, "Continuous scheduler terminated unexpectedly for match {MatchId}.", state.MatchId);
+            state.Cancellation.Dispose();
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
     private static IReadOnlyList<CompletedParticipant> ForfeitParticipants(
         DuelReservation reservation, long forfeitingUserId)
     {
@@ -475,7 +526,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 missingUser = state.ParticipantsByUser.Values.FirstOrDefault(x => !x.AttachAcknowledged)?.StableUserId;
         }
         if (missingUser is not null)
-            _ = CompleteAsync(matchId, state, null, "connection_timeout", missingUser.Value);
+            ObserveBackground(CompleteAsync(matchId, state, null, "connection_timeout", missingUser.Value),
+                matchId, "attach timeout completion");
     }
 
     private void ReconnectExpired(
@@ -487,14 +539,23 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 || participant.AttachAcknowledged)
                 return;
         }
-        _ = CompleteAsync(state.MatchId, state, null, "realtime_disconnect", participant.StableUserId);
+        ObserveBackground(CompleteAsync(state.MatchId, state, null, "realtime_disconnect", participant.StableUserId),
+            state.MatchId, "reconnect timeout completion");
+    }
+
+    private void ObserveBackground(Task task, long matchId, string operation)
+    {
+        _ = task.ContinueWith(faulted =>
+            _logger.LogError(faulted.Exception, "Continuous match {MatchId} {Operation} failed.", matchId, operation),
+            CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void StartScheduler(ContinuousMatchState state)
     {
         lock (state.SyncRoot)
         {
-            if (state.SchedulerTask is not null) return;
+            if (!state.Active || state.SchedulerTask is not null) return;
             state.SchedulerTask = Task.Run(() => RunSchedulerAsync(state));
         }
     }
@@ -511,7 +572,6 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 for (var index = 0; index < plan.Ticks; index++)
                 {
                     ContinuousCompletion? completion = null;
-                    List<(RealtimeSnapshotMailbox Mailbox, string Json)> snapshots = [];
                     lock (state.SyncRoot)
                     {
                         if (!state.Active) return;
@@ -520,16 +580,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                         if (state.Simulation.Tick % ArenaRulesetV1.SnapshotEveryTicks == 0)
                         {
                             var acknowledged = AcknowledgedInputs(state);
-                            foreach (var participant in state.ParticipantsByUser.Values.Where(x => x.Mailbox is not null))
+                            foreach (var participant in state.ParticipantsByUser.Values.Where(
+                                         x => x.Mailbox is not null && x.AttachAcknowledged))
                             {
-                                var view = state.Simulation.ParticipantSnapshot(
-                                    participant.SimulationSessionId, acknowledged);
-                                snapshots.Add((participant.Mailbox!, SerializeSnapshot(state.MatchId,
-                                    participant.NextSnapshotSequence++, state.Simulation.Tick, _time.GetUtcNow(), view)));
+                                var view = ParticipantView(state, participant, acknowledged);
+                                participant.Mailbox!.ReplaceSnapshot(SerializeSnapshot(state.MatchId,
+                                    participant.NextSnapshotSequence++, state.Simulation.Tick, _time.GetUtcNow(), view));
                             }
                         }
                     }
-                    foreach (var snapshot in snapshots) snapshot.Mailbox.ReplaceSnapshot(snapshot.Json);
                     if (completion is not null)
                     {
                         await CompleteAsync(state.MatchId, state, completion, completion.AbandonReason, null);
@@ -544,6 +603,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             }
         }
         catch (OperationCanceledException) when (state.Cancellation.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Continuous scheduler failed for match {MatchId}.", state.MatchId);
+            await CompleteAsync(state.MatchId, state, null, "scheduler_error",
+                state.Reservation.PlayerOne.UserId);
+        }
     }
 
     private bool TryFindConnection(
@@ -567,6 +632,29 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     private static Dictionary<long, long> AcknowledgedInputs(ContinuousMatchState state) =>
         state.ParticipantsByUser.Values.ToDictionary(x => x.SimulationSessionId, x => x.AcknowledgedInput);
+
+    private static object ParticipantView(
+        ContinuousMatchState state,
+        ParticipantInputState participant,
+        IReadOnlyDictionary<long, long> acknowledgedInputs)
+    {
+        var view = state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledgedInputs);
+        if (view is not ArenaSnapshotView arena) return view;
+
+        var currentBySimulation = state.ParticipantsByUser.Values
+            .ToDictionary(x => x.SimulationSessionId, x => x.SessionId);
+        return arena with
+        {
+            Players = Array.AsReadOnly(arena.Players.Select(player => player with
+            {
+                SessionId = currentBySimulation[player.SessionId],
+            }).ToArray()),
+            Projectiles = Array.AsReadOnly(arena.Projectiles.Select(projectile => projectile with
+            {
+                OwnerSessionId = currentBySimulation[projectile.OwnerSessionId],
+            }).ToArray()),
+        };
+    }
 
     private static HashSet<long> ParticipantUserIds(DuelReservation reservation) =>
         [reservation.PlayerOne.UserId, reservation.PlayerTwo.UserId];

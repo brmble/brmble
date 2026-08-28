@@ -347,6 +347,7 @@ public class ContinuousInputTests
                 1,
                 null));
             Assert.IsTrue(result.Success);
+            await AttachBothAsync(coordinator, result.MatchId);
             return new CoordinatorHarness(coordinator, result.MatchId, time, definition.Simulation!);
         }
     }
@@ -392,14 +393,26 @@ public class ContinuousInputTests
                 1,
                 null));
             Assert.IsTrue(result.Success);
-
             var simulation = definition.Simulation!;
             simulation.MarkParticipantReady(10);
             simulation.MarkParticipantReady(20);
             for (var tick = 0; tick < ArenaRulesetV1.LoadingTicks + ArenaRulesetV1.PositioningTicks; tick++)
                 simulation.Step();
             Assert.AreEqual(ContinuousMatchPhase.Live, simulation.Phase);
+            await AttachBothAsync(coordinator, result.MatchId);
             return new ArenaCoordinatorHarness(coordinator, result.MatchId, time, simulation);
+        }
+    }
+
+    private static async Task AttachBothAsync(ContinuousGameCoordinator coordinator, long matchId)
+    {
+        foreach (var participant in new[] { (501L, 10L, "one"), (502L, 20L, "two") })
+        {
+            var attached = await coordinator.AttachParticipantAsync(
+                matchId, participant.Item1, participant.Item2, participant.Item3,
+                new RealtimeSnapshotMailbox());
+            Assert.IsTrue(attached.Ok, attached.Error);
+            coordinator.AcknowledgeAttach(participant.Item3, attached.Welcome!.SnapshotSequence);
         }
     }
 
