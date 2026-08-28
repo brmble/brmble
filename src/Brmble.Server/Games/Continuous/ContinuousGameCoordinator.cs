@@ -44,9 +44,22 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         var matchId = Interlocked.Increment(ref _nextMatchId);
         var startedAt = _time.GetUtcNow();
         var state = new ContinuousMatchState(reservation, definition.Create(reservation), startedAt);
-        _matches[matchId] = state;
-        _matchByStableUser[reservation.PlayerOne.UserId] = matchId;
-        _matchByStableUser[reservation.PlayerTwo.UserId] = matchId;
+        if (!_matchByStableUser.TryAdd(reservation.PlayerOne.UserId, matchId))
+            return Task.FromResult(new GameStartResult(false, 0, null,
+                "Player one already has an active game."));
+        if (!_matchByStableUser.TryAdd(reservation.PlayerTwo.UserId, matchId))
+        {
+            RemoveIndex(reservation.PlayerOne.UserId, matchId);
+            return Task.FromResult(new GameStartResult(false, 0, null,
+                "Player two already has an active game."));
+        }
+        if (!_matches.TryAdd(matchId, state))
+        {
+            RemoveIndex(reservation.PlayerOne.UserId, matchId);
+            RemoveIndex(reservation.PlayerTwo.UserId, matchId);
+            return Task.FromResult(new GameStartResult(false, 0, null,
+                "The match could not be started."));
+        }
 
         // Scheduler, realtime sockets, and the participant attach gate are added by later tasks.
         return Task.FromResult(new GameStartResult(true, matchId, startedAt, null));
@@ -73,8 +86,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             || !_matches.TryRemove(matchId, out var state))
             return;
 
-        _matchByStableUser.TryRemove(state.Reservation.PlayerOne.UserId, out _);
-        _matchByStableUser.TryRemove(state.Reservation.PlayerTwo.UserId, out _);
+        RemoveIndex(state.Reservation.PlayerOne.UserId, matchId);
+        RemoveIndex(state.Reservation.PlayerTwo.UserId, matchId);
 
         // Persistence, publishing, and completion metadata are added by later tasks.
         _ = reason;
@@ -94,8 +107,22 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             return;
 
         foreach (Func<MatchCompletion, Task> handler in handlers.GetInvocationList())
-            await handler(completion);
+        {
+            try
+            {
+                await handler(completion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Match completion subscriber failed for continuous match {MatchId} (reservation {ReservationId}).",
+                    completion.MatchId, completion.ReservationId);
+            }
+        }
     }
+
+    private void RemoveIndex(long stableUserId, long matchId) =>
+        ((ICollection<KeyValuePair<long, long>>)_matchByStableUser).Remove(new(stableUserId, matchId));
 
     private sealed record ContinuousMatchState(
         DuelReservation Reservation,

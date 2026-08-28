@@ -67,10 +67,16 @@ public sealed class DuelMatchRunnerRouter : IDuelMatchRunnerRouter
         return false;
     }
 
-    public Task ForfeitAsync(long matchId, long userId, string reason) =>
-        _matchRunners.TryGetValue(matchId, out var runner)
-            ? runner.ForfeitAsync(matchId, userId, reason)
-            : Task.CompletedTask;
+    public Task ForfeitAsync(long matchId, long userId, string reason)
+    {
+        foreach (var runner in _runners.Values)
+        {
+            if (runner.TryGetActiveMatch(userId, out var active) && active.MatchId == matchId)
+                return runner.ForfeitAsync(matchId, userId, reason);
+        }
+
+        return Task.CompletedTask;
+    }
 
     private async Task OnMatchCompletedAsync(MatchCompletion completion)
     {

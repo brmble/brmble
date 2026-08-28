@@ -75,6 +75,50 @@ public class DuelMatchRunnerRouterTests
     }
 
     [TestMethod]
+    public async Task ForfeitRoutesDiscreteAndContinuousMatchesByStableUserOwnership()
+    {
+        var discrete = new FakeDuelRunner("discrete") { StartResult = new(true, 44, DateTimeOffset.UtcNow, null) };
+        var continuous = new FakeDuelRunner("continuous") { StartResult = new(true, 55, DateTimeOffset.UtcNow, null) };
+        var router = new DuelMatchRunnerRouter([discrete, continuous], NullLogger<DuelMatchRunnerRouter>.Instance);
+
+        await router.StartAsync(Reservation("discrete", 100, 200));
+        await router.StartAsync(Reservation("continuous", 300, 400));
+        await router.ForfeitAsync(44, 100, "discrete forfeit");
+        await router.ForfeitAsync(55, 300, "continuous forfeit");
+
+        Assert.AreEqual((44L, 100L, "discrete forfeit"), discrete.Forfeits.Single());
+        Assert.AreEqual((55L, 300L, "continuous forfeit"), continuous.Forfeits.Single());
+    }
+
+    [TestMethod]
+    public async Task ForfeitWithMismatchedMatchIdDoesNothing()
+    {
+        var runner = new FakeDuelRunner("continuous") { StartResult = new(true, 55, DateTimeOffset.UtcNow, null) };
+        var router = new DuelMatchRunnerRouter([runner], NullLogger<DuelMatchRunnerRouter>.Instance);
+        await router.StartAsync(Reservation("continuous"));
+
+        await router.ForfeitAsync(999, 100, "wrong match");
+
+        Assert.AreEqual(0, runner.Forfeits.Count);
+    }
+
+    [TestMethod]
+    public async Task EqualRunnerLocalMatchIdsDoNotOverwriteForfeitRouting()
+    {
+        var discrete = new FakeDuelRunner("discrete") { StartResult = new(true, 1, DateTimeOffset.UtcNow, null) };
+        var continuous = new FakeDuelRunner("continuous") { StartResult = new(true, 1, DateTimeOffset.UtcNow, null) };
+        var router = new DuelMatchRunnerRouter([discrete, continuous], NullLogger<DuelMatchRunnerRouter>.Instance);
+        await router.StartAsync(Reservation("discrete", 100, 200));
+        await router.StartAsync(Reservation("continuous", 300, 400));
+
+        await router.ForfeitAsync(1, 100, "discrete forfeit");
+        await router.ForfeitAsync(1, 300, "continuous forfeit");
+
+        Assert.AreEqual((1L, 100L, "discrete forfeit"), discrete.Forfeits.Single());
+        Assert.AreEqual((1L, 300L, "continuous forfeit"), continuous.Forfeits.Single());
+    }
+
+    [TestMethod]
     public async Task UnknownOrFailedRunnerStart_DoesNotCreateMatchMapping()
     {
         var failed = new FakeDuelRunner("discrete") { StartResult = new(false, 77, null, "failed") };
@@ -149,8 +193,8 @@ public class DuelMatchRunnerRouterTests
         Assert.IsTrue(secondSubscriberRan);
     }
 
-    private static DuelReservation Reservation(string runnerKey) => new(
-        9, 7, new DuelPlayer(10, 100, "Alice"), new DuelPlayer(20, 200, "Bob"),
+    private static DuelReservation Reservation(string runnerKey, long playerOneUserId = 100, long playerTwoUserId = 200) => new(
+        9, 7, new DuelPlayer(10, playerOneUserId, "Alice"), new DuelPlayer(20, playerTwoUserId, "Bob"),
         new DuelConfiguration("rps", "bo3", 1,
             new Dictionary<string, object?> { ["bestOf"] = 3 }, runnerKey),
         DateTimeOffset.UtcNow, 1, null);
