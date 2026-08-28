@@ -3,6 +3,7 @@ import { ChannelTree } from './ChannelTree';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { buildChallengeMenuItem } from '../Games/challengeMenu';
+import type { ChallengeHandler } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -41,8 +42,7 @@ interface SidebarProps {
   username?: string;
   onDisconnect?: () => void;
   onStartDM?: (userId: string, userName: string) => void;
-  onChallengeDeathroll?: (session: number) => void;
-  onChallengeRps?: (session: number, bestOf: number) => void;
+  onChallenge?: ChallengeHandler;
   duelChannelIds?: Set<number>;
   personalDuelChannelIds?: Set<number>;
   /** Sessions with a live duel commitment; challenging them is refused by the server. */
@@ -87,8 +87,7 @@ export function Sidebar({
   username,
   onDisconnect,
   onStartDM,
-  onChallengeDeathroll,
-  onChallengeRps,
+  onChallenge,
   duelChannelIds,
   personalDuelChannelIds,
   committedDuelSessions,
@@ -462,8 +461,7 @@ export function Sidebar({
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
-          onChallengeDeathroll={onChallengeDeathroll}
-          onChallengeRps={onChallengeRps}
+          onChallenge={onChallenge}
           duelChannelIds={duelChannelIds}
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
@@ -498,14 +496,14 @@ export function Sidebar({
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             ...(() => {
-              if (contextMenu.isSelf || !onChallengeDeathroll || !onChallengeRps) return [];
+              if (contextMenu.isSelf || !onChallenge) return [];
               const target = users.find(u => u.session === parseInt(contextMenu.userId));
               const selfChannelId = users.find(u => u.self)?.channelId;
               const eligible = !!target?.isBrmbleClient
                 && target.channelId != null
                 && target.channelId === selfChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps, {
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallenge, {
                 committedSessions: committedDuelSessions,
                 // If the local user isn't in the roster yet this is undefined and
                 // detection degrades to the target only. Enabled is the safe default:

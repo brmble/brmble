@@ -5408,8 +5408,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
-          onChallengeDeathroll={(session) => gameState.invite(session)}
-          onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
+          onChallenge={(session, gameType, options) => gameState.invite(session, gameType, options)}
           duelChannelIds={duelChannelIds}
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
