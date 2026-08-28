@@ -34,6 +34,17 @@ public class ArenaDeterminismTests
     }
 
     [TestMethod]
+    public void DeterministicHashChangesWhenOnlyRoundGenerationChanges()
+    {
+        var baseline = Live();
+        var changed = Live();
+        typeof(ArenaSimulation).GetProperty(nameof(ArenaSimulation.RoundGeneration))!
+            .SetValue(changed, 1L);
+
+        Assert.AreNotEqual(baseline.DeterministicHash(), changed.DeterministicHash());
+    }
+
+    [TestMethod]
     public void MirroredInputsAndSides_ProduceMirroredScores()
     {
         var inputs = DeterministicInputGenerator.Build(seed: 0xA8E1, ticks: 3_600);

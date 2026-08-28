@@ -81,3 +81,34 @@ Mutation check: temporarily replacing the edge merge in `ArenaSimulation.SetInpu
 ### Remaining Concern
 
 - Deferred as requested: the test `ManualTimeProvider` does not model every disposed-timer callback race. Production neutral timers remain generation-guarded.
+
+## Fix Round 2
+
+### Status
+
+Implemented both remaining Important findings. The deferred timer test remains out of scope.
+
+### Changes
+
+- Added `ArenaSimulation.RoundGeneration` to `DeterministicHash` serialization because coordinator dash acceptance depends on that future-affecting state.
+- Added deterministic hash coverage that holds all other state equal, changes only `RoundGeneration`, and requires a different hash.
+- Added real Arena coordinator tests that consume dash/fire, assert the corresponding input latch bit is cleared immediately after `Step`, submit an ordinary release frame, step again, and verify no stale edge remains or replays.
+- Preserved the existing simulation stage order.
+
+### RED And Mutation Evidence
+
+- Before hash serialization changed, otherwise-identical live simulations with round generations 0 and 1 produced the same hash `8261248038652121437`; the new hash test failed.
+- Removing only `player.Input = player.Input with { Dash = false };` from `ProcessDashEdges` made `Arena_ConsumedDashLatchClearsBeforeOrdinaryInputAndNextStep` fail at the immediate post-consumption `Input.Dash` assertion.
+- Removing only `player.Input = player.Input with { FireReleased = false };` from `ProcessFire` made `Arena_ConsumedFireLatchClearsBeforeOrdinaryInputAndNextStep` fail at the immediate post-consumption `Input.FireReleased` assertion.
+- Restoring both clears and the hash field returned all three focused tests to green.
+
+### Verification
+
+- `ContinuousInputTests`: 19 passed, 0 failed.
+- `ArenaDeterminismTests`: 4 passed, 0 failed.
+- All Arena tests: 51 passed, 0 failed.
+- Full `Brmble.Server.Tests`: 952 passed, 0 failed.
+
+### Remaining Concern
+
+- Deferred as requested: the test `ManualTimeProvider` does not model every disposed-timer callback race. Production neutral timers remain generation-guarded.

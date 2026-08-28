@@ -150,7 +150,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
         var bytes = new List<byte>(512);
         Write(Tick); Write((int)Phase); Write(_phaseTick); Write(_liveTick); Write(ArenaRadius);
         Write(_consecutiveDoubleKos); Write(_doubleKoReplays); Write(_nextProjectileId);
-        WriteBool(_roundResetThisTick);
+        WriteBool(_roundResetThisTick); Write(RoundGeneration);
         foreach (var userId in _userIdsBySide) Write(userId);
         foreach (var value in _score) Write(value);
         foreach (var value in _shots) Write(value);

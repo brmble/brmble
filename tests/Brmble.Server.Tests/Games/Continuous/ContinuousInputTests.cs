@@ -225,6 +225,36 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
+    public async Task Arena_ConsumedDashLatchClearsBeforeOrdinaryInputAndNextStep()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, dash: true)).Accepted);
+
+        h.Simulation.Step();
+        Assert.IsFalse(h.Player.Input.Dash);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick)).Accepted);
+        h.Simulation.Step();
+
+        Assert.IsFalse(h.Player.Input.Dash);
+        Assert.AreEqual(4, h.Player.DashTicks);
+    }
+
+    [TestMethod]
+    public async Task Arena_ConsumedFireLatchClearsBeforeOrdinaryInputAndNextStep()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
+
+        h.Simulation.Step();
+        Assert.IsFalse(h.Player.Input.FireReleased);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick)).Accepted);
+        h.Simulation.Step();
+
+        Assert.IsFalse(h.Player.Input.FireReleased);
+        Assert.AreEqual(1, h.Simulation.Projectiles.Count);
+    }
+
+    [TestMethod]
     public async Task Arena_NeutralTimeoutDoesNotErasePendingDashEdge()
     {
         var h = await ArenaCoordinatorHarness.Live();
