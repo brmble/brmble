@@ -105,7 +105,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   };
 
   const sendState = (runtime: Runtime, input: ArenaInputState, heartbeat: boolean) => {
-    if (runtime.nextSequence === null) return;
+    if (runtime.terminal || runtime.nextSequence === null) return;
     const predictedTick = currentPredictedTick(runtime);
     const sequence = runtime.nextSequence;
     const recordedInput = heartbeat ? { ...input, fireReleased: false, dash: false } : input;
@@ -144,6 +144,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     const wait = Math.max(0, AIM_INTERVAL_MS - (performance.now() - runtime.lastAimSentAt));
     runtime.aimTimer = setTimeout(() => {
       runtime.aimTimer = null;
+      if (runtime.terminal) return;
       const queued = runtime.queuedAimInput;
       runtime.queuedAimInput = null;
       if (!queued) return;
@@ -165,7 +166,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
 
   const sendHeartbeat = () => {
     const runtime = runtimeRef.current;
-    if (!runtime) return;
+    if (!runtime || runtime.terminal) return;
     const frame = withLegalAim(runtime, runtime.currentInput);
     if (frame.aimX === runtime.currentInput.aimX && frame.aimY === runtime.currentInput.aimY) {
       if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
@@ -180,7 +181,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
 
   const sendInput = (input: ArenaInputState) => {
     const runtime = runtimeRef.current;
-    if (!runtime) return;
+    if (!runtime || runtime.terminal) return;
     const previous = runtime.currentInput;
     runtime.currentInput = input;
     setCurrentInput(input);
@@ -311,7 +312,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
         type: 'attachAck', protocolVersion: 1, matchId, snapshotSequence: message.snapshotSequence,
       });
       runtime.heartbeatTimer = setInterval(() => {
-        if (current()) {
+        if (current() && !runtime.terminal) {
           const frame = withLegalAim(runtime, runtime.currentInput);
           if (frame.aimX === runtime.currentInput.aimX && frame.aimY === runtime.currentInput.aimY) {
             if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
@@ -381,7 +382,15 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             if (message.sequence < runtime.lastSnapshotSequence) return;
             runtime.lastSnapshotSequence = message.sequence;
             runtime.terminal = true;
+            if (runtime.retryTimer !== null) clearTimeout(runtime.retryTimer);
+            if (runtime.deadlineTimer !== null) clearTimeout(runtime.deadlineTimer);
+            runtime.retryTimer = null;
+            runtime.deadlineTimer = null;
             clearConnectionTimers();
+            runtime.nextSequence = null;
+            runtime.pendingInputs = [];
+            runtime.sentFrames = [];
+            setPendingInputs([]);
             setClosed(message);
             setStatus('closed');
           }

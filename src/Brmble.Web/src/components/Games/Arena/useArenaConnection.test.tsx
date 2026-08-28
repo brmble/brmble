@@ -71,6 +71,16 @@ const world = (sequence: number, acknowledgedInput = 0) => ({
   ], projectiles: [],
 });
 
+const matchClosed = () => ({
+  type: 'matchClosed', protocolVersion: 1, matchId: 91, sequence: 121,
+  serverTick: 3601, reason: 'completed',
+  finalState: {
+    ...world(1), type: undefined, protocolVersion: undefined, matchId: undefined,
+    sequence: undefined, serverTick: undefined, generatedAtUnixMs: undefined,
+    score: [2, 1], phase: 'ended',
+  },
+});
+
 async function connect(acknowledgedInput = 0) {
   const rendered = renderHook(() => useArenaConnection({ matchId: 91, enabled: true }));
   await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
@@ -191,15 +201,56 @@ describe('useArenaConnection', () => {
     const h = await connect(87);
     act(() => h.result.current.sendInput(held));
     expect(h.socket.sent[1]).toMatchObject({ sequence: 88 });
-    h.socket.message({
-      type: 'matchClosed', protocolVersion: 1, matchId: 91, sequence: 121,
-      serverTick: 3601, reason: 'completed', finalState: { ...world(1), type: undefined, protocolVersion: undefined, matchId: undefined, sequence: undefined, serverTick: undefined, generatedAtUnixMs: undefined, score: [2, 1], phase: 'ended' },
-    });
+    h.socket.message(matchClosed());
     // JSON serialization drops the undefined envelope fields, leaving the complete inner state.
     expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
     h.socket.closed();
     expect(h.result.current.closed?.reason).toBe('completed');
     expect(h.result.current.status).toBe('closed');
+  });
+
+  it('invalidates public input production when the match closes', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    h.socket.message(matchClosed());
+    const sentAtClose = h.socket.sent.length;
+
+    act(() => {
+      h.result.current.sendInput({ ...held, moveX: -32767, dash: true });
+      h.result.current.sendHeartbeat();
+    });
+
+    expect(h.socket.sent).toHaveLength(sentAtClose);
+    expect(h.result.current.pendingInputs).toEqual([]);
+    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
+    h.socket.closed();
+    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
+    expect(h.result.current.status).toBe('closed');
+  });
+
+  it('ignores already-queued aim and heartbeat callbacks after the match closes', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const h = await connect();
+    const heartbeatCallback = setIntervalSpy.mock.calls.find(([, delay]) => delay === 250)?.[0] as () => void;
+    setIntervalSpy.mockRestore();
+    act(() => h.result.current.sendInput(held));
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
+    const aimCallback = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 34)?.[0] as () => void;
+    setTimeoutSpy.mockRestore();
+    expect(heartbeatCallback).toBeTypeOf('function');
+    expect(aimCallback).toBeTypeOf('function');
+
+    h.socket.message(matchClosed());
+    const sentAtClose = h.socket.sent.length;
+    act(() => {
+      aimCallback();
+      heartbeatCallback();
+    });
+
+    expect(h.socket.sent).toHaveLength(sentAtClose);
+    expect(h.result.current.pendingInputs).toEqual([]);
+    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
   });
 
   it('requests a fresh ticket with 250/500/1000/2000ms reconnect backoff', async () => {
