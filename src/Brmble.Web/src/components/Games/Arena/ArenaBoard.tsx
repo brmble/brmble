@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../Icon/Icon';
 import { Tooltip } from '../../Tooltip/Tooltip';
-import type { ArenaMatchClosed, ArenaPhase, ArenaPlayerSnapshot } from './arenaProtocol';
+import type { ArenaMatchClosed, ArenaPhase, ArenaPlayerSnapshot, ArenaStateSnapshot } from './arenaProtocol';
 import { ArenaRenderer } from './ArenaRenderer';
 import { useArenaConnection } from './useArenaConnection';
 import { useArenaState } from './useArenaState';
@@ -35,9 +35,32 @@ function chargeBand(charge: number): string {
   return '75 to 100 percent';
 }
 
+function radiusBand(radius: number): string {
+  const lower = Math.floor(radius / 500) * 500;
+  return `${lower} to ${lower + 499}`;
+}
+
+function cooldownBand(ticks: number): string {
+  if (ticks <= 0) return 'ready';
+  const upper = Math.ceil(ticks / 6) * 6;
+  return `cooldown, ${upper - 5} to ${upper} ticks remaining`;
+}
+
+function projectileSummary(state: ArenaStateSnapshot): string {
+  if (state.projectiles.length === 0) return '0 projectiles present.';
+  const counts = new Map<0 | 1, number>();
+  for (const projectile of state.projectiles) {
+    const side = state.players.find(player => player.sessionId === projectile.ownerSessionId)?.side;
+    if (side !== undefined) counts.set(side, (counts.get(side) ?? 0) + 1);
+  }
+  const owners = [...counts.entries()].map(([side, count]) => `${count} from side ${side + 1}`).join(', ');
+  return `${state.projectiles.length} ${state.projectiles.length === 1 ? 'projectile' : 'projectiles'} present${owners ? `, ${owners}` : ''}.`;
+}
+
 export function ArenaBoard({
   matchId, selfSessionId, resolveName, resolveAvatarUrl, onForfeit, onClose, ended,
 }: ArenaBoardProps) {
+  // Final state renders independently below, so a terminal board needs no new transport.
   const connection = useArenaConnection({ matchId, enabled: !ended });
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
@@ -88,30 +111,32 @@ export function ArenaBoard({
     return () => cancelAnimationFrame(frame);
   }, [reducedMotion, resolveAvatarUrl, resolveName, selfSessionId]);
 
-  const players = [state.localPlayer, state.remotePlayer].filter((player): player is ArenaPlayerSnapshot => player !== null);
-  const serverTick = connection.latestSnapshot?.serverTick ?? connection.welcome?.serverTick ?? 0;
-  const countdownTicks = state.phaseEndsAtTick === null ? 0 : Math.max(0, state.phaseEndsAtTick - serverTick);
+  const authoritative = ended?.finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
+  const players = authoritative?.players ?? [];
+  const serverTick = ended?.serverTick ?? connection.latestSnapshot?.serverTick ?? connection.welcome?.serverTick ?? 0;
+  const countdownTicks = authoritative?.phaseEndsAtTick == null ? 0 : Math.max(0, authoritative.phaseEndsAtTick - serverTick);
   const countdownSeconds = Math.ceil(countdownTicks / (connection.welcome?.tickRate ?? 60));
-  const phase = state.phase ? phaseLabels[state.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
-  const round = state.score[0] + state.score[1] + 1;
-  const local = state.localPlayer;
+  const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
+  const score = authoritative?.score ?? state.score;
+  const round = Math.max(1, score[0] + score[1] + (authoritative?.phase === 'ended' ? 0 : 1));
+  const local = players.find(player => player.sessionId === selfSessionId) ?? null;
   const outcome = ended
-    ? state.score[0] === state.score[1] ? 'Draw' : state.score[local?.side ?? 0] > state.score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
+    ? score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
     : 'Match in progress';
   const liveText = [
-    `${phase}${state.phaseEndsAtTick === null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
-    `Score ${state.score[0]} to ${state.score[1]}.`,
+    `${phase}${authoritative?.phaseEndsAtTick == null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
+    `Score ${score[0]} to ${score[1]}.`,
     ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${player.forcedFireTicks === null ? '' : `, forced fire in ${player.forcedFireTicks} ticks`}.`),
-    `${state.projectiles.length} ${state.projectiles.length === 1 ? 'projectile' : 'projectiles'} present.`,
-    state.arena ? `Arena radius ${state.arena.radius}, shrink phase ${state.arena.shrinkPhase}.` : 'Arena unavailable.',
-    local ? `Shot ${local.cooldownTicks > 0 ? `cooldown, ${local.cooldownTicks} ticks remaining` : 'ready'}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
+    authoritative ? projectileSummary(authoritative) : '0 projectiles present.',
+    authoritative ? `Arena radius ${radiusBand(authoritative.arena.radius)}, shrink phase ${authoritative.arena.shrinkPhase}.` : 'Arena unavailable.',
+    local ? `Shot ${cooldownBand(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
     `Outcome: ${outcome}.`,
   ].join(' ');
 
   return (
     <section className={`arena-board glass-panel animate-slide-up ${styles.board}`}>
       <button className="modal-close" onClick={ended ? onClose : onForfeit} aria-label={ended ? 'Close arena' : 'Forfeit arena'}>
-        <Icon name="x" size={20} />
+        <Icon name="x" />
       </button>
       <header className={`modal-header ${styles.header}`}>
         <div className={styles.titleBlock}>
@@ -119,11 +144,11 @@ export function ArenaBoard({
           <p className="modal-subtitle">Round {round}</p>
         </div>
         <div className={styles.hud}>
-          <span data-testid="arena-score" className={styles.score}>{state.score[0]} – {state.score[1]}</span>
-          <span>{phase}{state.phaseEndsAtTick === null ? '' : ` · ${countdownSeconds}s`}</span>
-          <Tooltip content="Arena audio arrives in a later release">
-            <button className={`btn btn-secondary btn-sm ${styles.audio}`} disabled aria-disabled="true" aria-label="Arena audio unavailable">
-              <Icon name="headphones-off" size={16} />
+          <span data-testid="arena-score" className={styles.score}>{score[0]} – {score[1]}</span>
+          <span>{phase}{authoritative?.phaseEndsAtTick == null ? '' : ` · ${countdownSeconds}s`}</span>
+          <Tooltip content="Arena audio arrives in a later release" delay={0}>
+            <button className={`btn btn-secondary btn-sm ${styles.audio}`} aria-disabled="true" aria-label="Arena audio unavailable" onClick={event => event.preventDefault()}>
+              <Icon name="headphones-off" />
             </button>
           </Tooltip>
         </div>

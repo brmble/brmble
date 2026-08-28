@@ -180,5 +180,18 @@ export function useArenaState({
     return () => cancelAnimationFrame(frameId);
   }, [welcome]);
 
+  if (!welcome && finalState) {
+    return {
+      localPlayer: finalState.players.find(player => player.sessionId === selfSessionId) ?? null,
+      remotePlayer: finalState.players.find(player => player.sessionId !== selfSessionId) ?? null,
+      projectiles: finalState.projectiles,
+      arena: finalState.arena,
+      phase: finalState.phase,
+      phaseEndsAtTick: finalState.phaseEndsAtTick,
+      score: [...finalState.score],
+      consecutiveDoubleKos: finalState.consecutiveDoubleKos,
+      snapCount: 0,
+    };
+  }
   return welcome ? rendered : emptyState;
 }

@@ -101,7 +101,7 @@ export class ArenaRenderer {
     ctx.font = `${color('--text-xs')} ${color('--font-mono')}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(view.arena.shrinkPhase.toUpperCase(), center.x, center.y - view.arena.radius * scale - line(180));
+    ctx.fillText(view.arena.shrinkPhase.toUpperCase(), center.x, this.layout.offsetY + line(420));
 
     for (const projectile of view.projectiles) {
       const projectilePoint = point(projectile);
@@ -118,6 +118,15 @@ export class ArenaRenderer {
       ctx.beginPath();
       ctx.arc(projectilePoint.x, projectilePoint.y, PROJECTILE_RADIUS * scale, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = text;
+      ctx.lineWidth = line(45);
+      ctx.stroke();
+      const owner = view.players.find(player => player.sessionId === projectile.ownerSessionId);
+      const markerDirection = owner?.side === 1 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(projectilePoint.x, projectilePoint.y - PROJECTILE_RADIUS * scale);
+      ctx.lineTo(projectilePoint.x + markerDirection * PROJECTILE_RADIUS * scale, projectilePoint.y);
+      ctx.stroke();
     }
 
     for (const player of view.players) this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point);
@@ -186,7 +195,11 @@ export class ArenaRenderer {
     ctx.arc(body.x, body.y, BODY_RADIUS * scale, 0, Math.PI * 2);
     ctx.clip();
     const diameter = BODY_RADIUS * scale * 2;
-    ctx.drawImage(avatar, body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
+    if (avatar?.complete && avatar.naturalWidth > 0) {
+      ctx.drawImage(avatar, body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
+    } else {
+      this.drawFallback(ctx, body, diameter, sideColor, colors.text);
+    }
     ctx.restore();
 
     ctx.strokeStyle = sideColor;
@@ -236,15 +249,26 @@ export class ArenaRenderer {
     }
   }
 
-  private avatarFor(sessionId: number, requested: string | null | undefined): HTMLImageElement {
+  private drawFallback(ctx: CanvasRenderingContext2D, body: FixedVec, diameter: number, fill: string, text: string) {
+    ctx.fillStyle = fill;
+    ctx.fillRect(body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
+    ctx.fillStyle = text;
+    const style = getComputedStyle(this.canvas);
+    ctx.font = `${style.getPropertyValue('--text-sm')} ${style.getPropertyValue('--font-display')}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('B', body.x, body.y);
+  }
+
+  private avatarFor(sessionId: number, requested: string | null | undefined): HTMLImageElement | null {
     const source = requested || FALLBACK_AVATAR_SRC;
     const existing = this.avatars.get(sessionId);
-    if (existing?.source === source) return existing.ready ? existing.image : this.fallback;
+    if (existing?.source === source) return existing.ready ? existing.image : this.loadedFallback();
     if (existing) {
       existing.image.onload = null;
       existing.image.onerror = null;
     }
-    if (!requested) return this.fallback;
+    if (!requested) return this.loadedFallback();
     const generation = ++this.generation;
     const image = this.makeImage(source, false);
     const entry: AvatarEntry = { image, source, ready: false, generation };
@@ -257,7 +281,11 @@ export class ArenaRenderer {
       image.onerror = null;
     };
     this.avatars.set(sessionId, entry);
-    return this.fallback;
+    return this.loadedFallback();
+  }
+
+  private loadedFallback(): HTMLImageElement | null {
+    return this.fallback.complete && this.fallback.naturalWidth > 0 ? this.fallback : null;
   }
 
   private makeImage(source: string, ready: boolean): HTMLImageElement {

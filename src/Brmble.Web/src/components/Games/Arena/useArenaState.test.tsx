@@ -89,6 +89,17 @@ describe('useArenaState', () => {
     expect(hook.result.current.snapCount).toBe(1);
   });
 
+  it('renders a terminal final state without a welcome frame', () => {
+    const final = { ...state(5000), phase: 'ended' as const, score: [2, 1] as [number, number] };
+    const hook = renderHook(() => useArenaState({
+      welcome: null, latestSnapshot: null, pendingInputs: [], selfSessionId: 10, finalState: final,
+    }));
+    expect(hook.result.current).toMatchObject({
+      phase: 'ended', score: [2, 1], arena: final.arena,
+      localPlayer: { sessionId: 10, x: 5000 }, remotePlayer: { sessionId: 20 },
+    });
+  });
+
   it('blends small corrections for 100ms and presents predicted own projectiles immediately', () => {
     vi.setSystemTime(1000);
     const initial = welcome();

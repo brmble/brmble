@@ -49,12 +49,14 @@ function setup() {
     getPropertyValue: (name: string) => ({
       '--bg-surface': 'surface', '--text-primary': 'text', '--text-muted': 'muted',
       '--accent-primary': 'primary', '--accent-danger': 'danger', '--font-body': 'body', '--font-mono': 'mono',
-      '--text-xs': '12px', '--text-sm': '14px',
+      '--font-display': 'display', '--text-xs': '12px', '--text-sm': '14px',
     })[name] ?? '',
   } as CSSStyleDeclaration);
+  const parent = document.createElement('div');
+  parent.appendChild(canvas);
   const renderer = new ArenaRenderer(canvas);
   renderer.resize(1000, 600, 2);
-  return { renderer, canvas, calls, style };
+  return { renderer, canvas, calls, style, context };
 }
 
 describe('ArenaRenderer', () => {
@@ -100,8 +102,61 @@ describe('ArenaRenderer', () => {
   it('uses the Brmble logo immediately when an avatar is missing or fails', () => {
     const { renderer, calls } = setup();
     renderer.render(view({ avatarUrls: { 10: 'broken-avatar' } }), { reducedMotion: false });
-    const images = calls.filter(call => call.op === 'drawImage').map(call => (call.args[0] as HTMLImageElement).src);
-    expect(images.some(source => source.includes(FALLBACK_AVATAR_SRC))).toBe(true);
+    expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'B')).toBe(true);
+    expect(calls.filter(call => call.op === 'drawImage')).toHaveLength(0);
+  });
+
+  it('uses a loaded logo after an incomplete or broken avatar fallback', () => {
+    const images: HTMLImageElement[] = [];
+    vi.stubGlobal('Image', class {
+      src = ''; onload: (() => void) | null = null; onerror: (() => void) | null = null;
+      complete = false; naturalWidth = 0;
+      constructor() { images.push(this as unknown as HTMLImageElement); }
+    });
+    const { renderer, calls } = setup();
+    renderer.render(view({ avatarUrls: { 10: 'broken-avatar' } }), { reducedMotion: false });
+    images.find(image => image.src === 'broken-avatar')?.onerror?.(new Event('error'));
+    const logo = images.find(image => image.src.includes(FALLBACK_AVATAR_SRC))!;
+    Object.assign(logo, { complete: true, naturalWidth: 24 });
+    calls.length = 0;
+    renderer.render(view({ avatarUrls: { 10: 'broken-avatar' } }), { reducedMotion: false });
+    expect(calls.some(call => call.op === 'drawImage' && call.args[0] === logo)).toBe(true);
+  });
+
+  it('draws clipped bodies with distinct side outlines and opposite notches', () => {
+    const { renderer, calls } = setup();
+    calls.length = 0;
+    renderer.render(view(), { reducedMotion: false });
+    expect(calls.filter(call => call.op === 'clip')).toHaveLength(2);
+    expect(calls.filter(call => call.op === 'arc' && call.args[2] === 18)).toHaveLength(4);
+    expect(calls.filter(call => call.op === 'arc' && call.args[2] === 13.5)).toHaveLength(1);
+    const notchTips = calls.filter(call => call.op === 'lineTo' && call.args[1] === 300)
+      .map(call => call.args[0] as number).filter(x => x !== 500);
+    expect(Math.min(...notchTips)).toBeLessThan(410);
+    expect(Math.max(...notchTips)).toBeGreaterThan(590);
+  });
+
+  it('draws a non-colour owner marker and outline on projectiles', () => {
+    const { renderer, calls } = setup();
+    calls.length = 0;
+    renderer.render(view({ projectiles: [
+      { id: 1, ownerSessionId: 10, x: -1000, y: 0, vx: 0, vy: 0, chargePermille: 0 },
+      { id: 2, ownerSessionId: 20, x: 1000, y: 0, vx: 0, vy: 0, chargePermille: 0 },
+    ] }), { reducedMotion: true });
+    const thinStrokes = calls.filter(call => call.op === 'stroke' && Math.abs((call.lineWidth ?? 0) - 1.35) < 0.001);
+    expect(thinStrokes.length).toBeGreaterThanOrEqual(4);
+    const markerStarts = calls.filter(call => call.op === 'moveTo' && call.args[1] === 294.6).map(call => call.args[0] as number);
+    expect(markerStarts).toEqual(expect.arrayContaining([470, 530]));
+  });
+
+  it('places the shrink label at a fixed battlefield edge regardless of radius', () => {
+    const first = setup();
+    first.renderer.render(view({ arena: { radius: 8000, shrinkPhase: 'normal' } }), { reducedMotion: false });
+    const firstLabel = first.calls.find(call => call.op === 'fillText' && call.args[0] === 'NORMAL')!;
+    const second = setup();
+    second.renderer.render(view({ arena: { radius: 4000, shrinkPhase: 'normal' } }), { reducedMotion: false });
+    const secondLabel = second.calls.find(call => call.op === 'fillText' && call.args[0] === 'NORMAL')!;
+    expect(firstLabel.args.slice(1)).toEqual(secondLabel.args.slice(1));
   });
 
   it('removes moving trails under reduced motion without changing body positions or state cues', () => {
@@ -116,10 +171,21 @@ describe('ArenaRenderer', () => {
   });
 
   it('stops rendering and releases image handlers when disposed', () => {
+    const disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnect; });
+    const images: Array<{ onload: (() => void) | null; onerror: (() => void) | null; src: string; complete: boolean; naturalWidth: number }> = [];
+    vi.stubGlobal('Image', class {
+      src = ''; onload: (() => void) | null = null; onerror: (() => void) | null = null;
+      complete = false; naturalWidth = 0;
+      constructor() { images.push(this); }
+    });
     const { renderer, calls } = setup();
+    renderer.render(view({ avatarUrls: { 10: 'avatar' } }), { reducedMotion: false });
     calls.length = 0;
     renderer.dispose();
     renderer.render(view(), { reducedMotion: false });
     expect(calls).toHaveLength(0);
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(images.every(image => image.onload === null && image.onerror === null)).toBe(true);
   });
 });
