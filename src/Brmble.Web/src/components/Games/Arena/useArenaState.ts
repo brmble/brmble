@@ -54,11 +54,12 @@ export function useArenaState({
   const inputKeyRef = useRef('');
   const sessionRef = useRef(selfSessionId);
   const renderedLocalRef = useRef<ArenaPlayerSnapshot | null>(null);
+  const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
 
   useEffect(() => {
-    inputsRef.current = { pendingInputs, recentInputs, selfSessionId, finalState };
     if (sessionRef.current !== selfSessionId) {
       sessionRef.current = selfSessionId;
+      suppressedInputsRef.current = { pending: pendingInputs, recent: recentInputs };
       predictedRef.current = undefined;
       renderedLocalRef.current = null;
       correctionRef.current = null;
@@ -66,7 +67,14 @@ export function useArenaState({
       snapCountRef.current = 0;
       authorityDirtyRef.current = true;
     }
-    const inputKey = JSON.stringify([pendingInputs, recentInputs]);
+    const suppressed = suppressedInputsRef.current;
+    const usePending = suppressed?.pending === pendingInputs ? [] : pendingInputs;
+    const useRecent = suppressed?.recent === recentInputs ? [] : recentInputs;
+    if (suppressed && suppressed.pending !== pendingInputs && suppressed.recent !== recentInputs) {
+      suppressedInputsRef.current = null;
+    }
+    inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, selfSessionId, finalState };
+    const inputKey = JSON.stringify([usePending, useRecent]);
     if (inputKey !== inputKeyRef.current) {
       inputKeyRef.current = inputKey;
       inputDirtyRef.current = true;
@@ -84,6 +92,7 @@ export function useArenaState({
       authorityDirtyRef.current = false;
       inputDirtyRef.current = false;
       inputKeyRef.current = '';
+      suppressedInputsRef.current = null;
       welcomeRef.current = null;
       return;
     }
@@ -95,6 +104,7 @@ export function useArenaState({
     authorityDirtyRef.current = true;
     inputDirtyRef.current = true;
     inputKeyRef.current = '';
+    suppressedInputsRef.current = null;
     welcomeRef.current = welcome;
     const frame = asSnapshot(welcome);
     timelineRef.current = [frame];

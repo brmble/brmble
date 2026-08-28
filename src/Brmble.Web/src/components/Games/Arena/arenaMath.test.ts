@@ -166,6 +166,34 @@ describe('arena client prediction', () => {
     expect(next.local.dashTicks).toBe(2);
   });
 
+  it.each([
+    ['far behind', 90, 1],
+    ['future skew', 120, 5],
+  ])('bounds %s acknowledged dash timing to the acknowledgement snapshot', (_label, predictedTick, expectedTicks) => {
+    const accepted = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10
+        ? { ...player, dashAvailable: false, acknowledgedInput: 8 }
+        : player),
+    });
+    const dash = { ...pending(8, predictedTick, predictedTick, { ...right, dash: true }), acknowledgedAtTick: 103 };
+    expect(reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local.dashTicks).toBe(expectedTicks);
+  });
+
+  it('ends inferred dash at its bounded end and never extends it past six authoritative ticks', () => {
+    const dash = { ...pending(8, 120, 120, { ...right, dash: true }), acknowledgedAtTick: 103 };
+    const accepted = snapshot({ serverTick: 103, players: snapshot().players.map(player => player.sessionId === 10
+      ? { ...player, dashAvailable: false, acknowledgedInput: 8 }
+      : player) });
+    const first = reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local;
+    const atEnd = snapshot({ ...accepted, serverTick: 109 });
+    const ended = reconcile({ ...authority(atEnd, first), recentInputs: [dash] }, [], prediction).local;
+    expect(ended.dashTicks).toBe(0);
+    expect(ended.dashEndsAtTick).toBeNull();
+    const later = reconcile({ ...authority(snapshot({ ...accepted, serverTick: 110 }), ended), recentInputs: [dash] }, [], prediction).local;
+    expect(later.dashEndsAtTick).toBeNull();
+  });
+
   it('smooths a 300-unit correction and snaps a 301-unit correction', () => {
     const predicted = reconcile(authority(), [pending(8, 101, 101)], prediction).local;
     const authority300 = snapshot({ players: snapshot().players.map(player => player.sessionId === 10

@@ -183,6 +183,23 @@ describe('useArenaState', () => {
     expect(hook.result.current.snapCount).toBe(0);
   });
 
+  it('suppresses old-session pending and recent inputs until new-session arrays change', () => {
+    const initial = welcome();
+    const oldDash: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
+    };
+    const hook = renderHook(({ selfSessionId, pendingInputs, recentInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs, selfSessionId,
+    }), { initialProps: { selfSessionId: 10, pendingInputs: [oldDash], recentInputs: [oldDash] } });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [oldDash], recentInputs: [oldDash] });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer).toMatchObject({ sessionId: 20, x: -1000, dashAvailable: true });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [], recentInputs: [] });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.sessionId).toBe(20);
+  });
+
   it('resets prediction, correction and snap count when the current session is replaced', () => {
     vi.setSystemTime(1000);
     const initial = welcome();
