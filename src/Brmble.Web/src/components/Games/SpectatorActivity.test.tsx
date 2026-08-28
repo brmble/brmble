@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { SpectatorActivity } from './SpectatorActivity';
 import { REVEAL_SECONDS } from './rpsShared';
+import { snapshot as spectatorSnapshot } from './spectatorTestHarness';
 import type { DuelQueueSnapshot, SpectatorSnapshot } from '../../api/games';
 
 const resolveName = (sessionId: number) => ({ 10: 'Qy', 20: 'Broan', 30: 'Mo' }[sessionId] ?? String(sessionId));
@@ -31,6 +32,21 @@ const queue = (over: Partial<DuelQueueSnapshot> = {}): DuelQueueSnapshot => ({
 });
 
 describe('SpectatorActivity', () => {
+  it('renders an explicit unsupported notice rather than the Deathroll board', () => {
+    render(
+      <SpectatorActivity
+        match={spectatorSnapshot({ gameType: 'arena-knockoff' })}
+        ended={null}
+        queueSnapshot={null}
+        resolveName={() => 'Someone'}
+        onStopWatching={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('spectator-unsupported-game')).toHaveTextContent(/arena-knockoff/);
+    expect(screen.queryByTestId('deathroll-spectator-board')).toBeNull();
+  });
+
   it('Live: renders the deathroll board', () => {
     render(<SpectatorActivity match={deathrollMatch} ended={null} queueSnapshot={null} resolveName={resolveName} onStopWatching={vi.fn()} />);
     expect(screen.getByText('Qy')).toBeInTheDocument();

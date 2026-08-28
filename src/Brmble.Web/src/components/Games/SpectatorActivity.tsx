@@ -1,10 +1,12 @@
 import { gameDisplayName } from '../../utils/games';
+import { assertNever } from '../../utils/assertNever';
 import { pairLabel } from './duelFormatting';
 import { DeathrollSpectatorBoard } from './DeathrollSpectatorBoard';
 import { RpsSpectatorBoard } from './RpsSpectatorBoard';
 import { isRpsSpectatorView } from '../../api/games';
-import type { DuelQueueSnapshot, SpectatorMatchEndedEvent, SpectatorSnapshot } from '../../api/games';
+import type { DuelQueueSnapshot, SpectatorMatchEndedEvent, SpectatorMatchOutcome, SpectatorSnapshot } from '../../api/games';
 import styles from './SpectatorActivity.module.css';
+import { isGameType } from './gameTypes';
 
 interface SpectatorActivityProps {
   match: SpectatorSnapshot | null;
@@ -53,11 +55,7 @@ export function SpectatorActivity({
    * banner; every path that DOES clear `match` also clears `spectatingChannelId`,
    * which unmounts this whole activity anyway.
    */
-  const body = match
-    ? isRpsSpectatorView(match.view)
-      ? <RpsSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />
-      : <DeathrollSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />
-    : <NextUp queueSnapshot={queueSnapshot} resolveName={resolveName} />;
+  const body = match ? renderSpectatorBoard(match, outcome) : <NextUp queueSnapshot={queueSnapshot} resolveName={resolveName} />;
 
   return (
     <section className={`glass-panel animate-slide-up ${styles.activity}`} aria-label="Spectating">
@@ -81,6 +79,31 @@ export function SpectatorActivity({
         </button>
       </div>
     </section>
+  );
+}
+
+function renderSpectatorBoard(match: SpectatorSnapshot, outcome: SpectatorMatchOutcome | null) {
+  if (!isGameType(match.gameType)) return <UnsupportedSpectatorView gameType={match.gameType} />;
+  switch (match.gameType) {
+    case 'rps':
+      return isRpsSpectatorView(match.view)
+        ? <RpsSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />
+        : <UnsupportedSpectatorView gameType={match.gameType} />;
+    case 'deathroll':
+      return isRpsSpectatorView(match.view)
+        ? <UnsupportedSpectatorView gameType={match.gameType} />
+        : <DeathrollSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />;
+    default:
+      return assertNever(match.gameType);
+  }
+}
+
+function UnsupportedSpectatorView({ gameType }: { gameType: string }) {
+  return (
+    <div className={styles.nextUp} data-testid="spectator-unsupported-game">
+      <span className={styles.nextUpLabel}>Can&apos;t show this game</span>
+      <span className={styles.nextUpMeta}>This Brmble version can&apos;t display {gameType}.</span>
+    </div>
   );
 }
 

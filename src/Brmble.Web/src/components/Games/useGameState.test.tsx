@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from './useGameState';
 import { api, emit, resetHarness } from './duelTestHarness';
@@ -8,6 +8,25 @@ vi.mock('../../api/games', async () => (await import('./duelTestHarness')).api);
 
 describe('useGameState', () => {
   beforeEach(resetHarness);
+
+  it('declines an unknown game type loudly instead of silently', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = renderHook(() => useGameState(100));
+
+    emit('game.invited', { offerId: 5, gameType: 'arena-knockoff', from: 42 });
+
+    await waitFor(() => expect(api.respondOffer).toHaveBeenCalledWith(5, false));
+    // The invite must not open a board...
+    expect(result.current.incomingInvite).toBeNull();
+    // ...and must not vanish without trace.
+    expect(result.current.lastError).toBe(
+      "This Brmble version can't play 'arena-knockoff'. Update Brmble to accept this challenge.",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[games] declined an invite for an unsupported game type 'arena-knockoff'",
+    );
+    warn.mockRestore();
+  });
 
   describe('game.accepted', () => {
     it('clears the matching incoming challenge when the server accepts it', () => {

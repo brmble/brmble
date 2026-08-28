@@ -28,7 +28,7 @@ export function DeathrollSpectatorBoard({ view, players, outcome }: DeathrollSpe
         : 'The match has ended.';
 
   return (
-    <div className={styles.board}>
+    <div className={styles.board} data-testid="deathroll-spectator-board">
       <div className={styles.players}>
         {view.players.map(sessionId => (
           <div

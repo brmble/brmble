@@ -57,6 +57,8 @@ import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
 import { useSpectatorState } from './components/Games/useSpectatorState';
 import { SpectatorActivity } from './components/Games/SpectatorActivity';
+import { isGameType } from './components/Games/gameTypes';
+import { UnsupportedGameBoard } from './components/Games/UnsupportedGameBoard';
 import { GameApiError } from './api/games';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -5284,41 +5286,54 @@ const handleConnect = (serverData: SavedServer) => {
     : null;
 
 
+  const renderParticipantBoard = () => {
+    const raw = gameState.activeMatch?.gameType ?? gameState.ended?.gameType;
+    if (!isGameType(raw)) {
+      return <UnsupportedGameBoard gameType={raw ?? 'unknown'} onClose={confirmForfeit} />;
+    }
+    switch (raw) {
+      case 'rps':
+        return (
+          <RpsBoard
+            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onPick={(pick) => gameState.sendAction({ pick })}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
+          />
+        );
+      case 'deathroll':
+        return (
+          <DeathrollBoard
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onRoll={gameState.roll}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
+          />
+        );
+      default:
+        return assertNever(raw);
+    }
+  };
+
   const gameSurface = participatingMatchId !== null ? (
-    <GameSurface>
-      {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-        <RpsBoard
-          key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
-          view={gameState.view}
-          ended={gameState.ended}
-          myUserId={selfSession}
-          turnDeadline={gameState.turnDeadline}
-          turnWindowMs={gameState.turnWindowMs}
-          penalty={gameState.penalty}
-          resolveName={resolveGamePlayerName}
-          onPick={(pick) => gameState.sendAction({ pick })}
-          onForfeit={confirmForfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-          rematchPending={rematchPending}
-        />
-      ) : (
-        <DeathrollBoard
-          view={gameState.view}
-          ended={gameState.ended}
-          myUserId={selfSession}
-          turnDeadline={gameState.turnDeadline}
-          turnWindowMs={gameState.turnWindowMs}
-          penalty={gameState.penalty}
-          resolveName={resolveGamePlayerName}
-          onRoll={gameState.roll}
-          onForfeit={confirmForfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-          rematchPending={rematchPending}
-        />
-      )}
-    </GameSurface>
+    <GameSurface>{renderParticipantBoard()}</GameSurface>
   ) : showGame ? (
     <NeonDGame onClose={() => setShowGame(false)} />
   ) : null;
