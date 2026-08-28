@@ -97,7 +97,7 @@ public sealed class RealtimeSnapshotMailbox
         }
     }
 
-    public void SealTerminal(RealtimeControl terminal)
+    public bool SealTerminal(RealtimeControl terminal)
     {
         ArgumentNullException.ThrowIfNull(terminal);
         if (terminal.Type != "matchClosed" || terminal.Coalescible)
@@ -105,18 +105,19 @@ public sealed class RealtimeSnapshotMailbox
 
         lock (_gate)
         {
-            if (_sealed) return;
-            if (_controlCount >= ControlCapacity || !_controls.Writer.TryWrite(terminal))
-            {
-                _overloaded = true;
-                return;
-            }
-
+            if (_sealed) return false;
             _sealed = true;
             while (_snapshots.Reader.TryRead(out _)) { }
             _snapshotCount = 0;
+            if (_controlCount >= ControlCapacity || !_controls.Writer.TryWrite(terminal))
+            {
+                _overloaded = true;
+                return false;
+            }
+
             _controlCount++;
             _available.Release();
+            return true;
         }
     }
 

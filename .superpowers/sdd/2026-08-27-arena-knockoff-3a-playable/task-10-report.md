@@ -164,3 +164,64 @@ Passed: 973, Failed: 0, Skipped: 0
 - Task 12 still owns awaiting successful terminal socket transmission before normal WebSocket close. The mailbox now guarantees that no coordinator outbound can follow its terminal item.
 - If terminal view serialization itself fails, no valid `matchClosed.finalState` can be produced; cleanup, persistence acceptance, ownership release, completion subscribers, and `game.ended` still proceed independently and the failure is logged.
 - No Spectator service/source, spectator injection, world-state event publication, router/catalog replacement, or `.opencode/plans` file was changed.
+
+## Fix Round 2
+
+### Findings Addressed
+
+- `AttachParticipantAsync` now checks whether the requested current session ID belongs to another participant before removing any connection/session mapping or changing attach sequence state. A collision returns `sessionInUse`; the original participant remains detached and the opponent's mapping/connection remains usable.
+- Collision coverage creates an Arena projectile before reconnect, rejects reconnect onto the opponent's session, then reconnects to a unique session and asserts exactly two unique projected player IDs and that every projectile owner belongs to that projected player set.
+- `RealtimeSnapshotMailbox.SealTerminal` now returns whether `matchClosed` was physically queued. It always seals and discards the pending snapshot atomically before testing capacity. On full controls it sets `Overloaded`, returns `false`, preserves already queued controls, and rejects all later controls/snapshots. On success it returns `true` and queues the terminal control.
+- Coordinator completion checks the boolean seal result and logs an overloaded terminal mailbox. Task 12 can use the existing `Overloaded` signal to close without a terminal frame when physical capacity is exhausted.
+- Replaced synthetic completion race coverage with controlled overlap tests. Attach-vs-completion blocks inside `ParticipantSnapshot` while attach owns the match lock, starts completion and proves it cannot complete until projection releases, then verifies terminal ordering. Completion-vs-completion blocks the first completion inside `ICompletedMatchSink.Enqueue` after terminal claim, starts and completes a second forfeit while the first pipeline is still blocked, then verifies one sink enqueue and one completion event.
+- Added a direct reconnect cadence test: drain the attach welcome/snapshot, acknowledge the exact reconnect sequence, advance the scheduler, and require a subsequent snapshot with a strictly greater sequence.
+
+### RED Evidence
+
+The first focused run after adding explicit terminal result assertions failed to compile:
+
+```text
+error CS0815: Cannot assign void to an implicitly-typed variable
+```
+
+This directly demonstrated that `SealTerminal` exposed no success/failure contract. After implementing the boolean fail-closed contract and pre-mutation collision check, the combined coordinator/mailbox suite passed 35 tests.
+
+The first coordinator run with real-overlap tests passed both barrier-controlled races. One unrelated cadence test exposed the existing virtual-time startup race because scheduler `Task.Run` had not initialized its deadline before time advanced. Synchronizing scheduler startup in that test restored deterministic behavior without changing production cadence.
+
+### Race Mechanics
+
+- Attach-vs-completion uses `BlockingProjectionSimulation.ProjectionEntered` and `ReleaseProjection`. `AttachParticipantAsync` blocks in projection while holding `state.SyncRoot`; `ForfeitAsync` starts on another task and is asserted incomplete until the barrier releases. This proves actual contention on the coordinator critical section rather than task scheduling order.
+- Completion-vs-completion uses `BlockingSink.Entered` and `Release`. The first completion has already removed the match and marked it inactive before blocking in sink acceptance. The second forfeit executes concurrently and returns while the first remains blocked, proving the exactly-once claim gate independently of downstream completion latency.
+- Mailbox pressure fills all 16 physical control slots, leaves a pending snapshot, calls `SealTerminal`, then attempts later snapshot/control writes. The seal reports `false`, `Overloaded` is true, no snapshot survives, no new terminal is inserted, and no post-seal control is accepted.
+
+### Mutation Evidence
+
+- Moving the session collision check after `state.Participants.Remove` or removing it overwrites the opponent mapping; the opponent input assertion and unique projected ID assertions fail.
+- Omitting unconditional `_sealed = true` or snapshot discard on the full-capacity branch allows post-seal writes or the pending snapshot to drain; the pressure test fails.
+- Returning success when terminal enqueue fails contradicts the explicit `false` assertion and hides overload from coordinator handling.
+- Removing the reconnect `AttachAcknowledged` fan-out gate or failing to resume it after acknowledgement causes either the prior retained-attach-snapshot test or the new greater-sequence cadence test to fail.
+- Replacing barrier-controlled races with sequential execution cannot satisfy the assertions that completion remains blocked during attach projection or that the first completion remains blocked while the second has returned.
+
+### Verification
+
+```text
+ContinuousGameCoordinatorTests: 25 passed, 0 failed
+RealtimeSnapshotMailboxTests: 12 passed, 0 failed
+ContinuousInputTests: 19 passed, 0 failed
+All Continuous and Arena tests: 134 passed, 0 failed
+Exact lifecycle gate: 174 passed, 0 failed
+Full server suite: 979 passed, 0 failed
+```
+
+### Fix Round 2 Files
+
+- `src/Brmble.Server/Games/Continuous/ContinuousGameCoordinator.cs`
+- `src/Brmble.Server/Games/Continuous/RealtimeSnapshotMailbox.cs`
+- `tests/Brmble.Server.Tests/Games/Continuous/ContinuousGameCoordinatorTests.cs`
+- `tests/Brmble.Server.Tests/Games/Continuous/RealtimeSnapshotMailboxTests.cs`
+- `.superpowers/sdd/2026-08-27-arena-knockoff-3a-playable/task-10-report.md`
+
+### Remaining Concerns
+
+- A physically full control mailbox cannot accept `matchClosed`; it is now permanently sealed and marked overloaded, so Task 12 must close the socket through its overload path without waiting for terminal delivery.
+- No spectator files, spectator dependency/call, world-state event publication, router/catalog replacement, or `.opencode/plans` file was changed.

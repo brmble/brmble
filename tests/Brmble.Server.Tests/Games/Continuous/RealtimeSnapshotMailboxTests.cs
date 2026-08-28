@@ -171,6 +171,43 @@ public class RealtimeSnapshotMailboxTests
         Assert.IsTrue(box.DroppedSnapshots >= 0);
     }
 
+    [TestMethod]
+    public async Task SealTerminalAtCapacityFailsClosedAndRejectsAllLaterWrites()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        for (var i = 1; i <= 14; i++) box.WriteControl(ConnectionState(i, "full"));
+        box.WriteControl(Welcome());
+        box.WriteControl(MatchClosed(120));
+        box.ReplaceSnapshot("must-be-discarded");
+
+        var queued = box.SealTerminal(MatchClosed(121));
+        box.ReplaceSnapshot("after-seal");
+        box.WriteControl(ConnectionState(99, "after-seal"));
+
+        Assert.IsFalse(queued);
+        Assert.IsTrue(box.Overloaded);
+        var controls = await TakeAsync(box, 16);
+        Assert.IsFalse(controls.Any(x => !x.IsControl));
+        Assert.IsFalse(controls.Any(x => x.Sequence == 121));
+        Assert.IsFalse(controls.Any(x => x.SessionId == 99));
+    }
+
+    [TestMethod]
+    public async Task SealTerminalReportsSuccessAndDiscardsPendingSnapshot()
+    {
+        var box = new RealtimeSnapshotMailbox();
+        box.ReplaceSnapshot("must-be-discarded");
+
+        var queued = box.SealTerminal(MatchClosed(121));
+        box.ReplaceSnapshot("after-seal");
+
+        Assert.IsTrue(queued);
+        Assert.AreEqual("matchClosed", (await box.ReadNextAsync(default)).Type);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(25));
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () =>
+            await box.ReadNextAsync(timeout.Token));
+    }
+
     private static async Task<List<RealtimeOutbound>> TakeAsync(RealtimeSnapshotMailbox box, int count)
     {
         var result = new List<RealtimeOutbound>(count);

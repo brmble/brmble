@@ -144,6 +144,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         {
             if (!state.Active || !state.ParticipantsByUser.TryGetValue(stableUserId, out var participant))
                 return Task.FromResult(new AttachResult(false, null, "notParticipant"));
+            if (state.Participants.TryGetValue(sessionId, out var sessionOwner)
+                && !ReferenceEquals(sessionOwner, participant))
+                return Task.FromResult(new AttachResult(false, null, "sessionInUse"));
             if (participant.Mailbox is not null && participant.ConnectionId != connectionId)
                 return Task.FromResult(new AttachResult(false, null, "alreadyAttached"));
             if (participant.ConnectionId is not null)
@@ -415,8 +418,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                     reason = abandonReason is null ? "completed" : "forfeited",
                     finalState = finalView,
                 }, JsonOptions);
-                participant.Mailbox.SealTerminal(new RealtimeControl(
-                    "matchClosed", null, sequence, json, Coalescible: false));
+                if (!participant.Mailbox.SealTerminal(new RealtimeControl(
+                        "matchClosed", null, sequence, json, Coalescible: false)))
+                    _logger.LogWarning("Terminal mailbox was overloaded for continuous match {MatchId}.", matchId);
             }
             catch (Exception ex)
             {

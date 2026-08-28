@@ -133,6 +133,56 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task ReattachRejectsOpponentSessionWithoutMutatingEitherMapping()
+    {
+        var h = await Harness.LiveAsync();
+        while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
+        h.Simulation.Step();
+        h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
+        h.Simulation.Step();
+        await h.Coordinator.DetachAsync("one");
+
+        var collision = await h.Coordinator.AttachParticipantAsync(
+            h.MatchId, 501, 20, "collision", new RealtimeSnapshotMailbox());
+
+        Assert.IsFalse(collision.Ok);
+        Assert.IsTrue(h.Submit(20, 1).Accepted);
+        var replacement = await h.AttachAsync(501, 11, "replacement", acknowledge: true);
+        var snapshot = await h.Mailboxes[11].ReadNextAsync(default);
+        snapshot = await h.Mailboxes[11].ReadNextAsync(default);
+        using var json = JsonDocument.Parse(snapshot.Json);
+        var ids = json.RootElement.GetProperty("players").EnumerateArray()
+            .Select(x => x.GetProperty("sessionId").GetInt64()).ToArray();
+        CollectionAssert.AreEquivalent(new long[] { 11, 20 }, ids);
+        Assert.AreEqual(2, ids.Distinct().Count());
+        var owners = json.RootElement.GetProperty("projectiles").EnumerateArray()
+            .Select(x => x.GetProperty("ownerSessionId").GetInt64()).ToArray();
+        Assert.IsTrue(owners.Length > 0);
+        Assert.IsTrue(owners.All(ids.Contains));
+        Assert.AreEqual(11, replacement.Welcome!.SessionId);
+    }
+
+    [TestMethod]
+    public async Task MatchingReconnectAckResumesCadenceAtNextSequence()
+    {
+        var h = await Harness.LiveAsync();
+        await h.Coordinator.DetachAsync("one");
+        var replacement = await h.AttachAsync(501, 11, "replacement");
+        await DrainInitialAttachAsync(h.Mailboxes[11]);
+        h.Coordinator.AcknowledgeAttach("replacement", replacement.Welcome!.SnapshotSequence);
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => h.Simulation.Tick > replacement.Welcome.ServerTick);
+        var cadence = await h.Mailboxes[11].ReadNextAsync(default);
+
+        using var json = JsonDocument.Parse(cadence.Json);
+        Assert.AreEqual("snapshot", cadence.Type);
+        Assert.IsTrue(json.RootElement.GetProperty("sequence").GetInt64()
+            > replacement.Welcome.SnapshotSequence);
+    }
+
+    [TestMethod]
     public async Task SimulationContinuesDuringGraceAndExpiryForfeitsWholeMatch()
     {
         var h = await Harness.LiveAsync();
@@ -220,6 +270,48 @@ public sealed class ContinuousGameCoordinatorTests
         Assert.AreEqual(1, h.Sink.Count);
         Assert.AreEqual(1, h.MatchCompletedCount);
         Assert.AreEqual(1, h.Publisher.Types.Count(x => x == "game.ended"));
+    }
+
+    [TestMethod]
+    public async Task CompletionAttemptsActuallyOverlapWhileFirstSinkIsBlocked()
+    {
+        var sink = new BlockingSink();
+        var h = await ControlledHarness.StartAsync(new FaultSimulation(), sink);
+        await h.AttachBothAsync();
+
+        var first = Task.Run(() => h.Coordinator.ForfeitAsync(h.MatchId, 501, "first"));
+        Assert.IsTrue(sink.Entered.Wait(TimeSpan.FromSeconds(2)));
+        var second = Task.Run(() => h.Coordinator.ForfeitAsync(h.MatchId, 502, "second"));
+        await second.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.IsFalse(first.IsCompleted);
+        sink.Release.Set();
+        await first.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.AreEqual(1, sink.Count);
+        Assert.AreEqual(1, h.MatchCompletedCount);
+    }
+
+    [TestMethod]
+    public async Task AttachAndCompletionActuallyContendForMatchLock()
+    {
+        var simulation = new BlockingProjectionSimulation();
+        var h = await ControlledHarness.StartAsync(simulation, new RecordingSink());
+        var mailbox = new RealtimeSnapshotMailbox();
+
+        var attach = Task.Run(() => h.Coordinator.AttachParticipantAsync(
+            h.MatchId, 501, 10, "one", mailbox));
+        Assert.IsTrue(simulation.ProjectionEntered.Wait(TimeSpan.FromSeconds(2)));
+        var completion = Task.Run(() => h.Coordinator.ForfeitAsync(h.MatchId, 502, "race"));
+        await Task.Delay(25);
+        Assert.IsFalse(completion.IsCompleted);
+        simulation.ReleaseProjection.Set();
+        var result = await attach.WaitAsync(TimeSpan.FromSeconds(2));
+        await completion.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.IsTrue(result.Ok);
+        Assert.AreEqual("matchClosed", await DrainThroughTerminalAsync(mailbox));
+        await AssertMailboxEmptyAsync(mailbox);
+        Assert.AreEqual(1, h.MatchCompletedCount);
     }
 
     [TestMethod]
@@ -352,6 +444,7 @@ public sealed class ContinuousGameCoordinatorTests
         await DrainInitialAttachAsync(h.Mailboxes[10]);
         var before = h.Simulation.Tick;
 
+        await Task.Delay(25);
         h.Time.Advance(TimeSpan.FromMilliseconds(100));
         await WaitUntilAsync(() => h.Simulation.Tick >= before + 3);
         var snapshot = await h.Mailboxes[10].ReadNextAsync(default);
@@ -611,6 +704,84 @@ public sealed class ContinuousGameCoordinatorTests
             }
             await Task.Delay(25);
         }
+    }
+
+    private sealed class ControlledHarness
+    {
+        private ControlledHarness(ContinuousGameCoordinator coordinator, long matchId)
+        {
+            Coordinator = coordinator; MatchId = matchId;
+        }
+        public ContinuousGameCoordinator Coordinator { get; }
+        public long MatchId { get; }
+        public int MatchCompletedCount { get; private set; }
+
+        public static async Task<ControlledHarness> StartAsync(
+            IContinuousSimulation simulation, ICompletedMatchSink sink)
+        {
+            var coordinator = new ContinuousGameCoordinator(
+                [new ControlledDefinition(simulation)], TimeProvider.System, sink,
+                new RecordingPublisher(), NullLogger<ContinuousGameCoordinator>.Instance);
+            var started = await coordinator.StartAsync(new DuelReservation(
+                9, 7, new DuelPlayer(10, 501, "Alice"), new DuelPlayer(20, 502, "Bob"),
+                new DuelConfiguration("controlled-test", "bo3", 1,
+                    new Dictionary<string, object?>(), "continuous"), DateTimeOffset.UnixEpoch, 1, null));
+            Assert.IsTrue(started.Success, started.Error);
+            var harness = new ControlledHarness(coordinator, started.MatchId);
+            coordinator.MatchCompleted += _ => { harness.MatchCompletedCount++; return Task.CompletedTask; };
+            return harness;
+        }
+
+        public async Task AttachBothAsync()
+        {
+            foreach (var participant in new[] { (501L, 10L, "one"), (502L, 20L, "two") })
+            {
+                var attached = await Coordinator.AttachParticipantAsync(MatchId,
+                    participant.Item1, participant.Item2, participant.Item3, new RealtimeSnapshotMailbox());
+                Assert.IsTrue(attached.Ok, attached.Error);
+                Coordinator.AcknowledgeAttach(participant.Item3, attached.Welcome!.SnapshotSequence);
+            }
+        }
+    }
+
+    private sealed class ControlledDefinition(IContinuousSimulation simulation) : IContinuousGameDefinition
+    {
+        public string GameType => "controlled-test";
+        public int RulesetVersion => 1;
+        public object PredictionConstants => new { };
+        public IContinuousSimulation Create(DuelReservation reservation) => simulation;
+    }
+
+    private sealed class BlockingSink : ICompletedMatchSink
+    {
+        public ManualResetEventSlim Entered { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+        public int Count;
+        public void Enqueue(CompletedMatch match)
+        {
+            Interlocked.Increment(ref Count);
+            Entered.Set();
+            Release.Wait(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private sealed class BlockingProjectionSimulation : IContinuousSimulation
+    {
+        public ManualResetEventSlim ProjectionEntered { get; } = new(false);
+        public ManualResetEventSlim ReleaseProjection { get; } = new(false);
+        public long Tick => 0;
+        public ContinuousMatchPhase Phase => ContinuousMatchPhase.AwaitingParticipants;
+        public void SetInput(long sessionId, ContinuousInput input) { }
+        public void SetNeutralInput(long sessionId) { }
+        public ContinuousStepResult Step() => new(false, null);
+        public object ParticipantSnapshot(long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs)
+        {
+            ProjectionEntered.Set();
+            ReleaseProjection.Wait(TimeSpan.FromSeconds(5));
+            return new { phase = "awaitingParticipants", players = Array.Empty<object>(), projectiles = Array.Empty<object>() };
+        }
+        public object SpectatorSnapshot() => new { };
+        public ulong DeterministicHash() => 0;
     }
 
     private sealed class FaultDefinition(FaultSimulation simulation) : IContinuousGameDefinition
