@@ -26,7 +26,7 @@ describe('buildChallengeMenuItem', () => {
 
     expect(built.label).toBe('Challenge to a duel');
     expect(built.disabled).toBeFalsy();
-    expect(built.children).toHaveLength(2);
+    expect(built.children).toHaveLength(3);
   });
 
   it('is enabled when no busy information is supplied at all', () => {
@@ -34,7 +34,7 @@ describe('buildChallengeMenuItem', () => {
 
     expect(built.label).toBe('Challenge to a duel');
     expect(built.disabled).toBeFalsy();
-    expect(built.children).toHaveLength(2);
+    expect(built.children).toHaveLength(3);
   });
 
   // The server rejects the challenge if EITHER side already holds a commitment, so
@@ -75,5 +75,9 @@ describe('buildChallengeMenuItem', () => {
     const rps = findChild(built, 'Rock Paper Scissors');
     findChild(rps, 'Best of 5').onClick?.();
     expect(onChallenge).toHaveBeenNthCalledWith(2, 7, 'rps', { bestOf: 5 });
+
+    const arena = findChild(built, 'Arena Knockoff');
+    arena.onClick?.();
+    expect(onChallenge).toHaveBeenNthCalledWith(3, 7, 'arena-knockoff');
   });
 });

@@ -73,6 +73,12 @@ export function buildChallengeMenuItem(
         icon: <Icon name="game-rps" size={14} />,
         children: [rpsBestOf(3), rpsBestOf(5), rpsBestOf(7)],
       },
+      {
+        type: 'item',
+        label: 'Arena Knockoff',
+        icon: <Icon name="game-arena" size={14} />,
+        onClick: () => onChallenge(session, 'arena-knockoff'),
+      },
     ],
   };
 }

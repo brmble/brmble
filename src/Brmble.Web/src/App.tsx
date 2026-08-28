@@ -44,6 +44,7 @@ import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollBoard } from './components/Games/DeathrollBoard';
 import { RpsBoard } from './components/Games/RpsBoard';
+import { ArenaBoard } from './components/Games/Arena/ArenaBoard';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
 import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
@@ -1101,6 +1102,10 @@ function App() {
   duelQueueRef.current = duelQueue;
   const resolveGamePlayerName = useCallback(
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
+    [],
+  );
+  const resolveUserAvatarUrl = useCallback(
+    (userId: number) => usersRef.current.find(u => u.session === userId)?.avatarUrl,
     [],
   );
   // Forfeiting is recorded as an abandon on the player's permanent stats, so gate
@@ -2797,6 +2802,7 @@ function App() {
   const onVoiceChannelChanged = ((data: unknown) => {
       clearPendingAction();
       clearPendingJoinAttempt();
+      gameStateRef.current.reset();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
         if (
@@ -5286,12 +5292,12 @@ const handleConnect = (serverData: SavedServer) => {
     : null;
 
 
+  const activeGameType = gameState.activeMatch?.gameType ?? gameState.ended?.gameType;
   const renderParticipantBoard = () => {
-    const raw = gameState.activeMatch?.gameType ?? gameState.ended?.gameType;
-    if (!isGameType(raw)) {
-      return <UnsupportedGameBoard gameType={raw ?? 'unknown'} onClose={confirmForfeit} />;
+    if (!isGameType(activeGameType)) {
+      return <UnsupportedGameBoard gameType={activeGameType ?? 'unknown'} onClose={confirmForfeit} />;
     }
-    switch (raw) {
+    switch (activeGameType) {
       case 'rps':
         return (
           <RpsBoard
@@ -5327,13 +5333,26 @@ const handleConnect = (serverData: SavedServer) => {
             rematchPending={rematchPending}
           />
         );
+      case 'arena-knockoff':
+        return (
+          <ArenaBoard
+            key={`arena-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+            matchId={Number(participatingMatchId)}
+            selfSessionId={selfSession}
+            resolveName={resolveGamePlayerName}
+            resolveAvatarUrl={resolveUserAvatarUrl}
+            ended={gameState.ended}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          />
+        );
       default:
-        return assertNever(raw);
+        return assertNever(activeGameType);
     }
   };
 
   const gameSurface = participatingMatchId !== null ? (
-    <GameSurface>{renderParticipantBoard()}</GameSurface>
+    <GameSurface fill={activeGameType === 'arena-knockoff'}>{renderParticipantBoard()}</GameSurface>
   ) : showGame ? (
     <NeonDGame onClose={() => setShowGame(false)} />
   ) : null;

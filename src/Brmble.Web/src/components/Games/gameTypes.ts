@@ -8,7 +8,7 @@
  * fail silently, so a forgotten branch shipped as a feature that quietly did the
  * wrong thing. Do not widen this to `string`.
  */
-export const GAME_TYPES = ['deathroll', 'rps'] as const;
+export const GAME_TYPES = ['deathroll', 'rps', 'arena-knockoff'] as const;
 
 export type GameType = (typeof GAME_TYPES)[number];
 

@@ -13,17 +13,17 @@ describe('useGameState', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { result } = renderHook(() => useGameState(100));
 
-    emit('game.invited', { offerId: 5, gameType: 'arena-knockoff', from: 42 });
+    emit('game.invited', { offerId: 5, gameType: 'future-game', from: 42 });
 
     await waitFor(() => expect(api.respondOffer).toHaveBeenCalledWith(5, false));
     // The invite must not open a board...
     expect(result.current.incomingInvite).toBeNull();
     // ...and must not vanish without trace.
     expect(result.current.lastError).toBe(
-      "This Brmble version can't play 'arena-knockoff'. Update Brmble to accept this challenge.",
+      "This Brmble version can't play 'future-game'. Update Brmble to accept this challenge.",
     );
     expect(warn).toHaveBeenCalledWith(
-      "[games] declined an invite for an unsupported game type 'arena-knockoff'",
+      "[games] declined an invite for an unsupported game type 'future-game'",
     );
     warn.mockRestore();
   });

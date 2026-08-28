@@ -539,6 +539,18 @@ const iconPaths: Record<string, IconDef> = {
     ),
   },
 
+  /* ── arena knockoff ──────────────────────────────────── */
+
+  'game-arena': {
+    paths: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 9.5 12 6l4 3.5-1.5 5L12 18l-2.5-3.5z" />
+        <path d="M3.5 12h3M17.5 12h3" />
+      </>
+    ),
+  },
+
   /* rps choice icons — object metaphors, drawn in the shared stroke style */
   'rps-rock': {
     paths: (

@@ -93,6 +93,10 @@ function renderSpectatorBoard(match: SpectatorSnapshot, outcome: SpectatorMatchO
       return isRpsSpectatorView(match.view)
         ? <UnsupportedSpectatorView gameType={match.gameType} />
         : <DeathrollSpectatorBoard key={match.matchId} view={match.view} players={match.players} outcome={outcome} />;
+    case 'arena-knockoff':
+      // Arena spectating is slice 3b. Until then this is a real, visible
+      // "not yet" - never a fall-through to another game's board.
+      return <UnsupportedSpectatorView gameType={match.gameType} />;
     default:
       return assertNever(match.gameType);
   }

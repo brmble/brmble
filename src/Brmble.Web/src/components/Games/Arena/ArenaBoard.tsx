@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../Icon/Icon';
 import { Tooltip } from '../../Tooltip/Tooltip';
 import type { ArenaMatchClosed, ArenaPhase, ArenaPlayerSnapshot, ArenaStateSnapshot } from './arenaProtocol';
+import type { EndedMatch } from '../useGameState';
 import { ArenaRenderer } from './ArenaRenderer';
 import { useArenaConnection } from './useArenaConnection';
 import { useArenaState } from './useArenaState';
@@ -14,7 +15,7 @@ interface ArenaBoardProps {
   resolveAvatarUrl: (sessionId: number) => string | null | undefined;
   onForfeit: () => void;
   onClose: () => void;
-  ended: ArenaMatchClosed | null;
+  ended: ArenaMatchClosed | EndedMatch | null;
 }
 
 const phaseLabels: Record<ArenaPhase, string> = {
@@ -143,7 +144,7 @@ export function ArenaBoard({
   ].join(' ');
 
   return (
-    <section className={`arena-board glass-panel animate-slide-up ${styles.board}`}>
+    <section className={`arena-board glass-panel animate-slide-up ${styles.board}`} data-testid="arena-board">
       <button className="modal-close" onClick={ended ? onClose : onForfeit} aria-label={ended ? 'Close arena' : 'Forfeit arena'}>
         <Icon name="x" />
       </button>

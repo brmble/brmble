@@ -5,16 +5,17 @@ describe('gameTypes', () => {
   it('recognises every shipped game type', () => {
     expect(isGameType('deathroll')).toBe(true);
     expect(isGameType('rps')).toBe(true);
+    expect(isGameType('arena-knockoff')).toBe(true);
   });
 
   it('rejects unknown, empty and absent types', () => {
-    expect(isGameType('arena-knockoff')).toBe(false);
+    expect(isGameType('future-game')).toBe(false);
     expect(isGameType('')).toBe(false);
     expect(isGameType(undefined)).toBe(false);
     expect(isGameType(null)).toBe(false);
   });
 
   it('exposes the union as a readonly tuple so a new type is one edit', () => {
-    expect([...GAME_TYPES]).toEqual(['deathroll', 'rps']);
+    expect([...GAME_TYPES]).toEqual(['deathroll', 'rps', 'arena-knockoff']);
   });
 });
