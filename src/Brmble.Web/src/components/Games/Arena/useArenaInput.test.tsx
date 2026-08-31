@@ -12,6 +12,16 @@ const neutral: ArenaInputState = {
   charging: false, fireReleased: false, dash: false,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function inputHarness(status: ArenaConnection['status'] = 'connected', reactStrictMode = false) {
   const canvas = document.createElement('canvas');
   document.body.append(canvas);
@@ -211,5 +221,59 @@ describe('useArenaInput', () => {
     await waitFor(() => expect(h.hook.result.current.captured).toBe(false));
     expect(h.sent).toEqual([neutral]);
     h.hook.unmount();
+  });
+
+  it('ignores rejection from an old acquisition after a newer capture starts', async () => {
+    const first = deferred<void>();
+    vi.mocked(bridge.send)
+      .mockImplementationOnce(() => first.promise as never)
+      .mockImplementation(() => undefined);
+    const h = inputHarness();
+    h.clickBoard();
+    act(() => h.releaseBy('Escape'));
+    h.clickBoard();
+    const callsBeforeRejection = vi.mocked(bridge.send).mock.calls.length;
+    const inputsBeforeRejection = h.sent.length;
+
+    first.reject(new Error('stale activation'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(h.hook.result.current.captured).toBe(true);
+    expect(vi.mocked(bridge.send).mock.calls).toHaveLength(callsBeforeRejection);
+    expect(h.sent).toHaveLength(inputsBeforeRejection);
+    h.hook.unmount();
+  });
+
+  it('rolls back only the current deferred acquisition when it rejects', async () => {
+    const current = deferred<void>();
+    vi.mocked(bridge.send).mockImplementationOnce(() => current.promise as never);
+    const h = inputHarness();
+    h.clickBoard();
+
+    current.reject(new Error('current activation'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(h.hook.result.current.captured).toBe(false);
+    expect(h.sent).toEqual([neutral]);
+    expect(bridge.send).toHaveBeenLastCalledWith('game.inputCapture', {
+      captureId: h.hook.result.current.captureId, active: false,
+    });
+    h.hook.unmount();
+  });
+
+  it('ignores deferred activation rejection after unmount cleanup', async () => {
+    const activation = deferred<void>();
+    vi.mocked(bridge.send).mockImplementationOnce(() => activation.promise as never);
+    const h = inputHarness();
+    h.clickBoard();
+    h.hook.unmount();
+    const callsBeforeRejection = vi.mocked(bridge.send).mock.calls.length;
+    const inputsBeforeRejection = h.sent.length;
+
+    activation.reject(new Error('unmounted activation'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(vi.mocked(bridge.send).mock.calls).toHaveLength(callsBeforeRejection);
+    expect(h.sent).toHaveLength(inputsBeforeRejection);
   });
 });

@@ -23,6 +23,7 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
   captureIdRef.current ??= crypto.randomUUID();
   const captureId = captureIdRef.current;
   const capturedRef = useRef(false);
+  const acquisitionRef = useRef(0);
   const enabledRef = useRef(enabled);
   const rendererRef = useRef(renderer);
   const connectionRef = useRef(connection);
@@ -57,6 +58,7 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
 
   const release = () => {
     if (!capturedRef.current) return;
+    acquisitionRef.current++;
     capturedRef.current = false;
     heldRef.current.clear();
     inputRef.current = neutralInput;
@@ -76,9 +78,12 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
 
     const capture = () => {
       if (capturedRef.current || !enabledRef.current || connectionRef.current.status !== 'connected' || !rendererRef.current) return;
+      const acquisition = ++acquisitionRef.current;
       capturedRef.current = true;
       setCaptured(true);
-      sendCaptureState(true, release);
+      sendCaptureState(true, () => {
+        if (capturedRef.current && acquisitionRef.current === acquisition) release();
+      });
     };
     const movement = () => {
       const horizontal = Number(heldRef.current.has('KeyD')) - Number(heldRef.current.has('KeyA'));

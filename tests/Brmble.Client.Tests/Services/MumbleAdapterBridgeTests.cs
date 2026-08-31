@@ -166,9 +166,55 @@ public class MumbleAdapterBridgeTests
         h.Send("game.inputCapture", new { captureId = "early", active = true });
         Assert.IsFalse(h.Router.IsSuspended);
 
-        InvokePrivate(h.Adapter, "SendVoiceConnected");
+        h.AttachConnectedVoice(session: 1);
+        SetPrivateField(h.Adapter, "_apiUrl", null);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
         h.Send("game.inputCapture", new { captureId = "active", active = true });
 
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void DelayedCredentialCompletionAfterDisconnectCannotReopenCaptureAdmission()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var fetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => fetch.Task);
+        h.AttachConnectedVoice(session: 1);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+
+        h.Adapter.Disconnect();
+        fetch.SetResult();
+        h.WaitForCredentialContinuations();
+        h.Send("game.inputCapture", new { captureId = "late", active = true });
+
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void DelayedOldCredentialCompletionCannotReopenReplacementButCurrentCompletionCan()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var oldFetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var currentFetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fetches = new System.Collections.Concurrent.ConcurrentQueue<Task>([oldFetch.Task, currentFetch.Task]);
+        h.SetCredentialFetch(_ => fetches.TryDequeue(out var fetch) ? fetch : Task.CompletedTask);
+        h.AttachConnectedVoice(session: 1);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => fetches.Count == 1, TimeSpan.FromSeconds(5)));
+
+        h.Adapter.Disconnect();
+        h.AttachConnectedVoice(session: 2);
+        h.Adapter.ServerSync(new ServerSync { Session = 2 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => fetches.IsEmpty, TimeSpan.FromSeconds(5)));
+        oldFetch.SetResult();
+        h.WaitForCredentialContinuations(expectedCompleted: 1);
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+
+        currentFetch.SetResult();
+        h.WaitForCredentialContinuations(expectedCompleted: 2);
+        h.Send("game.inputCapture", new { captureId = "current", active = true });
         Assert.IsTrue(h.Router.IsSuspended);
     }
 
@@ -1036,6 +1082,28 @@ public class MumbleAdapterBridgeTests
         {
             using var document = JsonDocument.Parse(json);
             NativeBridgeTestHarness.InvokeAsync(_bridge, type, document.RootElement.Clone()).GetAwaiter().GetResult();
+        }
+
+        public void SetCredentialFetch(Func<string, Task> fetch)
+            => Adapter.CredentialFetchForTests = fetch;
+
+        public void AttachConnectedVoice(uint session)
+        {
+            var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), Adapter, voiceSupport: false);
+            Adapter.Initialise(connection);
+            typeof(MumbleConnection).GetProperty(nameof(MumbleConnection.State))!.SetValue(connection, ConnectionStates.Connected);
+            var channels = GetChannelDictionary(Adapter);
+            channels[0] = new Channel(Adapter, 0, "Root", 0);
+            var users = MumbleAdapterTestHarness.GetBaseField<System.Collections.Concurrent.ConcurrentDictionary<uint, User>>(Adapter, "UserDictionary");
+            users[session] = new User(Adapter, session) { Name = $"User {session}", Channel = channels[0] };
+            SetPrivateField(Adapter, "_apiUrl", "https://api.example.com");
+        }
+
+        public void WaitForCredentialContinuations(int expectedCompleted = 1)
+        {
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => Adapter.CredentialContinuationsCompletedForTests >= expectedCompleted,
+                TimeSpan.FromSeconds(5)));
         }
 
         public void PressAndReleaseShortcut()

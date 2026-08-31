@@ -37,6 +37,8 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private object? _captureLock = new();
     private HashSet<string>? _activeCaptureIds = new(StringComparer.Ordinal);
     private bool _acceptInputCaptures;
+    private long _connectionGeneration;
+    private int _credentialContinuationsCompletedForTests;
     private const string LegacyVoiceCaptureId = "legacy:voice";
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
@@ -255,6 +257,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
         lock (captureLock)
         {
+            _connectionGeneration++;
             _acceptInputCaptures = false;
             var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
             if (activeCaptureIds.Count == 0) return;
@@ -263,10 +266,29 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
-    private void StartAcceptingInputCaptures()
+    private (long Generation, MumbleConnection? Connection) BeginConnectedGeneration()
     {
         var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
-        lock (captureLock) _acceptInputCaptures = true;
+        lock (captureLock)
+        {
+            _acceptInputCaptures = false;
+            return (++_connectionGeneration, Connection);
+        }
+    }
+
+    private bool TrySendVoiceConnected(long generation, MumbleConnection? connection, uint? overrideChannelId)
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            if (_connectionGeneration != generation
+                || !ReferenceEquals(Connection, connection)
+                || connection?.State != ConnectionStates.Connected)
+                return false;
+            _acceptInputCaptures = true;
+            SendVoiceConnected(overrideChannelId);
+            return true;
+        }
     }
 
     /// <summary>
@@ -393,6 +415,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _reconnectHost = host;
         _reconnectPort = port;
     }
+
+    internal Func<string, Task>? CredentialFetchForTests { get; set; }
+    internal int CredentialContinuationsCompletedForTests => Volatile.Read(ref _credentialContinuationsCompletedForTests);
 
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
@@ -4073,6 +4098,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
+        var connectedGeneration = BeginConnectedGeneration();
 
         // Update _reconnectUsername to the Mumble-confirmed name so that
         // credential fetch and future reconnects use the registered name
@@ -4240,14 +4266,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
             Task.Run(async () =>
             {
-                await FetchAndSendCredentials(url);
-                SendVoiceConnected(voiceConnectedChannelId);
+                try
+                {
+                    if (CredentialFetchForTests is { } testFetch) await testFetch(url);
+                    else await FetchAndSendCredentials(url);
+                    TrySendVoiceConnected(connectedGeneration.Generation, connectedGeneration.Connection, voiceConnectedChannelId);
+                }
+                finally
+                {
+                    if (CredentialFetchForTests is not null)
+                        Interlocked.Increment(ref _credentialContinuationsCompletedForTests);
+                }
             });
         }
         else
         {
             // No API URL — credentials fetch not possible; send voice.connected immediately
-            SendVoiceConnected(voiceConnectedChannelId);
+            TrySendVoiceConnected(connectedGeneration.Generation, connectedGeneration.Connection, voiceConnectedChannelId);
         }
     }
 
@@ -4284,7 +4319,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
-        StartAcceptingInputCaptures();
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(CreateChannelPayload).ToList();
 
