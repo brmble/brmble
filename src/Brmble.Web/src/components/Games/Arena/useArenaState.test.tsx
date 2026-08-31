@@ -114,6 +114,27 @@ describe('useArenaState', () => {
     expect(current.player.x).toBe(1090);
   });
 
+  it('publishes fractional local positions directly on successive animation frames', () => {
+    const initial = welcome();
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const onFrame = vi.fn();
+    renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [move], currentInput: move.input,
+      selfSessionId: 10, onFrame,
+    }));
+    const startedAt = performance.now();
+
+    act(() => frame?.(startedAt + 4));
+    act(() => frame?.(startedAt + 8));
+    act(() => frame?.(startedAt + 12));
+
+    const positions = onFrame.mock.calls.slice(-3).map(([state]) => state.localPlayer.x);
+    expect(new Set(positions).size).toBe(3);
+  });
+
   it('snaps final state and increments snapCount for mandatory reconciliation snaps', () => {
     const initial = welcome();
     const final = { ...state(5000), phase: 'ended' as const, score: [2, 1] as [number, number] };
@@ -131,24 +152,31 @@ describe('useArenaState', () => {
 
   it('renders a terminal final state without a welcome frame', () => {
     const final = { ...state(5000), phase: 'ended' as const, score: [2, 1] as [number, number] };
+    const onFrame = vi.fn();
     const hook = renderHook(() => useArenaState({
       welcome: null, latestSnapshot: null, pendingInputs: [], selfSessionId: 10, finalState: final,
+      onFrame,
     }));
     expect(hook.result.current).toMatchObject({
       phase: 'ended', score: [2, 1], arena: final.arena,
       localPlayer: { sessionId: 10, x: 5000 }, remotePlayer: { sessionId: 20 },
     });
+    expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'ended', localPlayer: expect.objectContaining({ x: 5000 }),
+    }));
   });
 
   it('blends small corrections for 100ms and presents predicted own projectiles immediately', () => {
     vi.setSystemTime(1000);
     const initial = welcome();
+    let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const fire: PendingArenaInput = {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
       welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
     expect(hook.result.current.projectiles).toHaveLength(1);
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -157,14 +185,14 @@ describe('useArenaState', () => {
     vi.setSystemTime(1050);
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
     act(() => frame?.(performance.now()));
-    expect(hook.result.current.localPlayer?.x).toBe(1077);
+    expect(latestFrame?.localPlayer?.x).toBe(1077);
     vi.setSystemTime(1100);
     act(() => frame?.(performance.now()));
-    expect(hook.result.current.localPlayer?.x).toBe(1200);
+    expect(latestFrame?.localPlayer?.x).toBe(1200);
     vi.setSystemTime(1250);
     act(() => frame?.(performance.now()));
     act(() => frame?.(performance.now()));
-    expect(hook.result.current.localPlayer?.x).toBe(1200);
+    expect(latestFrame?.localPlayer?.x).toBe(1200);
   });
 
   it('continues a dash acknowledged before the first RAF using recent input history', () => {
@@ -190,20 +218,65 @@ describe('useArenaState', () => {
   it('replaces an active authority correction from the current blended position without jumping', () => {
     vi.setSystemTime(1000);
     const initial = welcome();
+    let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
       welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
     act(() => frame?.(performance.now()));
     vi.setSystemTime(1050);
     act(() => frame?.(performance.now()));
-    expect(hook.result.current.localPlayer?.x).toBe(1100);
+    expect(latestFrame?.localPlayer?.x).toBe(1100);
     hook.rerender({ latestSnapshot: snapshot(3, 1050, 1300), pendingInputs: [] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1100);
     vi.setSystemTime(1100);
     act(() => frame?.(performance.now()));
-    expect(hook.result.current.localPlayer?.x).toBe(1200);
+    expect(latestFrame?.localPlayer?.x).toBe(1200);
+  });
+
+  it('does not jump backward when a normal snapshot reconciles smooth local presentation', () => {
+    vi.setSystemTime(1000);
+    const initial = welcome();
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [move], currentInput: move.input, selfSessionId: 10,
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+    const startedAt = performance.now();
+    act(() => frame?.(startedAt + 40));
+    const before = hook.result.current.localPlayer!.x;
+
+    hook.rerender({ latestSnapshot: { ...snapshot(2, 1050, before - 90), serverTick: 102 } });
+    act(() => frame?.(startedAt + 41));
+
+    expect(hook.result.current.localPlayer?.x).toBe(before);
+  });
+
+  it('does not reset smooth local movement when an aim-only pending input is added', () => {
+    const initial = welcome();
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const aim: PendingArenaInput = {
+      sequence: 2, predictedTick: 102, fromTick: 102, toTick: 102,
+      input: { ...move.input, aimX: 0, aimY: 32767 },
+    };
+    const hook = renderHook(({ pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, currentInput: aim.input, selfSessionId: 10,
+    }), { initialProps: { pendingInputs: [move] } });
+    const startedAt = performance.now();
+    act(() => frame?.(startedAt + 40));
+    const before = hook.result.current.localPlayer!.x;
+
+    hook.rerender({ pendingInputs: [move, aim] });
+    act(() => frame?.(startedAt + 41));
+
+    expect(hook.result.current.localPlayer?.x).toBeGreaterThanOrEqual(before);
   });
 
   it('advances an input-only target without creating an authority correction', () => {

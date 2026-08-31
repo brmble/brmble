@@ -13,6 +13,7 @@ interface UseArenaStateOptions {
   currentInput?: ArenaInputState;
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
+  onFrame?: (state: ArenaRenderState) => void;
 }
 
 interface ArenaRenderState {
@@ -77,8 +78,22 @@ function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUni
   };
 }
 
+function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number): ArenaRenderState {
+  return {
+    localPlayer: finalState.players.find(player => player.sessionId === selfSessionId) ?? null,
+    remotePlayer: finalState.players.find(player => player.sessionId !== selfSessionId) ?? null,
+    projectiles: finalState.projectiles,
+    arena: finalState.arena,
+    phase: finalState.phase,
+    phaseEndsAtTick: finalState.phaseEndsAtTick,
+    score: [finalState.score[0], finalState.score[1]],
+    consecutiveDoubleKos: finalState.consecutiveDoubleKos,
+    snapCount: 0,
+  };
+}
+
 export function useArenaState({
-  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
+  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
@@ -96,6 +111,8 @@ export function useArenaState({
   const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
   const presentedAtRef = useRef(0);
   const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
+  const onFrameRef = useRef(onFrame);
+  onFrameRef.current = onFrame;
 
   useEffect(() => {
     if (sessionRef.current !== selfSessionId) {
@@ -176,7 +193,8 @@ export function useArenaState({
           ? asSnapshot(welcome, current.finalState)
           : timeline.reduce((latest, candidate) => candidate.sequence > latest.sequence ? candidate : latest);
         const authorityChanged = authorityDirtyRef.current || !predictedRef.current;
-        if (authorityChanged || inputDirtyRef.current) {
+        const predictionChanged = authorityChanged || inputDirtyRef.current;
+        if (predictionChanged) {
           const result = reconcile(
             {
               snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current,
@@ -232,12 +250,14 @@ export function useArenaState({
         renderedLocalRef.current = local;
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
         const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
-        setRendered({
+        const nextRendered: ArenaRenderState = {
           localPlayer: local, remotePlayer: remote, projectiles: [...sampled.projectiles, ...predictedProjectiles],
           arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
-          score: [...sampled.score], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
+          score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,
-        });
+        };
+        onFrameRef.current?.(nextRendered);
+        if (predictionChanged) setRendered(nextRendered);
       }
       frameId = requestAnimationFrame(update);
     };
@@ -245,18 +265,12 @@ export function useArenaState({
     return () => cancelAnimationFrame(frameId);
   }, [welcome]);
 
+  useEffect(() => {
+    if (!welcome && finalState) onFrameRef.current?.(renderFinalState(finalState, selfSessionId));
+  }, [finalState, selfSessionId, welcome]);
+
   if (!welcome && finalState) {
-    return {
-      localPlayer: finalState.players.find(player => player.sessionId === selfSessionId) ?? null,
-      remotePlayer: finalState.players.find(player => player.sessionId !== selfSessionId) ?? null,
-      projectiles: finalState.projectiles,
-      arena: finalState.arena,
-      phase: finalState.phase,
-      phaseEndsAtTick: finalState.phaseEndsAtTick,
-      score: [...finalState.score],
-      consecutiveDoubleKos: finalState.consecutiveDoubleKos,
-      snapCount: 0,
-    };
+    return renderFinalState(finalState, selfSessionId);
   }
   return welcome ? rendered : emptyState;
 }

@@ -310,10 +310,10 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
             if (state.Simulation.Phase != ContinuousMatchPhase.Live)
             {
-                if (input.Charging || input.FireReleased || input.Dash)
+                if (input.FireReleased || input.Dash)
                     return Reject(ContinuousRejectReason.PhaseDenied, participant);
             }
-            else if ((input.Charging || input.FireReleased)
+            else if (input.FireReleased
                      && (state.Simulation.Tick < participant.CooldownUntilTick
                          || arenaPlayer is { CooldownTicks: > 0 }))
             {

@@ -68,23 +68,19 @@ export function ArenaBoard({
   const connection = useArenaConnection({ matchId, enabled: true });
   const endedFinalState = ended && 'finalState' in ended ? ended.finalState : undefined;
   const finalState = connection.closed?.finalState ?? endedFinalState;
+  const drawFrameRef = useRef<(state: ReturnType<typeof useArenaState>) => void>(() => {});
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs, recentInputs: connection.recentInputs,
     currentInput: connection.currentInput,
-    selfSessionId, finalState,
+    selfSessionId, finalState, onFrame: current => drawFrameRef.current(current),
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ArenaRenderer | null>(null);
+  const latestFrameRef = useRef(state);
   const [renderer, setRenderer] = useState<ArenaRenderer | null>(null);
-  const stateRef = useRef(state);
   const localPlayerRef = useRef(state.localPlayer);
   const [reducedMotion, setReducedMotion] = useState(false);
-
-  useEffect(() => {
-    stateRef.current = state;
-    localPlayerRef.current = state.localPlayer;
-  }, [state]);
 
   useEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
@@ -100,6 +96,7 @@ export function ArenaBoard({
     const renderer = new ArenaRenderer(canvas);
     rendererRef.current = renderer;
     setRenderer(renderer);
+    drawFrameRef.current(latestFrameRef.current);
     return () => {
       renderer.dispose();
       rendererRef.current = null;
@@ -118,21 +115,16 @@ export function ArenaBoard({
 
   useLayoutEffect(() => input.release, [matchId]);
 
-  useEffect(() => {
-    let frame = 0;
-    const renderFrame = () => {
-      const current = stateRef.current;
-      const players = [current.localPlayer, current.remotePlayer].filter((player): player is ArenaPlayerSnapshot => player !== null);
-      if (current.arena) rendererRef.current?.render({
-        selfSessionId, players, projectiles: current.projectiles, arena: current.arena,
-        names: Object.fromEntries(players.map(player => [player.sessionId, resolveName(player.sessionId)])),
-        avatarUrls: Object.fromEntries(players.map(player => [player.sessionId, resolveAvatarUrl(player.sessionId)])),
-      }, { reducedMotion });
-      frame = requestAnimationFrame(renderFrame);
-    };
-    renderFrame();
-    return () => cancelAnimationFrame(frame);
-  }, [reducedMotion, resolveAvatarUrl, resolveName, selfSessionId]);
+  drawFrameRef.current = current => {
+    latestFrameRef.current = current;
+    localPlayerRef.current = current.localPlayer;
+    const players = [current.localPlayer, current.remotePlayer].filter((player): player is ArenaPlayerSnapshot => player !== null);
+    if (current.arena) rendererRef.current?.render({
+      selfSessionId, players, projectiles: current.projectiles, arena: current.arena,
+      names: Object.fromEntries(players.map(player => [player.sessionId, resolveName(player.sessionId)])),
+      avatarUrls: Object.fromEntries(players.map(player => [player.sessionId, resolveAvatarUrl(player.sessionId)])),
+    }, { reducedMotion });
+  };
 
   const authoritative = finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
   const finalized = ended !== null && finalState !== undefined;

@@ -122,14 +122,14 @@ public class ContinuousInputTests
     {
         var h = await CoordinatorHarness.Started(phase: ContinuousMatchPhase.Positioning);
 
-        Assert.AreEqual(ContinuousRejectReason.PhaseDenied, h.Submit(Input(1, charging: true)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.PhaseDenied, h.Submit(Input(1, fireReleased: true)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.PhaseDenied, h.Submit(Input(1, dash: true)).Reason);
+        Assert.IsTrue(h.Submit(Input(1, charging: true)).Accepted);
+        Assert.AreEqual(ContinuousRejectReason.PhaseDenied, h.Submit(Input(2, fireReleased: true)).Reason);
+        Assert.AreEqual(ContinuousRejectReason.PhaseDenied, h.Submit(Input(2, dash: true)).Reason);
         h.Simulation.Phase = ContinuousMatchPhase.Live;
-        Assert.IsTrue(h.Submit(Input(1, fireReleased: true)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2)).Accepted);
-        Assert.AreEqual(ContinuousRejectReason.Cooldown, h.Submit(Input(3, fireReleased: true)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.Cooldown, h.Submit(Input(3, charging: true)).Reason);
+        Assert.IsTrue(h.Submit(Input(2, fireReleased: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(3)).Accepted);
+        Assert.AreEqual(ContinuousRejectReason.Cooldown, h.Submit(Input(4, fireReleased: true)).Reason);
+        Assert.IsTrue(h.Submit(Input(4, charging: true)).Accepted);
 
         var dash = await CoordinatorHarness.Started();
         Assert.IsTrue(dash.Submit(Input(1, dash: true)).Accepted);
