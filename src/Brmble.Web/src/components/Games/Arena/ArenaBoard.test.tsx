@@ -154,6 +154,24 @@ describe('ArenaBoard', () => {
     expect(live).toHaveTextContent(/Outcome: Victory/i);
   });
 
+  it('renders an in-bounds zero-score disconnect as a forfeit rather than a draw', () => {
+    const finalState = {
+      ...connection.current.welcome!.state,
+      phase: 'ended' as const,
+      phaseEndsAtTick: null,
+      score: [0, 0] as [number, number],
+    };
+    const ended = { type: 'matchClosed' as const, protocolVersion: 1 as const, matchId: 91, sequence: 4,
+      serverTick: 200, reason: 'forfeited' as const, finalState };
+
+    render(<ArenaBoard {...props({ ended })} />);
+
+    expect(screen.getByText('Match forfeited')).toBeInTheDocument();
+    const live = screen.getByTestId('arena-live-region');
+    expect(live).toHaveTextContent(/Outcome: Forfeit/i);
+    expect(live).not.toHaveTextContent(/Outcome: Draw/i);
+  });
+
   it('labels an ongoing double KO as a replay of the same scoring round', () => {
     connection.current.welcome = {
       ...connection.current.welcome!,

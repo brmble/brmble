@@ -115,6 +115,17 @@ describe('useArenaInput', () => {
     h.hook.unmount();
   });
 
+  it('uses the shared integer normalization for diagonal pointer aim', () => {
+    const h = inputHarness('connected', false, { x: 0, y: 0 });
+    h.renderer.pointerToWorld.mockReturnValue({ x: 1000, y: 1000 });
+    h.clickBoard();
+
+    fireEvent.pointerMove(h.canvas);
+
+    expect(h.sent.at(-1)).toMatchObject({ aimX: 23170, aimY: 23170 });
+    h.hook.unmount();
+  });
+
   it('retains the last nonzero aim when the pointer is exactly at the moving player without reinstalling listeners', () => {
     const addWindowListener = vi.spyOn(window, 'addEventListener');
     const addCanvasListener = vi.spyOn(HTMLCanvasElement.prototype, 'addEventListener');

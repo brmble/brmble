@@ -720,16 +720,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         if (isHeartbeat && (input.FireReleased || input.Dash))
             return false;
 
-        const long maxLengthSquared = 32_767L * 32_767L;
         var movementSquared = (long)input.MoveX * input.MoveX + (long)input.MoveY * input.MoveY;
         var aimSquared = (long)input.AimX * input.AimX + (long)input.AimY * input.AimY;
         return input.MoveX >= -32_767
                && input.MoveY >= -32_767
                && input.AimX >= -32_767
                && input.AimY >= -32_767
-               && movementSquared <= maxLengthSquared
+               && FixedVec.IntegerSqrt(movementSquared) <= 32_767
                && aimSquared > 0
-               && aimSquared <= maxLengthSquared;
+               && FixedVec.IntegerSqrt(aimSquared) <= 32_767;
     }
 
     private void NeutralizeIfStale(

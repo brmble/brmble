@@ -147,18 +147,20 @@ export function ArenaBoard({
   const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
   const score = authoritative?.score ?? state.score;
   const round = score[0] + score[1] + 1;
+  const forfeited = connection.closed?.reason === 'forfeited'
+    || (ended && 'reason' in ended && ended.reason === 'forfeited');
   const roundLabel = finalizationPending
     ? 'Finalizing match'
     : finalizationFailed
       ? 'Finalization failed'
       : finalized
-        ? 'Match complete'
+        ? forfeited ? 'Match forfeited' : 'Match complete'
     : `Round ${round}${(authoritative?.consecutiveDoubleKos ?? 0) > 0
       ? ` · Double KO replay ${authoritative!.consecutiveDoubleKos}`
       : ''}`;
   const local = players.find(player => player.sessionId === selfSessionId) ?? null;
   const outcome = finalized
-    ? score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
+    ? forfeited ? 'Forfeit' : score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
     : finalizationFailed
       ? 'unavailable'
       : finalizationPending

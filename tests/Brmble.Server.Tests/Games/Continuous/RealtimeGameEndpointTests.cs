@@ -219,6 +219,28 @@ public class RealtimeGameEndpointTests
     }
 
     [TestMethod]
+    public async Task CompleteHeartbeatStaysConnectedAndAdvancesTheInputSequence()
+    {
+        await using var h = await RealtimeHarness.ConnectedParticipantAsync();
+        using var welcome = await h.ReceiveJsonAsync();
+        await h.SendTextAsync($$"""
+            {"type":"attachAck","protocolVersion":1,"matchId":{{h.MatchId}},"snapshotSequence":{{welcome.RootElement.GetProperty("snapshotSequence").GetInt64()}}}
+            """);
+        _ = await h.ReceiveJsonAsync();
+        await h.SendTextAsync($$"""
+            {"type":"heartbeat","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":1,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false}
+            """);
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":3,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
+            """);
+
+        using var rejected = await h.ReceiveJsonAsync();
+        Assert.AreEqual("inputRejected", rejected.RootElement.GetProperty("type").GetString());
+        Assert.AreEqual(3, rejected.RootElement.GetProperty("sequence").GetInt64());
+        Assert.AreEqual("sequenceGap", rejected.RootElement.GetProperty("reason").GetString());
+    }
+
+    [TestMethod]
     public async Task SocketCloseDetachesExactlyOnceAndAllowsReattachment()
     {
         await using var h = await RealtimeHarness.ConnectedParticipantAsync();

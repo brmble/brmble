@@ -50,12 +50,13 @@ public class ContinuousInputTests
         Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(1, predictedTick: 1_031)).Reason);
         Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(1, predictedTick: 1_000, aimX: 0)).Reason);
         Assert.AreEqual(ContinuousRejectReason.InvalidRange,
-            h.Submit(Input(1, predictedTick: 1_000, moveX: 32_767, moveY: 1)).Reason);
+            h.Submit(Input(1, predictedTick: 1_000, moveX: 32_767, moveY: 256)).Reason);
         Assert.AreEqual(ContinuousRejectReason.InvalidRange,
             h.Submit(Input(1, predictedTick: 1_000, aimX: 23_171, aimY: 23_170)).Reason);
         Assert.AreEqual(ContinuousRejectReason.InvalidRange,
             h.Submit(Input(1, predictedTick: 1_000, moveX: -32_768)).Reason);
-        Assert.IsTrue(h.Submit(Input(1, predictedTick: 880, moveX: 100, moveY: -200, aimX: 100)).Accepted);
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 880,
+            moveX: 23_170, moveY: 23_170, aimX: -23_170, aimY: 23_170)).Accepted);
     }
 
     [TestMethod]
