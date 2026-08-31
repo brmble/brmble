@@ -50,6 +50,26 @@ export function advanceLocalPresentation(
   return { state: advanced, elapsedTicks };
 }
 
+export function interpolateLocalPresentation(
+  state: PredictedArenaState,
+  input: ArenaInputState,
+  elapsedMs: number,
+  tickRate: number,
+  constants: ArenaWelcome['prediction'],
+): ArenaPlayerSnapshot {
+  if (state.phase === 'awaitingParticipants' || state.phase === 'loading' || state.phase === 'ended') {
+    return state.player;
+  }
+  const fraction = Math.min(1, Math.max(0, elapsedMs * tickRate / 1000));
+  if (fraction === 0) return state.player;
+  const next = stepLocal(state, { ...input, fireReleased: false, dash: false }, constants);
+  return {
+    ...state.player,
+    x: Math.trunc(state.player.x + (next.player.x - state.player.x) * fraction),
+    y: Math.trunc(state.player.y + (next.player.y - state.player.y) * fraction),
+  };
+}
+
 function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = Date.now()): ArenaSnapshot {
   return {
     type: 'snapshot', protocolVersion: 1, matchId: welcome.matchId,
@@ -195,16 +215,20 @@ export function useArenaState({
             presentedAtRef.current += elapsedTicks * 1000 / welcome.tickRate;
           }
         }
+        const interpolatedPlayer = current.finalState ? presented.player : interpolateLocalPresentation(
+          presented, current.currentInput, frameTime - presentedAtRef.current,
+          welcome.tickRate, welcome.prediction,
+        );
         const sampled = current.finalState
           ? authority
           : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
         const correction = correctionRef.current;
         const remaining = correction ? Math.max(0, 1 - (Date.now() - correction.startedAt) / 100) : 0;
         const local = correction ? {
-          ...presented.player,
-          x: Math.trunc(presented.player.x - correction.x * remaining),
-          y: Math.trunc(presented.player.y - correction.y * remaining),
-        } : presented.player;
+          ...interpolatedPlayer,
+          x: Math.trunc(interpolatedPlayer.x - correction.x * remaining),
+          y: Math.trunc(interpolatedPlayer.y - correction.y * remaining),
+        } : interpolatedPlayer;
         renderedLocalRef.current = local;
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
         const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);

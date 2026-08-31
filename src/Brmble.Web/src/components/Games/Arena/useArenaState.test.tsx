@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile } from './arenaMath';
-import { advanceLocalPresentation, useArenaState } from './useArenaState';
+import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
@@ -96,6 +96,22 @@ describe('useArenaState', () => {
     const resumed = advanceLocalPresentation(second.state, move.input, 10_000, 60, prediction);
     expect(resumed.elapsedTicks).toBe(3);
     expect(resumed.state.player.x).toBe(1540);
+  });
+
+  it('interpolates local presentation between fixed ticks on high-refresh frames', () => {
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const current = reconcile({
+      snapshot: { ...snapshot(1, 1000, 1000), serverTick: 100 }, selfSessionId: 10,
+    }, [move], prediction).local;
+
+    const rendered = interpolateLocalPresentation(current, move.input, 8, 60, prediction);
+
+    expect(rendered.x).toBeGreaterThan(current.player.x);
+    expect(rendered.x).toBeLessThan(current.player.x + 90);
+    expect(current.player.x).toBe(1090);
   });
 
   it('snaps final state and increments snapCount for mandatory reconciliation snaps', () => {
