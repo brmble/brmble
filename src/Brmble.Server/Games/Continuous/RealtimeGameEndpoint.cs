@@ -19,7 +19,7 @@ public static class RealtimeGameEndpoint
 
     public static async Task HandleAsync(HttpContext context)
     {
-        if (!HttpMethods.IsGet(context.Request.Method) || !context.WebSockets.IsWebSocketRequest)
+        if (!IsSupportedHandshakeMethod(context.Request.Method) || !context.WebSockets.IsWebSocketRequest)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
@@ -108,6 +108,9 @@ public static class RealtimeGameEndpoint
                 connectionId, scope.MatchId, scope.Role);
         }
     }
+
+    internal static bool IsSupportedHandshakeMethod(string method) =>
+        HttpMethods.IsGet(method) || HttpMethods.IsConnect(method);
 
     private static async Task<LoopOutcome> ReceiveLoopAsync(WebSocket socket,
         ContinuousGameCoordinator coordinator, RealtimeSnapshotMailbox mailbox,

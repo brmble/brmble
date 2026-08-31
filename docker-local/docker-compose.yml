@@ -36,6 +36,9 @@ services:
       Matrix__AppServiceToken: '${MATRIX_APPSERVICE_TOKEN}'
       Ice__Host: mumble
       LIVEKIT_NODE_IP: '127.0.0.1'
+      Games__RealtimePublicWebSocketUrl: 'wss://localhost:1912/games/realtime'
+      Games__RealtimeAllowedOrigins__0: 'https://brmble.local'
+      Games__RealtimeAllowedOrigins__1: 'http://localhost:5173'
     restart: unless-stopped
     depends_on:
       - mumble

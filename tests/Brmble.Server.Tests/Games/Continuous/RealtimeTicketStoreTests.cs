@@ -108,6 +108,20 @@ public sealed class RealtimeTicketStoreTests
     }
 
     [TestMethod]
+    public void DockerLocalSuppliesRealtimeConfigurationForItsPublishedHttpsPort()
+    {
+        var composePath = FindRepositoryFile("docker-local", "docker-compose.yml");
+        var compose = File.ReadAllText(composePath);
+
+        StringAssert.Contains(compose,
+            "Games__RealtimePublicWebSocketUrl: 'wss://localhost:1912/games/realtime'");
+        StringAssert.Contains(compose,
+            "Games__RealtimeAllowedOrigins__0: 'https://brmble.local'");
+        StringAssert.Contains(compose,
+            "Games__RealtimeAllowedOrigins__1: 'http://localhost:5173'");
+    }
+
+    [TestMethod]
     public async Task ProductionOptionsValidationFailsStartupWithoutUrlAndPassesWithExplicitWssUrl()
     {
         await Assert.ThrowsExceptionAsync<OptionsValidationException>(() =>

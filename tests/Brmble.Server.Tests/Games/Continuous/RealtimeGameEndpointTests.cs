@@ -20,6 +20,15 @@ namespace Brmble.Server.Tests.Games.Continuous;
 [TestClass]
 public class RealtimeGameEndpointTests
 {
+    [DataTestMethod]
+    [DataRow("GET", true)]
+    [DataRow("CONNECT", true)]
+    [DataRow("POST", false)]
+    public void WebSocketHandshakeAcceptsHttpOneAndHttpTwoMethods(string method, bool expected)
+    {
+        Assert.AreEqual(expected, RealtimeGameEndpoint.IsSupportedHandshakeMethod(method));
+    }
+
     [TestMethod]
     public async Task MissingExpiredAndReusedTicketsAreRejectedBeforeUpgrade()
     {
