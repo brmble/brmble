@@ -30,6 +30,15 @@ public class RealtimeGameEndpointTests
     }
 
     [TestMethod]
+    public void LogicalWebSocketConnectionIdsAreUniqueAcrossStreamsOnOneHttpTwoConnection()
+    {
+        var first = RealtimeGameEndpoint.CreateConnectionId();
+        var second = RealtimeGameEndpoint.CreateConnectionId();
+
+        Assert.AreNotEqual(first, second);
+    }
+
+    [TestMethod]
     public async Task MissingExpiredAndReusedTicketsAreRejectedBeforeUpgrade()
     {
         await using (var h = await RealtimeHarness.CreateAsync())

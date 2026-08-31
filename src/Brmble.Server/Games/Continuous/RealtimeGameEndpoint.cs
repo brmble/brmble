@@ -71,9 +71,7 @@ public static class RealtimeGameEndpoint
             return;
         }
 
-        var connectionId = string.IsNullOrEmpty(context.Connection.Id)
-            ? Guid.NewGuid().ToString("N")
-            : context.Connection.Id;
+        var connectionId = CreateConnectionId();
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         var mailbox = new RealtimeSnapshotMailbox();
         var attached = await coordinator.AttachParticipantAsync(
@@ -111,6 +109,9 @@ public static class RealtimeGameEndpoint
 
     internal static bool IsSupportedHandshakeMethod(string method) =>
         HttpMethods.IsGet(method) || HttpMethods.IsConnect(method);
+
+    internal static string CreateConnectionId() =>
+        Guid.NewGuid().ToString("N");
 
     private static async Task<LoopOutcome> ReceiveLoopAsync(WebSocket socket,
         ContinuousGameCoordinator coordinator, RealtimeSnapshotMailbox mailbox,
