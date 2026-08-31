@@ -17,15 +17,17 @@ interface ArenaInputOptions {
   localPlayerRef: RefObject<Pick<ArenaPlayerSnapshot, 'x' | 'y'> | null>;
   connection: ArenaConnection;
   enabled: boolean;
+  combatEnabled: boolean;
 }
 
-export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection, enabled }: ArenaInputOptions) {
+export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection, enabled, combatEnabled }: ArenaInputOptions) {
   const captureIdRef = useRef<string | null>(null);
   captureIdRef.current ??= crypto.randomUUID();
   const captureId = captureIdRef.current;
   const capturedRef = useRef(false);
   const acquisitionRef = useRef(0);
   const enabledRef = useRef(enabled);
+  const combatEnabledRef = useRef(combatEnabled);
   const rendererRef = useRef(renderer);
   const connectionRef = useRef(connection);
   const heldRef = useRef(new Set<string>());
@@ -33,6 +35,7 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
   const [captured, setCaptured] = useState(false);
 
   enabledRef.current = enabled;
+  combatEnabledRef.current = combatEnabled;
   rendererRef.current = renderer;
   connectionRef.current = connection;
 
@@ -107,6 +110,7 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
         return;
       }
       if (event.code === 'Space') {
+        if (!combatEnabledRef.current) return;
         if (!event.repeat && !heldRef.current.has(event.code)) {
           heldRef.current.add(event.code);
           send({ dash: true });
@@ -142,6 +146,7 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
     const onPointerDown = (event: PointerEvent) => {
       if (!capturedRef.current) return;
       consume(event);
+      if (!combatEnabledRef.current) return;
       if (event.button === 0 && !heldRef.current.has('MouseLeft')) {
         heldRef.current.add('MouseLeft');
         send({ charging: true });
@@ -150,7 +155,9 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
     const onPointerUp = (event: PointerEvent) => {
       if (!capturedRef.current) return;
       consume(event);
-      if (event.button === 0 && heldRef.current.delete('MouseLeft')) send({ charging: false, fireReleased: true });
+      if (event.button === 0 && heldRef.current.delete('MouseLeft') && combatEnabledRef.current) {
+        send({ charging: false, fireReleased: true });
+      }
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') release();
@@ -180,6 +187,15 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
   useLayoutEffect(() => {
     if (!enabled || connection.status !== 'connected') release();
   }, [connection.status, enabled]);
+
+  useLayoutEffect(() => {
+    if (combatEnabled) return;
+    heldRef.current.delete('Space');
+    heldRef.current.delete('MouseLeft');
+    if (capturedRef.current && inputRef.current.charging) {
+      send({ charging: false, fireReleased: false, dash: false });
+    }
+  }, [combatEnabled]);
 
   return { captured, captureId, release };
 }

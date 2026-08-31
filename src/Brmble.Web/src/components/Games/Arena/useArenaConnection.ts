@@ -10,7 +10,8 @@ import type {
 import { parseServerMessage } from './arenaProtocol';
 
 const RECONNECT_DELAYS = [250, 500, 1000, 2000] as const;
-const AIM_INTERVAL_MS = 34;
+// Leave headroom below the server's rolling 30 aim changes/second limit.
+const AIM_INTERVAL_MS = 40;
 const DEFAULT_HEARTBEAT_MS = 250;
 const DEFAULT_TICK_RATE = 60;
 const RECONNECT_GRACE_MS = 5000;

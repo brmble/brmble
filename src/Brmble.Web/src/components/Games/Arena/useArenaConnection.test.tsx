@@ -161,12 +161,12 @@ describe('useArenaConnection', () => {
     ]);
   });
 
-  it('sends held changes and edges immediately but coalesces aim-only changes for 34ms', async () => {
+  it('sends held changes and edges immediately but limits aim-only changes to 25Hz', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     expect(h.socket.sent).toHaveLength(2);
-    await act(() => vi.advanceTimersByTimeAsync(33));
+    await act(() => vi.advanceTimersByTimeAsync(39));
     expect(h.socket.sent).toHaveLength(2);
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(h.socket.sent[2]).toMatchObject({ type: 'input', sequence: 2, aimX: 0, aimY: 32767 });
@@ -189,9 +189,7 @@ describe('useArenaConnection', () => {
       fireReleased: input.fireReleased, dash: input.dash, aimX: 32767, aimY: 0,
     });
     expect(h.result.current.currentInput).toMatchObject({ aimX: 0, aimY: 32767 });
-    await act(() => vi.advanceTimersByTimeAsync(23));
-    expect(h.socket.sent).toHaveLength(3);
-    await act(() => vi.advanceTimersByTimeAsync(1));
+    await act(() => vi.advanceTimersByTimeAsync(30));
     expect(h.socket.sent.at(-1)).toMatchObject({
       type: 'input', sequence: 3, aimX: 0, aimY: 32767, fireReleased: false, dash: false,
     });
@@ -210,7 +208,7 @@ describe('useArenaConnection', () => {
       { sequence: 2, moveX: -32767, aimX: 32767, aimY: 0 },
       { sequence: 3, moveX: 0, aimX: 32767, aimY: 0 },
     ]);
-    await act(() => vi.advanceTimersByTimeAsync(29));
+    await act(() => vi.advanceTimersByTimeAsync(35));
     expect(h.socket.sent.at(-1)).toMatchObject({ sequence: 4, moveX: 0, aimX: -32767, aimY: 0 });
   });
 
@@ -253,7 +251,7 @@ describe('useArenaConnection', () => {
     act(() => h.result.current.sendInput(held));
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
-    const aimCallback = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 34)?.[0] as () => void;
+    const aimCallback = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 40)?.[0] as () => void;
     setTimeoutSpy.mockRestore();
     expect(heartbeatCallback).toBeTypeOf('function');
     expect(aimCallback).toBeTypeOf('function');
@@ -365,17 +363,17 @@ describe('useArenaConnection', () => {
     );
   });
 
-  it('rebases queued aim on heartbeat and keeps aim-changing sends 34ms apart', async () => {
+  it('rebases queued aim on heartbeat and keeps aim-changing sends 40ms apart', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
     await act(() => vi.advanceTimersByTimeAsync(10));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     act(() => h.result.current.sendHeartbeat());
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', aimX: 32767, aimY: 0 });
-    await act(() => vi.advanceTimersByTimeAsync(24));
+    await act(() => vi.advanceTimersByTimeAsync(30));
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: 0, aimY: 32767 });
     act(() => h.result.current.sendInput({ ...held, aimX: -32767, aimY: 0 }));
-    await act(() => vi.advanceTimersByTimeAsync(24));
+    await act(() => vi.advanceTimersByTimeAsync(30));
     expect(h.socket.sent).toHaveLength(4);
     await act(() => vi.advanceTimersByTimeAsync(9));
     expect(h.socket.sent).toHaveLength(4);
@@ -385,10 +383,10 @@ describe('useArenaConnection', () => {
 
   it('lets the heartbeat cadence satisfy a queued aim at its legal slot', async () => {
     const h = await connect();
-    await act(() => vi.advanceTimersByTimeAsync(216));
+    await act(() => vi.advanceTimersByTimeAsync(210));
     act(() => h.result.current.sendInput(held));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
-    await act(() => vi.advanceTimersByTimeAsync(34));
+    await act(() => vi.advanceTimersByTimeAsync(40));
     expect(h.socket.sent.at(-1)).toMatchObject({
       type: 'heartbeat', sequence: 2, aimX: 0, aimY: 32767,
     });
@@ -400,7 +398,7 @@ describe('useArenaConnection', () => {
     act(() => h.result.current.sendInput(held));
     h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason: 'rateLimited' });
     expect(h.result.current.pendingInputs).toEqual([]);
-    await act(() => vi.advanceTimersByTimeAsync(34));
+    await act(() => vi.advanceTimersByTimeAsync(40));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', sequence: 1 });
   });
@@ -449,7 +447,7 @@ describe('useArenaConnection', () => {
     await act(() => vi.advanceTimersByTimeAsync(10));
     act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 0, aimY: 32767 }));
     h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 2, reason: 'rateLimited' });
-    await act(() => vi.advanceTimersByTimeAsync(24));
+    await act(() => vi.advanceTimersByTimeAsync(30));
     expect(h.socket.sent).toHaveLength(3);
     act(() => h.result.current.sendHeartbeat());
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', sequence: 2, aimX: 0, aimY: 32767 });
@@ -458,7 +456,7 @@ describe('useArenaConnection', () => {
   it('keeps rejected wire aim direction and timestamp for subsequent aim spacing', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
-    await act(() => vi.advanceTimersByTimeAsync(34));
+    await act(() => vi.advanceTimersByTimeAsync(40));
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 2, reason: 'rateLimited' });
     await act(() => vi.advanceTimersByTimeAsync(10));
@@ -466,7 +464,7 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent.at(-1)).toMatchObject({
       type: 'input', sequence: 2, moveX: -32767, dash: true, aimX: 0, aimY: 32767,
     });
-    await act(() => vi.advanceTimersByTimeAsync(23));
+    await act(() => vi.advanceTimersByTimeAsync(29));
     expect(h.socket.sent.at(-1)).toMatchObject({ dash: true, aimX: 0, aimY: 32767 });
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(h.socket.sent.at(-1)).toMatchObject({

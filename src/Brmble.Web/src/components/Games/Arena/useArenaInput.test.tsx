@@ -26,6 +26,7 @@ function inputHarness(
   status: ArenaConnection['status'] = 'connected',
   reactStrictMode = false,
   localPlayer: Pick<ArenaPlayerSnapshot, 'x' | 'y'> = { x: 0, y: 0 },
+  combatEnabled = true,
 ) {
   const canvas = document.createElement('canvas');
   document.body.append(canvas);
@@ -39,8 +40,8 @@ function inputHarness(
   const renderer = { pointerToWorld: vi.fn(() => ({ x: 0, y: -1000 })) };
   const localPlayerRef = { current: localPlayer };
   const hook = renderHook(
-    ({ enabled }) => useArenaInput({ canvasRef, renderer: renderer as never, localPlayerRef, connection, enabled }),
-    { initialProps: { enabled: true }, reactStrictMode },
+    ({ enabled, combatEnabled }) => useArenaInput({ canvasRef, renderer: renderer as never, localPlayerRef, connection, enabled, combatEnabled }),
+    { initialProps: { enabled: true, combatEnabled }, reactStrictMode },
   );
   const keyDown = (code: string, init: KeyboardEventInit = {}) => {
     const event = new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...init });
@@ -56,7 +57,7 @@ function inputHarness(
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
       document.dispatchEvent(new Event('visibilitychange'));
     }
-    if (reason === 'socket') hook.rerender({ enabled: false });
+    if (reason === 'socket') hook.rerender({ enabled: false, combatEnabled });
     if (reason === 'unmount') hook.unmount();
   };
   return { canvas, connection, renderer, localPlayerRef, hook, sent, keyDown, keyUp, clickBoard, releaseBy };
@@ -140,7 +141,7 @@ describe('useArenaInput', () => {
 
     h.localPlayerRef.current = { x: 500, y: 600 };
     h.renderer.pointerToWorld.mockReturnValue({ x: 500, y: 600 });
-    h.hook.rerender({ enabled: true });
+    h.hook.rerender({ enabled: true, combatEnabled: true });
     fireEvent.pointerMove(h.canvas);
 
     expect(h.sent).toHaveLength(sentBeforeCoincidence);
@@ -159,6 +160,32 @@ describe('useArenaInput', () => {
     h.keyDown('Space', { repeat: true });
     h.keyUp('Space');
     expect(h.sent.filter(input => input.dash)).toHaveLength(1);
+    h.hook.unmount();
+  });
+
+  it('keeps movement active while combat input is disabled', () => {
+    const h = inputHarness('connected', false, { x: 0, y: 0 }, false);
+    h.clickBoard();
+
+    h.keyDown('KeyW');
+    h.keyDown('Space');
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    fireEvent.pointerUp(window, { button: 0 });
+
+    expect(h.sent).toContainEqual(expect.objectContaining({ moveY: -32767 }));
+    expect(h.sent.some(input => input.dash || input.charging || input.fireReleased)).toBe(false);
+    h.hook.unmount();
+  });
+
+  it('releases held charge without firing when combat becomes disabled', () => {
+    const h = inputHarness();
+    h.clickBoard();
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    expect(h.sent.at(-1)).toMatchObject({ charging: true });
+
+    h.hook.rerender({ enabled: true, combatEnabled: false });
+
+    expect(h.sent.at(-1)).toMatchObject({ charging: false, fireReleased: false, dash: false });
     h.hook.unmount();
   });
 
@@ -205,8 +232,8 @@ describe('useArenaInput', () => {
     const h = inputHarness();
     const captureId = h.hook.result.current.captureId;
 
-    h.hook.rerender({ enabled: false });
-    h.hook.rerender({ enabled: true });
+    h.hook.rerender({ enabled: false, combatEnabled: true });
+    h.hook.rerender({ enabled: true, combatEnabled: true });
 
     expect(h.hook.result.current.captureId).toBe(captureId);
     expect(randomUUID).toHaveBeenCalledOnce();

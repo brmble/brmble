@@ -87,23 +87,34 @@ public static class RealtimeGameEndpoint
         logger.LogInformation("Realtime connection {ConnectionId} attached to match {MatchId} as {Role}.",
             connectionId, scope.MatchId, scope.Role);
         var detached = 0;
+        LoopOutcome? outcome = null;
         using var loops = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         try
         {
-            var receive = ReceiveLoopAsync(socket, coordinator, mailbox, scope, connectionId, loops.Token);
-            var outcome = await RunWriterAsync(socket, mailbox, receive, loops.Token);
+            var receive = ReceiveLoopAsync(socket, coordinator, mailbox, scope, connectionId, logger, loops.Token);
+            outcome = await RunWriterAsync(socket, mailbox, receive, loops.Token);
             loops.Cancel();
             await ObserveAsync(receive);
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
-        catch (WebSocketException) { }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            outcome = LoopOutcome.Cancelled;
+        }
+        catch (WebSocketException ex)
+        {
+            logger.LogWarning(ex,
+                "Realtime connection {ConnectionId} for match {MatchId}, session {SessionId} failed.",
+                connectionId, scope.MatchId, scope.SessionId);
+        }
         finally
         {
             loops.Cancel();
             if (Interlocked.Exchange(ref detached, 1) == 0)
                 await coordinator.DetachAsync(connectionId);
-            logger.LogInformation("Realtime connection {ConnectionId} detached from match {MatchId} as {Role}.",
-                connectionId, scope.MatchId, scope.Role);
+            logger.LogInformation(
+                "Realtime connection {ConnectionId} detached from match {MatchId}, session {SessionId} as {Role} with outcome {Outcome}, close status {CloseStatus}, description {CloseDescription}.",
+                connectionId, scope.MatchId, scope.SessionId, scope.Role, outcome?.ToString() ?? "exception",
+                socket.CloseStatus?.ToString() ?? "none", socket.CloseStatusDescription ?? "none");
         }
     }
 
@@ -115,7 +126,7 @@ public static class RealtimeGameEndpoint
 
     private static async Task<LoopOutcome> ReceiveLoopAsync(WebSocket socket,
         ContinuousGameCoordinator coordinator, RealtimeSnapshotMailbox mailbox,
-        TicketScope scope, string connectionId, CancellationToken cancellationToken)
+        TicketScope scope, string connectionId, ILogger logger, CancellationToken cancellationToken)
     {
         var rented = ArrayPool<byte>.Shared.Rent(MaxPayloadBytes);
         try
@@ -137,7 +148,7 @@ public static class RealtimeGameEndpoint
                     length += result.Count;
                 } while (!result.EndOfMessage);
 
-                if (!HandlePayload(rented.AsMemory(0, length), coordinator, mailbox, scope, connectionId))
+                if (!HandlePayload(rented.AsMemory(0, length), coordinator, mailbox, scope, connectionId, logger))
                     return LoopOutcome.InvalidPayload;
             }
             return LoopOutcome.Cancelled;
@@ -153,7 +164,7 @@ public static class RealtimeGameEndpoint
     }
 
     private static bool HandlePayload(ReadOnlyMemory<byte> utf8, ContinuousGameCoordinator coordinator,
-        RealtimeSnapshotMailbox mailbox, TicketScope scope, string connectionId)
+        RealtimeSnapshotMailbox mailbox, TicketScope scope, string connectionId, ILogger logger)
     {
         try
         {
@@ -191,6 +202,9 @@ public static class RealtimeGameEndpoint
                 scope.MatchId, scope.SessionId, scope.Role, input, heartbeat);
             if (!response.Accepted)
             {
+                logger.LogInformation(
+                    "Realtime input rejected for match {MatchId}, session {SessionId}, sequence {Sequence}: {Reason}; acknowledged {AcknowledgedInput}.",
+                    scope.MatchId, scope.SessionId, sequence, response.Reason, response.AcknowledgedInput);
                 var json = JsonSerializer.Serialize(new
                 {
                     type = "inputRejected", protocolVersion = 1, matchId = scope.MatchId,

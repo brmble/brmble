@@ -112,6 +112,7 @@ export function ArenaBoard({
     localPlayerRef,
     connection,
     enabled: renderer !== null && connection.status === 'connected' && connection.closed === null && ended === null,
+    combatEnabled: state.phase === 'live' && state.localPlayer?.cooldownTicks === 0,
   });
 
   useLayoutEffect(() => input.release, [matchId]);
