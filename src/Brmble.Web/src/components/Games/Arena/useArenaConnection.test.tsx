@@ -373,11 +373,11 @@ describe('useArenaConnection', () => {
     await act(() => vi.advanceTimersByTimeAsync(30));
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: 0, aimY: 32767 });
     act(() => h.result.current.sendInput({ ...held, aimX: -32767, aimY: 0 }));
-    await act(() => vi.advanceTimersByTimeAsync(30));
-    expect(h.socket.sent).toHaveLength(4);
-    await act(() => vi.advanceTimersByTimeAsync(9));
-    expect(h.socket.sent).toHaveLength(4);
+    const beforeQueuedAim = h.socket.sent.length;
+    await act(() => vi.advanceTimersByTimeAsync(39));
+    expect(h.socket.sent).toHaveLength(beforeQueuedAim);
     await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(h.socket.sent).toHaveLength(beforeQueuedAim + 1);
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', aimX: -32767, aimY: 0 });
   });
 

@@ -2,7 +2,8 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
-import { useArenaState } from './useArenaState';
+import { reconcile } from './arenaMath';
+import { advanceLocalPresentation, useArenaState } from './useArenaState';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
@@ -72,6 +73,29 @@ describe('useArenaState', () => {
     expect(hook.result.current.remotePlayer?.x).toBe(-970);
     hook.unmount();
     expect(cancelAnimationFrame).toHaveBeenCalled();
+  });
+
+  it('advances local held movement every fixed tick between network sends', () => {
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const reconciled = reconcile({
+      snapshot: { ...snapshot(1, 1000, 1000), serverTick: 100 }, selfSessionId: 10,
+    }, [move], prediction).local;
+    expect(reconciled.player.x).toBe(1090);
+
+    const first = advanceLocalPresentation(reconciled, move.input, 20, 60, prediction);
+    expect(first.elapsedTicks).toBe(1);
+    expect(first.state.player.x).toBe(1180);
+
+    const second = advanceLocalPresentation(first.state, move.input, 20, 60, prediction);
+    expect(second.elapsedTicks).toBe(1);
+    expect(second.state.player.x).toBe(1270);
+
+    const resumed = advanceLocalPresentation(second.state, move.input, 10_000, 60, prediction);
+    expect(resumed.elapsedTicks).toBe(3);
+    expect(resumed.state.player.x).toBe(1540);
   });
 
   it('snaps final state and increments snapCount for mandatory reconciliation snaps', () => {

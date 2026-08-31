@@ -71,6 +71,7 @@ export function ArenaBoard({
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs, recentInputs: connection.recentInputs,
+    currentInput: connection.currentInput,
     selfSessionId, finalState,
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);

@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
-  ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
+  ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
 import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
-import { reconcile, sampleTimeline, type PredictedArenaState } from './arenaMath';
+import { reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
   latestSnapshot: ArenaSnapshot | null;
   pendingInputs: PendingArenaInput[];
   recentInputs?: RecentArenaInput[];
+  currentInput?: ArenaInputState;
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
 }
@@ -30,6 +31,24 @@ const emptyState: ArenaRenderState = {
   localPlayer: null, remotePlayer: null, projectiles: [], arena: null, phase: null,
   phaseEndsAtTick: null, score: [0, 0], consecutiveDoubleKos: 0, snapCount: 0,
 };
+const neutralInput: ArenaInputState = {
+  moveX: 0, moveY: 0, aimX: 32767, aimY: 0,
+  charging: false, fireReleased: false, dash: false,
+};
+
+export function advanceLocalPresentation(
+  state: PredictedArenaState,
+  input: ArenaInputState,
+  elapsedMs: number,
+  tickRate: number,
+  constants: ArenaWelcome['prediction'],
+): { state: PredictedArenaState; elapsedTicks: number } {
+  const elapsedTicks = Math.min(3, Math.max(0, Math.floor(elapsedMs * tickRate / 1000)));
+  const heldInput = { ...input, fireReleased: false, dash: false };
+  let advanced = state;
+  for (let tick = 0; tick < elapsedTicks; tick++) advanced = stepLocal(advanced, heldInput, constants);
+  return { state: advanced, elapsedTicks };
+}
 
 function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = Date.now()): ArenaSnapshot {
   return {
@@ -39,7 +58,7 @@ function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUni
 }
 
 export function useArenaState({
-  welcome, latestSnapshot, pendingInputs, recentInputs = [], selfSessionId, finalState,
+  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
 }: UseArenaStateOptions): ArenaRenderState {
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
@@ -48,12 +67,14 @@ export function useArenaState({
   const welcomeRef = useRef<ArenaWelcome | null>(null);
   const correctionRef = useRef<{ x: number; y: number; startedAt: number } | null>(null);
   const snappedRef = useRef(false);
-  const inputsRef = useRef({ pendingInputs, recentInputs, selfSessionId, finalState });
+  const inputsRef = useRef({ pendingInputs, recentInputs, currentInput, selfSessionId, finalState });
   const authorityDirtyRef = useRef(true);
   const inputDirtyRef = useRef(true);
   const inputKeyRef = useRef('');
   const sessionRef = useRef(selfSessionId);
   const renderedLocalRef = useRef<ArenaPlayerSnapshot | null>(null);
+  const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
+  const presentedAtRef = useRef(0);
   const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
 
   useEffect(() => {
@@ -61,6 +82,7 @@ export function useArenaState({
       sessionRef.current = selfSessionId;
       suppressedInputsRef.current = { pending: pendingInputs, recent: recentInputs };
       predictedRef.current = undefined;
+      presentedRef.current = undefined;
       renderedLocalRef.current = null;
       correctionRef.current = null;
       snappedRef.current = false;
@@ -73,7 +95,7 @@ export function useArenaState({
     if (suppressed && suppressed.pending !== pendingInputs && suppressed.recent !== recentInputs) {
       suppressedInputsRef.current = null;
     }
-    inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, selfSessionId, finalState };
+    inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, currentInput, selfSessionId, finalState };
     const inputKey = JSON.stringify([usePending, useRecent]);
     if (inputKey !== inputKeyRef.current) {
       inputKeyRef.current = inputKey;
@@ -81,11 +103,13 @@ export function useArenaState({
     }
     if (finalState) authorityDirtyRef.current = true;
   }, [finalState, pendingInputs, recentInputs, selfSessionId]);
+  inputsRef.current.currentInput = currentInput;
 
   useEffect(() => {
     if (!welcome) {
       timelineRef.current = [];
       predictedRef.current = undefined;
+      presentedRef.current = undefined;
       snapCountRef.current = 0;
       correctionRef.current = null;
       snappedRef.current = false;
@@ -97,6 +121,7 @@ export function useArenaState({
       return;
     }
     predictedRef.current = undefined;
+    presentedRef.current = undefined;
     renderedLocalRef.current = null;
     correctionRef.current = null;
     snappedRef.current = false;
@@ -123,7 +148,7 @@ export function useArenaState({
   useEffect(() => {
     if (!welcome) return;
     let frameId = 0;
-    const update = () => {
+    const update = (frameTime = performance.now()) => {
       const timeline = timelineRef.current;
       if (timeline.length > 0) {
         const current = inputsRef.current;
@@ -149,24 +174,40 @@ export function useArenaState({
               : null;
           }
           predictedRef.current = result.local;
+          presentedRef.current = result.local;
+          presentedAtRef.current = frameTime;
           authorityDirtyRef.current = false;
           inputDirtyRef.current = false;
         }
         const predicted = predictedRef.current;
         if (!predicted) throw new Error('Arena prediction was not initialized');
+        let presented = presentedRef.current ?? predicted;
+        if (!current.finalState && presented.phase !== 'awaitingParticipants'
+          && presented.phase !== 'loading' && presented.phase !== 'ended') {
+          const advanced = advanceLocalPresentation(
+            presented, current.currentInput, frameTime - presentedAtRef.current,
+            welcome.tickRate, welcome.prediction,
+          );
+          presented = advanced.state;
+          const { elapsedTicks } = advanced;
+          if (elapsedTicks > 0) {
+            presentedRef.current = presented;
+            presentedAtRef.current += elapsedTicks * 1000 / welcome.tickRate;
+          }
+        }
         const sampled = current.finalState
           ? authority
           : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
         const correction = correctionRef.current;
         const remaining = correction ? Math.max(0, 1 - (Date.now() - correction.startedAt) / 100) : 0;
         const local = correction ? {
-          ...predicted.player,
-          x: Math.trunc(predicted.player.x - correction.x * remaining),
-          y: Math.trunc(predicted.player.y - correction.y * remaining),
-        } : predicted.player;
+          ...presented.player,
+          x: Math.trunc(presented.player.x - correction.x * remaining),
+          y: Math.trunc(presented.player.y - correction.y * remaining),
+        } : presented.player;
         renderedLocalRef.current = local;
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
-        const predictedProjectiles = predicted.projectiles.filter(projectile => projectile.id < 0);
+        const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
         setRendered({
           localPlayer: local, remotePlayer: remote, projectiles: [...sampled.projectiles, ...predictedProjectiles],
           arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
