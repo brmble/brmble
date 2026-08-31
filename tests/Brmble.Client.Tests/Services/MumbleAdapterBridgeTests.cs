@@ -8,6 +8,8 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using Brmble.Client.Services.Voice.Input;
+using Brmble.Client.Tests.Services.Input;
 using MumbleSharp;
 using MumbleSharp.Packets;
 using MumbleProto;
@@ -20,6 +22,89 @@ namespace Brmble.Client.Tests.Services;
 [TestClass]
 public class MumbleAdapterBridgeTests
 {
+    [TestMethod]
+    public void GameInputCapture_FirstIdSuspendsAndLastReleaseResumes()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "a", active = true });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("game.inputCapture", new { captureId = "b", active = true });
+        h.Send("game.inputCapture", new { captureId = "a", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("game.inputCapture", new { captureId = "b", active = false });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_ForcesPttReleaseAndBlocksShortcutUntilMatchingRelease()
+    {
+        using var h = InputCaptureHarness.Create();
+        var transmitting = false;
+        var shortcutCount = 0;
+        h.Router.PttStateChanged += active => transmitting = active;
+        h.Router.ShortcutReleased += (_, forced) => { if (!forced) shortcutCount++; };
+        h.Router.SetPttBinding("Space");
+        h.Router.SetShortcutBinding("toggleMute", "F1");
+        h.Router.HandleJsPttKey(true);
+        Assert.IsTrue(transmitting);
+
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        Assert.IsFalse(transmitting);
+        h.PressAndReleaseShortcut();
+        Assert.AreEqual(0, shortcutCount);
+        h.Send("game.inputCapture", new { captureId = "arena", active = false });
+        h.PressAndReleaseShortcut();
+        Assert.AreEqual(1, shortcutCount);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_DuplicateAndStaleMessagesAreIdempotent()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = false });
+        h.Send("game.inputCapture", new { captureId = "new", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void LegacyVoiceSuspendSharesCaptureOwnershipWithoutBareResumeAffectingArena()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        h.Send("voice.resumeHotkeys", new { });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("voice.suspendHotkeys", new { });
+        h.Send("voice.suspendHotkeys", new { });
+        h.Send("game.inputCapture", new { captureId = "arena", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("voice.resumeHotkeys", new { });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    public void GameInputCapture_RejectsInvalidCaptureIds(string? captureId)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId, active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void Disconnect_ClearsCaptureOwnersAndResumesInput()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        h.Adapter.Disconnect();
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
     [TestMethod]
     public void HandleWebSocketMessage_CompanionChanged_EmitsTheUpdatedRow()
     {
@@ -844,5 +929,49 @@ public class MumbleAdapterBridgeTests
         public void SetActiveProfileId(string? id) { }
         public string GetCertsDir() => Path.GetTempPath();
         public void SwapProfileRegistrations(string? oldProfileId, string? newProfileId) { }
+    }
+
+    private sealed class InputCaptureHarness : IDisposable
+    {
+        private const int VK_F1 = 0x70;
+        private readonly NativeBridge _bridge;
+        private readonly FakeInputBackend _backend;
+
+        private InputCaptureHarness(NativeBridge bridge, MumbleAdapter adapter, InputRouter router, FakeInputBackend backend)
+        {
+            _bridge = bridge;
+            Adapter = adapter;
+            Router = router;
+            _backend = backend;
+        }
+
+        public MumbleAdapter Adapter { get; }
+        public InputRouter Router { get; }
+
+        public static InputCaptureHarness Create()
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+            var backend = new FakeInputBackend();
+            var router = new InputRouter(backend, autoStartTimers: false);
+            SetPrivateField(adapter, "_inputRouter", router);
+            SetPrivateField(adapter, "_activeCaptureIds", new HashSet<string>(StringComparer.Ordinal));
+            SetPrivateField(adapter, "_captureLock", new object());
+            adapter.RegisterHandlers(bridge);
+            return new InputCaptureHarness(bridge, adapter, router, backend);
+        }
+
+        public void Send(string type, object payload)
+            => NativeBridgeTestHarness.InvokeAsync(_bridge, type, JsonSerializer.SerializeToElement(payload)).GetAwaiter().GetResult();
+
+        public void PressAndReleaseShortcut()
+        {
+            _backend.KeyDownStates[VK_F1] = true;
+            Router.TickShortcutPollOnce();
+            _backend.KeyDownStates[VK_F1] = false;
+            Router.TickShortcutPollOnce();
+        }
+
+        public void Dispose() => Router.Dispose();
     }
 }

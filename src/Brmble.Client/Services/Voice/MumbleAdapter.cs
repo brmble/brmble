@@ -34,6 +34,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private Thread? _processThread;
     private AudioManager? _audioManager;
     private InputRouter? _inputRouter;
+    private object? _captureLock = new();
+    private HashSet<string>? _activeCaptureIds = new(StringComparer.Ordinal);
+    private const string LegacyVoiceCaptureId = "legacy:voice";
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
@@ -225,6 +228,36 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
         _pttStateChangedHandler = _audioManager.SetPttActiveExternal;
         _inputRouter.PttStateChanged += _pttStateChangedHandler;
+    }
+
+    private void SetInputCapture(string captureId, bool active)
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (active)
+            {
+                if (!activeCaptureIds.Add(captureId) || activeCaptureIds.Count != 1) return;
+                _inputRouter?.Suspend();
+                return;
+            }
+
+            if (!activeCaptureIds.Remove(captureId) || activeCaptureIds.Count != 0) return;
+            _inputRouter?.Resume();
+        }
+    }
+
+    private void ClearInputCaptures()
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (activeCaptureIds.Count == 0) return;
+            activeCaptureIds.Clear();
+            _inputRouter?.Resume();
+        }
     }
 
     /// <summary>
@@ -474,6 +507,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Force release any held PTT/shortcut state before tearing down audio,
         // so the matching release events fire while the AudioManager is still
         // alive to consume them.
+        ClearInputCaptures();
         _inputRouter?.ReleaseAllHeld();
 
         // Unwire InputRouter → AudioManager event subscriptions before disposing
@@ -3014,13 +3048,27 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.suspendHotkeys", _ =>
         {
-            _inputRouter?.Suspend();
+            SetInputCapture(LegacyVoiceCaptureId, active: true);
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("voice.resumeHotkeys", _ =>
         {
-            _inputRouter?.Resume();
+            SetInputCapture(LegacyVoiceCaptureId, active: false);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("game.inputCapture", data =>
+        {
+            var captureId = data.TryGetProperty("captureId", out var id)
+                && id.ValueKind == System.Text.Json.JsonValueKind.String
+                ? id.GetString()
+                : null;
+            var active = data.TryGetProperty("active", out var value)
+                && value.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False
+                && value.GetBoolean();
+            if (!string.IsNullOrWhiteSpace(captureId) && captureId.Length <= 128)
+                SetInputCapture(captureId, active);
             return Task.CompletedTask;
         });
 

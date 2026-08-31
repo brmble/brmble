@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../Icon/Icon';
 import { Tooltip } from '../../Tooltip/Tooltip';
 import type { ArenaMatchClosed, ArenaPhase, ArenaPlayerSnapshot, ArenaStateSnapshot } from './arenaProtocol';
@@ -6,6 +6,7 @@ import type { EndedMatch } from '../useGameState';
 import { ArenaRenderer } from './ArenaRenderer';
 import { useArenaConnection } from './useArenaConnection';
 import { useArenaState } from './useArenaState';
+import { useArenaInput } from './useArenaInput';
 import styles from './ArenaBoard.module.css';
 
 interface ArenaBoardProps {
@@ -74,6 +75,7 @@ export function ArenaBoard({
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ArenaRenderer | null>(null);
+  const [renderer, setRenderer] = useState<ArenaRenderer | null>(null);
   const stateRef = useRef(state);
   const [reducedMotion, setReducedMotion] = useState(false);
 
@@ -94,11 +96,22 @@ export function ArenaBoard({
     if (!canvas) return;
     const renderer = new ArenaRenderer(canvas);
     rendererRef.current = renderer;
+    setRenderer(renderer);
     return () => {
       renderer.dispose();
       rendererRef.current = null;
+      setRenderer(null);
     };
   }, []);
+
+  const input = useArenaInput({
+    canvasRef,
+    renderer,
+    connection,
+    enabled: renderer !== null && connection.status === 'connected' && connection.closed === null && ended === null,
+  });
+
+  useLayoutEffect(() => input.release, [matchId]);
 
   useEffect(() => {
     let frame = 0;
@@ -159,12 +172,17 @@ export function ArenaBoard({
     local ? `Shot ${cooldownState(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
     finalizationFailed ? 'Outcome unavailable.' : `Outcome: ${outcome}.`,
   ].join(' ');
+  const handleClose = () => {
+    input.release();
+    if (ended) onClose();
+    else onForfeit();
+  };
 
   return (
     <section className={`arena-board glass-panel animate-slide-up ${styles.board}`} data-testid="arena-board">
       <button
         className="modal-close"
-        onClick={ended ? onClose : onForfeit}
+        onClick={handleClose}
         aria-label={ended ? 'Close arena' : 'Forfeit arena'}
         disabled={finalizationPending}
         aria-disabled={finalizationPending || undefined}
