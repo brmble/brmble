@@ -270,31 +270,34 @@ describe('useArenaConnection', () => {
     expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
   });
 
-  it('ignores a stale retry callback and its ticket completion after the match closes', async () => {
-    const h = await connect();
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    h.socket.fail();
-    const retryCallback = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 250)?.[0] as () => void;
-    setTimeoutSpy.mockRestore();
-    expect(retryCallback).toBeTypeOf('function');
-
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    const replacement = FakeWebSocket.instances[1];
-    replacement.open();
-    replacement.message(welcome());
-    replacement.message(matchClosed());
-    expect(h.result.current.status).toBe('closed');
-
+  it('ignores an old in-flight ticket after a replacement match closes', async () => {
     let resolveStaleTicket: ((ticket: object) => void) | undefined;
-    requestRealtimeTicket.mockImplementationOnce(() => new Promise(resolve => { resolveStaleTicket = resolve; }));
-    act(() => retryCallback());
+    requestRealtimeTicket
+      .mockImplementationOnce(() => new Promise(resolve => { resolveStaleTicket = resolve; }))
+      .mockResolvedValueOnce({
+        protocolVersion: 1, ticket: 'current', url: 'wss://chat.example/current', expiresAt: 'later',
+      });
+    const h = renderHook(
+      ({ matchId }) => useArenaConnection({ matchId, enabled: true }),
+      { initialProps: { matchId: 90 } },
+    );
+    await waitFor(() => expect(requestRealtimeTicket).toHaveBeenCalledWith(90, 'participant'));
+    expect(resolveStaleTicket).toBeTypeOf('function');
+    h.rerender({ matchId: 91 });
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const current = FakeWebSocket.instances[0];
+    current.open();
+    current.message(welcome());
+
+    current.message(matchClosed());
+    expect(h.result.current.status).toBe('closed');
     resolveStaleTicket?.({
       protocolVersion: 1, ticket: 'stale', url: 'wss://chat.example/stale', expiresAt: 'later',
     });
     await act(async () => {});
 
     expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
-    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances).toHaveLength(1);
     expect(h.result.current.status).toBe('closed');
     expect(h.result.current.pendingInputs).toEqual([]);
     expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);

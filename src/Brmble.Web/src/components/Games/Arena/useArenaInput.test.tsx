@@ -1,7 +1,7 @@
 import { act, fireEvent, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import bridge from '../../../bridge';
-import type { ArenaInputState } from './arenaProtocol';
+import type { ArenaInputState, ArenaPlayerSnapshot } from './arenaProtocol';
 import type { ArenaConnection } from './useArenaConnection';
 import { useArenaInput } from './useArenaInput';
 
@@ -22,7 +22,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function inputHarness(status: ArenaConnection['status'] = 'connected', reactStrictMode = false) {
+function inputHarness(
+  status: ArenaConnection['status'] = 'connected',
+  reactStrictMode = false,
+  localPlayer: Pick<ArenaPlayerSnapshot, 'x' | 'y'> = { x: 0, y: 0 },
+) {
   const canvas = document.createElement('canvas');
   document.body.append(canvas);
   const canvasRef = { current: canvas };
@@ -33,8 +37,9 @@ function inputHarness(status: ArenaConnection['status'] = 'connected', reactStri
     sendInput: vi.fn(input => sent.push(input)), sendHeartbeat: vi.fn(),
   };
   const renderer = { pointerToWorld: vi.fn(() => ({ x: 0, y: -1000 })) };
+  const localPlayerRef = { current: localPlayer };
   const hook = renderHook(
-    ({ enabled }) => useArenaInput({ canvasRef, renderer: renderer as never, connection, enabled }),
+    ({ enabled }) => useArenaInput({ canvasRef, renderer: renderer as never, localPlayerRef, connection, enabled }),
     { initialProps: { enabled: true }, reactStrictMode },
   );
   const keyDown = (code: string, init: KeyboardEventInit = {}) => {
@@ -54,7 +59,7 @@ function inputHarness(status: ArenaConnection['status'] = 'connected', reactStri
     if (reason === 'socket') hook.rerender({ enabled: false });
     if (reason === 'unmount') hook.unmount();
   };
-  return { canvas, connection, renderer, hook, sent, keyDown, keyUp, clickBoard, releaseBy };
+  return { canvas, connection, renderer, localPlayerRef, hook, sent, keyDown, keyUp, clickBoard, releaseBy };
 }
 
 describe('useArenaInput', () => {
@@ -90,6 +95,49 @@ describe('useArenaInput', () => {
     expect(h.sent).toContainEqual(expect.objectContaining({ aimX: 0, aimY: -32767 }));
     expect(h.sent).toContainEqual(expect.objectContaining({ charging: true, fireReleased: false }));
     expect(h.sent.at(-1)).toMatchObject({ charging: false, fireReleased: true });
+    h.hook.unmount();
+  });
+
+  it.each([
+    ['left spawn toward center', { x: -3500, y: 0 }, { x: 0, y: 0 }, { aimX: 32767, aimY: 0 }],
+    ['right spawn toward center', { x: 3500, y: 0 }, { x: 0, y: 0 }, { aimX: -32767, aimY: 0 }],
+    ['off-origin directly above', { x: 1200, y: -800 }, { x: 1200, y: -1800 }, { aimX: 0, aimY: -32767 }],
+    ['off-origin directly left', { x: 1200, y: -800 }, { x: 200, y: -800 }, { aimX: -32767, aimY: 0 }],
+  ] as const)('aims relative to the local player from %s', (_label, localPlayer, pointer, expected) => {
+    const h = inputHarness('connected', false, localPlayer);
+    h.renderer.pointerToWorld.mockReturnValue(pointer);
+    h.clickBoard();
+
+    fireEvent.pointerMove(h.canvas, { clientX: 140, clientY: 90 });
+
+    expect(h.renderer.pointerToWorld).toHaveBeenCalledWith(140, 90);
+    expect(h.sent.at(-1)).toMatchObject(expected);
+    h.hook.unmount();
+  });
+
+  it('retains the last nonzero aim when the pointer is exactly at the moving player without reinstalling listeners', () => {
+    const addWindowListener = vi.spyOn(window, 'addEventListener');
+    const addCanvasListener = vi.spyOn(HTMLCanvasElement.prototype, 'addEventListener');
+    const h = inputHarness('connected', false, { x: 100, y: 200 });
+    h.clickBoard();
+    h.renderer.pointerToWorld.mockReturnValue({ x: 100, y: -800 });
+    fireEvent.pointerMove(h.canvas);
+    expect(h.sent.at(-1)).toMatchObject({ aimX: 0, aimY: -32767 });
+    const sentBeforeCoincidence = h.sent.length;
+    const windowListeners = addWindowListener.mock.calls.length;
+    const canvasListeners = addCanvasListener.mock.calls.length;
+
+    h.localPlayerRef.current = { x: 500, y: 600 };
+    h.renderer.pointerToWorld.mockReturnValue({ x: 500, y: 600 });
+    h.hook.rerender({ enabled: true });
+    fireEvent.pointerMove(h.canvas);
+
+    expect(h.sent).toHaveLength(sentBeforeCoincidence);
+    expect(h.connection.currentInput).not.toMatchObject({ aimX: 0, aimY: 0 });
+    expect(addWindowListener).toHaveBeenCalledTimes(windowListeners);
+    expect(addCanvasListener).toHaveBeenCalledTimes(canvasListeners);
+    addWindowListener.mockRestore();
+    addCanvasListener.mockRestore();
     h.hook.unmount();
   });
 

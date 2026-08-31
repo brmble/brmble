@@ -77,10 +77,12 @@ export function ArenaBoard({
   const rendererRef = useRef<ArenaRenderer | null>(null);
   const [renderer, setRenderer] = useState<ArenaRenderer | null>(null);
   const stateRef = useRef(state);
+  const localPlayerRef = useRef(state.localPlayer);
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
     stateRef.current = state;
+    localPlayerRef.current = state.localPlayer;
   }, [state]);
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export function ArenaBoard({
   const input = useArenaInput({
     canvasRef,
     renderer,
+    localPlayerRef,
     connection,
     enabled: renderer !== null && connection.status === 'connected' && connection.closed === null && ended === null,
   });

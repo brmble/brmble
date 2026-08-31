@@ -219,6 +219,79 @@ public class MumbleAdapterBridgeTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StaleCredentialCompletionAfterDisconnectHasNoSideEffects(bool succeeds)
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var fetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => fetch.Task);
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://old.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+        h.Adapter.Disconnect();
+        _ = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+
+        fetch.SetResult(succeeds ? SuccessfulCredentials("old-instance", 4) : FailedCredentials(503));
+        h.WaitForCredentialContinuations();
+
+        h.AssertNoCredentialSideEffects();
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StaleCredentialCompletionAfterReplacementHasNoSideEffectsButCurrentApplies(bool staleSucceeds)
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var oldFetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var currentFetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fetches = new System.Collections.Concurrent.ConcurrentQueue<Task<MumbleAdapter.CredentialFetchResult>>([oldFetch.Task, currentFetch.Task]);
+        h.SetCredentialFetch(_ => fetches.TryDequeue(out var fetch) ? fetch : Task.FromResult(FailedCredentials(500)));
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://old.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+
+        h.Adapter.Disconnect();
+        h.AttachConnectedVoice(session: 2, apiUrl: "https://current.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 2 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 2, TimeSpan.FromSeconds(5)));
+        _ = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+
+        oldFetch.SetResult(staleSucceeds ? SuccessfulCredentials("old-instance", 4) : FailedCredentials(503));
+        h.WaitForCredentialContinuations(expectedCompleted: 1);
+        Assert.AreEqual("https://current.example.com", h.Adapter.ApiUrl);
+        Assert.AreEqual(0, h.WebSocketStarts);
+        Assert.AreEqual(0, h.HealthStarts);
+        Assert.IsFalse(h.PasswordProtectedChannels.ContainsKey(4));
+        Assert.IsFalse(h.Projection.Any());
+        Assert.IsFalse(NativeBridgeTestHarness.DrainMessages(h.Bridge).Any(message =>
+            message.Type is "server.credentials" or "voice.authError" or "voice.error" or "brmble.serviceStatus"));
+
+        currentFetch.SetResult(SuccessfulCredentials("current-instance", 5));
+        h.WaitForCredentialContinuations(expectedCompleted: 2);
+        var currentMessages = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+        Assert.AreEqual("https://current.example.com", h.Adapter.ApiUrl);
+        Assert.IsTrue(h.CredentialsAlreadyFetched);
+        Assert.IsTrue(h.PasswordProtectedChannels.ContainsKey(5));
+        Assert.AreEqual("@current-instance:test", h.Projection[2].MatrixUserId);
+        Assert.AreEqual(1, h.WebSocketStarts);
+        Assert.AreEqual(1, h.HealthStarts);
+        Assert.IsTrue(currentMessages.Any(message => message.Type == "server.credentials"));
+        Assert.IsTrue(currentMessages.Any(message => message.Type == "brmble.serviceStatus" && message.DataJson.Contains("\"state\":\"connected\"")));
+    }
+
+    private static MumbleAdapter.CredentialFetchResult SuccessfulCredentials(string instanceId, uint protectedChannelId)
+    {
+        using var document = JsonDocument.Parse(
+            $"{{\"instanceId\":\"{instanceId}\",\"revision\":1,\"mappings\":{{\"1\":{{\"matrixUserId\":\"@{instanceId}:test\"}},\"2\":{{\"matrixUserId\":\"@{instanceId}:test\"}}}},\"passwordProtectedChannelIds\":[{protectedChannelId}],\"matrix\":{{\"homeserverUrl\":\"http://internal\",\"accessToken\":\"token\",\"userId\":\"@user:test\",\"roomMap\":{{}}}}}}");
+        return new(document.RootElement.Clone(), 200, null, null);
+    }
+
+    private static MumbleAdapter.CredentialFetchResult FailedCredentials(int statusCode)
+        => new(null, statusCode, null, null);
+
+    [TestMethod]
     public void HandleWebSocketMessage_CompanionChanged_EmitsTheUpdatedRow()
     {
         // The dedicated voice.companionChanged event is gone: a companion change is just a
@@ -1060,6 +1133,15 @@ public class MumbleAdapterBridgeTests
 
         public MumbleAdapter Adapter { get; }
         public InputRouter Router { get; }
+        public NativeBridge Bridge => _bridge;
+        public int CredentialFetchCalls { get; private set; }
+        public int WebSocketStarts { get; private set; }
+        public int HealthStarts { get; private set; }
+        public bool CredentialsAlreadyFetched => GetPrivateField<bool>(Adapter, "_credentialsAlreadyFetched");
+        public IReadOnlyDictionary<uint, Brmble.Client.Services.Voice.Projection.UserProjection> Projection
+            => GetPrivateField<Brmble.Client.Services.Voice.Projection.UserProjectionStore>(Adapter, "_projection").Snapshot();
+        public System.Collections.Concurrent.ConcurrentDictionary<uint, bool> PasswordProtectedChannels
+            => GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<uint, bool>>(Adapter, "_channelPasswordRestrictions");
 
         public static InputCaptureHarness Create(bool acceptInputCaptures = true)
         {
@@ -1072,7 +1154,10 @@ public class MumbleAdapterBridgeTests
             SetPrivateField(adapter, "_captureLock", new object());
             SetPrivateField(adapter, "_acceptInputCaptures", acceptInputCaptures);
             adapter.RegisterHandlers(bridge);
-            return new InputCaptureHarness(bridge, adapter, router, backend);
+            var harness = new InputCaptureHarness(bridge, adapter, router, backend);
+            adapter.WebSocketStartForTests = _ => harness.WebSocketStarts++;
+            adapter.HealthCheckStartForTests = _ => harness.HealthStarts++;
+            return harness;
         }
 
         public void Send(string type, object payload)
@@ -1085,9 +1170,21 @@ public class MumbleAdapterBridgeTests
         }
 
         public void SetCredentialFetch(Func<string, Task> fetch)
-            => Adapter.CredentialFetchForTests = fetch;
+            => Adapter.CredentialFetchForTests = async url =>
+            {
+                CredentialFetchCalls++;
+                await fetch(url);
+                return SuccessfulCredentials("test-instance", 3);
+            };
 
-        public void AttachConnectedVoice(uint session)
+        public void SetCredentialFetch(Func<string, Task<MumbleAdapter.CredentialFetchResult>> fetch)
+            => Adapter.CredentialFetchForTests = url =>
+            {
+                CredentialFetchCalls++;
+                return fetch(url);
+            };
+
+        public void AttachConnectedVoice(uint session, string apiUrl = "https://api.example.com")
         {
             var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), Adapter, voiceSupport: false);
             Adapter.Initialise(connection);
@@ -1096,7 +1193,20 @@ public class MumbleAdapterBridgeTests
             channels[0] = new Channel(Adapter, 0, "Root", 0);
             var users = MumbleAdapterTestHarness.GetBaseField<System.Collections.Concurrent.ConcurrentDictionary<uint, User>>(Adapter, "UserDictionary");
             users[session] = new User(Adapter, session) { Name = $"User {session}", Channel = channels[0] };
-            SetPrivateField(Adapter, "_apiUrl", "https://api.example.com");
+            SetPrivateField(Adapter, "_apiUrl", apiUrl);
+        }
+
+        public void AssertNoCredentialSideEffects()
+        {
+            var messages = NativeBridgeTestHarness.DrainMessages(Bridge);
+            Assert.IsNull(Adapter.ApiUrl);
+            Assert.IsFalse(CredentialsAlreadyFetched);
+            Assert.IsFalse(Projection.Any());
+            Assert.IsFalse(PasswordProtectedChannels.Any());
+            Assert.AreEqual(0, WebSocketStarts);
+            Assert.AreEqual(0, HealthStarts);
+            Assert.IsFalse(messages.Any(message =>
+                message.Type is "server.credentials" or "voice.authError" or "voice.error" or "brmble.serviceStatus" or "server.healthStatus"));
         }
 
         public void WaitForCredentialContinuations(int expectedCompleted = 1)

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import bridge from '../../../bridge';
-import type { ArenaInputState } from './arenaProtocol';
+import type { ArenaInputState, ArenaPlayerSnapshot } from './arenaProtocol';
 import type { ArenaConnection } from './useArenaConnection';
 import type { ArenaRenderer } from './ArenaRenderer';
 
@@ -14,11 +14,12 @@ const neutralInput: ArenaInputState = {
 interface ArenaInputOptions {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   renderer: ArenaRenderer | null;
+  localPlayerRef: RefObject<Pick<ArenaPlayerSnapshot, 'x' | 'y'> | null>;
   connection: ArenaConnection;
   enabled: boolean;
 }
 
-export function useArenaInput({ canvasRef, renderer, connection, enabled }: ArenaInputOptions) {
+export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection, enabled }: ArenaInputOptions) {
   const captureIdRef = useRef<string | null>(null);
   captureIdRef.current ??= crypto.randomUUID();
   const captureId = captureIdRef.current;
@@ -130,10 +131,13 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
       if (!capturedRef.current) return;
       consume(event);
       const world = rendererRef.current?.pointerToWorld(event.clientX, event.clientY);
-      if (!world) return;
-      const length = Math.hypot(world.x, world.y);
+      const localPlayer = localPlayerRef.current;
+      if (!world || !localPlayer) return;
+      const aimX = world.x - localPlayer.x;
+      const aimY = world.y - localPlayer.y;
+      const length = Math.hypot(aimX, aimY);
       if (length === 0) return;
-      send({ aimX: Math.round(world.x / length * MAX_AXIS), aimY: Math.round(world.y / length * MAX_AXIS) });
+      send({ aimX: Math.round(aimX / length * MAX_AXIS), aimY: Math.round(aimY / length * MAX_AXIS) });
     };
     const onPointerDown = (event: PointerEvent) => {
       if (!capturedRef.current) return;
