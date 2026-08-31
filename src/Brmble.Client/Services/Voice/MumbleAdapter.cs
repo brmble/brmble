@@ -36,6 +36,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private InputRouter? _inputRouter;
     private object? _captureLock = new();
     private HashSet<string>? _activeCaptureIds = new(StringComparer.Ordinal);
+    private bool _acceptInputCaptures;
     private const string LegacyVoiceCaptureId = "legacy:voice";
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
@@ -230,12 +231,13 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _inputRouter.PttStateChanged += _pttStateChangedHandler;
     }
 
-    private void SetInputCapture(string captureId, bool active)
+    private void SetInputCapture(string captureId, bool active, bool requireCaptureAdmission = false)
     {
         var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
         lock (captureLock)
         {
             var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (active && requireCaptureAdmission && !_acceptInputCaptures) return;
             if (active)
             {
                 if (!activeCaptureIds.Add(captureId) || activeCaptureIds.Count != 1) return;
@@ -248,16 +250,23 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         }
     }
 
-    private void ClearInputCaptures()
+    private void StopAcceptingInputCaptures()
     {
         var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
         lock (captureLock)
         {
+            _acceptInputCaptures = false;
             var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
             if (activeCaptureIds.Count == 0) return;
             activeCaptureIds.Clear();
             _inputRouter?.Resume();
         }
+    }
+
+    private void StartAcceptingInputCaptures()
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock) _acceptInputCaptures = true;
     }
 
     /// <summary>
@@ -494,6 +503,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
+        StopAcceptingInputCaptures();
         _isReconnect = false;
         _cts?.Cancel();
         var processThread = _processThread;
@@ -507,7 +517,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         // Force release any held PTT/shortcut state before tearing down audio,
         // so the matching release events fire while the AudioManager is still
         // alive to consume them.
-        ClearInputCaptures();
         _inputRouter?.ReleaseAllHeld();
 
         // Unwire InputRouter → AudioManager event subscriptions before disposing
@@ -3064,11 +3073,11 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 && id.ValueKind == System.Text.Json.JsonValueKind.String
                 ? id.GetString()
                 : null;
-            var active = data.TryGetProperty("active", out var value)
-                && value.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False
-                && value.GetBoolean();
-            if (!string.IsNullOrWhiteSpace(captureId) && captureId.Length <= 128)
-                SetInputCapture(captureId, active);
+            if (string.IsNullOrWhiteSpace(captureId) || captureId.Length > 128
+                || !data.TryGetProperty("active", out var value)
+                || value.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                return Task.CompletedTask;
+            SetInputCapture(captureId, value.GetBoolean(), requireCaptureAdmission: true);
             return Task.CompletedTask;
         });
 
@@ -4275,6 +4284,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private void SendVoiceConnected(uint? overrideChannelId = null)
     {
+        StartAcceptingInputCaptures();
         var channelId = overrideChannelId ?? (uint)(LocalUser?.Channel?.Id ?? 0);
         var channels = Channels.Select(CreateChannelPayload).ToList();
 

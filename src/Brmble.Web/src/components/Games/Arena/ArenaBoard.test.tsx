@@ -4,6 +4,7 @@ import type { ArenaConnection } from './useArenaConnection';
 import type { ArenaPlayerSnapshot, ArenaSnapshot, ArenaWelcome } from './arenaProtocol';
 import { ArenaBoard } from './ArenaBoard';
 import { GameSurface } from '../GameSurface';
+import bridge from '../../../bridge';
 
 const connection = vi.hoisted(() => ({ current: {} as ArenaConnection }));
 const state = vi.hoisted(() => ({
@@ -11,6 +12,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('./useArenaConnection', () => ({ useArenaConnection: () => connection.current }));
+vi.mock('../../../bridge', () => ({ default: { send: vi.fn() } }));
 vi.mock('./useArenaState', async importOriginal => {
   const original = await importOriginal<typeof import('./useArenaState')>();
   return { useArenaState: (options: Parameters<typeof original.useArenaState>[0]) =>
@@ -37,6 +39,7 @@ function props(overrides: Partial<React.ComponentProps<typeof ArenaBoard>> = {})
 describe('ArenaBoard', () => {
   let frames: FrameRequestCallback[];
   beforeEach(() => {
+    vi.clearAllMocks();
     frames = [];
     vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
       frames.push(callback);
@@ -526,5 +529,72 @@ describe('ArenaBoard', () => {
     render(<ArenaBoard {...endedProps} />);
     fireEvent.click(screen.getByRole('button', { name: /close arena/i }));
     expect(endedProps.onClose).toHaveBeenCalledOnce();
+  });
+
+  it('pairs one committed capture owner when mounted in StrictMode', () => {
+    const rendered = render(<ArenaBoard {...props()} />, { reactStrictMode: true });
+    fireEvent.click(rendered.container.querySelector('canvas')!);
+    const activation = vi.mocked(bridge.send).mock.calls.at(-1)!;
+    rendered.unmount();
+
+    expect(vi.mocked(bridge.send).mock.calls).toEqual([
+      activation,
+      ['game.inputCapture', { ...(activation[1] as object), active: false }],
+    ]);
+  });
+
+  it('releases neutral then native capture exactly once before a match change', () => {
+    const events: string[] = [];
+    vi.mocked(connection.current.sendInput).mockImplementation(input => {
+      if (input.moveX === 0 && input.moveY === 0) events.push('neutral');
+    });
+    vi.mocked(bridge.send).mockImplementation((_type, payload) => {
+      events.push((payload as { active: boolean }).active ? 'active' : 'inactive');
+    });
+    const rendered = render(<ArenaBoard {...props()} />);
+    fireEvent.click(rendered.container.querySelector('canvas')!);
+    events.length = 0;
+
+    rendered.rerender(<ArenaBoard {...props({ matchId: 92 })} />);
+
+    expect(events).toEqual(['neutral', 'inactive']);
+  });
+
+  it('releases neutral then native capture exactly once before forfeit callback', () => {
+    const events: string[] = [];
+    const onForfeit = vi.fn(() => events.push('callback'));
+    vi.mocked(connection.current.sendInput).mockImplementation(input => {
+      if (input.moveX === 0 && input.moveY === 0) events.push('neutral');
+    });
+    vi.mocked(bridge.send).mockImplementation((_type, payload) => {
+      events.push((payload as { active: boolean }).active ? 'active' : 'inactive');
+    });
+    const rendered = render(<ArenaBoard {...props({ onForfeit })} />);
+    fireEvent.click(rendered.container.querySelector('canvas')!);
+    events.length = 0;
+
+    fireEvent.click(screen.getByRole('button', { name: /forfeit/i }));
+
+    expect(events).toEqual(['neutral', 'inactive', 'callback']);
+  });
+
+  it('releases capture on terminal transition exactly once before close callback', () => {
+    const events: string[] = [];
+    const onClose = vi.fn(() => events.push('callback'));
+    vi.mocked(connection.current.sendInput).mockImplementation(input => {
+      if (input.moveX === 0 && input.moveY === 0) events.push('neutral');
+    });
+    vi.mocked(bridge.send).mockImplementation((_type, payload) => {
+      events.push((payload as { active: boolean }).active ? 'active' : 'inactive');
+    });
+    const rendered = render(<ArenaBoard {...props({ onClose })} />);
+    fireEvent.click(rendered.container.querySelector('canvas')!);
+    events.length = 0;
+    const ended = { reason: 'completed', finalState: { ...state.current, players: [] } } as never;
+
+    rendered.rerender(<ArenaBoard {...props({ ended, onClose })} />);
+    fireEvent.click(screen.getByRole('button', { name: /close arena/i }));
+
+    expect(events).toEqual(['neutral', 'inactive', 'callback']);
   });
 });

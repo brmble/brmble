@@ -96,6 +96,37 @@ public class MumbleAdapterBridgeTests
         Assert.IsFalse(h.Router.IsSuspended);
     }
 
+    [DataTestMethod]
+    [DataRow("{}")]
+    [DataRow("{\"active\":null}")]
+    [DataRow("{\"active\":\"false\"}")]
+    [DataRow("{\"active\":0}")]
+    [DataRow("{\"active\":{}}")]
+    public void GameInputCapture_MalformedActiveCannotReleaseHeldId(string activeFragment)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+
+        h.SendJson("game.inputCapture", activeFragment == "{}"
+            ? "{\"captureId\":\"arena\"}"
+            : $"{{\"captureId\":\"arena\",{activeFragment[1..]}");
+
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [DataTestMethod]
+    [DataRow("{\"captureId\":\"new\"}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":null}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":\"true\"}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":1}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":[]}")]
+    public void GameInputCapture_MalformedActiveCannotSuspendNewId(string json)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.SendJson("game.inputCapture", json);
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
     [TestMethod]
     public void Disconnect_ClearsCaptureOwnersAndResumesInput()
     {
@@ -103,6 +134,42 @@ public class MumbleAdapterBridgeTests
         h.Send("game.inputCapture", new { captureId = "arena", active = true });
         h.Adapter.Disconnect();
         Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void Disconnect_RacingLateCaptureCannotLeaveInputSuspended()
+    {
+        using var h = InputCaptureHarness.Create();
+        using var start = new ManualResetEventSlim(false);
+        var sends = Enumerable.Range(0, 64).Select(index => Task.Run(() =>
+        {
+            start.Wait();
+            h.Send("game.inputCapture", new { captureId = $"race-{index}", active = true });
+        })).ToArray();
+        var disconnect = Task.Run(() =>
+        {
+            start.Wait();
+            h.Adapter.Disconnect();
+        });
+
+        start.Set();
+        Task.WaitAll([.. sends, disconnect]);
+        h.Send("game.inputCapture", new { captureId = "late", active = true });
+
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_IsAcceptedOnlyDuringAnActiveVoiceLifecycle()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        h.Send("game.inputCapture", new { captureId = "early", active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+
+        InvokePrivate(h.Adapter, "SendVoiceConnected");
+        h.Send("game.inputCapture", new { captureId = "active", active = true });
+
+        Assert.IsTrue(h.Router.IsSuspended);
     }
 
     [TestMethod]
@@ -948,7 +1015,7 @@ public class MumbleAdapterBridgeTests
         public MumbleAdapter Adapter { get; }
         public InputRouter Router { get; }
 
-        public static InputCaptureHarness Create()
+        public static InputCaptureHarness Create(bool acceptInputCaptures = true)
         {
             var bridge = NativeBridgeTestHarness.Create();
             var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
@@ -957,12 +1024,19 @@ public class MumbleAdapterBridgeTests
             SetPrivateField(adapter, "_inputRouter", router);
             SetPrivateField(adapter, "_activeCaptureIds", new HashSet<string>(StringComparer.Ordinal));
             SetPrivateField(adapter, "_captureLock", new object());
+            SetPrivateField(adapter, "_acceptInputCaptures", acceptInputCaptures);
             adapter.RegisterHandlers(bridge);
             return new InputCaptureHarness(bridge, adapter, router, backend);
         }
 
         public void Send(string type, object payload)
             => NativeBridgeTestHarness.InvokeAsync(_bridge, type, JsonSerializer.SerializeToElement(payload)).GetAwaiter().GetResult();
+
+        public void SendJson(string type, string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            NativeBridgeTestHarness.InvokeAsync(_bridge, type, document.RootElement.Clone()).GetAwaiter().GetResult();
+        }
 
         public void PressAndReleaseShortcut()
         {

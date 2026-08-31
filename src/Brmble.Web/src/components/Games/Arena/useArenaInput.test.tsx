@@ -1,4 +1,4 @@
-import { act, fireEvent, renderHook } from '@testing-library/react';
+import { act, fireEvent, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import bridge from '../../../bridge';
 import type { ArenaInputState } from './arenaProtocol';
@@ -12,7 +12,7 @@ const neutral: ArenaInputState = {
   charging: false, fireReleased: false, dash: false,
 };
 
-function inputHarness(status: ArenaConnection['status'] = 'connected') {
+function inputHarness(status: ArenaConnection['status'] = 'connected', reactStrictMode = false) {
   const canvas = document.createElement('canvas');
   document.body.append(canvas);
   const canvasRef = { current: canvas };
@@ -25,7 +25,7 @@ function inputHarness(status: ArenaConnection['status'] = 'connected') {
   const renderer = { pointerToWorld: vi.fn(() => ({ x: 0, y: -1000 })) };
   const hook = renderHook(
     ({ enabled }) => useArenaInput({ canvasRef, renderer: renderer as never, connection, enabled }),
-    { initialProps: { enabled: true } },
+    { initialProps: { enabled: true }, reactStrictMode },
   );
   const keyDown = (code: string, init: KeyboardEventInit = {}) => {
     const event = new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...init });
@@ -141,6 +141,75 @@ describe('useArenaInput', () => {
 
     expect(h.hook.result.current.captureId).toBe(captureId);
     expect(randomUUID).toHaveBeenCalledOnce();
+    h.hook.unmount();
+  });
+
+  it('pairs the committed StrictMode capture UUID without effect-replay bridge messages', () => {
+    const h = inputHarness('connected', true);
+    h.clickBoard();
+    const captureId = h.hook.result.current.captureId;
+    h.hook.unmount();
+
+    expect(vi.mocked(bridge.send).mock.calls).toEqual([
+      ['game.inputCapture', { captureId, active: true }],
+      ['game.inputCapture', { captureId, active: false }],
+    ]);
+  });
+
+  it('still deactivates capture when neutral input throws during release', () => {
+    const h = inputHarness();
+    h.clickBoard();
+    vi.mocked(h.connection.sendInput).mockImplementation(() => { throw new Error('socket send failed'); });
+    vi.mocked(bridge.send).mockClear();
+
+    expect(() => act(() => h.releaseBy('Escape'))).not.toThrow();
+
+    expect(h.hook.result.current.captured).toBe(false);
+    expect(bridge.send).toHaveBeenCalledOnce();
+    expect(bridge.send).toHaveBeenCalledWith('game.inputCapture', {
+      captureId: h.hook.result.current.captureId, active: false,
+    });
+    h.hook.unmount();
+  });
+
+  it('swallows synchronous and rejected bridge release failures after local cleanup', async () => {
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+    const h = inputHarness();
+    h.clickBoard();
+    vi.mocked(bridge.send).mockImplementationOnce(() => { throw new Error('bridge failed'); });
+    expect(() => act(() => h.releaseBy('Escape'))).not.toThrow();
+    expect(h.hook.result.current.captured).toBe(false);
+
+    h.clickBoard();
+    vi.mocked(bridge.send).mockImplementationOnce(() => Promise.reject(new Error('bridge rejected')) as never);
+    expect(() => act(() => h.releaseBy('Escape'))).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(unhandled).not.toHaveBeenCalled();
+    window.removeEventListener('unhandledrejection', unhandled);
+    h.hook.unmount();
+  });
+
+  it('rolls back local capture and neutralizes when activation throws', () => {
+    const h = inputHarness();
+    vi.mocked(bridge.send).mockImplementationOnce(() => { throw new Error('activation failed'); });
+
+    expect(() => h.clickBoard()).not.toThrow();
+
+    expect(h.hook.result.current.captured).toBe(false);
+    expect(h.sent).toEqual([neutral]);
+    h.hook.unmount();
+  });
+
+  it('rolls back local capture and neutralizes when activation rejects', async () => {
+    const h = inputHarness();
+    vi.mocked(bridge.send).mockImplementationOnce(() => Promise.reject(new Error('activation rejected')) as never);
+
+    h.clickBoard();
+
+    await waitFor(() => expect(h.hook.result.current.captured).toBe(false));
+    expect(h.sent).toEqual([neutral]);
     h.hook.unmount();
   });
 });

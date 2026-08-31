@@ -40,14 +40,34 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
     connectionRef.current.sendInput(next);
   };
 
+  const sendCaptureState = (active: boolean, onFailure?: () => void) => {
+    try {
+      const result = (bridge.send as unknown as (type: string, data: unknown) => unknown)(
+        'game.inputCapture', { captureId, active },
+      );
+      if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+        Promise.resolve(result).catch(() => onFailure?.());
+      }
+      return true;
+    } catch {
+      onFailure?.();
+      return false;
+    }
+  };
+
   const release = () => {
     if (!capturedRef.current) return;
     capturedRef.current = false;
     heldRef.current.clear();
     inputRef.current = neutralInput;
     setCaptured(false);
-    if (connectionRef.current.status === 'connected') connectionRef.current.sendInput(neutralInput);
-    bridge.send('game.inputCapture', { captureId, active: false });
+    try {
+      if (connectionRef.current.status === 'connected') connectionRef.current.sendInput(neutralInput);
+    } catch {
+      // Local cleanup and native release must still complete if the socket send fails.
+    } finally {
+      sendCaptureState(false);
+    }
   };
 
   useEffect(() => {
@@ -58,7 +78,7 @@ export function useArenaInput({ canvasRef, renderer, connection, enabled }: Aren
       if (capturedRef.current || !enabledRef.current || connectionRef.current.status !== 'connected' || !rendererRef.current) return;
       capturedRef.current = true;
       setCaptured(true);
-      bridge.send('game.inputCapture', { captureId, active: true });
+      sendCaptureState(true, release);
     };
     const movement = () => {
       const horizontal = Number(heldRef.current.has('KeyD')) - Number(heldRef.current.has('KeyA'));
