@@ -99,6 +99,46 @@ export function resolveBodyOverlap(
   return aIsLow ? { a: nextLow, b: nextHigh } : { a: nextHigh, b: nextLow };
 }
 
+/**
+ * Display filter, not client authority. The local player is presented at
+ * approximately now while the remote player is replayed from a 100 ms buffer,
+ * so displayed bodies can overlap even when both source states are valid.
+ * The error is entirely local, so only the local player moves; the remote
+ * player must never deviate from its authoritative interpolated path.
+ *
+ * The result is never written back into prediction, presentation, snapshots,
+ * pending inputs, or the correction origin.
+ */
+export function constrainLocalDisplay(
+  local: ArenaPlayerSnapshot,
+  remote: ArenaPlayerSnapshot | null,
+  playerRadius: number,
+  arenaRadius: number,
+): ArenaPlayerSnapshot {
+  if (remote === null) return local;
+  const dx = local.x - remote.x;
+  const dy = local.y - remote.y;
+  const distanceSquared = dx * dx + dy * dy;
+  const diameter = playerRadius * 2;
+  if (distanceSquared >= diameter * diameter) return local;
+
+  const distance = Math.sqrt(distanceSquared);
+  const unitX = distance === 0 ? 1 : dx / distance;
+  const unitY = distance === 0 ? 0 : dy / distance;
+  // One extra unit absorbs the rounding below, so the result always clears a
+  // full diameter rather than landing a unit short of it.
+  let x = Math.round(remote.x + unitX * (diameter + 1));
+  let y = Math.round(remote.y + unitY * (diameter + 1));
+
+  const radiusSquared = x * x + y * y;
+  if (radiusSquared > arenaRadius * arenaRadius) {
+    const length = Math.sqrt(radiusSquared);
+    x = Math.trunc(x * arenaRadius / length);
+    y = Math.trunc(y * arenaRadius / length);
+  }
+  return { ...local, x, y };
+}
+
 export function normalizeQ15(x: number, y: number): FixedVec {
   if (x === 0 && y === 0) {
     return { x: 0, y: 0 };

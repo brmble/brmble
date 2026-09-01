@@ -4,8 +4,8 @@ import type {
 } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import {
-  arenaRadius, computeLayout, damp, knockback, movePerTick, normalizeQ15, recoil,
-  reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
+  arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15,
+  recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
 const prediction: ArenaPredictionConstants = {
@@ -486,3 +486,61 @@ describe('overlap snap tuning', () => {
   });
 });
 
+
+describe('constrainLocalDisplay', () => {
+  const body = (overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot => ({
+    sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
+    chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
+    dashAvailable: true, acknowledgedInput: 0, ...overrides,
+  });
+  const clear = (local: ArenaPlayerSnapshot, remote: ArenaPlayerSnapshot) => {
+    const dx = local.x - remote.x;
+    const dy = local.y - remote.y;
+    return dx * dx + dy * dy;
+  };
+
+  it('pushes the local player fully clear of the remote circle', () => {
+    const remote = body({ sessionId: 20, side: 1, x: 0, y: 0 });
+    const result = constrainLocalDisplay(body({ x: 400, y: 0 }), remote, 600, 9000);
+    expect(clear(result, remote)).toBeGreaterThanOrEqual(1200 * 1200);
+    expect(result.y).toBe(0);
+  });
+
+  it('clears diagonal overlap fully', () => {
+    const remote = body({ sessionId: 20, side: 1, x: 100, y: -250 });
+    const result = constrainLocalDisplay(body({ x: 500, y: 300 }), remote, 600, 9000);
+    expect(clear(result, remote)).toBeGreaterThanOrEqual(1200 * 1200);
+  });
+
+  it('leaves an already separated local player untouched', () => {
+    const local = body({ x: 3000, y: 0 });
+    const result = constrainLocalDisplay(local, body({ sessionId: 20, side: 1, x: 0, y: 0 }), 600, 9000);
+    expect(result).toBe(local);
+  });
+
+  it('separates coincident centers along positive x', () => {
+    const result = constrainLocalDisplay(body({ x: 0, y: 0 }), body({ sessionId: 20, side: 1, x: 0, y: 0 }), 600, 9000);
+    expect(result.x).toBeGreaterThanOrEqual(1200);
+    expect(result.y).toBe(0);
+  });
+
+  it('never renders the local player outside the arena radius', () => {
+    const remote = body({ sessionId: 20, side: 1, x: 8800, y: 0 });
+    const result = constrainLocalDisplay(body({ x: 8900, y: 0 }), remote, 600, 9000);
+    expect(result.x * result.x + result.y * result.y).toBeLessThanOrEqual(9000 * 9000);
+  });
+
+  it('returns the local player unchanged when there is no remote player', () => {
+    const local = body({ x: 10, y: 20 });
+    expect(constrainLocalDisplay(local, null, 600, 9000)).toBe(local);
+  });
+
+  it('never mutates its inputs and preserves every non-position field', () => {
+    const local = body({ x: 400, vx: 31, vy: -9, aimX: 12, aimY: -34, chargePermille: 500, cooldownTicks: 3, dashAvailable: false, acknowledgedInput: 8 });
+    const remote = body({ sessionId: 20, side: 1, x: 0, y: 0 });
+    const result = constrainLocalDisplay(local, remote, 600, 9000);
+    expect(local.x).toBe(400);
+    expect(remote.x).toBe(0);
+    expect({ ...result, x: 0, y: 0 }).toEqual({ ...local, x: 0, y: 0 });
+  });
+});
