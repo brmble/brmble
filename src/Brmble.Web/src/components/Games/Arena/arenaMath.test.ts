@@ -468,8 +468,8 @@ describe('overlap snap tuning', () => {
     const base = snapshot({
       phase: 'live',
       players: [
-        { ...snapshot().players[0], sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0 },
-        { ...snapshot().players[1], sessionId: 20, side: 1, x: opponentX, y: 0, vx: 0, vy: 0 },
+        { ...snapshot().players[0], x: 0, y: 0, vx: 0, vy: 0 },
+        { ...snapshot().players[1], x: opponentX, y: 0, vx: 0, vy: 0 },
       ],
     });
     const previous = reconcile(authority(base), [], prediction).local;
@@ -481,7 +481,8 @@ describe('overlap snap tuning', () => {
   });
 
   it('snaps when the bodies are deeply interpenetrated', () => {
-    expect(contact(400).snapped).toBe(true);
+    expect(contact(899).snapped).toBe(true);
+    expect(contact(900).snapped).toBe(false);
   });
 });
 
