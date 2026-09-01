@@ -166,8 +166,9 @@ describe('useArenaState', () => {
     }));
   });
 
-  it('blends small corrections for 100ms and presents predicted own projectiles immediately', () => {
+  it('blends small corrections over 100ms on the animation-frame clock', () => {
     vi.setSystemTime(1000);
+    const startedAt = 1000;
     const initial = welcome();
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const fire: PendingArenaInput = {
@@ -178,21 +179,27 @@ describe('useArenaState', () => {
       welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
-    expect(hook.result.current.projectiles).toHaveLength(1);
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt));
     expect(hook.result.current.localPlayer?.x).toBe(955);
-    vi.setSystemTime(1050);
-    hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt + 50));
     expect(latestFrame?.localPlayer?.x).toBe(1077);
-    vi.setSystemTime(1100);
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt + 100));
     expect(latestFrame?.localPlayer?.x).toBe(1200);
-    vi.setSystemTime(1250);
-    act(() => frame?.(performance.now()));
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt + 250));
     expect(latestFrame?.localPlayer?.x).toBe(1200);
+  });
+
+  it('presents predicted own projectiles immediately', () => {
+    const initial = welcome();
+    const fire: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
+    };
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [fire], recentInputs: [fire], selfSessionId: 10,
+    }));
+    expect(hook.result.current.projectiles).toHaveLength(1);
   });
 
   it('continues a dash acknowledged before the first RAF using recent input history', () => {
@@ -217,6 +224,7 @@ describe('useArenaState', () => {
 
   it('replaces an active authority correction from the current blended position without jumping', () => {
     vi.setSystemTime(1000);
+    const startedAt = 1000;
     const initial = welcome();
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
@@ -224,15 +232,13 @@ describe('useArenaState', () => {
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
-    act(() => frame?.(performance.now()));
-    vi.setSystemTime(1050);
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt));
+    act(() => frame?.(startedAt + 50));
     expect(latestFrame?.localPlayer?.x).toBe(1100);
     hook.rerender({ latestSnapshot: snapshot(3, 1050, 1300), pendingInputs: [] });
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt + 50));
     expect(hook.result.current.localPlayer?.x).toBe(1100);
-    vi.setSystemTime(1100);
-    act(() => frame?.(performance.now()));
+    act(() => frame?.(startedAt + 100));
     expect(latestFrame?.localPlayer?.x).toBe(1200);
   });
 

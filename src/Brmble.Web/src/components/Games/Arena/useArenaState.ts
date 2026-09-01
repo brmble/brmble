@@ -213,7 +213,7 @@ export function useArenaState({
             if (result.snapped && predictedRef.current && !snappedRef.current) snapCountRef.current++;
             snappedRef.current = result.snapped;
             correctionRef.current = result.correction
-              ? { x: result.correction.x, y: result.correction.y, startedAt: Date.now() }
+              ? { x: result.correction.x, y: result.correction.y, startedAt: frameTime }
               : null;
           }
           predictedRef.current = result.local;
@@ -246,7 +246,7 @@ export function useArenaState({
           ? authority
           : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
         const correction = correctionRef.current;
-        const remaining = correction ? Math.max(0, 1 - (Date.now() - correction.startedAt) / 100) : 0;
+        const remaining = correction ? Math.max(0, 1 - (frameTime - correction.startedAt) / 100) : 0;
         const local = correction ? {
           ...interpolatedPlayer,
           x: Math.trunc(interpolatedPlayer.x - correction.x * remaining),
