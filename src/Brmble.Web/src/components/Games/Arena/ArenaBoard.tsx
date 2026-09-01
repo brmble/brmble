@@ -118,6 +118,11 @@ export function ArenaBoard({
 
   drawFrameRef.current = current => {
     latestFrameRef.current = current;
+    // `current.localPlayer` is the display-constrained position, and this ref is what
+    // `useArenaInput` measures pointer aim from. That coupling is deliberate and
+    // spec-mandated: aim must match what the player sees on screen. It is also the one
+    // path by which the constrained value re-enters `useArenaState` — and only as a
+    // normalised unit aim vector in the input stream, never as a position.
     localPlayerRef.current = current.localPlayer;
     const players = [current.localPlayer, current.remotePlayer].filter((player): player is ArenaPlayerSnapshot => player !== null);
     if (current.arena) rendererRef.current?.render({

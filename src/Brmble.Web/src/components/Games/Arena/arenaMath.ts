@@ -9,6 +9,8 @@ export interface FixedVec {
   y: number;
 }
 
+// Q15 fixed-point unit. `Q15_MAX` is the bigint form used by the checked bigint
+// arithmetic; the exported `Q15` below is the same value as a number.
 const Q15_MAX = 32_767n;
 const PERMILLE = 1_000n;
 
@@ -55,10 +57,14 @@ function integerSqrt(value: bigint): bigint {
   return result;
 }
 
-export const Q15 = 32_767;
+// Number-typed twin of `Q15_MAX` above, for the integer (non-bigint) call sites.
+export const Q15 = Number(Q15_MAX);
 
 /**
- * Exact mirror of ArenaSimulation.ResolveBodyOverlap (stage 9 of the server tick).
+ * Exact mirror of the position arithmetic in ArenaSimulation.ResolveBodyOverlap
+ * (stage 9 of the server tick). Two things the server method does are deliberately
+ * omitted because they are caller-owned on the client: the `Phase == Loading` early
+ * return (ArenaSimulation.cs:398) and the `RecordBoundaryTransition` calls (:426-427).
  * Feeds deterministic replay, so every truncation here must match C# integer
  * division, which truncates toward zero. Do not renormalize the Q15 normal:
  * the server does not, so a single call may leave the bodies slightly overlapped.

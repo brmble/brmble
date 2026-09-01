@@ -167,6 +167,12 @@ describe('useArenaState', () => {
   });
 
   it('blends small corrections over 100ms on the animation-frame clock', () => {
+    // The wall clock is frozen here and never advanced, while `frameTime` below is
+    // advanced independently. That asymmetry is load-bearing: it is the only thing
+    // that makes this test able to detect a regression from the animation-frame clock
+    // back to Date.now(). If the two clocks were advanced in lockstep the assertions
+    // would hold under either clock source and the test would lose all its power.
+    // Do not "tidy" this by advancing the system time alongside the frames.
     vi.setSystemTime(1000);
     // Under fake timers performance.now() is 0, not the system time, and the RAF
     // effect's first synchronous update runs at performance.now(). Anchoring here
@@ -226,6 +232,10 @@ describe('useArenaState', () => {
   });
 
   it('replaces an active authority correction from the current blended position without jumping', () => {
+    // As above: the wall clock stays frozen at 1000 while `frameTime` advances on its
+    // own. The asymmetry is what gives this test power to catch a regression to
+    // Date.now() for the correction blend; advancing both in lockstep would silently
+    // destroy that with nothing failing.
     vi.setSystemTime(1000);
     const startedAt = 1000;
     const initial = welcome();
@@ -586,7 +596,7 @@ describe('useArenaState', () => {
     expect(latestFrame!.remotePlayer?.x).toBe(2000);
     expect(latestFrame!.localPlayer?.x).toBe(0);
     // The discriminating assertion. If the constrained position had reached
-    // renderedLocalRef / renderedBaseRef it would be this reconcile's correction origin,
+    // renderedBaseRef it would be this reconcile's correction origin,
     // reconcile would measure a 401-unit correction against the authoritative base, and
     // 401^2 clears the 90_000 snap threshold — a snap manufactured entirely out of a
     // client-only display artefact.
@@ -603,6 +613,16 @@ describe('useArenaState', () => {
     const frameMs = 16;
     const framesPerSnapshot = 3;
     const ticksPerSnapshot = 3; // 50 ms at 60 Hz
+    // Validity ceiling for this fixture: both tests walk the players outward at
+    // `pushPerSnapshot` from near the origin, so the local player reaches the 9000
+    // arena radius after roughly `arenaRadius / pushPerSnapshot` = 9000 / 135 ≈ 66
+    // snapshots. Past that, `constrainLocalDisplay`'s arena clamp engages and rewrites
+    // the published position, and every assertion below — separation, frame deltas,
+    // tracking error — stops measuring what it claims to. The number is approximate
+    // (the constrained display in the first test trails authority by
+    // `remoteLagSnapshots`, so the clamp bites a snapshot or two later there). Do not
+    // raise `snapshotCount` past ~66 without re-deriving this or moving the fixture's
+    // starting point.
     const snapshotCount = 40; // 40 x 50 ms = 2 s of sustained contact
     const diameter = prediction.playerRadius * 2;
     // `resolveBodyOverlap` splits the penetration evenly between the two bodies, so a
@@ -740,9 +760,13 @@ describe('useArenaState', () => {
       // Authority tracking over the whole run. The displayed local player is pinned one
       // clearance behind the opponent's authoritative track as the buffer replays it:
       // the remote is `remoteLagSnapshots` behind authority, and `constrainLocalDisplay`
-      // places the local player `diameter + 1` to the near side of it. Any drift that
-      // accumulated over the 2 seconds — rather than being re-anchored every snapshot —
-      // would show up here and nowhere else.
+      // places the local player `diameter + 1` to the near side of it. Note the reach
+      // this does *not* have: while the constraint is engaged the published local x is
+      // exactly `sampled remote - (diameter + 1)` and carries no local-prediction
+      // contribution, so this error is flat across run lengths and is unchanged by
+      // reverting the overlap stage. It pins the constrained display to the remote
+      // track; it cannot detect accumulating prediction drift. The equivalent assertion
+      // in the second test is the one that can.
       const anchor = (index: number): number =>
         (index - remoteLagSnapshots) * pushPerSnapshot + diameter - (diameter + 1);
       expect(Math.max(...trackingErrors(settled, anchor))).toBeLessThan(trackingTolerance);

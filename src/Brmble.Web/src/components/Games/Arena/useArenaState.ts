@@ -98,6 +98,14 @@ export function useArenaState({
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
   const predictedRef = useRef<PredictedArenaState | undefined>(undefined);
+  // `snappedRef` latches the previous frame's snap state so `snapCount` counts snap
+  // *streaks*, not snap frames. Note the precondition when asserting on it: if a
+  // fixture starts in deep overlap (separation below the `deeplyOverlapping`
+  // threshold), `invalidPosition` fires on every frame including the RAF loop's
+  // first synchronous frame — where `predictedRef` is still undefined, so the
+  // increment is skipped but `snappedRef` latches true. `snapCount` is then pinned
+  // at 0 regardless of correctness, and asserting `snapCount === 0` is vacuous.
+  // Such an assertion is only meaningful when the fixture does not begin in deep overlap.
   const snapCountRef = useRef(0);
   const welcomeRef = useRef<ArenaWelcome | null>(null);
   const correctionRef = useRef<{ x: number; y: number; startedAt: number } | null>(null);
@@ -107,7 +115,6 @@ export function useArenaState({
   const inputDirtyRef = useRef(true);
   const inputKeyRef = useRef('');
   const sessionRef = useRef(selfSessionId);
-  const renderedLocalRef = useRef<ArenaPlayerSnapshot | null>(null);
   // The blended display position with its sub-tick interpolation removed, so the
   // correction origin is a tick-aligned base measured against `local.player`,
   // which is also a tick-aligned base. Comparing a base against an interpolated
@@ -125,7 +132,7 @@ export function useArenaState({
       suppressedInputsRef.current = { pending: pendingInputs, recent: recentInputs };
       predictedRef.current = undefined;
       presentedRef.current = undefined;
-      renderedLocalRef.current = null;
+      presentedAtRef.current = 0;
       renderedBaseRef.current = null;
       correctionRef.current = null;
       snappedRef.current = false;
@@ -170,7 +177,7 @@ export function useArenaState({
     }
     predictedRef.current = undefined;
     presentedRef.current = undefined;
-    renderedLocalRef.current = null;
+    presentedAtRef.current = 0;
     renderedBaseRef.current = null;
     correctionRef.current = null;
     snappedRef.current = false;
@@ -290,7 +297,6 @@ export function useArenaState({
           x: Math.trunc(interpolatedPlayer.x - correction.x * remaining),
           y: Math.trunc(interpolatedPlayer.y - correction.y * remaining),
         } : interpolatedPlayer;
-        renderedLocalRef.current = local;
         renderedBaseRef.current = {
           ...local,
           x: local.x - (interpolatedPlayer.x - presented.player.x),
@@ -298,10 +304,10 @@ export function useArenaState({
         };
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
         // Display filter only, applied once per frame after the correction blend and
-        // never written back. `renderedLocalRef` and `renderedBaseRef` above keep the
-        // unconstrained position because they are the correction origin for the next
-        // reconcile; feeding the constrained position back would measure prediction
-        // against a client-only display artefact and oscillate against the constraint.
+        // never written back. `renderedBaseRef` above keeps the unconstrained position
+        // because it is the correction origin for the next reconcile; feeding the
+        // constrained position back would measure prediction against a client-only
+        // display artefact and oscillate against the constraint.
         const displayedLocal = constrainLocalDisplay(
           local, remote, welcome.prediction.playerRadius, sampled.arena.radius,
         );
