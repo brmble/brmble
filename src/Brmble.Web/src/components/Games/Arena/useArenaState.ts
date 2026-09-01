@@ -246,8 +246,12 @@ export function useArenaState({
           // The local tick-phase clock is monotonic. Reconcile supplies completed
           // ticks; the phase clock supplies only the remainder within the current
           // tick. Carrying the whole elapsed time would double-apply ticks that
-          // reconcile has already replayed. Only a mandatory snap resets the phase.
-          const phaseMs = predictedRef.current && !result.snapped
+          // reconcile has already replayed. Only a mandatory snap resets the phase,
+          // and a snap is only mandatory when authority changed: on an input-only
+          // reconcile `snapped` merely reports that replaying newly added pending
+          // inputs moved further than the correction threshold, which is ordinary
+          // local movement, not a discontinuity.
+          const phaseMs = predictedRef.current && !(authorityChanged && result.snapped)
             ? Math.max(0, (frameTime - presentedAtRef.current) % tickMs)
             : 0;
           predictedRef.current = result.local;

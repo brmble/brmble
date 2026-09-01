@@ -373,6 +373,47 @@ describe('useArenaState', () => {
     expect(hook.result.current.localPlayer?.x).toBe(1180);
   });
 
+  it('keeps the tick phase when an input-only reconcile reports a large correction', () => {
+    vi.setSystemTime(1000);
+    const startedAt = 0;
+    const initial = welcome();
+    const held = {
+      moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false,
+    };
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101, input: held,
+    };
+    // A dash is the realistic trigger: inputDirtyRef is only set by fire or dash
+    // pending inputs, and replaying a dash moves 90 + 240 = 330 in its first tick
+    // while reconcile measures dx against the stale predictedRef, so
+    // correctionSquared clears 90_000 and `snapped` comes back true even though
+    // authority never changed. That is not a mandatory snap.
+    const dash: PendingArenaInput = {
+      sequence: 2, predictedTick: 107, fromTick: 107, toTick: 107, input: { ...held, dash: true },
+    };
+    const positions: number[] = [];
+    const hook = renderHook(({ pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, currentInput: held, selfSessionId: 10,
+      onFrame: state => positions.push(state.localPlayer!.x),
+    }), { initialProps: { pendingInputs: [move] } });
+
+    for (let i = 1; i <= 13; i++) act(() => { frame?.(startedAt + i * 7); });
+    // useArenaConnection extends the previous interval to predictedTick - 1 when
+    // it sends the dash, so the held run covers ticks 101-106 and the dash 107.
+    hook.rerender({ pendingInputs: [{ ...move, toTick: 106 }, dash] });
+    act(() => { frame?.(startedAt + 98); });
+
+    // Not a mandatory snap, so nothing counts it as one.
+    expect(hook.result.current.snapCount).toBe(0);
+    // Reconcile lands the base on tick 107 at 1870. The phase clock is preserved
+    // at 14.667 ms into the tick, so the frame shows 0.88 of the next dash step
+    // (330) on top: 1870 + 290 = 2160. Resetting the phase would land exactly on
+    // the tick-aligned base, 1870, dropping 290 units of travel.
+    expect(hook.result.current.localPlayer?.x).toBe(2160);
+    const deltas = positions.slice(1).map((x, index) => x - positions[index]);
+    expect(Math.min(...deltas)).toBeGreaterThan(0);
+  });
+
   it('advances an input-only target without creating an authority correction', () => {
     const initial = welcome();
     const move: PendingArenaInput = {
