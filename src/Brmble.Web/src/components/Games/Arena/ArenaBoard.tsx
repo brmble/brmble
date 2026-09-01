@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../Icon/Icon';
 import { Tooltip } from '../../Tooltip/Tooltip';
+import { PREDICTION_V1 } from './arenaProtocol';
 import type { ArenaMatchClosed, ArenaPhase, ArenaPlayerSnapshot, ArenaStateSnapshot } from './arenaProtocol';
 import type { EndedMatch } from '../useGameState';
 import { ArenaRenderer } from './ArenaRenderer';
@@ -123,6 +124,7 @@ export function ArenaBoard({
       selfSessionId, players, projectiles: current.projectiles, arena: current.arena,
       names: Object.fromEntries(players.map(player => [player.sessionId, resolveName(player.sessionId)])),
       avatarUrls: Object.fromEntries(players.map(player => [player.sessionId, resolveAvatarUrl(player.sessionId)])),
+      prediction: connection.welcome?.prediction ?? PREDICTION_V1,
     }, { reducedMotion });
   };
 

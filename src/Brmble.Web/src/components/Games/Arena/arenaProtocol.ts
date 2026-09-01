@@ -171,7 +171,7 @@ function validPrediction(value: unknown): value is ArenaPredictionConstants {
     && Object.entries(PREDICTION_V1).every(([key, expected]) => value[key] === expected);
 }
 
-const PREDICTION_V1: ArenaPredictionConstants = {
+export const PREDICTION_V1: ArenaPredictionConstants = {
   unitsPerWorldUnit: 1000,
   playerRadius: 600,
   baseMovePerTick: 90,

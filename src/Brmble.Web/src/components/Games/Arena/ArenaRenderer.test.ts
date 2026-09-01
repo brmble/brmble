@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ArenaPlayerSnapshot } from './arenaProtocol';
+import { PREDICTION_V1, type ArenaPlayerSnapshot } from './arenaProtocol';
 import { ArenaRenderer, FALLBACK_AVATAR_SRC, type ArenaRenderView } from './ArenaRenderer';
 
 type Recorded = { op: string; args: unknown[]; strokeStyle?: string; lineWidth?: number };
@@ -18,7 +18,7 @@ function view(overrides: Partial<ArenaRenderView> = {}): ArenaRenderView {
     selfSessionId: 10,
     players: [player(10, 0), player(20, 1)],
     projectiles: [], arena: { radius: 8000, shrinkPhase: 'hold' },
-    names: { 10: 'Local', 20: 'Remote' }, avatarUrls: {}, ...overrides,
+    names: { 10: 'Local', 20: 'Remote' }, avatarUrls: {}, prediction: PREDICTION_V1, ...overrides,
   };
 }
 

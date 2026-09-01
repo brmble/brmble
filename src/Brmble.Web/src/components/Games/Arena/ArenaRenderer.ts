@@ -1,5 +1,7 @@
 import brmbleLogo from '../../../assets/brmble-logo.svg';
-import type { ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaStateSnapshot } from './arenaProtocol';
+import type {
+  ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot, ArenaStateSnapshot,
+} from './arenaProtocol';
 import { computeLayout, screenToWorld, worldToScreen, type ArenaLayout, type FixedVec } from './arenaMath';
 
 export const FALLBACK_AVATAR_SRC = brmbleLogo;
@@ -11,6 +13,7 @@ export interface ArenaRenderView {
   arena: ArenaStateSnapshot['arena'];
   names: Record<number, string>;
   avatarUrls: Record<number, string | null | undefined>;
+  prediction: ArenaPredictionConstants;
 }
 
 interface AvatarEntry {
@@ -21,11 +24,8 @@ interface AvatarEntry {
 }
 
 const WORLD_SIZE = 20_000;
-const BODY_RADIUS = 600;
-const PROJECTILE_RADIUS = 180;
 const CHARGE_LENGTH = 2_200;
 const AIM_LENGTH = 3_000;
-const SHOT_COOLDOWN_TICKS = 24;
 
 export class ArenaRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -76,6 +76,7 @@ export class ArenaRenderer {
   render(view: ArenaRenderView, options: { reducedMotion: boolean }) {
     const ctx = this.context;
     if (!ctx || this.disposed) return;
+    const { playerRadius, projectileRadius, shotCooldownTicks } = view.prediction;
     const style = getComputedStyle(this.canvas);
     const color = (token: string) => style.getPropertyValue(token).trim();
     const primary = color('--accent-primary');
@@ -116,7 +117,7 @@ export class ArenaRenderer {
       }
       ctx.fillStyle = projectileColor;
       ctx.beginPath();
-      ctx.arc(projectilePoint.x, projectilePoint.y, PROJECTILE_RADIUS * scale, 0, Math.PI * 2);
+      ctx.arc(projectilePoint.x, projectilePoint.y, projectileRadius * scale, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = text;
       ctx.lineWidth = line(45);
@@ -124,12 +125,14 @@ export class ArenaRenderer {
       const owner = view.players.find(player => player.sessionId === projectile.ownerSessionId);
       const markerDirection = owner?.side === 1 ? 1 : -1;
       ctx.beginPath();
-      ctx.moveTo(projectilePoint.x, projectilePoint.y - PROJECTILE_RADIUS * scale);
-      ctx.lineTo(projectilePoint.x + markerDirection * PROJECTILE_RADIUS * scale, projectilePoint.y);
+      ctx.moveTo(projectilePoint.x, projectilePoint.y - projectileRadius * scale);
+      ctx.lineTo(projectilePoint.x + markerDirection * projectileRadius * scale, projectilePoint.y);
       ctx.stroke();
     }
 
-    for (const player of view.players) this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point);
+    for (const player of view.players) {
+      this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point, playerRadius, shotCooldownTicks);
+    }
   }
 
   dispose() {
@@ -154,6 +157,8 @@ export class ArenaRenderer {
     scale: number,
     line: (worldWidth: number) => number,
     point: (value: FixedVec) => FixedVec,
+    playerRadius: number,
+    shotCooldownTicks: number,
   ) {
     const body = point(player);
     const sideColor = player.side === 0 ? colors.primary : colors.danger;
@@ -192,9 +197,9 @@ export class ArenaRenderer {
     const avatar = this.avatarFor(player.sessionId, view.avatarUrls[player.sessionId]);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(body.x, body.y, BODY_RADIUS * scale, 0, Math.PI * 2);
+    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
     ctx.clip();
-    const diameter = BODY_RADIUS * scale * 2;
+    const diameter = playerRadius * scale * 2;
     if (avatar?.complete && avatar.naturalWidth > 0) {
       ctx.drawImage(avatar, body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
     } else {
@@ -205,21 +210,21 @@ export class ArenaRenderer {
     ctx.strokeStyle = sideColor;
     ctx.lineWidth = line(player.side === 0 ? 100 : 140);
     ctx.beginPath();
-    ctx.arc(body.x, body.y, BODY_RADIUS * scale, 0, Math.PI * 2);
+    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
     ctx.stroke();
     if (player.side === 0) {
       ctx.lineWidth = line(45);
       ctx.beginPath();
-      ctx.arc(body.x, body.y, (BODY_RADIUS - 150) * scale, 0, Math.PI * 2);
+      ctx.arc(body.x, body.y, (playerRadius - 150) * scale, 0, Math.PI * 2);
       ctx.stroke();
     }
 
     ctx.fillStyle = sideColor;
     ctx.beginPath();
     const direction = player.side === 0 ? -1 : 1;
-    ctx.moveTo(body.x + direction * BODY_RADIUS * scale, body.y - line(180));
-    ctx.lineTo(body.x + direction * (BODY_RADIUS + 300) * scale, body.y);
-    ctx.lineTo(body.x + direction * BODY_RADIUS * scale, body.y + line(180));
+    ctx.moveTo(body.x + direction * playerRadius * scale, body.y - line(180));
+    ctx.lineTo(body.x + direction * (playerRadius + 300) * scale, body.y);
+    ctx.lineTo(body.x + direction * playerRadius * scale, body.y + line(180));
     ctx.closePath();
     ctx.fill();
 
@@ -228,15 +233,15 @@ export class ArenaRenderer {
     ctx.font = `${style.getPropertyValue('--text-sm')} ${style.getPropertyValue('--font-body')}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(view.names[player.sessionId] || String(player.sessionId), body.x, body.y + (BODY_RADIUS + 180) * scale);
+    ctx.fillText(view.names[player.sessionId] || String(player.sessionId), body.x, body.y + (playerRadius + 180) * scale);
 
     if (player.sessionId !== view.selfSessionId) return;
     if (player.cooldownTicks > 0) {
       ctx.strokeStyle = colors.text;
       ctx.lineWidth = line(90);
       ctx.beginPath();
-      ctx.arc(body.x, body.y, (BODY_RADIUS + 180) * scale, -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * (1 - player.cooldownTicks / SHOT_COOLDOWN_TICKS));
+      ctx.arc(body.x, body.y, (playerRadius + 180) * scale, -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * (1 - player.cooldownTicks / shotCooldownTicks));
       ctx.stroke();
       ctx.fillStyle = colors.text;
       ctx.textBaseline = 'middle';
@@ -245,7 +250,7 @@ export class ArenaRenderer {
     if (player.dashAvailable) {
       ctx.fillStyle = sideColor;
       ctx.textBaseline = 'bottom';
-      ctx.fillText('DASH', body.x, body.y - (BODY_RADIUS + 180) * scale);
+      ctx.fillText('DASH', body.x, body.y - (playerRadius + 180) * scale);
     }
   }
 
