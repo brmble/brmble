@@ -168,7 +168,10 @@ describe('useArenaState', () => {
 
   it('blends small corrections over 100ms on the animation-frame clock', () => {
     vi.setSystemTime(1000);
-    const startedAt = 1000;
+    // Under fake timers performance.now() is 0, not the system time, and the RAF
+    // effect's first synchronous update runs at performance.now(). Anchoring here
+    // keeps the first driven frame at the mount instant instead of a second later.
+    const startedAt = performance.now();
     const initial = welcome();
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const fire: PendingArenaInput = {
@@ -259,7 +262,11 @@ describe('useArenaState', () => {
     hook.rerender({ latestSnapshot: { ...snapshot(2, 1050, before - 90), serverTick: 102 } });
     act(() => frame?.(startedAt + 41));
 
-    expect(hook.result.current.localPlayer?.x).toBe(before);
+    // The frame gap is 1 ms and baseMovePerTick is 90 at 60 Hz, i.e. 5.4 units/ms,
+    // so the smooth continuation of `before` (1126) is 1131. Before the tick phase
+    // was preserved this read exactly `before`, because the phase reset to zero
+    // held the display still for a frame; that stall is the bug being fixed.
+    expect(hook.result.current.localPlayer?.x).toBe(before + 5);
   });
 
   it('does not reset smooth local movement when an aim-only pending input is added', () => {
@@ -308,6 +315,62 @@ describe('useArenaState', () => {
 
     const deltas = positions.slice(-3).map((position, index, values) => index === 0 ? 0 : position - values[index - 1]);
     expect(deltas[2]).toBeLessThanOrEqual(deltas[1] + 1);
+  });
+
+  it('does not lose a frame of local movement when an ordinary snapshot lands', () => {
+    vi.setSystemTime(1000);
+    const startedAt = 1000;
+    const initial = welcome();
+    const held = {
+      moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false,
+    };
+    // useArenaConnection keeps the newest pending interval at the current
+    // predicted tick and extends the previous one behind it, so held input
+    // arrives as a contiguous replayable range rather than a single stale tick.
+    const heldThrough = (toTick: number): PendingArenaInput[] => [
+      { sequence: 1, predictedTick: 101, fromTick: 101, toTick, input: held },
+    ];
+    const positions: number[] = [];
+    const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs, currentInput: held, selfSessionId: 10,
+      onFrame: state => positions.push(state.localPlayer!.x),
+    }), { initialProps: {
+      latestSnapshot: null as ArenaSnapshot | null,
+      pendingInputs: heldThrough(101),
+    } });
+
+    // Sample at ~144 Hz. The snapshot lands on the frame at t+56, which is not
+    // aligned to the 16.666 ms tick boundary, so the sub-tick phase is non-zero.
+    for (let i = 1; i <= 7; i++) act(() => { frame?.(startedAt + i * 7); });
+    hook.rerender({ latestSnapshot: snapshot(2, 1050, 1180), pendingInputs: heldThrough(104) });
+    for (let i = 8; i <= 15; i++) act(() => { frame?.(startedAt + i * 7); });
+
+    const deltas = positions.slice(1).map((x, index) => x - positions[index]);
+    expect(Math.min(...deltas)).toBeGreaterThan(0);
+    expect(Math.max(...deltas)).toBeLessThan(3 * 90);
+  });
+
+  it('resets the tick phase on a mandatory snap', () => {
+    vi.setSystemTime(1000);
+    const startedAt = 1000;
+    const initial = welcome();
+    const held = {
+      moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false,
+    };
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], currentInput: held, selfSessionId: 10,
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+    for (let i = 1; i <= 7; i++) act(() => { frame?.(startedAt + i * 7); });
+
+    // A score change is a mandatory discrete snap condition.
+    const scored = { ...snapshot(2, 1050, 1180), score: [1, 0] as [number, number] };
+    hook.rerender({ latestSnapshot: scored });
+    act(() => { frame?.(startedAt + 56); });
+
+    expect(hook.result.current.snapCount).toBe(1);
+    // The phase reset to zero, so the snapped frame presents the authoritative
+    // position with no carried sub-tick interpolation on top of it.
+    expect(hook.result.current.localPlayer?.x).toBe(1180);
   });
 
   it('advances an input-only target without creating an authority correction', () => {

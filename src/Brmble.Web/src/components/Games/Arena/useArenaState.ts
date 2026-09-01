@@ -108,6 +108,11 @@ export function useArenaState({
   const inputKeyRef = useRef('');
   const sessionRef = useRef(selfSessionId);
   const renderedLocalRef = useRef<ArenaPlayerSnapshot | null>(null);
+  // The blended display position with its sub-tick interpolation removed, so the
+  // correction origin is a tick-aligned base measured against `local.player`,
+  // which is also a tick-aligned base. Comparing a base against an interpolated
+  // display would count the sub-tick offset twice once the phase is preserved.
+  const renderedBaseRef = useRef<ArenaPlayerSnapshot | null>(null);
   const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
   const presentedAtRef = useRef(0);
   const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
@@ -121,6 +126,7 @@ export function useArenaState({
       predictedRef.current = undefined;
       presentedRef.current = undefined;
       renderedLocalRef.current = null;
+      renderedBaseRef.current = null;
       correctionRef.current = null;
       snappedRef.current = false;
       snapCountRef.current = 0;
@@ -165,6 +171,7 @@ export function useArenaState({
     predictedRef.current = undefined;
     presentedRef.current = undefined;
     renderedLocalRef.current = null;
+    renderedBaseRef.current = null;
     correctionRef.current = null;
     snappedRef.current = false;
     snapCountRef.current = 0;
@@ -200,15 +207,35 @@ export function useArenaState({
         const authorityChanged = authorityDirtyRef.current || !predictedRef.current;
         const predictionChanged = authorityChanged || inputDirtyRef.current;
         if (predictionChanged) {
+          // The correction origin must be measured at this frame, not the last
+          // one. Reconcile's base already includes the whole ticks the phase
+          // clock consumed since the previous presented tick, so the origin has
+          // to advance by those same ticks or the correction cancels them out
+          // and the display steps backward by one tick on the reconcile frame.
+          const previousBase = presentedRef.current;
+          const originBase = renderedBaseRef.current;
+          let correctionOrigin = originBase ?? undefined;
+          if (authorityChanged && previousBase && originBase) {
+            const advancedOrigin = advanceLocalPresentation(
+              previousBase, current.currentInput, frameTime - presentedAtRef.current,
+              welcome.tickRate, welcome.prediction,
+            );
+            correctionOrigin = {
+              ...originBase,
+              x: originBase.x + (advancedOrigin.state.player.x - previousBase.player.x),
+              y: originBase.y + (advancedOrigin.state.player.y - previousBase.player.y),
+            };
+          }
           const result = reconcile(
             {
               snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current,
               recentInputs: current.recentInputs,
-              correctionOrigin: authorityChanged ? renderedLocalRef.current ?? undefined : undefined,
+              correctionOrigin: authorityChanged ? correctionOrigin : undefined,
             },
             current.finalState ? [] : current.pendingInputs,
             welcome.prediction,
           );
+          const tickMs = 1000 / welcome.tickRate;
           if (authorityChanged) {
             if (result.snapped && predictedRef.current && !snappedRef.current) snapCountRef.current++;
             snappedRef.current = result.snapped;
@@ -216,9 +243,16 @@ export function useArenaState({
               ? { x: result.correction.x, y: result.correction.y, startedAt: frameTime }
               : null;
           }
+          // The local tick-phase clock is monotonic. Reconcile supplies completed
+          // ticks; the phase clock supplies only the remainder within the current
+          // tick. Carrying the whole elapsed time would double-apply ticks that
+          // reconcile has already replayed. Only a mandatory snap resets the phase.
+          const phaseMs = predictedRef.current && !result.snapped
+            ? Math.max(0, (frameTime - presentedAtRef.current) % tickMs)
+            : 0;
           predictedRef.current = result.local;
           presentedRef.current = result.local;
-          presentedAtRef.current = frameTime;
+          presentedAtRef.current = frameTime - phaseMs;
           authorityDirtyRef.current = false;
           inputDirtyRef.current = false;
         }
@@ -253,6 +287,11 @@ export function useArenaState({
           y: Math.trunc(interpolatedPlayer.y - correction.y * remaining),
         } : interpolatedPlayer;
         renderedLocalRef.current = local;
+        renderedBaseRef.current = {
+          ...local,
+          x: local.x - (interpolatedPlayer.x - presented.player.x),
+          y: local.y - (interpolatedPlayer.y - presented.player.y),
+        };
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
         const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
         const nextRendered: ArenaRenderState = {
