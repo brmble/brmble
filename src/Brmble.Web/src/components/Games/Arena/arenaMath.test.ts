@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { ArenaInputState, ArenaPredictionConstants, ArenaSnapshot } from './arenaProtocol';
+import type {
+  ArenaInputState, ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaSnapshot,
+} from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import {
   arenaRadius, computeLayout, damp, knockback, movePerTick, normalizeQ15, recoil,
-  reconcile, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
+  reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
 const prediction: ArenaPredictionConstants = {
@@ -336,5 +338,75 @@ describe('arena interpolation and layout', () => {
     expect(layout).toEqual({ cssWidth: 1200, cssHeight: 800, size: 800, offsetX: 200, offsetY: 0 });
     expect(worldToScreen({ x: -10000, y: 10000 }, layout)).toEqual({ x: 200, y: 800 });
     expect(screenToWorld({ x: 1000, y: 0 }, layout)).toEqual({ x: 10000, y: -10000 });
+  });
+});
+
+describe('resolveBodyOverlap', () => {
+  const body = (overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot => ({
+    sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
+    chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
+    dashAvailable: true, acknowledgedInput: 0, ...overrides,
+  });
+  const low = (x: number, y = 0) => body({ sessionId: 10, side: 0, x, y });
+  const high = (x: number, y = 0) => body({ sessionId: 20, side: 1, x, y });
+
+  it('leaves separated bodies untouched', () => {
+    const result = resolveBodyOverlap(low(0), high(2000), 600);
+    expect([result.a.x, result.b.x]).toEqual([0, 2000]);
+  });
+
+  it('does not push bodies that exactly touch at one diameter', () => {
+    const result = resolveBodyOverlap(low(0), high(1200), 600);
+    expect([result.a.x, result.b.x]).toEqual([0, 1200]);
+  });
+
+  it('splits even penetration in half', () => {
+    // distance 1000, penetration 200, lowShare 100, highShare 100.
+    // normal.x = trunc(1000 * 32767 / 1000) = 32767, push = trunc(32767 * 100 / 32767) = 100.
+    const result = resolveBodyOverlap(low(0), high(1000), 600);
+    expect([result.a.x, result.b.x]).toEqual([-100, 1100]);
+  });
+
+  it('assigns the odd penetration unit to side 1', () => {
+    // distance 1001, penetration 199, lowShare 99, highShare 100.
+    const result = resolveBodyOverlap(low(0), high(1001), 600);
+    expect([result.a.x, result.b.x]).toEqual([-99, 1101]);
+  });
+
+  it('orders by side, not by argument order', () => {
+    const result = resolveBodyOverlap(high(1000), low(0), 600);
+    expect([result.a.x, result.b.x]).toEqual([1100, -100]);
+  });
+
+  it('separates coincident centers along positive x', () => {
+    // distance 0, normal (32767, 0), penetration 1200, lowShare 600, highShare 600.
+    const result = resolveBodyOverlap(low(0), high(0), 600);
+    expect([result.a.x, result.a.y, result.b.x, result.b.y]).toEqual([-600, 0, 600, 0]);
+  });
+
+  it('truncates negative normal components toward zero', () => {
+    // low at (500, 500), high at (0, 0): dx = -500, dy = -500.
+    // distanceSquared 500000, distance = integerSqrt = 707, penetration 493,
+    // lowShare 246, highShare 247.
+    // normal.x = trunc(-500 * 32767 / 707) = trunc(-23173.6...) = -23173 (toward zero).
+    // lowPush = trunc(-23173 * 246 / 32767) = trunc(-173.98...) = -173.
+    // highPush = trunc(-23173 * 247 / 32767) = trunc(-174.68...) = -174.
+    const result = resolveBodyOverlap(body({ sessionId: 10, side: 0, x: 500, y: 500 }), high(0, 0), 600);
+    expect([result.a.x, result.a.y]).toEqual([673, 673]);
+    expect([result.b.x, result.b.y]).toEqual([-174, -174]);
+  });
+
+  it('does not renormalize, so one call can under-separate diagonally', () => {
+    const result = resolveBodyOverlap(body({ sessionId: 10, side: 0, x: 500, y: 500 }), high(0, 0), 600);
+    const dx = result.a.x - result.b.x;
+    const dy = result.a.y - result.b.y;
+    expect(dx * dx + dy * dy).toBeLessThan(1200 * 1200);
+  });
+
+  it('preserves velocity and every non-position field', () => {
+    const source = body({ sessionId: 10, side: 0, x: 0, y: 0, vx: 41, vy: -17, aimX: 100, aimY: -200, chargePermille: 333, forcedFireTicks: 4, cooldownTicks: 7, dashAvailable: false, acknowledgedInput: 12 });
+    const result = resolveBodyOverlap(source, high(1000), 600);
+    expect(result.a).toEqual({ ...source, x: -100 });
+    expect(source.x).toBe(0);
   });
 });

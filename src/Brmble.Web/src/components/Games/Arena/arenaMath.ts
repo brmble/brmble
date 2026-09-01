@@ -55,6 +55,50 @@ function integerSqrt(value: bigint): bigint {
   return result;
 }
 
+export const Q15 = 32_767;
+
+/**
+ * Exact mirror of ArenaSimulation.ResolveBodyOverlap (stage 9 of the server tick).
+ * Feeds deterministic replay, so every truncation here must match C# integer
+ * division, which truncates toward zero. Do not renormalize the Q15 normal:
+ * the server does not, so a single call may leave the bodies slightly overlapped.
+ */
+export function resolveBodyOverlap(
+  a: ArenaPlayerSnapshot,
+  b: ArenaPlayerSnapshot,
+  playerRadius: number,
+): { a: ArenaPlayerSnapshot; b: ArenaPlayerSnapshot } {
+  const aIsLow = a.side === 0;
+  const low = aIsLow ? a : b;
+  const high = aIsLow ? b : a;
+  const dx = high.x - low.x;
+  const dy = high.y - low.y;
+  const distanceSquared = dx * dx + dy * dy;
+  const diameter = playerRadius * 2;
+  if (distanceSquared >= diameter * diameter) {
+    return { a, b };
+  }
+
+  const distance = Number(integerSqrt(BigInt(distanceSquared)));
+  const normalX = distance === 0 ? Q15 : Math.trunc((dx * Q15) / distance);
+  const normalY = distance === 0 ? 0 : Math.trunc((dy * Q15) / distance);
+  const penetration = diameter - distance;
+  const lowShare = Math.trunc(penetration / 2);
+  const highShare = penetration - lowShare;
+
+  const nextLow: ArenaPlayerSnapshot = {
+    ...low,
+    x: low.x - Math.trunc((normalX * lowShare) / Q15),
+    y: low.y - Math.trunc((normalY * lowShare) / Q15),
+  };
+  const nextHigh: ArenaPlayerSnapshot = {
+    ...high,
+    x: high.x + Math.trunc((normalX * highShare) / Q15),
+    y: high.y + Math.trunc((normalY * highShare) / Q15),
+  };
+  return aIsLow ? { a: nextLow, b: nextHigh } : { a: nextHigh, b: nextLow };
+}
+
 export function normalizeQ15(x: number, y: number): FixedVec {
   if (x === 0 && y === 0) {
     return { x: 0, y: 0 };

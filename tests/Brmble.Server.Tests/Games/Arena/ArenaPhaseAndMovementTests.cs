@@ -201,6 +201,41 @@ public class ArenaPhaseAndMovementTests
         Assert.AreEqual(shrinkPhase, sim.ShrinkPhase);
     }
 
+    [TestMethod]
+    public void BodyOverlapSplitsEvenPenetrationInHalf()
+    {
+        var harness = ArenaHarness.Live();
+        harness.Place(10, 0, 0);
+        harness.Place(20, 1000, 0);
+        harness.Step();
+        Assert.AreEqual(-100, harness.Player(10).X);
+        Assert.AreEqual(1100, harness.Player(20).X);
+    }
+
+    [TestMethod]
+    public void BodyOverlapAssignsTheOddUnitToSideOne()
+    {
+        var harness = ArenaHarness.Live();
+        harness.Place(10, 0, 0);
+        harness.Place(20, 1001, 0);
+        harness.Step();
+        Assert.AreEqual(-99, harness.Player(10).X);
+        Assert.AreEqual(1101, harness.Player(20).X);
+    }
+
+    [TestMethod]
+    public void BodyOverlapTruncatesNegativeNormalComponentsTowardZero()
+    {
+        var harness = ArenaHarness.Live();
+        harness.Place(10, 500, 500);
+        harness.Place(20, 0, 0);
+        harness.Step();
+        Assert.AreEqual(673, harness.Player(10).X);
+        Assert.AreEqual(673, harness.Player(10).Y);
+        Assert.AreEqual(-174, harness.Player(20).X);
+        Assert.AreEqual(-174, harness.Player(20).Y);
+    }
+
     private sealed class ArenaHarness
     {
         private readonly ArenaSimulation _simulation;
