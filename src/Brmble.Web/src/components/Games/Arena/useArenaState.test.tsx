@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
-import { reconcile } from './arenaMath';
+import { reconcile, sampleTimeline } from './arenaMath';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
 
 const prediction = {
@@ -478,6 +478,118 @@ describe('useArenaState', () => {
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.sessionId).toBe(20);
     expect(hook.result.current.remotePlayer?.x).toBe(2222);
+    expect(hook.result.current.snapCount).toBe(0);
+  });
+
+  // The local player is presented at approximately now while the remote player is
+  // replayed from the `interpolationMs` buffer, so displayed bodies can overlap even
+  // when both source states are valid. These fixtures sit well inside the arena ring
+  // (|x| well under 9000) because the arena clamp deliberately takes precedence over
+  // full separation near the edge.
+  const contactState = (remoteX: number): ArenaStateSnapshot => ({
+    ...state(0),
+    players: [
+      { ...state(0).players[0], sessionId: 10, side: 0 as const, x: 0, y: 0 },
+      { ...state(0).players[1], sessionId: 20, side: 1 as const, x: remoteX, y: 0, vx: 0 },
+    ],
+  });
+  const contactWelcome = (remoteX: number): ArenaWelcome => ({ ...welcome(), state: contactState(remoteX) });
+  const contactSnapshot = (sequence: number, generatedAtUnixMs: number, remoteX: number): ArenaSnapshot => ({
+    ...snapshot(sequence, generatedAtUnixMs, 0), ...contactState(remoteX),
+  });
+  // What `asSnapshot` builds from the welcome inside the hook: the mount effect runs
+  // at Date.now() === 1000 in these fixtures, and welcome.snapshotSequence is 1.
+  const welcomeFrame = (remoteX: number): ArenaSnapshot => ({
+    type: 'snapshot', protocolVersion: 1, matchId: 91, sequence: 1, serverTick: 100,
+    generatedAtUnixMs: 1000, ...contactState(remoteX),
+  });
+  type RenderState = ReturnType<typeof useArenaState>;
+
+  it('never displays overlapping player bodies', () => {
+    vi.setSystemTime(1000);
+    const initial = contactWelcome(700);
+    let latestFrame: RenderState | null = null;
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
+      onFrame: rendered => { latestFrame = rendered; },
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+    hook.rerender({ latestSnapshot: contactSnapshot(2, 1050, 700) });
+    // sampleTimeline reads Date.now() - interpolationMs, so the wall clock has to run
+    // 100 ms past the newest snapshot or the sampler replays the pre-contact welcome
+    // frame and the assertion below passes without exercising the constraint at all.
+    vi.setSystemTime(1150);
+    act(() => { frame?.(50); });
+
+    const { localPlayer, remotePlayer } = latestFrame!;
+    const dx = localPlayer!.x - remotePlayer!.x;
+    const dy = localPlayer!.y - remotePlayer!.y;
+    expect(dx * dx + dy * dy).toBeGreaterThanOrEqual(1200 * 1200);
+  });
+
+  it('never moves the displayed remote player away from its interpolated path', () => {
+    vi.setSystemTime(1000);
+    const initial = contactWelcome(700);
+    let latestFrame: RenderState | null = null;
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
+      onFrame: rendered => { latestFrame = rendered; },
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+    hook.rerender({ latestSnapshot: contactSnapshot(2, 1050, 900) });
+    // renderAt is 1025, i.e. between the two frames, so the sampler produces a genuinely
+    // interpolated remote position rather than echoing a snapshot verbatim.
+    vi.setSystemTime(1125);
+    act(() => { frame?.(50); });
+
+    const expected = sampleTimeline(
+      [welcomeFrame(700), contactSnapshot(2, 1050, 900)], 1125,
+      initial.interpolationMs, initial.maxExtrapolationMs,
+    ).players.find(player => player.sessionId === 20)!;
+    expect(latestFrame!.remotePlayer?.x).toBe(expected.x);
+    expect(latestFrame!.remotePlayer?.y).toBe(expected.y);
+    // The constraint moved only the local player: it sits one diameter (plus the one
+    // rounding unit) to the near side of the untouched remote position.
+    expect(latestFrame!.localPlayer?.x).toBe(expected.x - 1201);
+  });
+
+  it('does not generate a correction from a constraint-only offset', () => {
+    vi.setSystemTime(1000);
+    // The opponent dashes past. Prediction always sees the newest snapshot, where they
+    // are well clear, so prediction never pushes the local base off 0. The display
+    // replays them from interpolationMs ago, where they are still at 800 — inside a
+    // diameter — so the constraint has to move the local player by 401 units, which is
+    // more than reconcile's 300-unit snap threshold.
+    const initial = contactWelcome(3000);
+    let latestFrame: RenderState | null = null;
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
+      onFrame: rendered => { latestFrame = rendered; },
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+    hook.rerender({ latestSnapshot: contactSnapshot(2, 1050, 800) });
+    hook.rerender({ latestSnapshot: contactSnapshot(3, 1100, 2000) });
+    vi.setSystemTime(1150);
+    act(() => { frame?.(50); });
+
+    // renderAt is exactly the sequence-2 frame, so the displayed remote is 800 and the
+    // constraint is active with a 401-unit offset, while prediction sees 2000.
+    expect(latestFrame!.remotePlayer?.x).toBe(800);
+    expect(latestFrame!.localPlayer?.x).toBe(800 - 1201);
+
+    // A second reconcile, with the constraint no longer active. The local base is still
+    // 0 and authority still agrees, so there is nothing to correct and nothing to snap.
+    hook.rerender({ latestSnapshot: contactSnapshot(4, 1150, 3200) });
+    vi.setSystemTime(1200);
+    act(() => { frame?.(100); });
+
+    expect(latestFrame!.remotePlayer?.x).toBe(2000);
+    expect(latestFrame!.localPlayer?.x).toBe(0);
+    // The discriminating assertion. If the constrained position had reached
+    // renderedLocalRef / renderedBaseRef it would be this reconcile's correction origin,
+    // reconcile would measure a 401-unit correction against the authoritative base, and
+    // 401^2 clears the 90_000 snap threshold — a snap manufactured entirely out of a
+    // client-only display artefact.
     expect(hook.result.current.snapCount).toBe(0);
   });
 });

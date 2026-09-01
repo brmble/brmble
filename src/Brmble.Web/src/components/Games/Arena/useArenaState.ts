@@ -3,7 +3,7 @@ import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
 import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
-import { reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
+import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
@@ -297,9 +297,18 @@ export function useArenaState({
           y: local.y - (interpolatedPlayer.y - presented.player.y),
         };
         const remote = sampled.players.find(player => player.sessionId !== current.selfSessionId) ?? null;
+        // Display filter only, applied once per frame after the correction blend and
+        // never written back. `renderedLocalRef` and `renderedBaseRef` above keep the
+        // unconstrained position because they are the correction origin for the next
+        // reconcile; feeding the constrained position back would measure prediction
+        // against a client-only display artefact and oscillate against the constraint.
+        const displayedLocal = constrainLocalDisplay(
+          local, remote, welcome.prediction.playerRadius, sampled.arena.radius,
+        );
         const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
         const nextRendered: ArenaRenderState = {
-          localPlayer: local, remotePlayer: remote, projectiles: [...sampled.projectiles, ...predictedProjectiles],
+          localPlayer: displayedLocal, remotePlayer: remote,
+          projectiles: [...sampled.projectiles, ...predictedProjectiles],
           arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
           score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,
