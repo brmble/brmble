@@ -124,6 +124,10 @@ export function ArenaBoard({
       selfSessionId, players, projectiles: current.projectiles, arena: current.arena,
       names: Object.fromEntries(players.map(player => [player.sessionId, resolveName(player.sessionId)])),
       avatarUrls: Object.fromEntries(players.map(player => [player.sessionId, resolveAvatarUrl(player.sessionId)])),
+      // welcome is null on the terminal final-state path (useArenaState.ts:329), which still
+      // renders a non-null arena. Safe: ArenaPredictionConstants is literal-typed, so any
+      // welcome.prediction is value-identical to PREDICTION_V1. Revisit if protocol v2 makes
+      // these constants variable.
       prediction: connection.welcome?.prediction ?? PREDICTION_V1,
     }, { reducedMotion });
   };

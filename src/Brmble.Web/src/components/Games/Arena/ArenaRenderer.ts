@@ -76,7 +76,7 @@ export class ArenaRenderer {
   render(view: ArenaRenderView, options: { reducedMotion: boolean }) {
     const ctx = this.context;
     if (!ctx || this.disposed) return;
-    const { playerRadius, projectileRadius, shotCooldownTicks } = view.prediction;
+    const { projectileRadius } = view.prediction;
     const style = getComputedStyle(this.canvas);
     const color = (token: string) => style.getPropertyValue(token).trim();
     const primary = color('--accent-primary');
@@ -131,7 +131,7 @@ export class ArenaRenderer {
     }
 
     for (const player of view.players) {
-      this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point, playerRadius, shotCooldownTicks);
+      this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point);
     }
   }
 
@@ -157,10 +157,9 @@ export class ArenaRenderer {
     scale: number,
     line: (worldWidth: number) => number,
     point: (value: FixedVec) => FixedVec,
-    playerRadius: number,
-    shotCooldownTicks: number,
   ) {
     const body = point(player);
+    const { playerRadius, shotCooldownTicks } = view.prediction;
     const sideColor = player.side === 0 ? colors.primary : colors.danger;
     const aimLength = Math.hypot(player.aimX, player.aimY) || 1;
     const aimX = player.aimX / aimLength;
