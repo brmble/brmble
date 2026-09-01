@@ -133,7 +133,12 @@ export function useArenaState({
       suppressedInputsRef.current = null;
     }
     inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, currentInput, selfSessionId, finalState };
-    const inputKey = JSON.stringify([usePending, useRecent]);
+    const inputKey = JSON.stringify([
+      usePending.filter(input => input.input.fireReleased || input.input.dash)
+        .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
+      useRecent.filter(input => input.input.fireReleased || input.input.dash)
+        .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
+    ]);
     if (inputKey !== inputKeyRef.current) {
       inputKeyRef.current = inputKey;
       inputDirtyRef.current = true;

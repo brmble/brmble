@@ -279,6 +279,31 @@ describe('useArenaState', () => {
     expect(hook.result.current.localPlayer?.x).toBeGreaterThanOrEqual(before);
   });
 
+  it('keeps local display cadence continuous across aim-only pending input updates', () => {
+    const initial = welcome();
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 32767, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const aim: PendingArenaInput = {
+      sequence: 2, predictedTick: 103, fromTick: 103, toTick: 103,
+      input: { ...move.input, aimX: 0, aimY: 32767 },
+    };
+    const positions: number[] = [];
+    const hook = renderHook(({ pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, currentInput: aim.input, selfSessionId: 10,
+      onFrame: state => positions.push(state.localPlayer!.y),
+    }), { initialProps: { pendingInputs: [move] } });
+    const startedAt = performance.now();
+    act(() => frame?.(startedAt + 4));
+    act(() => frame?.(startedAt + 8));
+    hook.rerender({ pendingInputs: [{ ...move, toTick: 102 }, aim] });
+    act(() => frame?.(startedAt + 12));
+
+    const deltas = positions.slice(-3).map((position, index, values) => index === 0 ? 0 : position - values[index - 1]);
+    expect(deltas[2]).toBeLessThanOrEqual(deltas[1] + 1);
+  });
+
   it('advances an input-only target without creating an authority correction', () => {
     const initial = welcome();
     const move: PendingArenaInput = {
