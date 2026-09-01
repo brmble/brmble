@@ -454,12 +454,12 @@ describe('stepLocal body overlap', () => {
     expect(stepLocal(state, idle, prediction).player.x).toBe(0);
   });
 
-  it('keeps prediction error bounded through sustained contact', () => {
+  it('settles at a stable separation through sustained contact', () => {
     let state = liveState(0, 1000);
     for (let tick = 0; tick < 120; tick++) state = stepLocal(state, idle, prediction);
-    const dx = state.player.x - state.opponent!.x;
-    // Never drifts far past a single separation; nowhere near the 300-unit snap threshold.
-    expect(Math.abs(dx)).toBeLessThan(1300);
+    // Converges after one push and is a fixed point thereafter: exactly one diameter.
+    expect(state.player.x).toBe(-100);
+    expect(state.opponent!.x).toBe(1100);
   });
 });
 
