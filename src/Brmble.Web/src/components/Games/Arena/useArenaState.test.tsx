@@ -593,6 +593,11 @@ describe('useArenaState', () => {
     expect(hook.result.current.snapCount).toBe(0);
   });
 
+  // Both fixtures put the local player on `side: 0`, so `resolveBodyOverlap` always takes
+  // its `aIsLow === true` branch with a `+32767` normal. "Both perspectives" here means
+  // which player *drives* the contact, not which side the local player is on; the
+  // `aIsLow === false` branch and the odd-penetration share asymmetry are covered as
+  // units in `arenaMath.test.ts` and are not reachable from this hook fixture.
   describe('sustained contact', () => {
     const snapshotMs = 50;
     const frameMs = 16;
@@ -615,6 +620,14 @@ describe('useArenaState', () => {
     // `sampleTimeline` renders `interpolationMs` behind the wall clock, so early frames
     // still replay the pre-contact welcome frame. Only assert once the buffer is full.
     const warmUpSnapshots = 4;
+    // The remote player is displayed exactly this many snapshots behind authority.
+    const remoteLagSnapshots = welcome().interpolationMs / snapshotMs; // 2
+    // How far the published local position may sit from the anchor its reconcile
+    // established, before the next reconcile re-anchors it. `advanceLocalPresentation`
+    // clamps `elapsedTicks` to 3 and `interpolateLocalPresentation` adds at most one
+    // more, so the presentation can lead its anchor by four ticks of contact travel and
+    // no further. Same quantity, same derivation, as the per-frame ceiling below.
+    const trackingTolerance = 4 * pushPerTick; // 180
     const held = {
       moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false,
     };
@@ -669,22 +682,34 @@ describe('useArenaState', () => {
           // Date.now() and the explicit argument feeds the presentation clock. Frame
           // times start at 50, past the RAF effect's synchronous mount update at
           // performance.now(), which is 0 under fake timers.
+          //
+          // The snapshot interval is exactly three ticks, so in exact arithmetic the
+          // preserved sub-tick phase would always be zero. What makes it non-zero — and
+          // makes the cadence assertion in the second test able to fail — is that
+          // `presentedAtRef` accumulates in 1000/60 = 16.666… ms increments and carries
+          // IEEE-754 residue. That is faithful to production, where frame times are
+          // never tick-aligned, but it is fragile against a refactor of the phase
+          // arithmetic. A non-tick-aligned interval such as 51 ms would exercise it far
+          // more robustly and is the better shape for any future fixture here.
           vi.setSystemTime(wallClock + step * frameMs);
           act(() => { frame?.(index * snapshotMs + step * frameMs); });
         }
       }
-      return { hook, settled: captured.filter(entry => entry.index > warmUpSnapshots).map(entry => entry.rendered) };
+      return { hook, settled: captured.filter(entry => entry.index > warmUpSnapshots) };
     }
 
-    const separations = (rendered: RenderState[]): number[] => rendered.map(item => {
-      const dx = item.localPlayer!.x - item.remotePlayer!.x;
-      const dy = item.localPlayer!.y - item.remotePlayer!.y;
+    type Settled = ReturnType<typeof driveContact>['settled'];
+    const separations = (settled: Settled): number[] => settled.map(({ rendered }) => {
+      const dx = rendered.localPlayer!.x - rendered.remotePlayer!.x;
+      const dy = rendered.localPlayer!.y - rendered.remotePlayer!.y;
       return dx * dx + dy * dy;
     });
-    const frameDeltas = (rendered: RenderState[]): number[] => rendered
-      .slice(1).map((item, at) => Math.abs(item.localPlayer!.x - rendered[at].localPlayer!.x));
+    const frameDeltas = (settled: Settled): number[] => settled
+      .slice(1).map((entry, at) => Math.abs(entry.rendered.localPlayer!.x - settled[at].rendered.localPlayer!.x));
+    const trackingErrors = (settled: Settled, anchorAt: (index: number) => number): number[] =>
+      settled.map(entry => Math.abs(entry.rendered.localPlayer!.x - anchorAt(entry.index)));
 
-    it('never overlaps or hard-snaps while the local player pushes the opponent', () => {
+    it('keeps the local player clear of the opponent it is pushing, without hard-snapping', () => {
       // The local player shoves the opponent along in front of it. The opponent carries
       // no velocity of its own — its motion is entirely the server's overlap resolution —
       // so dead reckoning holds it still and the client's own resolution has to
@@ -692,6 +717,14 @@ describe('useArenaState', () => {
       // the local player is presented at approximately now while the opponent is replayed
       // from 100 ms ago, one whole diameter of closing behind, so this is the fixture
       // that exercises the display constraint.
+      //
+      // Note what that costs in reach. Whenever `constrainLocalDisplay` is engaged the
+      // published local x is unconditionally `sampled remote - (diameter + 1)`: it
+      // carries no contribution from the phase clock, the correction blend, or local
+      // prediction at all. So on every frame this test asserts, the separation and the
+      // frame-delta bounds below are properties of `sampleTimeline`'s remote track, not
+      // of local motion, and the constraint masks any cadence regression while active.
+      // `snapCount` is the only assertion here that measures local prediction.
       const { hook, settled } = driveContact(held, 0, index => ({
         localX: index * pushPerSnapshot,
         remoteX: index * pushPerSnapshot + diameter,
@@ -700,15 +733,28 @@ describe('useArenaState', () => {
       expect(settled).toHaveLength((snapshotCount - warmUpSnapshots) * framesPerSnapshot);
       expect(hook.result.current.snapCount).toBe(0);
       expect(Math.min(...separations(settled))).toBeGreaterThanOrEqual(diameter * diameter);
-      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * prediction.baseMovePerTick);
+      // A guard, not a measurement: nothing in this fixture approaches it. In contact the
+      // largest nominal per-frame travel is three advanced ticks plus one interpolated
+      // tick, so a frame that moves further than this is a hard snap by definition.
+      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * pushPerTick);
+      // Authority tracking over the whole run. The displayed local player is pinned one
+      // clearance behind the opponent's authoritative track as the buffer replays it:
+      // the remote is `remoteLagSnapshots` behind authority, and `constrainLocalDisplay`
+      // places the local player `diameter + 1` to the near side of it. Any drift that
+      // accumulated over the 2 seconds — rather than being re-anchored every snapshot —
+      // would show up here and nowhere else.
+      const anchor = (index: number): number =>
+        (index - remoteLagSnapshots) * pushPerSnapshot + diameter - (diameter + 1);
+      expect(Math.max(...trackingErrors(settled, anchor))).toBeLessThan(trackingTolerance);
     });
 
     it('never overlaps or hard-snaps while the opponent pushes the local player', () => {
       // The mirror: the local player holds neutral input and the opponent walks into it
       // at the free rate, so the authoritative local x is driven outward purely by the
-      // server's overlap resolution. Displayed bodies stay clear here — the lagged
-      // opponent is behind its live position, i.e. further away — so the separation this
-      // test measures is produced by prediction, not by the display constraint.
+      // server's overlap resolution. This is the fixture that measures prediction — the
+      // published local position here is the raw predicted one, because the constraint
+      // never engages: the lagged opponent is behind its live position, i.e. further
+      // away, leaving the displayed bodies 1740 units apart.
       const { hook, settled } = driveContact(neutral, -prediction.baseMovePerTick, index => ({
         localX: diameter - index * pushPerSnapshot,
         remoteX: 2 * diameter - index * pushPerSnapshot,
@@ -716,14 +762,28 @@ describe('useArenaState', () => {
 
       expect(settled).toHaveLength((snapshotCount - warmUpSnapshots) * framesPerSnapshot);
       expect(hook.result.current.snapCount).toBe(0);
+      // Inert here, and kept deliberately: with 1740 units of displayed separation against
+      // a 1200 threshold there is 540 units of slack and nothing in the current code can
+      // make this fail. It is a regression guard — the local player must never start
+      // being displaced in a fixture where it has no reason to be — not a measurement.
       expect(Math.min(...separations(settled))).toBeGreaterThanOrEqual(diameter * diameter);
-      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * prediction.baseMovePerTick);
+      // A guard, not a measurement; see the same bound in the test above.
+      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * pushPerTick);
       // The display here is the raw prediction, so the sub-tick phase clock is visible in
       // it. Every frame is at least `frameMs` long, i.e. very nearly a whole tick, so at
       // the contact rate it must carry the local player at least half a tick's travel.
       // Resetting the phase on an ordinary snapshot strands the frame the snapshot lands
       // on at the tick-aligned base and drops that frame's travel to almost nothing.
       expect(Math.min(...frameDeltas(settled))).toBeGreaterThan(pushPerTick / 2);
+      // Authority tracking over the whole run, and the only assertion in either test that
+      // can accumulate. Every reconcile re-anchors prediction on the authoritative local x
+      // for that snapshot plus the `unacknowledgedTicks` of contact it replays, each worth
+      // `pushPerTick`; the presentation then leads that anchor by at most
+      // `trackingTolerance`. If prediction ever drifted against authority instead of being
+      // re-anchored, the error would grow without bound over the 40 snapshots.
+      const anchor = (index: number): number =>
+        diameter - index * pushPerSnapshot - unacknowledgedTicks * pushPerTick;
+      expect(Math.max(...trackingErrors(settled, anchor))).toBeLessThan(trackingTolerance);
     });
   });
 });
