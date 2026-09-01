@@ -325,11 +325,20 @@ function insideRadius(point: FixedVec, radius: number): boolean {
   return x * x + y * y <= BigInt(radius) * BigInt(radius);
 }
 
-function bodiesOverlap(left: FixedVec, right: FixedVec, playerRadius: number): boolean {
+/**
+ * Deep interpenetration threshold, as a fraction of the player diameter.
+ * Shallow overlap is expected: the local player is displayed at approximately
+ * now while the remote player comes from a 100 ms buffer, and the server's
+ * un-renormalized push can itself leave the bodies slightly overlapped.
+ * Only genuine desynchronisation reaches this depth.
+ */
+const DEEP_OVERLAP_DIAMETER_FRACTION = 3 / 4;
+
+function deeplyOverlapping(left: FixedVec, right: FixedVec, playerRadius: number): boolean {
   const dx = BigInt(left.x - right.x);
   const dy = BigInt(left.y - right.y);
-  const diameter = BigInt(playerRadius * 2);
-  return dx * dx + dy * dy < diameter * diameter;
+  const limit = BigInt(Math.trunc(playerRadius * 2 * DEEP_OVERLAP_DIAMETER_FRACTION));
+  return dx * dx + dy * dy < limit * limit;
 }
 
 function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionConstants): PredictedArenaState {
@@ -413,7 +422,7 @@ export function reconcile(
     || (!authoritative.player.dashAvailable && previous.player.dashAvailable)
   );
   const invalidPosition = !insideRadius(local.player, authoritative.arena.radius)
-    || (local.opponent !== null && bodiesOverlap(local.player, local.opponent, constants.playerRadius));
+    || (local.opponent !== null && deeplyOverlapping(local.player, local.opponent, constants.playerRadius));
   const snapped = correctionSquared > 90_000n || discreteChanged || invalidPosition;
   const correction = previous && !snapped && (dx !== 0 || dy !== 0)
     ? { x: dx, y: dy, durationMs: 100 as const }
