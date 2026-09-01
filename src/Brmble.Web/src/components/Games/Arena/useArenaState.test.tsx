@@ -592,4 +592,138 @@ describe('useArenaState', () => {
     // client-only display artefact.
     expect(hook.result.current.snapCount).toBe(0);
   });
+
+  describe('sustained contact', () => {
+    const snapshotMs = 50;
+    const frameMs = 16;
+    const framesPerSnapshot = 3;
+    const ticksPerSnapshot = 3; // 50 ms at 60 Hz
+    const snapshotCount = 40; // 40 x 50 ms = 2 s of sustained contact
+    const diameter = prediction.playerRadius * 2;
+    // `resolveBodyOverlap` splits the penetration evenly between the two bodies, so a
+    // player in sustained head-on contact advances at half the free rate. The server
+    // runs the same stage, so authority advances at this rate too and the held-input
+    // prediction agrees with it. (Advancing authority at the free rate would put
+    // prediction half a diameter ahead per snapshot and manufacture a snap.)
+    const pushPerTick = prediction.baseMovePerTick / 2; // 45
+    const pushPerSnapshot = pushPerTick * ticksPerSnapshot; // 135
+    // 100 ms of round trip: the client always holds six ticks of input the server has
+    // not acknowledged, so every reconcile replays six ticks of contact. Contact has to
+    // happen inside the replay to be observable — `reconcile` evaluates the deep-overlap
+    // condition on the replayed base, not on the presented state.
+    const unacknowledgedTicks = 6;
+    // `sampleTimeline` renders `interpolationMs` behind the wall clock, so early frames
+    // still replay the pre-contact welcome frame. Only assert once the buffer is full.
+    const warmUpSnapshots = 4;
+    const held = {
+      moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false,
+    };
+    const neutral = { ...held, moveX: 0 };
+
+    const pairState = (localX: number, remoteX: number, remoteVx: number): ArenaStateSnapshot => ({
+      ...state(0),
+      players: [
+        { ...state(0).players[0], x: localX, y: 0, vx: 0 },
+        { ...state(0).players[1], x: remoteX, y: 0, vx: remoteVx },
+      ],
+    });
+
+    function driveContact(
+      currentInput: typeof held,
+      remoteVx: number,
+      authorityAt: (index: number) => { localX: number; remoteX: number },
+    ) {
+      vi.setSystemTime(1000);
+      const start = authorityAt(0);
+      // Hoisted: a fresh welcome identity on every render would re-run the [welcome]
+      // effect and reset every prediction ref the test is measuring.
+      const initial: ArenaWelcome = { ...welcome(), state: pairState(start.localX, start.remoteX, remoteVx) };
+      const captured: { index: number; rendered: RenderState }[] = [];
+      let index = 0;
+      const heldThrough = (toTick: number): PendingArenaInput[] => [
+        { sequence: 1, predictedTick: toTick, fromTick: 101, toTick, input: currentInput },
+      ];
+      const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
+        welcome: initial, latestSnapshot, pendingInputs, currentInput, selfSessionId: 10,
+        onFrame: rendered => { captured.push({ index, rendered }); },
+      }), { initialProps: {
+        // No unacknowledged input at mount, so the mount reconcile replays nothing and
+        // cannot latch `snappedRef` while `predictedRef` is still undefined — which
+        // would pin snapCount at 0 and make the assertion below vacuous.
+        latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[],
+      } });
+
+      for (index = 1; index <= snapshotCount; index++) {
+        const wallClock = 1000 + index * snapshotMs;
+        const serverTick = 100 + ticksPerSnapshot * index;
+        const { localX, remoteX } = authorityAt(index);
+        hook.rerender({
+          // welcome.snapshotSequence is 1, so sequences have to start at 2 to clear the
+          // `sequence <= newest` guard.
+          latestSnapshot: { ...snapshot(index + 1, wallClock, localX), serverTick,
+            ...pairState(localX, remoteX, remoteVx) },
+          pendingInputs: heldThrough(serverTick + unacknowledgedTicks),
+        });
+        for (let step = 0; step < framesPerSnapshot; step++) {
+          // Both clocks, driven coherently: the wall clock feeds sampleTimeline's
+          // Date.now() and the explicit argument feeds the presentation clock. Frame
+          // times start at 50, past the RAF effect's synchronous mount update at
+          // performance.now(), which is 0 under fake timers.
+          vi.setSystemTime(wallClock + step * frameMs);
+          act(() => { frame?.(index * snapshotMs + step * frameMs); });
+        }
+      }
+      return { hook, settled: captured.filter(entry => entry.index > warmUpSnapshots).map(entry => entry.rendered) };
+    }
+
+    const separations = (rendered: RenderState[]): number[] => rendered.map(item => {
+      const dx = item.localPlayer!.x - item.remotePlayer!.x;
+      const dy = item.localPlayer!.y - item.remotePlayer!.y;
+      return dx * dx + dy * dy;
+    });
+    const frameDeltas = (rendered: RenderState[]): number[] => rendered
+      .slice(1).map((item, at) => Math.abs(item.localPlayer!.x - rendered[at].localPlayer!.x));
+
+    it('never overlaps or hard-snaps while the local player pushes the opponent', () => {
+      // The local player shoves the opponent along in front of it. The opponent carries
+      // no velocity of its own — its motion is entirely the server's overlap resolution —
+      // so dead reckoning holds it still and the client's own resolution has to
+      // reproduce the push. Displayed contact is a pure interpolation-lag artefact here:
+      // the local player is presented at approximately now while the opponent is replayed
+      // from 100 ms ago, one whole diameter of closing behind, so this is the fixture
+      // that exercises the display constraint.
+      const { hook, settled } = driveContact(held, 0, index => ({
+        localX: index * pushPerSnapshot,
+        remoteX: index * pushPerSnapshot + diameter,
+      }));
+
+      expect(settled).toHaveLength((snapshotCount - warmUpSnapshots) * framesPerSnapshot);
+      expect(hook.result.current.snapCount).toBe(0);
+      expect(Math.min(...separations(settled))).toBeGreaterThanOrEqual(diameter * diameter);
+      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * prediction.baseMovePerTick);
+    });
+
+    it('never overlaps or hard-snaps while the opponent pushes the local player', () => {
+      // The mirror: the local player holds neutral input and the opponent walks into it
+      // at the free rate, so the authoritative local x is driven outward purely by the
+      // server's overlap resolution. Displayed bodies stay clear here — the lagged
+      // opponent is behind its live position, i.e. further away — so the separation this
+      // test measures is produced by prediction, not by the display constraint.
+      const { hook, settled } = driveContact(neutral, -prediction.baseMovePerTick, index => ({
+        localX: diameter - index * pushPerSnapshot,
+        remoteX: 2 * diameter - index * pushPerSnapshot,
+      }));
+
+      expect(settled).toHaveLength((snapshotCount - warmUpSnapshots) * framesPerSnapshot);
+      expect(hook.result.current.snapCount).toBe(0);
+      expect(Math.min(...separations(settled))).toBeGreaterThanOrEqual(diameter * diameter);
+      expect(Math.max(...frameDeltas(settled))).toBeLessThan(4 * prediction.baseMovePerTick);
+      // The display here is the raw prediction, so the sub-tick phase clock is visible in
+      // it. Every frame is at least `frameMs` long, i.e. very nearly a whole tick, so at
+      // the contact rate it must carry the local player at least half a tick's travel.
+      // Resetting the phase on an ordinary snapshot strands the frame the snapshot lands
+      // on at the tick-aligned base and drops that frame's travel to almost nothing.
+      expect(Math.min(...frameDeltas(settled))).toBeGreaterThan(pushPerTick / 2);
+    });
+  });
 });
