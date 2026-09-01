@@ -486,7 +486,6 @@ describe('overlap snap tuning', () => {
   });
 });
 
-
 describe('constrainLocalDisplay', () => {
   const body = (overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot => ({
     sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
@@ -527,6 +526,8 @@ describe('constrainLocalDisplay', () => {
   it('never renders the local player outside the arena radius', () => {
     const remote = body({ sessionId: 20, side: 1, x: 8800, y: 0 });
     const result = constrainLocalDisplay(body({ x: 8900, y: 0 }), remote, 600, 9000);
+    expect(result.x).toBe(9000);
+    expect(result.y).toBe(0);
     expect(result.x * result.x + result.y * result.y).toBeLessThanOrEqual(9000 * 9000);
   });
 
@@ -541,6 +542,8 @@ describe('constrainLocalDisplay', () => {
     const result = constrainLocalDisplay(local, remote, 600, 9000);
     expect(local.x).toBe(400);
     expect(remote.x).toBe(0);
+    expect(result).not.toBe(local);
+    expect(result.x).toBe(1201);
     expect({ ...result, x: 0, y: 0 }).toEqual({ ...local, x: 0, y: 0 });
   });
 });

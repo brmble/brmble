@@ -108,6 +108,11 @@ export function resolveBodyOverlap(
  *
  * The result is never written back into prediction, presentation, snapshots,
  * pending inputs, or the correction origin.
+ *
+ * Separation yields to the arena clamp: if clearing the remote would put the
+ * local player outside the ring, the clamp wins and the bodies may still
+ * overlap on screen. Rendering outside the ring without an authoritative
+ * knockout is the worse artefact.
  */
 export function constrainLocalDisplay(
   local: ArenaPlayerSnapshot,
