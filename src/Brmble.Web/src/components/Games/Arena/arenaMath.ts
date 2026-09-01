@@ -303,6 +303,19 @@ export function stepLocal(
     player.vx = multiplyDivideTruncated(player.vx, constants.momentumRetentionPermille, 1000);
     player.vy = multiplyDivideTruncated(player.vy, constants.momentumRetentionPermille, 1000);
   }
+
+  // Server stage 9. The opponent is dead-reckoned from authority, never simulated:
+  // no opponent input, dash, or fire is inferred. Same linear extrapolation
+  // sampleTimeline already uses.
+  if (next.opponent !== null) {
+    const opponent = live
+      ? { ...next.opponent, x: next.opponent.x + next.opponent.vx, y: next.opponent.y + next.opponent.vy }
+      : { ...next.opponent };
+    const resolved = resolveBodyOverlap(player, opponent, constants.playerRadius);
+    next.player = resolved.a;
+    next.opponent = resolved.b;
+  }
+
   return next;
 }
 

@@ -410,3 +410,56 @@ describe('resolveBodyOverlap', () => {
     expect(source.x).toBe(0);
   });
 });
+
+describe('stepLocal body overlap', () => {
+  const liveState = (localX: number, opponentX: number) => reconcile(
+    authority(snapshot({
+      phase: 'live',
+      players: [
+        { ...snapshot().players[0], sessionId: 10, side: 0, x: localX, y: 0, vx: 0, vy: 0 },
+        { ...snapshot().players[1], sessionId: 20, side: 1, x: opponentX, y: 0, vx: 0, vy: 0 },
+      ],
+    })),
+    [],
+    prediction,
+  ).local;
+
+  const idle = { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false };
+
+  it('separates the predicted local player from an overlapping opponent', () => {
+    const next = stepLocal(liveState(0, 1000), idle, prediction);
+    expect(next.player.x).toBe(-100);
+    expect(next.opponent?.x).toBe(1100);
+  });
+
+  it('does not touch positions when the bodies are clear', () => {
+    const next = stepLocal(liveState(0, 4000), idle, prediction);
+    expect(next.player.x).toBe(0);
+    expect(next.opponent?.x).toBe(4000);
+  });
+
+  it('dead-reckons the opponent forward by its velocity before resolving overlap', () => {
+    const state = liveState(0, 1300);
+    state.opponent = { ...state.opponent!, vx: -200 };
+    // Opponent dead-reckons to 1100, penetration 100, lowShare 50, highShare 50.
+    const next = stepLocal(state, idle, prediction);
+    expect(next.player.x).toBe(-50);
+    expect(next.opponent?.x).toBe(1150);
+    expect(next.opponent?.vx).toBe(-200);
+  });
+
+  it('skips the overlap stage when there is no opponent', () => {
+    const state = liveState(0, 1000);
+    state.opponent = null;
+    expect(stepLocal(state, idle, prediction).player.x).toBe(0);
+  });
+
+  it('keeps prediction error bounded through sustained contact', () => {
+    let state = liveState(0, 1000);
+    for (let tick = 0; tick < 120; tick++) state = stepLocal(state, idle, prediction);
+    const dx = state.player.x - state.opponent!.x;
+    // Never drifts far past a single separation; nowhere near the 300-unit snap threshold.
+    expect(Math.abs(dx)).toBeLessThan(1300);
+  });
+});
+
