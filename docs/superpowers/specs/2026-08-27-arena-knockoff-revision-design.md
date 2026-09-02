@@ -419,6 +419,22 @@ Both stub bodies land together here rather than half in 3a, so the spectator
 branch is written against a real consumer and no half-implemented method sits on
 `main` between slices.
 
+**Carried forward from 3a.** The local reconciliation work changed the renderer
+contract in a way the spectator path must satisfy:
+
+- `ArenaRenderView` now requires a `prediction: ArenaPredictionConstants` field.
+  `ArenaRenderer` no longer carries its own `playerRadius` / `projectileRadius` /
+  `shotCooldownTicks` constants, so any spectator render path must supply it.
+  `ArenaBoard` sources it as `connection.welcome?.prediction ?? PREDICTION_V1`,
+  because `welcome` is legitimately null on the terminal final-state path. A
+  spectator has no participant `welcome` at all, so 3b must decide deliberately
+  where its constants come from rather than inheriting that fallback by accident.
+- `constrainLocalDisplay` is a **local-player-only** display filter and must not
+  be applied to a spectated match. It exists to reconcile a locally predicted
+  player against a buffered remote one; a spectator interpolates *both* players
+  from the same authoritative timeline, so there is no timeline mismatch to
+  correct and applying it would displace an authoritative position.
+
 ### 4.3 Slice 3c — Polish and gates
 
 July Task 16 (audio cues, saved volume, session mute), Task 18 (operational
@@ -428,6 +444,119 @@ verification, controlled load gate, manual playtest, balancing gate).
 The balancing gate remains the release condition it is in the July plan: a
 failed gate changes `ArenaRulesetV1`, increments its version, and repeats
 verification.
+
+**Carried forward from 3a.** The local reconciliation work
+(`docs/superpowers/specs/2026-09-01-arena-local-reconciliation-design.md`) landed
+green and reviewed, but deferred the following deliberately. None of it blocks
+3b. Each entry names why it was deferred rather than fixed, so 3c can re-decide
+rather than re-derive.
+
+*Correctness and robustness*
+
+- **`fromAuthority` throws on a missing local player, permanently killing the
+  frame loop.** `arenaMath.ts` throws `'Arena authority does not contain the
+  current session'`; the throw escapes the animation-frame callback *before*
+  `requestAnimationFrame` reschedules, so the board freezes with no error
+  surface. §"Error and Edge Handling" of the reconciliation spec requires "skip
+  both collision stages and render the remote player". Pre-existing, not
+  introduced by that work, and low probability because the server's `Players`
+  array always holds two participants — which is exactly why it was left alone
+  rather than fixed inside an unrelated 19-commit change.
+- **`snappedRef` latches, so `snapCount` counts snap *streaks*, not snap
+  frames.** A client persistently in an invalid position reports `snapCount` 0
+  across an unbounded run of distinct snaps. Defensible as a metric definition,
+  but Task 18's operational telemetry and bounded client reconciliation
+  summaries are the first consumer that would read it as a health signal. Decide
+  the semantics there. Note the sharp edge documented in `useArenaState.ts`:
+  below three quarters of a player diameter, `invalidPosition` fires on the
+  first synchronous frame where `predictedRef` is still undefined, so the ref
+  latches at mount and pins `snapCount` at 0 regardless of correctness.
+
+*Parity hardening*
+
+- **Six of the nine client body-overlap parity cases have no server
+  counterpart.** Only the even split, the odd unit to side 1, and negative
+  normal truncation are cross-checked by MSTests. Not cross-checked: the
+  exactly-touching boundary (the strict `>=`), the coincident-centre positive-X
+  normal, the deliberate un-renormalized under-push, reversed argument ordering,
+  and non-position field preservation. The first two are the likeliest to drift
+  silently under a server refactor. Purely additive test work, zero production
+  risk.
+- **No test pins that `localPlayerRef` and the Canvas frame use the same local
+  position.** Structurally true — one field, two consumers in `ArenaBoard` — but
+  unguarded, so a future reintroduction of an unconstrained path for pointer aim
+  would fail silently. The reconciliation spec's testing section names this
+  explicitly.
+
+*Legibility*
+
+- **The three-part correction origin collapses to a single expression.**
+  `correctionOrigin` is currently the rendered local position, minus its own
+  sub-tick interpolation offset, advanced by the whole ticks the phase clock
+  consumed — assembled across two tasks and one mid-task correction. It is
+  algebraically equal to `advance(presented).player − correction · remaining`,
+  computed entirely at reconcile time, which needs no `renderedBaseRef` and does
+  not read `interpolatedPlayer` at all. The single-expression form is also
+  marginally *more* correct: the ref carries a one-frame-stale `remaining`,
+  roughly 16% of the residual correction at 60 Hz. Deferred because it is
+  behaviour-changing at unit level, moves pinned expectations in the subtlest
+  code on the branch, and refactoring correct code immediately after it
+  stabilised trades real risk for legibility.
+
+*Test-suite debt*
+
+- The sustained-contact fixtures use a 50 ms snapshot interval, which is exactly
+  three ticks at 60 Hz, so the preserved sub-tick phase is zero in exact
+  arithmetic. Their discrimination of a phase-clock regression rests on IEEE-754
+  residue in the presentation clock's `1000/60` accumulation. A non-tick-aligned
+  interval such as 51 ms would exercise it robustly. Documented in the test file.
+- Both sustained-contact fixtures place the local player on `side: 0`, so
+  `resolveBodyOverlap`'s `aIsLow === false` branch and the odd-penetration
+  asymmetry are never reached through the hook. Unit-covered in
+  `arenaMath.test.ts`, but not in composition with the phase clock and the
+  display constraint. Task 19's manual playtest should cover contact driven from
+  the side-1 client specifically.
+- Smaller items, all cheap: the non-mutation parity test asserts only its first
+  argument; the diagonal-clear constraint test asserts only the `>= diameter²`
+  inequality, so a wrong-but-still-clearing push would pass; a worked-example
+  comment in `arenaMath.test.ts` reads `-23173.6` where the true quotient is
+  `-23173.267`; `dashEndsAtTick` outliving the dash input flag makes the
+  presentation step size 90 or 330 units and is documented only inside one test;
+  the correction-origin advance lacks the phase guard the display path has
+  (neutralised by `stepLocal`'s own short-circuit, costs at most three wasted
+  clones per reconcile frame in non-live phases).
+
+*Manual playtest additions for Task 19*
+
+The reconciliation suite is hook-level and unit-level: no network, no packet
+loss or reordering, no real frame-time jitter, no canvas, no second client.
+Task 19's playtest is the only gate on these:
+
+- **Contact under a degraded connection, watching your own player.**
+  `constrainLocalDisplay` ties the displayed local position to `sampleTimeline`'s
+  output, and `sampleTimeline` is not continuous — it abandons extrapolation and
+  returns the latest frame verbatim once elapsed time exceeds
+  `maxExtrapolationMs`. Under a dropped snapshot during contact, that
+  discontinuity transfers to the *local* player, up to a full body diameter in
+  one frame. Before this work a remote sampling discontinuity moved only the
+  remote. This is display-only and self-healing, but it is the artifact most
+  likely to be reported as "contact got worse under lag". If visible, the
+  constraint needs slew-limiting against the sampled remote.
+- Contact driven from the **side-1** client specifically (lower session id is
+  side 0), contact combined with dash and with point-blank fire, aim while the
+  constraint is engaged, a knockout caused by an overlap push, and a round reset
+  entering while in contact. None of these compositions are covered by tests.
+
+*Accepted, not deferred — do not "fix" without a decision*
+
+- Near the ring the arena clamp takes precedence over full separation, so
+  displayed bodies may still overlap within roughly the last 200 units before
+  the edge. Rendering outside the ring without an authoritative knockout is the
+  worse artifact. Documented in `constrainLocalDisplay`'s JSDoc.
+- The client leaves the dead-reckoned opponent's velocity undamped while the
+  server damps both players, so a small error term grows with replay length.
+  This is why the deep-overlap snap threshold must not be tightened toward one
+  full diameter.
 
 ---
 
