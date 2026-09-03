@@ -108,7 +108,7 @@ describe('ArenaBoard', () => {
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome unavailable.');
     expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
-    fireEvent.click(screen.getByRole('button', { name: 'Close arena' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -153,24 +153,101 @@ describe('ArenaBoard', () => {
       ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
     })} />);
 
-    const close = screen.getByRole('button', { name: 'Close arena' });
+    const close = screen.getByRole('button', { name: 'Close' });
     expect(close).not.toBeDisabled();
     fireEvent.click(close);
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('claims no outcome when the socket closes before the duel bridge reports', () => {
+    const onClose = vi.fn();
+    const onForfeit = vi.fn();
     connection.current = {
       ...connection.current, status: 'closed', welcome: null, latestSnapshot: null,
       closed: { reason: 'completed', serverTick: 400 } as ArenaConnection['closed'],
     };
 
-    render(<ArenaBoard {...props({ ended: null })} />);
+    render(<ArenaBoard {...props({ ended: null, onClose, onForfeit })} />);
 
     expect(screen.getByText('Match ended')).toBeInTheDocument();
     const live = screen.getByTestId('arena-live-region');
     expect(live).toHaveTextContent('Outcome unavailable.');
     expect(live).not.toHaveTextContent('Outcome: Victory');
+    // The match is already over, so this exit must close rather than forfeit.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onForfeit).not.toHaveBeenCalled();
+  });
+
+  it('offers an explicit Forfeit action while the match is live', () => {
+    const onForfeit = vi.fn();
+
+    render(<ArenaBoard {...props({ onForfeit })} />);
+
+    expect(screen.queryByRole('button', { name: 'Rematch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Forfeit' }));
+    expect(onForfeit).toHaveBeenCalledOnce();
+  });
+
+  it('replaces Forfeit with Rematch and Close once the match has ended', () => {
+    const onRematch = vi.fn();
+    const onClose = vi.fn();
+
+    render(<ArenaBoard {...props({
+      onRematch, onClose,
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
+    })} />);
+
+    expect(screen.queryByRole('button', { name: 'Forfeit' })).toBeNull();
+    expect(screen.getByText('You win!')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Rematch' }));
+    expect(onRematch).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('locks the rematch action while a request is pending', () => {
+    const onRematch = vi.fn();
+
+    render(<ArenaBoard {...props({
+      onRematch, rematchPending: true,
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
+    })} />);
+
+    const rematch = screen.getByRole('button', { name: 'Rematch pending' });
+    expect(rematch).toBeDisabled();
+    fireEvent.click(rematch);
+    expect(onRematch).not.toHaveBeenCalled();
+  });
+
+  it('names the winner when the local player lost', () => {
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 20 },
+    })} />);
+
+    expect(screen.getByText('Remote wins!')).toBeInTheDocument();
+  });
+
+  it('states a draw without naming a winner', () => {
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', draw: true },
+    })} />);
+
+    expect(screen.getByText('Draw.')).toBeInTheDocument();
+  });
+
+  it('gives a neutral result message when neither source reports an outcome', () => {
+    connection.current = {
+      ...connection.current, status: 'failed', welcome: null, latestSnapshot: null, closed: null,
+    };
+
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff' },
+    })} />);
+
+    expect(screen.getByText('The match has ended.')).toBeInTheDocument();
+    expect(screen.queryByText(/wins!/)).toBeNull();
   });
 
   it('keeps the live region polite and ignores frame-position-only changes', () => {
@@ -606,7 +683,7 @@ describe('ArenaBoard', () => {
     rendered.unmount();
     const endedProps = props({ ended: { reason: 'completed', finalState: { ...state.current, players: [] } } as never });
     render(<ArenaBoard {...endedProps} />);
-    fireEvent.click(screen.getByRole('button', { name: /close arena/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
     expect(endedProps.onClose).toHaveBeenCalledOnce();
   });
 
@@ -672,7 +749,7 @@ describe('ArenaBoard', () => {
     const ended = { reason: 'completed', finalState: { ...state.current, players: [] } } as never;
 
     rendered.rerender(<ArenaBoard {...props({ ended, onClose })} />);
-    fireEvent.click(screen.getByRole('button', { name: /close arena/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
 
     expect(events).toEqual(['neutral', 'inactive', 'callback']);
   });

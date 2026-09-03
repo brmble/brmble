@@ -17,6 +17,8 @@ interface ArenaBoardProps {
   resolveAvatarUrl: (sessionId: number) => string | null | undefined;
   onForfeit: () => void;
   onClose: () => void;
+  onRematch?: () => void;
+  rematchPending?: boolean;
   ended: ArenaMatchClosed | EndedMatch | null;
 }
 
@@ -65,6 +67,7 @@ function projectileSummary(state: ArenaStateSnapshot): string {
 
 export function ArenaBoard({
   matchId, selfSessionId, resolveName, resolveAvatarUrl, onForfeit, onClose, ended,
+  onRematch, rematchPending = false,
 }: ArenaBoardProps) {
   const connection = useArenaConnection({ matchId, enabled: true });
   const endedFinalState = ended && 'finalState' in ended ? ended.finalState : undefined;
@@ -159,6 +162,7 @@ export function ArenaBoard({
   const winnerId = ended && 'winnerId' in ended ? ended.winnerId : undefined;
   const drawn = ended !== null && 'draw' in ended && ended.draw === true;
   const local = players.find(player => player.sessionId === selfSessionId) ?? null;
+  const opponent = players.find(player => player.sessionId !== selfSessionId) ?? null;
   const localSide = local?.side ?? 0;
   // Two independent authoritative sources: the duel bridge names a winner, and a
   // delivered final board carries the settled score. Either is enough, so the
@@ -198,23 +202,30 @@ export function ArenaBoard({
     local ? `Shot ${cooldownState(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
     outcomeKnown || !matchEnded ? `Outcome: ${outcome}.` : 'Outcome unavailable.',
   ].join(' ');
+  const handleForfeit = () => {
+    input.release();
+    onForfeit();
+  };
   const handleClose = () => {
     input.release();
-    if (ended) onClose();
-    else onForfeit();
+    onClose();
   };
+  const resultMessage = ended && 'abandoned' in ended && ended.abandoned
+    ? ended.reason ? `Match abandoned: ${ended.reason}` : 'The match was abandoned.'
+    : forfeited
+      ? 'Match forfeited.'
+      : drawn || (winnerId == null && finalState !== undefined && score[0] === score[1])
+        ? 'Draw.'
+        : winnerId != null
+          ? winnerId === selfSessionId ? 'You win!' : `${resolveName(winnerId)} wins!`
+          : finalState !== undefined
+            ? outcome === 'Victory' || opponent === null
+              ? 'You win!'
+              : `${resolveName(opponent.sessionId)} wins!`
+            : 'The match has ended.';
 
   return (
     <section className={`arena-board glass-panel animate-slide-up ${styles.board}`} data-testid="arena-board">
-      <button
-        className="modal-close"
-        onClick={handleClose}
-        aria-label={ended ? 'Close arena' : 'Forfeit arena'}
-
-
-      >
-        <Icon name="x" />
-      </button>
       <header className={`modal-header ${styles.header}`}>
         <div className={styles.titleBlock}>
           <h2 className="heading-title modal-title">Arena Knockoff</h2>
@@ -232,6 +243,25 @@ export function ArenaBoard({
       </header>
       <div className={styles.canvasBox}>
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+      </div>
+      {matchEnded && (
+        <div className={styles.result}>
+          <p className={styles.resultText}>{resultMessage}</p>
+        </div>
+      )}
+      <div className={styles.footer}>
+        {matchEnded ? (
+          <>
+            {onRematch && (
+              <button className="btn btn-secondary" onClick={onRematch} disabled={rematchPending}>
+                {rematchPending ? 'Rematch pending' : 'Rematch'}
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={handleClose}>Close</button>
+          </>
+        ) : (
+          <button className="btn btn-danger" onClick={handleForfeit}>Forfeit</button>
+        )}
       </div>
       <div className="sr-only" data-testid="arena-live-region" role="status" aria-live="polite">{liveText}</div>
     </section>

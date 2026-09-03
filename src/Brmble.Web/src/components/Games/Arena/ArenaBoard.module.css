@@ -13,7 +13,6 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding-right: var(--space-xl);
 }
 
 .titleBlock {
@@ -52,4 +51,31 @@
 
 .canvas {
   display: block;
+}
+
+.result {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.resultText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.footer .btn {
+  flex: 1;
 }

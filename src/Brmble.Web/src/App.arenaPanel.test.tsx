@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ArenaStateSnapshot } from './components/Games/Arena/arenaProtocol';
 
@@ -188,7 +188,7 @@ describe('App arena main-panel integration', () => {
       expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
       // Close must never be blocked on the socket: a socket that closes without
       // matchClosed used to strand the board here permanently.
-      expect(screen.getByRole('button', { name: 'Close arena' })).toBeEnabled();
+      expect(within(screen.getByTestId('arena-board')).getByRole('button', { name: 'Close' })).toBeEnabled();
       act(() => { socket.serverMessage(matchClosed()); });
     } else {
       act(() => { socket.serverMessage(matchClosed()); });
@@ -202,7 +202,7 @@ describe('App arena main-panel integration', () => {
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Me, side 1');
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Player 20, side 2');
     expect(socket.close).not.toHaveBeenCalled();
-    const close = screen.getByRole('button', { name: 'Close arena' });
+    const close = within(screen.getByTestId('arena-board')).getByRole('button', { name: 'Close' });
     expect(close).toBeEnabled();
     fireEvent.click(close);
 
@@ -243,7 +243,7 @@ describe('App arena main-panel integration', () => {
       expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
       expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome: Victory.');
       expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome unavailable.');
-      const close = screen.getByRole('button', { name: 'Close arena' });
+      const close = within(screen.getByTestId('arena-board')).getByRole('button', { name: 'Close' });
       expect(close).toBeEnabled();
       fireEvent.click(close);
       expect(screen.queryByTestId('arena-board')).toBeNull();

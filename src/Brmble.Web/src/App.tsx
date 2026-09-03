@@ -5343,7 +5343,12 @@ const handleConnect = (serverData: SavedServer) => {
             resolveAvatarUrl={resolveUserAvatarUrl}
             ended={gameState.ended}
             onForfeit={confirmForfeit}
-            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            // Close only renders once the match is over, and the arena socket can
+            // report that before the duel event does - so this must never fall back
+            // to a forfeit prompt for an already-finished match.
+            onClose={gameState.dismissEnded}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
           />
         );
       default:
