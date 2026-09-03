@@ -19,6 +19,7 @@
   --text-2xl: 1.5rem;    /* 24px */
   --text-3xl: 2rem;      /* 32px */
   --text-4xl: 2.5rem;    /* 40px */
+  --text-5xl: 4rem;      /* 64px - display numerals over a game canvas */
 
   /* Layout */
   --sidebar-width: 340px;

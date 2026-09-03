@@ -43,12 +43,12 @@ Do not create new UI systems, one-off component patterns, ad-hoc CSS, native bro
 
 All visual properties must come from CSS custom properties. Two layers exist:
 
-### Layer 1: Global Tokens (41 in `:root`, `index.css`)
+### Layer 1: Global Tokens (42 in `:root`, `index.css`)
 
 | Group | Tokens | Range |
 |---|---|---|
 | Spacing | `--space-2xs` through `--space-3xl` | 4px - 64px (8 tokens) |
-| Font sizes | `--text-2xs` through `--text-4xl` | 10px - 40px (9 tokens) |
+| Font sizes | `--text-2xs` through `--text-5xl` | 10px - 64px (10 tokens) |
 | Layout | `--sidebar-width`, `--header-height`, component layout tokens | Shared layout dimensions and component-specific widths |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
