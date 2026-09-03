@@ -138,9 +138,11 @@ export function ArenaBoard({
   };
 
   const authoritative = finalState ?? connection.latestSnapshot ?? connection.welcome?.state ?? null;
-  const finalized = ended !== null && finalState !== undefined;
-  const finalizationPending = ended !== null && !finalized && connection.status !== 'failed';
-  const finalizationFailed = ended !== null && !finalized && connection.status === 'failed';
+  // The match result rides the duel event bridge (`ended`); the arena socket only
+  // supplies the final board positions. Gating the outcome on the socket produced
+  // three different screens for one match depending on which one survived.
+  const matchEnded = ended !== null || connection.closed !== null;
+  const boardUnavailable = matchEnded && finalState === undefined;
   const players = authoritative?.players ?? [];
   const serverTick = connection.closed?.serverTick
     ?? (ended && 'serverTick' in ended ? ended.serverTick : undefined)
@@ -154,33 +156,47 @@ export function ArenaBoard({
   const round = score[0] + score[1] + 1;
   const forfeited = connection.closed?.reason === 'forfeited'
     || (ended && 'reason' in ended && ended.reason === 'forfeited');
-  const roundLabel = finalizationPending
-    ? 'Finalizing match'
-    : finalizationFailed
-      ? 'Finalization failed'
-      : finalized
-        ? forfeited ? 'Match forfeited' : 'Match complete'
+  const winnerId = ended && 'winnerId' in ended ? ended.winnerId : undefined;
+  const drawn = ended !== null && 'draw' in ended && ended.draw === true;
+  const local = players.find(player => player.sessionId === selfSessionId) ?? null;
+  const localSide = local?.side ?? 0;
+  // Two independent authoritative sources: the duel bridge names a winner, and a
+  // delivered final board carries the settled score. Either is enough, so the
+  // outcome survives losing one of them.
+  const outcomeKnown = matchEnded
+    && (forfeited || drawn || winnerId != null || finalState !== undefined);
+  const roundLabel = matchEnded
+    ? forfeited
+      ? 'Match forfeited'
+      : outcomeKnown ? 'Match complete' : 'Match ended'
     : `Round ${round}${(authoritative?.consecutiveDoubleKos ?? 0) > 0
       ? ` · Double KO replay ${authoritative!.consecutiveDoubleKos}`
       : ''}`;
-  const local = players.find(player => player.sessionId === selfSessionId) ?? null;
-  const outcome = finalized
-    ? forfeited ? 'Forfeit' : score[0] === score[1] ? 'Draw' : score[local?.side ?? 0] > score[(local?.side ?? 0) === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
-    : finalizationFailed
-      ? 'unavailable'
-      : finalizationPending
-        ? 'pending final state'
-        : 'Match in progress';
+  const outcome = !matchEnded
+    ? 'Match in progress'
+    : forfeited
+      ? 'Forfeit'
+      : drawn
+        ? 'Draw'
+        // GamePlayer.UserId is a misnomer: GameSessionManager builds it from the
+        // reservation SessionId, so winnerId is a session id, not a user id.
+        : winnerId != null
+          ? winnerId === selfSessionId ? 'Victory' : 'Defeat'
+          : finalState !== undefined
+            ? score[0] === score[1]
+              ? 'Draw'
+              : score[localSide] > score[localSide === 0 ? 1 : 0] ? 'Victory' : 'Defeat'
+            : 'unavailable';
   const liveText = [
     `${roundLabel}.`,
-    ...(finalizationFailed ? ['Final match state unavailable.'] : []),
+    ...(boardUnavailable ? ['Final match state unavailable.'] : []),
     `${phase}${authoritative?.phaseEndsAtTick == null ? '' : `, ${countdownSeconds} ${countdownSeconds === 1 ? 'second' : 'seconds'} remaining`}.`,
     `Score ${score[0]} to ${score[1]}.`,
     ...players.map(player => `${resolveName(player.sessionId)}, side ${player.side + 1}, aim ${direction(player)}, charge ${chargeBand(player.chargePermille)}${forcedFireState(player.forcedFireTicks)}.`),
     authoritative ? projectileSummary(authoritative) : '0 projectiles present.',
     authoritative ? `Arena radius ${radiusBand(authoritative.arena.radius)}, shrink phase ${authoritative.arena.shrinkPhase}.` : 'Arena unavailable.',
     local ? `Shot ${cooldownState(local.cooldownTicks)}; ${local.dashAvailable ? 'dash available' : 'dash used'}.` : 'Local combat state unavailable.',
-    finalizationFailed ? 'Outcome unavailable.' : `Outcome: ${outcome}.`,
+    outcomeKnown || !matchEnded ? `Outcome: ${outcome}.` : 'Outcome unavailable.',
   ].join(' ');
   const handleClose = () => {
     input.release();
@@ -194,8 +210,8 @@ export function ArenaBoard({
         className="modal-close"
         onClick={handleClose}
         aria-label={ended ? 'Close arena' : 'Forfeit arena'}
-        disabled={finalizationPending}
-        aria-disabled={finalizationPending || undefined}
+
+
       >
         <Icon name="x" />
       </button>

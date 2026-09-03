@@ -182,15 +182,13 @@ describe('App arena main-panel integration', () => {
       act(() => { emitBridgeEvent('game.ended', leanEnded()); });
       expect(socket.close).not.toHaveBeenCalled();
       expect(screen.getByTestId('arena-board')).toBeInTheDocument();
-      expect(screen.getByText('Finalizing match')).toBeInTheDocument();
-      expect(screen.queryByText('Match complete')).toBeNull();
+      // The duel event names the winner, so the outcome is known before the
+      // arena socket delivers the final board.
+      expect(screen.getByText('Match complete')).toBeInTheDocument();
       expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
-      const pendingClose = screen.getByRole('button', { name: 'Close arena' });
-      expect(pendingClose).toBeDisabled();
-      expect(pendingClose).toHaveAttribute('aria-disabled', 'true');
-      fireEvent.click(pendingClose);
-      expect(socket.close).not.toHaveBeenCalled();
-      expect(screen.getByTestId('arena-board')).toBeInTheDocument();
+      // Close must never be blocked on the socket: a socket that closes without
+      // matchClosed used to strand the board here permanently.
+      expect(screen.getByRole('button', { name: 'Close arena' })).toBeEnabled();
       act(() => { socket.serverMessage(matchClosed()); });
     } else {
       act(() => { socket.serverMessage(matchClosed()); });
@@ -227,21 +225,24 @@ describe('App arena main-panel integration', () => {
     expect(screen.getByTestId('spectator-unsupported-game')).toHaveTextContent('arena-knockoff');
   });
 
-  it('allows Close with no fabricated outcome when terminal finalization fails', async () => {
+  it('keeps the authoritative outcome and Close when the socket never delivers the final board', async () => {
     renderConnectedApp({ joinedChannelId: '7', channels: [{ id: 7, name: 'General' }] });
     const socket = await mountedArena();
     act(() => { emitBridgeEvent('game.ended', leanEnded()); });
-    expect(screen.getByText('Finalizing match')).toBeInTheDocument();
+    // leanEnded names session 1 — the local player — as the winner.
+    expect(screen.getByText('Match complete')).toBeInTheDocument();
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome: Victory.');
 
     vi.useFakeTimers();
     try {
       act(() => { socket.onerror?.(); });
       await act(() => vi.advanceTimersByTimeAsync(5000));
 
-      expect(screen.getByText('Finalization failed')).toBeInTheDocument();
+      // Losing the socket costs the final board, never the result.
+      expect(screen.getByText('Match complete')).toBeInTheDocument();
       expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
-      expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome unavailable.');
-      expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
+      expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome: Victory.');
+      expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome unavailable.');
       const close = screen.getByRole('button', { name: 'Close arena' });
       expect(close).toBeEnabled();
       fireEvent.click(close);

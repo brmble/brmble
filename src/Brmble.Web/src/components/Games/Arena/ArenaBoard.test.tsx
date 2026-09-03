@@ -89,7 +89,7 @@ describe('ArenaBoard', () => {
     expect(live).toHaveTextContent(/shot cooling down.*dash used/i);
   });
 
-  it('allows closing without fabricating an outcome when finalization fails', () => {
+  it('allows closing without fabricating an outcome when neither source reports one', () => {
     const onClose = vi.fn();
     connection.current = {
       ...connection.current,
@@ -104,12 +104,73 @@ describe('ArenaBoard', () => {
       onClose,
     })} />);
 
-    expect(screen.getByText('Finalization failed')).toBeInTheDocument();
+    expect(screen.getByText('Match ended')).toBeInTheDocument();
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Final match state unavailable.');
     expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome unavailable.');
     expect(screen.getByTestId('arena-live-region')).not.toHaveTextContent('Outcome: Draw');
     fireEvent.click(screen.getByRole('button', { name: 'Close arena' }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('states the authoritative outcome even when the final board never arrives', () => {
+    // The outcome rides the duel event bridge, not the arena socket, so a dead
+    // socket must not stop us naming the winner.
+    connection.current = {
+      ...connection.current, status: 'failed', welcome: null, latestSnapshot: null, closed: null,
+    };
+
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
+    })} />);
+
+    expect(screen.getByText('Match complete')).toBeInTheDocument();
+    expect(screen.queryByText('Finalization failed')).toBeNull();
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome: Victory.');
+  });
+
+  it('names a defeat from the authoritative winner rather than the local score', () => {
+    connection.current = {
+      ...connection.current, status: 'failed', welcome: null, latestSnapshot: null, closed: null,
+    };
+
+    render(<ArenaBoard {...props({
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 20 },
+    })} />);
+
+    expect(screen.getByTestId('arena-live-region')).toHaveTextContent('Outcome: Defeat.');
+  });
+
+  it('never leaves close disabled once the match has ended', () => {
+    // A socket that closes cleanly without matchClosed used to strand the board
+    // on 'Finalizing match' with the close button permanently disabled.
+    const onClose = vi.fn();
+    connection.current = {
+      ...connection.current, status: 'closed', welcome: null, latestSnapshot: null, closed: null,
+    };
+
+    render(<ArenaBoard {...props({
+      onClose,
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
+    })} />);
+
+    const close = screen.getByRole('button', { name: 'Close arena' });
+    expect(close).not.toBeDisabled();
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('claims no outcome when the socket closes before the duel bridge reports', () => {
+    connection.current = {
+      ...connection.current, status: 'closed', welcome: null, latestSnapshot: null,
+      closed: { reason: 'completed', serverTick: 400 } as ArenaConnection['closed'],
+    };
+
+    render(<ArenaBoard {...props({ ended: null })} />);
+
+    expect(screen.getByText('Match ended')).toBeInTheDocument();
+    const live = screen.getByTestId('arena-live-region');
+    expect(live).toHaveTextContent('Outcome unavailable.');
+    expect(live).not.toHaveTextContent('Outcome: Victory');
   });
 
   it('keeps the live region polite and ignores frame-position-only changes', () => {
