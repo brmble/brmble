@@ -218,12 +218,22 @@ export class ArenaRenderer {
       ctx.stroke();
     }
 
+    // The marker reads as the player's back, so it points opposite the aim vector
+    // and rotates with it — the aim and charge sticks above are the front. Aim is
+    // zero-length only before the first input, where the spawn orientation (facing
+    // away from the player's own side) is the correct rear.
+    const aimed = player.aimX !== 0 || player.aimY !== 0;
+    const rearX = aimed ? -aimX : player.side === 0 ? -1 : 1;
+    const rearY = aimed ? -aimY : 0;
+    const spreadX = -rearY * line(180);
+    const spreadY = rearX * line(180);
+    const baseDistance = playerRadius * scale;
+    const apexDistance = (playerRadius + 300) * scale;
     ctx.fillStyle = sideColor;
     ctx.beginPath();
-    const direction = player.side === 0 ? -1 : 1;
-    ctx.moveTo(body.x + direction * playerRadius * scale, body.y - line(180));
-    ctx.lineTo(body.x + direction * (playerRadius + 300) * scale, body.y);
-    ctx.lineTo(body.x + direction * playerRadius * scale, body.y + line(180));
+    ctx.moveTo(body.x + rearX * baseDistance + spreadX, body.y + rearY * baseDistance + spreadY);
+    ctx.lineTo(body.x + rearX * apexDistance, body.y + rearY * apexDistance);
+    ctx.lineTo(body.x + rearX * baseDistance - spreadX, body.y + rearY * baseDistance - spreadY);
     ctx.closePath();
     ctx.fill();
 

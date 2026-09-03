@@ -170,6 +170,47 @@ describe('ArenaRenderer', () => {
       .toEqual(reduced.calls.filter(call => call.op === 'arc').map(call => call.args.slice(0, 3)));
   });
 
+  it('points the rear marker opposite the aim vector rather than at a fixed side', () => {
+    // The marker is the only closePath in the renderer, so the three calls before
+    // it are its vertices, in draw order: base corner, apex, base corner.
+    const rearMarker = (calls: Recorded[]) => {
+      const end = calls.findIndex(call => call.op === 'closePath');
+      const [baseA, apex, baseB] = calls.slice(end - 3, end).map(call => call.args as [number, number]);
+      return { baseA, apex, baseB };
+    };
+    // World origin maps to CSS (500, 300); scale is 600/20000 = 0.03.
+    const down = setup();
+    down.renderer.render(
+      view({ players: [player(10, 0, { x: 0, y: 0, aimX: 0, aimY: 32767 })] }),
+      { reducedMotion: false },
+    );
+    const marker = rearMarker(down.calls);
+    // Aim is +y, so the rear apex sits at -y: 300 - (600 + 300) * 0.03 = 273.
+    expect(marker.apex).toEqual([500, 273]);
+    // Base corners straddle the body edge at 600 * 0.03 = 18, offset by line(180) = 5.4.
+    expect(marker.baseA).toEqual([505.4, 282]);
+    expect(marker.baseB).toEqual([494.6, 282]);
+
+    // Same player, aim rotated to -x: the marker must follow it to +x.
+    const leftward = setup();
+    leftward.renderer.render(
+      view({ players: [player(10, 0, { x: 0, y: 0, aimX: -32767, aimY: 0 })] }),
+      { reducedMotion: false },
+    );
+    expect(rearMarker(leftward.calls).apex).toEqual([527, 300]);
+  });
+
+  it('falls back to the side direction when aim is zero-length', () => {
+    const { renderer, calls } = setup();
+    renderer.render(
+      view({ players: [player(10, 0, { x: 0, y: 0, aimX: 0, aimY: 0 })] }),
+      { reducedMotion: false },
+    );
+    const end = calls.findIndex(call => call.op === 'closePath');
+    // Side 0 spawns aiming +x, so its rear falls back to -x: 500 - 27 = 473.
+    expect(calls[end - 2].args).toEqual([473, 300]);
+  });
+
   it('stops rendering and releases image handlers when disposed', () => {
     const disconnect = vi.fn();
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnect; });
