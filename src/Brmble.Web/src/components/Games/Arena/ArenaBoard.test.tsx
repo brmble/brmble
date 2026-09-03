@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaConnection } from './useArenaConnection';
-import type { ArenaPlayerSnapshot, ArenaSnapshot, ArenaWelcome } from './arenaProtocol';
+import type { ArenaPlayerSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import { ArenaBoard } from './ArenaBoard';
 import { GameSurface } from '../GameSurface';
 import bridge from '../../../bridge';
@@ -177,6 +177,58 @@ describe('ArenaBoard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onForfeit).not.toHaveBeenCalled();
+  });
+
+  // The overlay follows the authoritative snapshot, which is where the HUD
+  // countdown already comes from, so fixtures must move the welcome state too.
+  const atPhase = (phase: ArenaStateSnapshot['phase'], phaseEndsAtTick: number | null) => {
+    state.current = { ...state.current, phase, phaseEndsAtTick };
+    connection.current.welcome = {
+      ...connection.current.welcome!,
+      state: { ...connection.current.welcome!.state, phase, phaseEndsAtTick },
+    } as ArenaConnection['welcome'];
+  };
+
+  it('shows the countdown and control legend before the round goes live', () => {
+    atPhase('positioning', 280);
+
+    render(<ArenaBoard {...props()} />);
+
+    const overlay = screen.getByTestId('arena-pregame');
+    // phaseEndsAtTick 280 against serverTick 100 at 60Hz = 3 seconds.
+    expect(within(overlay).getByText('3')).toBeInTheDocument();
+    expect(within(overlay).getByText('WASD to move')).toBeInTheDocument();
+    expect(within(overlay).getByText('Spacebar to dash')).toBeInTheDocument();
+    expect(within(overlay).getByText('Hold to shoot')).toBeInTheDocument();
+    // The live region already announces phase and countdown, so this must not double up.
+    expect(overlay).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('shows the pregame overlay while loading too', () => {
+    atPhase('loading', 160);
+
+    render(<ArenaBoard {...props()} />);
+
+    expect(screen.getByTestId('arena-pregame')).toBeInTheDocument();
+  });
+
+  it('hides the pregame overlay once the round is live', () => {
+    atPhase('live', null);
+
+    render(<ArenaBoard {...props()} />);
+
+    expect(screen.queryByTestId('arena-pregame')).toBeNull();
+  });
+
+  it('drops the countdown animation under reduced motion', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }));
+    atPhase('positioning', 280);
+
+    render(<ArenaBoard {...props()} />);
+
+    expect(screen.getByTestId('arena-countdown').className).not.toMatch(/pulse/i);
   });
 
   it('puts the match action in the header and keeps close beside the result', () => {

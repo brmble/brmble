@@ -428,6 +428,36 @@ Rules:
 7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
+### Pre-Round Overlay Pattern (real-time games)
+
+A real-time game with a pre-round phase may draw a **countdown and control legend**
+over its canvas. Arena Knockoff is the reference (`ArenaBoard.tsx`,
+`ArenaBoard.module.css`).
+
+Rules:
+
+1. **DOM overlay, never canvas text.** Absolutely position it inside the canvas
+   wrapper (`position: relative` on the wrapper, `inset: 0` on the overlay).
+   Canvas-drawn text cannot use tokens, needs hand-rolled metrics, and is invisible
+   to tests. The overlay uses real tokens, the real `<Icon>` component, and CSS
+   animation.
+2. **`pointer-events: none`.** The canvas below owns pointer input — an overlay that
+   swallows clicks breaks aiming.
+3. **`aria-hidden="true"`.** These boards already carry an `aria-live` status region
+   describing phase and countdown. An announced overlay double-announces.
+4. **Visible only in the pre-round phase**, and gated on the *authoritative* snapshot
+   phase — the same source as the HUD countdown — so the overlay and the HUD can
+   never disagree.
+5. **Any looping animation is gated on `prefers-reduced-motion`.** Apply the animation
+   class conditionally rather than disabling it in CSS, so the test can assert it.
+
+Control legends use key glyph icons (`keys-wasd`, `key-space`, `mouse-left`) with a
+caption beneath each. The glyphs carry no lettering — the caption states the binding
+("WASD to move"), so the key faces stay legible at small sizes and need no text
+scaling. These icons are wider or taller than square, so they declare their own
+`viewBox` and are sized by CSS `height` with `width: auto`, not by the `Icon` `size`
+prop, which is square.
+
 ### Minigame Invite Pattern
 
 Incoming minigame invites use the shared top-right `<Notification>` + `useNotificationQueue`

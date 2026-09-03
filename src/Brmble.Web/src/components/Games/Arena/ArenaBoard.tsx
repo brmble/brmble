@@ -157,6 +157,9 @@ export function ArenaBoard({
   const phase = authoritative ? phaseLabels[authoritative.phase] : connection.status === 'connected' ? 'Loading' : connection.status;
   const score = authoritative?.score ?? state.score;
   const round = score[0] + score[1] + 1;
+  // The pre-round window is the only time the arena is idle, so it is where the
+  // countdown and the control legend belong. Both vanish the moment play starts.
+  const pregame = authoritative?.phase === 'loading' || authoritative?.phase === 'positioning';
   const forfeited = connection.closed?.reason === 'forfeited'
     || (ended && 'reason' in ended && ended.reason === 'forfeited');
   const winnerId = ended && 'winnerId' in ended ? ended.winnerId : undefined;
@@ -254,6 +257,31 @@ export function ArenaBoard({
       </header>
       <div className={styles.canvasBox}>
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
+        {pregame && (
+          // aria-hidden: arena-live-region already announces phase and countdown.
+          <div className={styles.pregame} data-testid="arena-pregame" aria-hidden="true">
+            <span
+              data-testid="arena-countdown"
+              className={`${styles.countdown}${reducedMotion ? '' : ` ${styles.countdownPulse}`}`}
+            >
+              {countdownSeconds}
+            </span>
+            <ul className={styles.legend}>
+              <li className={styles.legendItem}>
+                <Icon name="keys-wasd" className={styles.legendIcon} />
+                <span>WASD to move</span>
+              </li>
+              <li className={styles.legendItem}>
+                <Icon name="key-space" className={styles.legendIcon} />
+                <span>Spacebar to dash</span>
+              </li>
+              <li className={styles.legendItem}>
+                <Icon name="mouse-left" className={styles.legendIcon} />
+                <span>Hold to shoot</span>
+              </li>
+            </ul>
+          </div>
+        )}
       </div>
       {matchEnded && (
         <div className={styles.footer} data-testid="arena-footer">
