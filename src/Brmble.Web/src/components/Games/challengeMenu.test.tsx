@@ -64,6 +64,13 @@ describe('buildChallengeMenuItem', () => {
     expect(built.label).toBe("You're in a duel");
   });
 
+  it('offers Arena Knockoff first, ahead of Deathroll and Rock Paper Scissors', () => {
+    const built = buildChallengeMenuItem(7, noop);
+
+    expect(built.children?.map(child => child.type === 'item' ? child.label : '---'))
+      .toEqual(['Arena Knockoff', 'Deathroll', 'Rock Paper Scissors']);
+  });
+
   it('invites with the chosen game type and options through one handler', () => {
     const onChallenge = vi.fn();
     const built = buildChallengeMenuItem(7, onChallenge);
