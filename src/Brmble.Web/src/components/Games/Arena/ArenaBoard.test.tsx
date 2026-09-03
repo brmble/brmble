@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaConnection } from './useArenaConnection';
 import type { ArenaPlayerSnapshot, ArenaSnapshot, ArenaWelcome } from './arenaProtocol';
@@ -177,6 +177,23 @@ describe('ArenaBoard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onForfeit).not.toHaveBeenCalled();
+  });
+
+  it('puts the match action in the header and keeps close beside the result', () => {
+    const live = render(<ArenaBoard {...props()} />);
+    expect(screen.getByRole('button', { name: 'Forfeit' }).closest('header')).not.toBeNull();
+    // Nothing to report yet, so the footer does not take height from the canvas.
+    expect(live.container.querySelector('[data-testid="arena-footer"]')).toBeNull();
+    live.unmount();
+
+    render(<ArenaBoard {...props({
+      onRematch: vi.fn(),
+      ended: { matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', winnerId: 10 },
+    })} />);
+    expect(screen.getByRole('button', { name: 'Rematch' }).closest('header')).not.toBeNull();
+    const footer = screen.getByTestId('arena-footer');
+    expect(within(footer).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(within(footer).getByText('You win!')).toBeInTheDocument();
   });
 
   it('offers an explicit Forfeit action while the match is live', () => {

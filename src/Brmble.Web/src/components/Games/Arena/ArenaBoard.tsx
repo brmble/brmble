@@ -231,38 +231,38 @@ export function ArenaBoard({
           <h2 className="heading-title modal-title">Arena Knockoff</h2>
           <p className="modal-subtitle">{roundLabel}</p>
         </div>
-        <div className={styles.hud}>
-          <span data-testid="arena-score" className={styles.score}>{score[0]} – {score[1]}</span>
-          <span>{phase}{authoritative?.phaseEndsAtTick == null ? '' : ` · ${countdownSeconds}s`}</span>
-          <Tooltip content="Arena audio arrives in a later release" delay={0}>
-            <button className={`btn btn-secondary btn-sm ${styles.audio}`} aria-disabled="true" aria-label="Arena audio unavailable" onClick={event => event.preventDefault()}>
-              <Icon name="headphones-off" />
-            </button>
-          </Tooltip>
+        <div className={styles.headerSide}>
+          <div className={styles.hud}>
+            <span data-testid="arena-score" className={styles.score}>{score[0]} – {score[1]}</span>
+            <span>{phase}{authoritative?.phaseEndsAtTick == null ? '' : ` · ${countdownSeconds}s`}</span>
+            <Tooltip content="Arena audio arrives in a later release" delay={0}>
+              <button className={`btn btn-secondary btn-sm ${styles.audio}`} aria-disabled="true" aria-label="Arena audio unavailable" onClick={event => event.preventDefault()}>
+                <Icon name="headphones-off" />
+              </button>
+            </Tooltip>
+          </div>
+          <div className={styles.actions}>
+            {matchEnded
+              ? onRematch && (
+                <button className="btn btn-secondary" onClick={onRematch} disabled={rematchPending}>
+                  {rematchPending ? 'Rematch pending' : 'Rematch'}
+                </button>
+              )
+              : <button className="btn btn-danger" onClick={handleForfeit}>Forfeit</button>}
+          </div>
         </div>
       </header>
       <div className={styles.canvasBox}>
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
       </div>
       {matchEnded && (
-        <div className={styles.result}>
-          <p className={styles.resultText}>{resultMessage}</p>
+        <div className={styles.footer} data-testid="arena-footer">
+          <div className={styles.result}>
+            <p className={styles.resultText}>{resultMessage}</p>
+          </div>
+          <button className="btn btn-primary" onClick={handleClose}>Close</button>
         </div>
       )}
-      <div className={styles.footer}>
-        {matchEnded ? (
-          <>
-            {onRematch && (
-              <button className="btn btn-secondary" onClick={onRematch} disabled={rematchPending}>
-                {rematchPending ? 'Rematch pending' : 'Rematch'}
-              </button>
-            )}
-            <button className="btn btn-primary" onClick={handleClose}>Close</button>
-          </>
-        ) : (
-          <button className="btn btn-danger" onClick={handleForfeit}>Forfeit</button>
-        )}
-      </div>
       <div className="sr-only" data-testid="arena-live-region" role="status" aria-live="polite">{liveText}</div>
     </section>
   );
