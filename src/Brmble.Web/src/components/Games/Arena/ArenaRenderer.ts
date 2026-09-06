@@ -84,15 +84,23 @@ export class ArenaRenderer {
     const neutral = color('--text-muted');
     const text = color('--text-primary');
     const surface = color('--bg-surface');
+    const deep = color('--bg-deep');
     const scale = this.layout.size / WORLD_SIZE;
     const line = (worldWidth: number) => Math.max(1, worldWidth * scale);
     const point = (value: FixedVec) => worldToScreen(value, this.layout);
 
     ctx.clearRect(0, 0, this.layout.cssWidth, this.layout.cssHeight);
-    ctx.fillStyle = surface;
+    // The void first, then the arena floor on top of it: the ring is the lip
+    // between them, and a knocked-out player falls from one into the other.
+    ctx.fillStyle = deep;
     ctx.fillRect(this.layout.offsetX, this.layout.offsetY, this.layout.size, this.layout.size);
 
     const center = point({ x: 0, y: 0 });
+    ctx.fillStyle = surface;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, view.arena.radius * scale, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.strokeStyle = view.arena.shrinkPhase === 'collapse' ? danger : neutral;
     ctx.lineWidth = line(view.arena.shrinkPhase === 'hold' ? 60 : 100);
     ctx.beginPath();

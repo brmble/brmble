@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PREDICTION_V1, type ArenaPlayerSnapshot } from './arenaProtocol';
 import { ArenaRenderer, FALLBACK_AVATAR_SRC, type ArenaRenderView } from './ArenaRenderer';
 
-type Recorded = { op: string; args: unknown[]; strokeStyle?: string; lineWidth?: number };
+type Recorded = { op: string; args: unknown[]; strokeStyle?: string; fillStyle?: string; lineWidth?: number };
 
 function player(sessionId: number, side: 0 | 1, overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot {
   return {
@@ -31,7 +31,10 @@ function setup() {
     get(target, property) {
       if (property in target) return target[property as keyof CanvasRenderingContext2D];
       return (...args: unknown[]) => calls.push({
-        op: String(property), args, strokeStyle: String(target.strokeStyle), lineWidth: target.lineWidth,
+        op: String(property), args,
+        strokeStyle: String(target.strokeStyle),
+        fillStyle: String(target.fillStyle),
+        lineWidth: target.lineWidth,
       });
     },
     set(target, property, value) {
@@ -47,7 +50,7 @@ function setup() {
   });
   const style = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
     getPropertyValue: (name: string) => ({
-      '--bg-surface': 'surface', '--text-primary': 'text', '--text-muted': 'muted',
+      '--bg-surface': 'surface', '--bg-deep': 'deep', '--text-primary': 'text', '--text-muted': 'muted',
       '--accent-primary': 'primary', '--accent-danger': 'danger', '--font-body': 'body', '--font-mono': 'mono',
       '--font-display': 'display', '--text-xs': '12px', '--text-sm': '14px',
     })[name] ?? '',
@@ -209,6 +212,20 @@ describe('ArenaRenderer', () => {
     const end = calls.findIndex(call => call.op === 'closePath');
     // Side 0 spawns aiming +x, so its rear falls back to -x: 500 - 27 = 473.
     expect(calls[end - 2].args).toEqual([473, 300]);
+  });
+
+  it('fills the void behind the arena and the floor inside it with different colours', () => {
+    const { renderer, calls } = setup();
+
+    renderer.render(view(), { reducedMotion: false });
+
+    // The square is the void; the disc drawn on top of it is the floor.
+    const square = calls.find(call => call.op === 'fillRect');
+    expect(square?.fillStyle).toBe('deep');
+    const floor = calls.find(call => call.op === 'fill' && call.fillStyle === 'surface');
+    expect(floor).toBeDefined();
+    // The floor is filled before the ring is stroked, so the lip sits on the seam.
+    expect(calls.indexOf(floor!)).toBeLessThan(calls.findIndex(call => call.op === 'stroke'));
   });
 
   it('stops rendering and releases image handlers when disposed', () => {
