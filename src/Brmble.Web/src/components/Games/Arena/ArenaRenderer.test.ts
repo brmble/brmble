@@ -50,7 +50,8 @@ function setup() {
   });
   const style = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
     getPropertyValue: (name: string) => ({
-      '--bg-surface': 'surface', '--bg-deep': 'deep', '--text-primary': 'text', '--text-muted': 'muted',
+      '--bg-surface': 'surface', '--bg-primary': 'floor', '--bg-deep': 'deep',
+      '--text-primary': 'text', '--text-muted': 'muted',
       '--accent-primary': 'primary', '--accent-danger': 'danger', '--font-body': 'body', '--font-mono': 'mono',
       '--font-display': 'display', '--text-xs': '12px', '--text-sm': '14px',
     })[name] ?? '',
@@ -222,10 +223,14 @@ describe('ArenaRenderer', () => {
     // The square is the void; the disc drawn on top of it is the floor.
     const square = calls.find(call => call.op === 'fillRect');
     expect(square?.fillStyle).toBe('deep');
-    const floor = calls.find(call => call.op === 'fill' && call.fillStyle === 'surface');
-    expect(floor).toBeDefined();
+    const floor = calls.findIndex(call => call.op === 'fill');
+    expect(calls[floor].fillStyle).toBe('floor');
+    // The floor disc is the ring's twin: same centre, same radius (8000 * 0.03).
+    const discs = calls.filter(call => call.op === 'arc' && call.args[2] === 240);
+    expect(discs).toHaveLength(2);
+    expect(discs[0].args).toEqual(discs[1].args);
     // The floor is filled before the ring is stroked, so the lip sits on the seam.
-    expect(calls.indexOf(floor!)).toBeLessThan(calls.findIndex(call => call.op === 'stroke'));
+    expect(floor).toBeLessThan(calls.findIndex(call => call.op === 'stroke'));
   });
 
   it('stops rendering and releases image handlers when disposed', () => {

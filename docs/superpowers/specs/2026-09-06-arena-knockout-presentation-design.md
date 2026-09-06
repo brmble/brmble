@@ -192,8 +192,15 @@ into.
 The paint order inverts:
 
 1. fill the square with `--bg-deep`, the darkest base token — the void
-2. fill the arena **disc** with `--bg-surface` — the floor
+2. fill the arena **disc** with `--bg-primary` — the floor
 3. stroke the ring as the lip between them
+
+The floor is `--bg-primary`, not `--bg-surface`. `--bg-surface` is a 5–16% alpha
+`rgba` on every theme except windows-2000, so filled over an opaque `--bg-deep` it
+composites back to within ~1.1:1 of the void and there is still nothing to fall
+into. `--bg-primary` is opaque on all nine themes and is the layer the token
+template stacks directly on `--bg-deep`, so void = base layer and floor = app
+layer reads truly through the token system.
 
 This is a prerequisite for the animation to read at all, and it independently
 improves the core loop: a shrinking ring now reads as the floor receding rather
