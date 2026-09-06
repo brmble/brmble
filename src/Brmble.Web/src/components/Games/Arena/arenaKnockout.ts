@@ -140,6 +140,8 @@ export function detectKnockout(
   const victims = previous.players
     .filter(player => doubled || player.side !== scored)
     .map(toVictim);
+  // Defensive, and untested because it is unreachable with the two-player
+  // arena: one side always loses, so the filter never empties.
   return victims.length === 0 ? null : { victims, startedAt, vanishOnly: false };
 }
 

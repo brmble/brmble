@@ -123,11 +123,31 @@ describe('detectKnockout', () => {
     expect(detectKnockout(snapshot('positioning', [0, 0]), snapshot('live', [0, 0]), 5)).toBeNull();
   });
 
-  // The two `ignores` cases above are both absorbed by the `next.phase` guard,
-  // and the score-guard case below never reaches it either, so only a scored
-  // transition out of a non-live phase exercises `previous.phase !== 'live'`.
+  // The three guards run in order — previous phase, next phase, then score —
+  // and each one shadows the ones after it. A test only pins the guard that
+  // actually rejects it, so each of the three below is shaped to fall through
+  // every earlier guard and be stopped by exactly one.
+
+  // Falls through the previous-phase guard (live) and the next-phase guard
+  // (loading), so only the score check can reject it.
+  it('ignores a round ending that neither scored nor counted a double knockout', () => {
+    expect(detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 0]), 5)).toBeNull();
+  });
+
+  // Scored, so it clears the score check, and lands in loading, so it clears
+  // the next-phase guard: only the previous-phase guard rejects it. The two
+  // `ignores` cases further up are also stopped here, but they would fall
+  // through to the next-phase guard if it were removed, so they do not pin it.
   it('ignores a scored transition that did not come from a live round', () => {
     expect(detectKnockout(snapshot('positioning', [0, 0]), snapshot('loading', [0, 1]), 5)).toBeNull();
+  });
+
+  // Scored and out of a live round, so only the next-phase guard rejects it.
+  // `ResolveRound` moves a scoring round to Loading or Ended and nowhere else,
+  // so this transition cannot occur on the wire today; the test defends the
+  // guard against a future server change rather than catching a live bug.
+  it('ignores a scored round that did not reset or end', () => {
+    expect(detectKnockout(snapshot('live', [0, 0]), snapshot('positioning', [0, 1]), 5)).toBeNull();
   });
 
   // `ResolveRound` zeroes `consecutiveDoubleKos` on an ordinary knockout, so a
@@ -137,13 +157,6 @@ describe('detectKnockout', () => {
   it('names a single victim when an ordinary knockout resets the double knockout streak', () => {
     const result = detectKnockout(snapshot('live', [0, 0], 1), snapshot('loading', [0, 1], 0), 5);
     expect(result?.victims.map(v => v.sessionId)).toEqual([10]);
-  });
-
-  // The two `ignores` cases above are both rejected by the phase guard, so only
-  // this transition — a real round end that neither scored nor double-KO'd —
-  // reaches the score check at all.
-  it('ignores a round ending that neither scored nor counted a double knockout', () => {
-    expect(detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 0]), 5)).toBeNull();
   });
 
   it('returns null without a previous snapshot to read positions from', () => {
