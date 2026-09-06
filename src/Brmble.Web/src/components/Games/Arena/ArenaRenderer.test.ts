@@ -256,9 +256,14 @@ describe('ArenaRenderer', () => {
       // The body shrinks with the sampled scale: 18 * 0.5.
       expect(bodyArcs(calls, 9).length).toBeGreaterThan(0);
       // The falling body is drawn under the ring lip, so the player visibly
-      // passes behind the arena edge. The ring is the 240-radius stroked twin.
-      const lip = calls.findIndex(call => call.op === 'stroke');
-      expect(calls.findIndex(call => call.op === 'clip')).toBeLessThan(lip);
+      // passes behind the arena edge. The floor disc and the ring are both
+      // 240-radius twins and the ring is the later of the two, so the last such
+      // arc is the lip. Selecting the first `stroke` instead would be vacuous
+      // here: a body is drawn at this scale, so the first stroke is its own
+      // outline, and a clip always precedes the outline it belongs to.
+      const ringArc = calls.reduce((last, call, i) =>
+        call.op === 'arc' && call.args[2] === 240 ? i : last, -1);
+      expect(calls.findIndex(call => call.op === 'clip')).toBeLessThan(ringArc);
       // The fade is applied and then restored, so later draws are opaque.
       expect(bodyArcs(calls, 9)[0].globalAlpha).toBe(0.5);
       expect(calls[calls.length - 1].globalAlpha).toBe(1);
@@ -277,6 +282,20 @@ describe('ArenaRenderer', () => {
       // ...and the victim keeps none of its trimmings.
       expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'Local')).toBe(false);
       expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'DASH')).toBe(false);
+    });
+
+    it('keeps the shrinking local body off a negative arc radius', () => {
+      const { renderer, calls } = setup();
+      // Side 0 draws an inner ring at playerRadius - 150. The falling body scales
+      // that radius, so at 0.1 it is 600 * 0.1 - 150 = -90 world units, and arc()
+      // throws IndexSizeError on a negative radius. `scale = 1 - fallProgress`
+      // sweeps continuously to 0, so every knockout of the local player passes
+      // through scale < 0.25 and would throw inside the rAF loop.
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0.1, puffRadius: 0, puffOpacity: 0 }],
+      }), { reducedMotion: false });
+      expect(calls.filter(call => call.op === 'arc')
+        .every(call => (call.args[2] as number) >= 0)).toBe(true);
     });
 
     it('draws the dust ring once the body has gone', () => {

@@ -119,6 +119,8 @@ export class ArenaRenderer {
       if (frame.scale <= 0) continue;
       // A forfeit or abandon can name a victim who is already off the board. There
       // is no body to fall, but the dust below still marks where they were.
+      // Linear rather than a `falling` lookup: the map is keyed the wrong way for
+      // this, and the arena is two players.
       const victim = view.players.find(player => player.sessionId === frame.sessionId);
       if (victim === undefined) continue;
       this.drawPlayer(ctx, victim, view, { primary, danger, neutral, text }, scale, line, point, frame);
