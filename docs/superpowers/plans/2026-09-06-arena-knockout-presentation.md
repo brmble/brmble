@@ -285,8 +285,6 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Implement the sampler**
 
 ```ts
-import type { ArenaStateSnapshot } from './arenaProtocol';
-
 export const KNOCKOUT_DURATION_MS = 1400;
 export const SLIDE_END = 0.3;
 export const FALL_END = 0.7;
@@ -338,8 +336,13 @@ export function sampleKnockout(
   const diameter = playerRadius * 2;
 
   return knockout.victims.map(victim => {
-    const puffProgress = progress <= FALL_END ? 0 : (progress - FALL_END) / (1 - FALL_END);
-    const puffRadius = puffProgress === 0 ? 0 : diameter * PUFF_DIAMETERS * easeOut(puffProgress);
+    const immediate = reducedMotion || knockout.vanishOnly;
+    const puffProgress = immediate
+      ? progress
+      : progress <= FALL_END ? 0 : (progress - FALL_END) / (1 - FALL_END);
+    const puffRadius = reducedMotion
+      ? diameter * PUFF_DIAMETERS
+      : puffProgress === 0 ? 0 : diameter * PUFF_DIAMETERS * easeOut(puffProgress);
     const puffOpacity = puffProgress === 0 ? 0 : 1 - puffProgress;
 
     // Reduced motion keeps the information — where the player left — and drops
