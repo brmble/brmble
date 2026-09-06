@@ -78,8 +78,11 @@ export function ArenaBoard({
   const forfeited = connection.closed?.reason === 'forfeited'
     || (ended && 'reason' in ended && ended.reason === 'forfeited');
   const abandoned = ended !== null && 'abandoned' in ended && ended.abandoned === true;
-  // GamePlayer.UserId is a misnomer: GameSessionManager builds it from the
-  // reservation SessionId, so winnerId is a session id, not a user id.
+  // winnerId is a Mumble session id, not a user id — specifically the winner's
+  // CURRENT session, which reattach overwrites (see ResolveWinnerSessionId in
+  // ContinuousGameCoordinator.cs). That matches finalState.players[].sessionId,
+  // which is also remapped to current sessions, so do not "fix" this to a user id
+  // or to the reservation's original session.
   const winnerId = ended && 'winnerId' in ended ? ended.winnerId : undefined;
   const drawFrameRef = useRef<(state: ReturnType<typeof useArenaState>) => void>(() => {});
   // Declared above `useArenaState` because the hook takes it as an option: the knockout

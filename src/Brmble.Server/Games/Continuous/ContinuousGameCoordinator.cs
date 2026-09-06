@@ -387,7 +387,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participants = state.ParticipantsByUser.Values.ToList();
             // Resolved under the lock because it reads ParticipantInputState.SessionId,
             // which reattaches mutate.
-            winnerSessionId = ResolveWinnerSessionId(state, outcome, forfeitingUserId);
+            winnerSessionId = ResolveWinnerSessionId(state, outcome, abandonReason, forfeitingUserId);
             participantTimers = participants.SelectMany(participant =>
                 new[] { participant.NeutralTimer, participant.ReconnectTimer }.OfType<ITimer>()).ToList();
             foreach (var participant in participants)
@@ -530,11 +530,20 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     /// produces a session id.
     /// </remarks>
     private static long? ResolveWinnerSessionId(
-        ContinuousMatchState state, ContinuousCompletion? outcome, long? forfeitingUserId)
+        ContinuousMatchState state, ContinuousCompletion? outcome,
+        string? abandonReason, long? forfeitingUserId)
     {
         long winnerUserId;
         if (outcome is null)
         {
+            // start_failed (:128) and scheduler_error (:659) blame PlayerOne purely by
+            // convention for a server fault neither player caused. Naming a winner here
+            // would make ArenaBoard vanish PlayerOne as the loser, so the wire must stay
+            // silent. The persisted record keeps its existing (invisible) convention.
+            // connection_timeout and realtime_disconnect are excluded deliberately: those
+            // do blame the participant who actually dropped.
+            if (abandonReason is "start_failed" or "scheduler_error") return null;
+
             // Forfeit / abandon: the winner is the participant who did not forfeit.
             // Mirrors ForfeitParticipants so the wire and the persisted record agree.
             winnerUserId = state.Reservation.PlayerOne.UserId == forfeitingUserId

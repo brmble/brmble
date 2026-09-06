@@ -512,6 +512,57 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task NaturalCompletionWinnerIdUsesTheWinnersCurrentSessionAfterReconnect()
+    {
+        // Pins the completion path's own session translation. The other completion test
+        // cannot: there session id and simulation session id are both 10.
+        var h = await FaultHarness.StartAsync(new FaultSimulation(completeOnStep: true, winnerUserId: 502));
+        await h.AttachAsync(501, 10, "one");
+        // Reattach before the final ack, because that ack starts the scheduler and this
+        // simulation completes on its very first step.
+        await h.AttachAsync(502, 20, "two", acknowledge: false);
+        await h.Coordinator.DetachAsync("two");
+        await h.AttachAsync(502, 21, "twoAgain");
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+
+        // 502's simulation session is still 20; only the current session is 21.
+        Assert.AreEqual(21, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task ServerFaultAbandonsPublishNoWinnerSoNeitherPlayerIsVanished()
+    {
+        // scheduler_error blames PlayerOne by convention for a fault neither player
+        // caused; naming a winner would animate PlayerOne as the loser.
+        var h = await FaultHarness.StartAsync(new FaultSimulation(throwOnStep: true));
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => !h.Coordinator.TryGetActiveMatch(501, out _));
+
+        Assert.AreEqual("scheduler_error", h.Sink.Match!.AbandonReason);
+        var ended = h.Publisher.GameEnded();
+        Assert.AreEqual(JsonValueKind.Null, ended.GetProperty("winnerId").ValueKind);
+        // The persisted record keeps its existing convention: the fix is wire-only.
+        Assert.AreEqual(502, h.Sink.Match.Participants.Single(x => x.Result == "win").UserId);
+    }
+
+    [TestMethod]
+    public async Task ParticipantCausedAbandonsStillNameAWinner()
+    {
+        // Guards the fix from over-reaching: connection_timeout does blame a real player.
+        var h = await Harness.StartAsync();
+        await h.AttachAsync(501, 10, "one", acknowledge: true);
+
+        h.Time.Advance(TimeSpan.FromSeconds(15));
+
+        Assert.AreEqual("connection_timeout", h.Sink.Match!.AbandonReason);
+        Assert.AreEqual(10, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
     public async Task SchedulerSnapshotsOnlyUseEveryThirdSimulationTick()
     {
         var h = await Harness.LiveAsync();
@@ -779,14 +830,19 @@ public sealed class ContinuousGameCoordinatorTests
         public async Task AttachBothAsync()
         {
             foreach (var participant in new[] { (501L, 10L, "one"), (502L, 20L, "two") })
-            {
-                var attached = await Coordinator.AttachParticipantAsync(
-                    MatchId, participant.Item1, participant.Item2, participant.Item3,
-                    new RealtimeSnapshotMailbox());
-                Assert.IsTrue(attached.Ok, attached.Error);
-                Coordinator.AcknowledgeAttach(participant.Item3, attached.Welcome!.SnapshotSequence);
-            }
+                await AttachAsync(participant.Item1, participant.Item2, participant.Item3);
             await Task.Delay(25);
+        }
+
+        public async Task<AttachResult> AttachAsync(
+            long userId, long sessionId, string connectionId, bool acknowledge = true)
+        {
+            var attached = await Coordinator.AttachParticipantAsync(
+                MatchId, userId, sessionId, connectionId, new RealtimeSnapshotMailbox());
+            Assert.IsTrue(attached.Ok, attached.Error);
+            if (acknowledge)
+                Coordinator.AcknowledgeAttach(connectionId, attached.Welcome!.SnapshotSequence);
+            return attached;
         }
     }
 
@@ -881,7 +937,8 @@ public sealed class ContinuousGameCoordinatorTests
         int throwAfterSnapshotCount = int.MaxValue,
         bool completeOnStep = false,
         bool drawOnStep = false,
-        bool unknownWinnerOnStep = false) : IContinuousSimulation
+        bool unknownWinnerOnStep = false,
+        long winnerUserId = 501) : IContinuousSimulation
     {
         private int _snapshotCount;
         public long Tick { get; private set; }
@@ -900,7 +957,8 @@ public sealed class ContinuousGameCoordinatorTests
                 ? [new CompletedParticipant(501, 1, 1, "draw"), new CompletedParticipant(502, 1, 1, "draw")]
                 : unknownWinnerOnStep
                     ? [new CompletedParticipant(999, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")]
-                    : [new CompletedParticipant(501, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")];
+                    : [new CompletedParticipant(winnerUserId, 1, 2, "win"),
+                        new CompletedParticipant(winnerUserId == 501 ? 502 : 501, 2, 0, "loss")];
             return new ContinuousStepResult(true, new ContinuousCompletion(
                 drawOnStep ? "draw" : "decided", null, participants,
                 new { schemaVersion = 1 }, new Dictionary<long, object>()));
