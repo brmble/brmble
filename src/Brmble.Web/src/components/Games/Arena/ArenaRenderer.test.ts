@@ -354,6 +354,25 @@ describe('ArenaRenderer', () => {
       expect(bodyArcs(calls, 18)).toHaveLength(2);
     });
 
+    it('strokes the dust in the victim\'s side colour so reduced motion names who went off', () => {
+      const { renderer, calls } = setup();
+      // Under reduced motion the sampler delivers scale 0 from the first frame, so
+      // the dust is the only thing drawn for the victim. In `neutral` it would be
+      // the arena lip's own colour and carry no side identity at all.
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0, puffRadius: 1800, puffOpacity: 1 }],
+      }), { reducedMotion: true });
+      const dust = bodyArcs(calls, 54);
+      expect(dust).toHaveLength(1);
+      expect(dust[0].strokeStyle).toBe('primary');
+      // ...and side 1 takes the other side's colour, not simply "not neutral".
+      const other = setup();
+      other.renderer.render(view({
+        knockout: [{ sessionId: 20, x: 10200, y: 0, scale: 0, puffRadius: 1800, puffOpacity: 1 }],
+      }), { reducedMotion: true });
+      expect(bodyArcs(other.calls, 54)[0].strokeStyle).toBe('danger');
+    });
+
     it('draws nothing extra when no knockout is running', () => {
       const { renderer, calls } = setup();
       renderer.render(view(), { reducedMotion: false });

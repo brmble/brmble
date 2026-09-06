@@ -170,6 +170,16 @@ export function ArenaBoard({
     // names the winner, the arena socket delivers the final board — so both have
     // to have landed. Without a winner there is no way to tell who left, and
     // vanishing the wrong player is worse than leaving both standing.
+    //
+    // Silent dependency: the vanish is sampled from `now = performance.now()` on
+    // each render of this board, and the only thing re-rendering it frame by frame
+    // after `matchClosed` is `useArenaState`'s rAF loop — which runs only while
+    // `useArenaConnection` still holds a non-null `welcome`. If `welcome` were ever
+    // cleared on close, the vanish would get a single frame at `progress ~ 0`,
+    // where `vanishOnly` yields `puffRadius: 0` and the renderer's radius gate
+    // draws nothing at all: the player would blink out with no dust, and every
+    // test here would still pass. Any change to `welcome`'s lifetime on close must
+    // re-check this.
     if (!vanishArmedRef.current && (forfeited || abandoned) && finalState !== undefined && winnerId != null) {
       vanishArmedRef.current = true;
       vanishRef.current = vanishInPlace(

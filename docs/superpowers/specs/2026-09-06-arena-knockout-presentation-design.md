@@ -63,6 +63,29 @@ the wire. There is no way to add a field that is absent when irrelevant.
 negotiation path, so a bump makes old clients reject all traffic rather than
 degrade.
 
+### Arity-strictness is a property of one socket, not of the client
+
+Recorded after the fact, because the original constraint above was stated too
+coarsely — as "no server change" — and that framing very nearly cost the forfeit
+vanish its only source of truth.
+
+Arity-strictness belongs to the **arena WebSocket's validator**. It is not a
+property of every channel this client listens on. The duel event bridge is a
+separate path: `useGameState.handleEnded` reads the `game.ended` payload through
+a loose cast, and `EndedMatch.winnerId` was already an optional field. Adding
+`winnerId` there is additive and breaks nothing.
+
+This mattered. The forfeit vanish shipped **inert**: it gated on `ended.winnerId`,
+and `ContinuousGameCoordinator` never published one — `winnerId` appeared nowhere
+in the entire `Continuous` namespace. The vanish could not fire, and an
+already-merged commit carried the same latent defect. The fix was a server change,
+correctly ruled in, and it was ruled in only because the constraint was re-read
+against the actual channel rather than applied as a blanket ban.
+
+The durable form of the rule: **before rejecting a wire change, name the socket.**
+"The client validator is arity-strict" is true of the arena snapshot stream and
+false of the duel event bridge.
+
 ### The client can already infer the victim
 
 The score identifies the winner, so the other side is the victim. A double
@@ -112,9 +135,22 @@ animate.
 
 The animation's origin is the victim's position and velocity from the **last
 snapshot before the transition**, which the client's existing timeline buffer
-already retains. For the deciding knockout the origin is taken from
-`matchClosed.finalState` instead, because that carries the true out-of-bounds
-coordinates and is therefore exact at no cost.
+already retains. The deciding knockout uses that same inferred origin — there is
+no special case for it.
+
+An earlier draft of this design had the deciding knockout read its origin from
+`matchClosed.finalState` instead, and that was **struck rather than implemented**.
+`finalState` genuinely does carry the true out-of-bounds coordinates (see
+*Constraints Discovered* above), so the option exists and a future reader should
+know it does. It was declined because the accuracy it buys is under one body
+diameter; taking it would change `detectKnockout`'s signature to accept a source
+it otherwise has no use for; and a larger error term was found in the same region
+and left unfixed — detection reads the newest snapshot while the renderer draws
+from the timeline interpolated ~100-150 ms behind, so the falling body pops
+outward by up to that much travel on its first frame. Chasing sub-diameter
+precision while a larger, unmeasured offset sits next to it is the wrong order of
+work. If the interpolation offset is ever addressed and the origin still reads
+wrong, `finalState` is where to go.
 
 Forfeits and abandons are detected from the terminal reason rather than a phase
 transition, and use the vanish path with no slide.
@@ -242,8 +278,8 @@ This is one rule across all triggers rather than a special case per trigger.
 
 - **Double knockout** — both players animate; the round still resets normally.
 - **Forfeit or abandon** — vanish in place, no slide, no fall.
-- **Deciding knockout** — animates using the exact position from
-  `matchClosed.finalState`; the result panel appears while it plays.
+- **Deciding knockout** — animates from the same inferred origin as any other
+  knockout; the result panel appears while it plays.
 - **Round reset arriving mid-animation** — cancel and re-arm from the new
   knockout rather than queueing.
 - **Match end, session replacement or reconnect** — clear the knockout ref, as
@@ -280,7 +316,12 @@ This is one rule across all triggers rather than a special case per trigger.
 - The area outside the ring reads as a void, distinct from the arena floor.
 - Reduced motion still communicates who was knocked out and where.
 - The winner's round proceeds normally while the animation plays.
-- No protocol change, no server change, no determinism-hash change.
+- No arena protocol change, no simulation change, no determinism-hash change.
+- One additive server change: `ContinuousGameCoordinator` publishes `winnerId` on
+  `game.ended`. This does **not** travel the arity-strict arena socket — it travels
+  the duel event bridge, where `useGameState.handleEnded` reads with a loose cast and
+  `EndedMatch.winnerId` was already optional. Required because the forfeit vanish has
+  no other source for the loser's identity.
 - Presentation never writes into prediction, presentation or authority state.
 
 ## Out of Scope

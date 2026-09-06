@@ -139,8 +139,16 @@ export class ArenaRenderer {
       // full opacity, so radius alone would blank the first frame of a forfeit.
       if (frame.puffRadius <= 0 || frame.puffOpacity <= 0) continue;
       const dust = point(frame);
+      // The dust carries the victim's side colour. Under `prefers-reduced-motion`
+      // the sampler delivers scale 0 from the first frame, so the body above is
+      // never drawn and this ring is the *only* mark of the knockout: stroked in
+      // `neutral` it is the same colour as the arena lip and says nothing about
+      // who went off. Same lookup `drawPlayer` uses for the falling body; the
+      // victim can be absent from the player list on a forfeit, and then there is
+      // no side to speak for and the neutral mark is the honest one.
+      const dustSide = view.players.find(player => player.sessionId === frame.sessionId)?.side;
       ctx.globalAlpha = frame.puffOpacity;
-      ctx.strokeStyle = neutral;
+      ctx.strokeStyle = dustSide === undefined ? neutral : dustSide === 0 ? primary : danger;
       ctx.lineWidth = line(100);
       ctx.beginPath();
       ctx.arc(dust.x, dust.y, frame.puffRadius * scale, 0, Math.PI * 2);

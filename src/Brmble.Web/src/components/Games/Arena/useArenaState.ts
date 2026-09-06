@@ -343,6 +343,19 @@ export function useArenaState({
         // the pair reads live -> live. Unreachable in practice — round transitions are
         // hundreds of milliseconds against a 60 Hz loop — and closing it would mean
         // scanning the timeline, which is far more machinery than the case warrants.
+        //
+        // Known limit, deliberately deferred: detection reads `authority` — the
+        // newest snapshot — but everything drawn comes from `sampled`, the timeline
+        // interpolated at `Date.now() - interpolationMs`, roughly 100-150 ms behind.
+        // So at the instant the animation arms, the victim's normal draw is
+        // suppressed and the falling body appears at the *last-snapshot* position,
+        // up to ~150 ms of travel further out: the body pops forward one frame and
+        // then slides. It is largest on high-velocity knockouts, which is exactly
+        // where it is most visible. Not fixed here because both remedies — changing
+        // which snapshot detection reads, or applying a compensating offset — are
+        // design changes on unvalidated ground, and the pop is always *outward* so
+        // it may well read as acceleration rather than as an error. This is the top
+        // item for manual validation; measure before changing it.
         const detected = detectKnockout(previousAuthorityRef.current, authority, frameTime);
         if (detected !== null) knockoutRef.current = detected;
         previousAuthorityRef.current = authority;

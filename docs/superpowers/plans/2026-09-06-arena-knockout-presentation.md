@@ -14,10 +14,10 @@
 
 ## Global Constraints
 
-- **No server change, no protocol change, no determinism-hash change.** If a task appears to need one, stop and escalate. The client validator is arity-strict (`arenaProtocol.ts:126-130`), so any wire field is a breaking change.
+- **No arena protocol change, no simulation change, no determinism-hash change.** The arena snapshot validator is arity-strict (`arenaProtocol.ts:126-130`), so any field on *that* socket is a breaking change. **Corrected mid-plan:** this was originally written "no server change", which is too coarse — arity-strictness is a property of the arena WebSocket, not of every channel the client listens on. One additive server change was ruled in during Task 6a: `ContinuousGameCoordinator` now publishes `winnerId` on `game.ended`, which travels the duel event bridge where the field was already optional. See the spec's *Constraints Discovered*.
 - **Presentation must never write back** into `predictedRef`, `presentedRef`, `renderedBaseRef`, snapshots, pending inputs or the correction origin. Same rule as `constrainLocalDisplay`.
 - World space is `±10_000`. Positions are integers. `playerRadius` is `600`; diameter `1200`. Never hardcode `600`, `1200`, `9000` in production code — read from `view.prediction` / `view.arena.radius`.
-- `--bg-deep` is the void, `--bg-surface` is the arena floor. No hardcoded colours, sizes, spacing or durations: all from CSS custom property tokens per `docs/UI_GUIDE.md`.
+- `--bg-deep` is the void, **`--bg-primary` is the arena floor**. **Corrected during Task 1:** this originally named `--bg-surface` as the floor. `--bg-surface` is a 5–16% alpha token on eight of the nine themes, so filled over an opaque `--bg-deep` it composites back to 1.06–1.10:1 against the void and there is still nothing to fall into. `--bg-primary` is opaque on all nine. The spec was corrected at the time; this line was not. No hardcoded colours, sizes, spacing or durations: all from CSS custom property tokens per `docs/UI_GUIDE.md`.
 - Reduced motion drops movement and scaling, never information. One rule for all triggers.
 - One `requestAnimationFrame` loop, owned by `useArenaState`. No second loop, no new per-frame React state publication.
 - Tests: Vitest, explicit named imports, lowercase behavioural names, exact assertions where derivable.
@@ -755,6 +755,22 @@ npm test --prefix src/Brmble.Web
 git add src/Brmble.Web/src/components/Games/Arena/ArenaBoard.tsx src/Brmble.Web/src/components/Games/Arena/ArenaBoard.test.tsx
 git commit -m "feat: vanish a forfeiting arena player instead of freezing them"
 ```
+
+---
+
+### Task 6a: Publish `winnerId` so the vanish can actually fire (added mid-plan)
+
+**Not in the original plan.** It was added after Task 6 shipped, and it is the largest deviation from this plan — recorded here so it is not invisible.
+
+**Why it was needed.** Task 6's vanish gates on `ended.winnerId` to identify the forfeiting player. `ContinuousGameCoordinator` never published one: `winnerId` appeared nowhere in the entire `Continuous` namespace. Task 6 therefore shipped **inert** — every test passed, and the feature could not fire in production. The same latent defect was already present in an earlier, already-merged commit, which this task also repaired.
+
+**Why it did not violate the Global Constraint.** The constraint as originally written said "no server change" and cited the arity-strict validator. That validator belongs to the **arena WebSocket**. `game.ended` travels the duel event bridge, where `useGameState.handleEnded` reads through a loose cast and `EndedMatch.winnerId` was already optional. The change is additive on that channel and breaks nothing. No arena protocol change, no simulation change, no determinism-hash change — the server test suite's determinism hashes are unmoved.
+
+**What it did.**
+- `5acfc985` — `ContinuousGameCoordinator` publishes `winnerId` on `game.ended` for continuous arena matches, with coordinator tests pinning it.
+- `849544ee` — follow-up: a server fault ending a match publishes **no** winner rather than an arbitrary one, so the vanish does not puff the wrong player when nobody actually won. Touches `ArenaBoard.tsx` for the null-winner path.
+
+**Verification.** `dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj` green, determinism hashes unchanged. Task 7 Step 5 below is amended accordingly: the server suite gains coordinator tests, but **no existing assertion and no determinism hash may move**.
 
 ---
 
