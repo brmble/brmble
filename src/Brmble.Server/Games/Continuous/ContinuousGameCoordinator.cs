@@ -371,6 +371,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         ITimer? attachTimer;
         List<ITimer> participantTimers;
         Task? schedulerTask;
+        long? winnerSessionId;
         var endedAt = _time.GetUtcNow();
         lock (state.SyncRoot)
         {
@@ -384,6 +385,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             schedulerTask = state.SchedulerTask;
             state.SchedulerTask = null;
             participants = state.ParticipantsByUser.Values.ToList();
+            // Resolved under the lock because it reads ParticipantInputState.SessionId,
+            // which reattaches mutate.
+            winnerSessionId = ResolveWinnerSessionId(state, outcome, forfeitingUserId);
             participantTimers = participants.SelectMany(participant =>
                 new[] { participant.NeutralTimer, participant.ReconnectTimer }.OfType<ITimer>()).ToList();
             foreach (var participant in participants)
@@ -473,6 +477,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 gameType = "arena-knockoff", format = "bo3", rulesetVersion = 1,
                 options = state.Reservation.Configuration.Options,
                 abandoned = abandonReason is not null, reason = abandonReason,
+                winnerId = winnerSessionId,
             });
         }
         catch (Exception ex)
@@ -508,6 +513,45 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 _logger.LogError(task.Exception, "Continuous scheduler terminated unexpectedly for match {MatchId}.", state.MatchId);
             state.Cancellation.Dispose();
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Resolves the winner for the <c>game.ended</c> bridge event as a Mumble SESSION id,
+    /// matching what <see cref="GameSessionManager"/> publishes for the other game types and
+    /// what the arena wire uses for player identity. Returns <c>null</c> when there is no
+    /// single winner (a draw), so callers never invent one.
+    /// </summary>
+    /// <remarks>
+    /// Both cases resolve a stable user id first and then translate it, because the two
+    /// sources disagree: the reservation is keyed by user id, and
+    /// <see cref="ContinuousCompletion.Participants"/> carry stable user ids too
+    /// (<c>CompletedParticipant.UserId</c> is genuinely a user id here, unlike the
+    /// misnamed <c>GamePlayer.UserId</c> elsewhere). Only the final translation step
+    /// produces a session id.
+    /// </remarks>
+    private static long? ResolveWinnerSessionId(
+        ContinuousMatchState state, ContinuousCompletion? outcome, long? forfeitingUserId)
+    {
+        long winnerUserId;
+        if (outcome is null)
+        {
+            // Forfeit / abandon: the winner is the participant who did not forfeit.
+            // Mirrors ForfeitParticipants so the wire and the persisted record agree.
+            winnerUserId = state.Reservation.PlayerOne.UserId == forfeitingUserId
+                ? state.Reservation.PlayerTwo.UserId
+                : state.Reservation.PlayerOne.UserId;
+        }
+        else
+        {
+            var winner = outcome.Participants.FirstOrDefault(x =>
+                string.Equals(x.Result, "win", StringComparison.Ordinal));
+            if (winner is null) return null;
+            winnerUserId = winner.UserId;
+        }
+
+        return state.ParticipantsByUser.TryGetValue(winnerUserId, out var participant)
+            ? participant.SessionId
+            : null;
     }
 
     private static IReadOnlyList<CompletedParticipant> ForfeitParticipants(

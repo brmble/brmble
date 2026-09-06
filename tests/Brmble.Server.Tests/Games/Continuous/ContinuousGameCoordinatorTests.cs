@@ -438,6 +438,80 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task ForfeitPublishesTheOtherParticipantsSessionIdAsWinner()
+    {
+        var h = await Harness.LiveAsync();
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 501, "test_forfeit");
+
+        // 501 forfeited, so 502 wins; winnerId is 502's Mumble SESSION id (20).
+        Assert.AreEqual(20, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task ForfeitByTheOtherParticipantPublishesTheOppositeWinnerSessionId()
+    {
+        var h = await Harness.LiveAsync();
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 502, "test_forfeit");
+
+        Assert.AreEqual(10, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task ForfeitWinnerIdUsesTheWinnersCurrentSessionAfterReconnect()
+    {
+        var h = await Harness.LiveAsync();
+        await h.Coordinator.DetachAsync("two");
+        await h.AttachAsync(502, 21, "twoAgain", acknowledge: true);
+
+        await h.Coordinator.ForfeitAsync(h.MatchId, 501, "test_forfeit");
+
+        Assert.AreEqual(21, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task NaturalCompletionPublishesTheWinningParticipantsSessionId()
+    {
+        var h = await FaultHarness.StartAsync(new FaultSimulation(completeOnStep: true));
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+
+        // The completion names stable user 501 as the winner; the wire carries session 10.
+        Assert.AreEqual(10, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task DrawCompletionPublishesANullWinnerRatherThanInventingOne()
+    {
+        var h = await FaultHarness.StartAsync(new FaultSimulation(drawOnStep: true));
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+
+        var ended = h.Publisher.GameEnded();
+        Assert.IsTrue(ended.TryGetProperty("winnerId", out var winner));
+        Assert.AreEqual(JsonValueKind.Null, winner.ValueKind);
+    }
+
+    [TestMethod]
+    public async Task CompletionNamingAnUnknownWinnerPublishesANullWinnerAndStillEnds()
+    {
+        var h = await FaultHarness.StartAsync(new FaultSimulation(unknownWinnerOnStep: true));
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+
+        var ended = h.Publisher.GameEnded();
+        Assert.AreEqual(JsonValueKind.Null, ended.GetProperty("winnerId").ValueKind);
+        Assert.AreEqual(1, h.Publisher.Types.Count(x => x == "game.ended"));
+    }
+
+    [TestMethod]
     public async Task SchedulerSnapshotsOnlyUseEveryThirdSimulationTick()
     {
         var h = await Harness.LiveAsync();
@@ -647,6 +721,7 @@ public sealed class ContinuousGameCoordinatorTests
     private sealed class RecordingPublisher : IGameEventPublisher
     {
         public List<string> Types { get; } = [];
+        public List<string> Payloads { get; } = [];
         public int SnapshotEventCount { get; private set; }
         public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
         {
@@ -654,10 +729,19 @@ public sealed class ContinuousGameCoordinatorTests
             using var document = JsonDocument.Parse(json);
             var type = document.RootElement.GetProperty("type").GetString()!;
             Types.Add(type);
+            Payloads.Add(json);
             if (type == "snapshot") SnapshotEventCount++;
             return Task.CompletedTask;
         }
         public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
+
+        public JsonElement GameEnded()
+        {
+            var index = Types.IndexOf("game.ended");
+            Assert.IsTrue(index >= 0, "No game.ended message was published.");
+            using var document = JsonDocument.Parse(Payloads[index]);
+            return document.RootElement.Clone();
+        }
     }
 
     private sealed class FaultHarness
@@ -795,7 +879,9 @@ public sealed class ContinuousGameCoordinatorTests
     private sealed class FaultSimulation(
         bool throwOnStep = false,
         int throwAfterSnapshotCount = int.MaxValue,
-        bool completeOnStep = false) : IContinuousSimulation
+        bool completeOnStep = false,
+        bool drawOnStep = false,
+        bool unknownWinnerOnStep = false) : IContinuousSimulation
     {
         private int _snapshotCount;
         public long Tick { get; private set; }
@@ -806,11 +892,17 @@ public sealed class ContinuousGameCoordinatorTests
         {
             if (throwOnStep) throw new InvalidOperationException("step failure");
             Tick++;
-            if (!completeOnStep) return new ContinuousStepResult(false, null);
+            if (!completeOnStep && !drawOnStep && !unknownWinnerOnStep)
+                return new ContinuousStepResult(false, null);
             Phase = ContinuousMatchPhase.Ended;
+            // Participant ids here are stable user ids, matching ArenaSimulation.Complete.
+            CompletedParticipant[] participants = drawOnStep
+                ? [new CompletedParticipant(501, 1, 1, "draw"), new CompletedParticipant(502, 1, 1, "draw")]
+                : unknownWinnerOnStep
+                    ? [new CompletedParticipant(999, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")]
+                    : [new CompletedParticipant(501, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")];
             return new ContinuousStepResult(true, new ContinuousCompletion(
-                "decided", null,
-                [new CompletedParticipant(501, 1, 2, "win"), new CompletedParticipant(502, 2, 0, "loss")],
+                drawOnStep ? "draw" : "decided", null, participants,
                 new { schemaVersion = 1 }, new Dictionary<long, object>()));
         }
         public object ParticipantSnapshot(long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs)
