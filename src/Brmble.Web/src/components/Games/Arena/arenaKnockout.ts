@@ -67,7 +67,12 @@ export function sampleKnockout(
     const puffRadius = reducedMotion
       ? diameter * PUFF_DIAMETERS
       : puffProgress === 0 ? 0 : diameter * PUFF_DIAMETERS * easeOut(puffProgress);
-    const puffOpacity = puffProgress === 0 ? 0 : 1 - puffProgress;
+    // `puffProgress === 0` means "not begun" on the gated path but "at its
+    // start" on the immediate path, where opacity must already be full. Sharing
+    // the sentinel would blank the first frame and then pop to ~0.99 on the next.
+    const puffOpacity = immediate
+      ? 1 - puffProgress
+      : puffProgress === 0 ? 0 : 1 - puffProgress;
 
     // Reduced motion keeps the information — where the player left — and drops
     // the movement and scaling that the setting exists to prevent.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KNOCKOUT_DURATION_MS, sampleKnockout, type ArenaKnockout } from './arenaKnockout';
+import { sampleKnockout, type ArenaKnockout } from './arenaKnockout';
 
 const victim = (overrides: Partial<ArenaKnockout['victims'][number]> = {}) => ({
   sessionId: 10, x: 9000, y: 0, vx: 0, vy: 0, ...overrides,
@@ -33,7 +33,7 @@ describe('sampleKnockout', () => {
   });
 
   it('shrinks the body to nothing by the end of the fall', () => {
-    const [frame] = sampleKnockout(knockout(), 1000 + 0.7 * KNOCKOUT_DURATION_MS, 600, false);
+    const [frame] = sampleKnockout(knockout(), 1000 + 1000, 600, false);
     expect(frame.scale).toBe(0);
   });
 
@@ -55,6 +55,12 @@ describe('sampleKnockout', () => {
     const [frame] = sampleKnockout(knockout({ vanishOnly: true }), 1000 + 140, 600, false);
     expect(frame.puffOpacity).toBeGreaterThan(0);
     expect(frame.puffRadius).toBeGreaterThan(0);
+  });
+
+  it('shows the mark from the first frame under reduced motion', () => {
+    const [frame] = sampleKnockout(knockout(), 1000, 600, true);
+    expect(frame.puffOpacity).toBe(1);
+    expect(frame.puffRadius).toBe(1800);
   });
 
   it('keeps the mark in place and skips slide and fall under reduced motion', () => {

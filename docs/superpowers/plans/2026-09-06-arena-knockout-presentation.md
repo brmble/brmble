@@ -209,7 +209,7 @@ Create `arenaKnockout.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { KNOCKOUT_DURATION_MS, sampleKnockout, type ArenaKnockout } from './arenaKnockout';
+import { sampleKnockout, type ArenaKnockout } from './arenaKnockout';
 
 const victim = (overrides: Partial<ArenaKnockout['victims'][number]> = {}) => ({
   sessionId: 10, x: 9000, y: 0, vx: 0, vy: 0, ...overrides,
@@ -243,7 +243,7 @@ describe('sampleKnockout', () => {
   });
 
   it('shrinks the body to nothing by the end of the fall', () => {
-    const [frame] = sampleKnockout(knockout(), 1000 + 0.7 * KNOCKOUT_DURATION_MS, 600, false);
+    const [frame] = sampleKnockout(knockout(), 1000 + 1000, 600, false);
     expect(frame.scale).toBe(0);
   });
 
@@ -259,6 +259,18 @@ describe('sampleKnockout', () => {
     const [frame] = sampleKnockout(knockout({ vanishOnly: true }), 1420, 600, false);
     expect(frame.x).toBe(9000);
     expect(frame.y).toBe(0);
+  });
+
+  it('starts the dust immediately when there is no fall to overlap', () => {
+    const [frame] = sampleKnockout(knockout({ vanishOnly: true }), 1000 + 140, 600, false);
+    expect(frame.puffOpacity).toBeGreaterThan(0);
+    expect(frame.puffRadius).toBeGreaterThan(0);
+  });
+
+  it('shows the mark from the first frame under reduced motion', () => {
+    const [frame] = sampleKnockout(knockout(), 1000, 600, true);
+    expect(frame.puffOpacity).toBe(1);
+    expect(frame.puffRadius).toBe(1800);
   });
 
   it('keeps the mark in place and skips slide and fall under reduced motion', () => {
@@ -343,11 +355,13 @@ export function sampleKnockout(
     const puffRadius = reducedMotion
       ? diameter * PUFF_DIAMETERS
       : puffProgress === 0 ? 0 : diameter * PUFF_DIAMETERS * easeOut(puffProgress);
-    const puffOpacity = puffProgress === 0 ? 0 : 1 - puffProgress;
+    const puffOpacity = immediate
+      ? 1 - puffProgress
+      : puffProgress === 0 ? 0 : 1 - puffProgress;
 
     // Reduced motion keeps the information — where the player left — and drops
     // the movement and scaling that the setting exists to prevent.
-    if (reducedMotion || knockout.vanishOnly) {
+    if (immediate) {
       return {
         sessionId: victim.sessionId,
         x: victim.x,
