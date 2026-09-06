@@ -4,6 +4,9 @@ import type {
 } from './arenaProtocol';
 import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
 import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
+import {
+  detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
+} from './arenaKnockout';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
@@ -13,6 +16,7 @@ interface UseArenaStateOptions {
   currentInput?: ArenaInputState;
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
+  reducedMotion?: boolean;
   onFrame?: (state: ArenaRenderState) => void;
 }
 
@@ -26,11 +30,13 @@ interface ArenaRenderState {
   score: [number, number];
   consecutiveDoubleKos: number;
   snapCount: number;
+  /** Presentation only, and empty when nothing is animating. */
+  knockout: ArenaKnockoutFrame[];
 }
 
 const emptyState: ArenaRenderState = {
   localPlayer: null, remotePlayer: null, projectiles: [], arena: null, phase: null,
-  phaseEndsAtTick: null, score: [0, 0], consecutiveDoubleKos: 0, snapCount: 0,
+  phaseEndsAtTick: null, score: [0, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [],
 };
 const neutralInput: ArenaInputState = {
   moveX: 0, moveY: 0, aimX: 32767, aimY: 0,
@@ -89,11 +95,13 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
     score: [finalState.score[0], finalState.score[1]],
     consecutiveDoubleKos: finalState.consecutiveDoubleKos,
     snapCount: 0,
+    knockout: [],
   };
 }
 
 export function useArenaState({
-  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState, onFrame,
+  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
+  reducedMotion = false, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
@@ -123,6 +131,14 @@ export function useArenaState({
   const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
   const presentedAtRef = useRef(0);
   const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
+  // Presentation only. Nothing sampled from this ref is ever written back into
+  // prediction, presentation or authority state — it is read once per frame to
+  // build `nextRendered.knockout` and nowhere else.
+  const knockoutRef = useRef<ArenaKnockout | null>(null);
+  // The knockout is inferred from a snapshot *pair*, so the previously reconciled
+  // authority is held rather than derived: deriving it from the timeline would
+  // compare the newest snapshot against itself and never detect anything.
+  const previousAuthorityRef = useRef<ArenaStateSnapshot | null>(null);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
 
@@ -135,6 +151,8 @@ export function useArenaState({
       presentedAtRef.current = 0;
       renderedBaseRef.current = null;
       correctionRef.current = null;
+      knockoutRef.current = null;
+      previousAuthorityRef.current = null;
       snappedRef.current = false;
       snapCountRef.current = 0;
       authorityDirtyRef.current = true;
@@ -180,6 +198,8 @@ export function useArenaState({
     presentedAtRef.current = 0;
     renderedBaseRef.current = null;
     correctionRef.current = null;
+    knockoutRef.current = null;
+    previousAuthorityRef.current = null;
     snappedRef.current = false;
     snapCountRef.current = 0;
     authorityDirtyRef.current = true;
@@ -312,12 +332,28 @@ export function useArenaState({
           local, remote, welcome.prediction.playerRadius, sampled.arena.radius,
         );
         const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
+        // Deliberately ungated: a frame where authority did not change compares the
+        // snapshot against itself, and `detectKnockout` is null for every such pair
+        // (live/live fails its next-phase guard, any other phase fails its
+        // previous-phase guard). An `authorityChanged` gate here would be an
+        // unpinnable branch — no test can distinguish it — so there is no branch.
+        const detected = detectKnockout(previousAuthorityRef.current, authority, frameTime);
+        if (detected !== null) knockoutRef.current = detected;
+        previousAuthorityRef.current = authority;
+        if (knockoutRef.current !== null
+          && frameTime - knockoutRef.current.startedAt > KNOCKOUT_DURATION_MS) {
+          knockoutRef.current = null;
+        }
+        const knockout = knockoutRef.current === null ? [] : sampleKnockout(
+          knockoutRef.current, frameTime, welcome.prediction.playerRadius, reducedMotion,
+        );
         const nextRendered: ArenaRenderState = {
           localPlayer: displayedLocal, remotePlayer: remote,
           projectiles: [...sampled.projectiles, ...predictedProjectiles],
           arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
           score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,
+          knockout,
         };
         onFrameRef.current?.(nextRendered);
         if (predictionChanged) setRendered(nextRendered);
@@ -326,7 +362,12 @@ export function useArenaState({
     };
     update();
     return () => cancelAnimationFrame(frameId);
-  }, [welcome]);
+    // `reducedMotion` is a dependency rather than a ref so that it is never read stale
+    // from this closure. Restarting the loop on an OS accessibility toggle costs one
+    // extra synchronous `update()`; every ref above it survives, so nothing resets.
+    // The setting is owned by ArenaBoard — the hook must not open a second matchMedia
+    // listener for it.
+  }, [reducedMotion, welcome]);
 
   useEffect(() => {
     if (!welcome && finalState) onFrameRef.current?.(renderFinalState(finalState, selfSessionId));

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile, sampleTimeline } from './arenaMath';
+import { KNOCKOUT_DURATION_MS } from './arenaKnockout';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
 
 const prediction = {
@@ -808,6 +809,192 @@ describe('useArenaState', () => {
       const anchor = (index: number): number =>
         diameter - index * pushPerSnapshot - unacknowledgedTicks * pushPerTick;
       expect(Math.max(...trackingErrors(settled, anchor))).toBeLessThan(trackingTolerance);
+    });
+  });
+
+  describe('knockout', () => {
+    // Deliberately zero velocity on both bodies so `travel` is exactly one diameter
+    // (1200) and the sampled slide positions below are arithmetic, not approximate.
+    const koState = (
+      phase: ArenaStateSnapshot['phase'], score: [number, number], localX: number, remoteX: number,
+    ): ArenaStateSnapshot => ({
+      ...state(0),
+      phase, score,
+      players: [
+        { ...state(0).players[0], x: localX, y: 0, vx: 0 },
+        { ...state(0).players[1], x: remoteX, y: 0, vx: 0 },
+      ],
+    });
+    const koSnapshot = (sequence: number, generatedAtUnixMs: number, next: ArenaStateSnapshot): ArenaSnapshot => ({
+      ...snapshot(sequence, generatedAtUnixMs, 0), ...next,
+    });
+
+    // Hoisted per test below rather than here: `welcome()` returns a fresh identity and
+    // the [welcome] effect resets every prediction ref, so it must be stable per render.
+    function driveKnockout(reducedMotion = false) {
+      vi.setSystemTime(1000);
+      const initial = welcome();
+      let latest: RenderState | null = null;
+      const hook = renderHook(({ latestSnapshot, currentWelcome, selfSessionId }) => useArenaState({
+        welcome: currentWelcome, latestSnapshot, pendingInputs: [], selfSessionId, reducedMotion,
+        onFrame: rendered => { latest = rendered; },
+      }), { initialProps: {
+        latestSnapshot: null as ArenaSnapshot | null,
+        currentWelcome: initial as ArenaWelcome,
+        selfSessionId: 10,
+      } });
+      // The RAF effect's synchronous mount update already ran at performance.now(),
+      // which is 0 under fake timers, so every driven frame below starts well past it.
+      const knockOut = () => {
+        // welcome.snapshotSequence is 1, so the first snapshot has to be 2 to clear the
+        // sequence guard. Side 0 scores, so side 1 — session 20 — is the victim, and the
+        // welcome frame is the previous snapshot that still holds where they were.
+        hook.rerender({
+          latestSnapshot: koSnapshot(2, 1050, koState('loading', [1, 0], 1000, -1000)),
+          currentWelcome: initial, selfSessionId: 10,
+        });
+        vi.setSystemTime(1050);
+        act(() => { frame?.(1000); });
+      };
+      return { hook, initial, knockOut, frameOf: () => latest! };
+    }
+
+    it('animates the losing player after a round is decided', () => {
+      const { knockOut, frameOf } = driveKnockout();
+
+      knockOut();
+
+      expect(frameOf().knockout).toHaveLength(1);
+      // Sampled at its own startedAt, so progress is 0: still at the lip, full scale.
+      expect(frameOf().knockout[0]).toMatchObject({ sessionId: 20, x: -1000, y: 0, scale: 1 });
+    });
+
+    it('clears the knockout when it has run its course', () => {
+      const { knockOut, frameOf } = driveKnockout();
+      knockOut();
+      expect(frameOf().knockout).toHaveLength(1);
+
+      // The last frame of the animation is the one at exactly the duration; expiry is
+      // strictly greater. Both frames are asserted so the boundary itself is pinned.
+      act(() => { frame?.(1000 + KNOCKOUT_DURATION_MS); });
+      expect(frameOf().knockout).toHaveLength(1);
+      act(() => { frame?.(1000 + KNOCKOUT_DURATION_MS + 1); });
+      expect(frameOf().knockout).toHaveLength(0);
+    });
+
+    it('re-arms on a second knockout that lands mid-animation', () => {
+      const { hook, initial, knockOut, frameOf } = driveKnockout();
+      knockOut();
+      expect(frameOf().knockout[0].sessionId).toBe(20);
+
+      // Back to live: no transition to detect, and the first animation is still running.
+      hook.rerender({
+        latestSnapshot: koSnapshot(3, 1100, koState('live', [1, 0], 2000, -2000)),
+        currentWelcome: initial, selfSessionId: 10,
+      });
+      vi.setSystemTime(1100);
+      act(() => { frame?.(1100); });
+      expect(frameOf().knockout[0].sessionId).toBe(20);
+
+      // Side 1 scores this time, 200 ms into the first animation, so the local player is
+      // the new victim.
+      hook.rerender({
+        latestSnapshot: koSnapshot(4, 1150, koState('loading', [1, 1], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 10,
+      });
+      vi.setSystemTime(1150);
+      act(() => { frame?.(1200); });
+      expect(frameOf().knockout).toHaveLength(1);
+      expect(frameOf().knockout[0].sessionId).toBe(10);
+
+      // The clock re-based on the second knockout. Had the first startedAt been kept,
+      // this frame would be 1600 ms in and already expired.
+      act(() => { frame?.(1200 + KNOCKOUT_DURATION_MS); });
+      expect(frameOf().knockout[0].sessionId).toBe(10);
+      act(() => { frame?.(1200 + KNOCKOUT_DURATION_MS + 1); });
+      expect(frameOf().knockout).toHaveLength(0);
+    });
+
+    it('never lets the knockout reach prediction or the correction origin', () => {
+      const { hook, initial, frameOf } = driveKnockout();
+      // The local player loses, so the animated body is the one whose published position
+      // also feeds `renderedBaseRef` — the only fixture where pollution is observable.
+      hook.rerender({
+        latestSnapshot: koSnapshot(2, 1050, koState('loading', [0, 1], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 10,
+      });
+      vi.setSystemTime(1050);
+      act(() => { frame?.(1000); });
+
+      // Not 0: a knockout cannot happen without a phase and score change, and both are
+      // mandatory discrete snap conditions in `reconcile`. One snap is the floor here.
+      expect(hook.result.current.snapCount).toBe(1);
+      expect(frameOf().knockout[0].sessionId).toBe(10);
+
+      // A second authority frame 300 ms into the animation, with the local player
+      // authoritatively unmoved. This is the discriminating step: the reconcile it
+      // triggers measures its correction origin from `renderedBaseRef`. The animated
+      // body has slid to 2102 by now, and 1102 squared clears the 90_000 snap
+      // threshold, so a knockout that reached the origin would snap a second time.
+      hook.rerender({
+        latestSnapshot: koSnapshot(3, 1100, koState('loading', [0, 1], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 10,
+      });
+      vi.setSystemTime(1100);
+      act(() => { frame?.(1300); });
+
+      expect(hook.result.current.snapCount).toBe(1);
+      expect(frameOf().localPlayer?.x).toBe(1000);
+      // The animation really is far from the published position, so the assertion above
+      // is not passing because nothing moved.
+      expect(frameOf().knockout[0].x).toBe(2102);
+    });
+
+    it('samples the knockout with the caller-supplied reduced-motion setting', () => {
+      // The setting reaches the sampler from the option, not from a matchMedia listener
+      // of the hook's own: ArenaBoard owns it. Reduced motion drops the slide and the
+      // fall and leaves a static full-size dust mark that only fades, so the very first
+      // frame is already at zero scale with the ring at its full 1.5 diameters.
+      const { knockOut, frameOf } = driveKnockout(true);
+
+      knockOut();
+
+      expect(frameOf().knockout[0]).toMatchObject({
+        sessionId: 20, x: -1000, scale: 0, puffRadius: 1800, puffOpacity: 1,
+      });
+    });
+
+    it('does not carry a knockout into a replacement match', () => {
+      const { hook, knockOut, frameOf } = driveKnockout();
+      knockOut();
+      expect(frameOf().knockout).toHaveLength(1);
+
+      // A new welcome is a new match. The frame below is only 100 ms into the previous
+      // animation, so nothing but the [welcome] reset can empty it.
+      hook.rerender({
+        latestSnapshot: null,
+        currentWelcome: { ...welcome(), matchId: 92, state: koState('live', [0, 0], 500, -500) },
+        selfSessionId: 10,
+      });
+      act(() => { frame?.(1100); });
+
+      expect(frameOf().knockout).toHaveLength(0);
+    });
+
+    it('does not carry a knockout across a session replacement', () => {
+      const { hook, initial, knockOut, frameOf } = driveKnockout();
+      knockOut();
+      expect(frameOf().knockout).toHaveLength(1);
+
+      // Same welcome object, new session: the reconnect path, which resets prediction in
+      // the session-change effect. Again only 100 ms into the animation.
+      hook.rerender({
+        latestSnapshot: koSnapshot(2, 1050, koState('loading', [1, 0], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 20,
+      });
+      act(() => { frame?.(1100); });
+
+      expect(frameOf().knockout).toHaveLength(0);
     });
   });
 });

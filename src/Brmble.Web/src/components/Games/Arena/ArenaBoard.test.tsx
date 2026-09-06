@@ -62,7 +62,7 @@ describe('ArenaBoard', () => {
       localPlayer: player(10, 0), remotePlayer: player(20, 1, { chargePermille: 0, forcedFireTicks: null }),
       projectiles: [{ id: 1, ownerSessionId: 20, x: 0, y: 0, vx: 1, vy: 0, chargePermille: 0 }],
       arena: { radius: 7600, shrinkPhase: 'collapse' }, phase: 'live', phaseEndsAtTick: 160,
-      score: [1, 0], consecutiveDoubleKos: 0, snapCount: 0,
+      score: [1, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [],
     };
     connection.current.welcome = {
       serverTick: 100, tickRate: 60,

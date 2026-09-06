@@ -73,18 +73,21 @@ export function ArenaBoard({
   const endedFinalState = ended && 'finalState' in ended ? ended.finalState : undefined;
   const finalState = connection.closed?.finalState ?? endedFinalState;
   const drawFrameRef = useRef<(state: ReturnType<typeof useArenaState>) => void>(() => {});
+  // Declared above `useArenaState` because the hook takes it as an option: the knockout
+  // animation is sampled inside its frame loop, and the hook must not open a second
+  // matchMedia listener of its own for a setting this component already owns.
+  const [reducedMotion, setReducedMotion] = useState(false);
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs, recentInputs: connection.recentInputs,
     currentInput: connection.currentInput,
-    selfSessionId, finalState, onFrame: current => drawFrameRef.current(current),
+    selfSessionId, finalState, reducedMotion, onFrame: current => drawFrameRef.current(current),
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ArenaRenderer | null>(null);
   const latestFrameRef = useRef(state);
   const [renderer, setRenderer] = useState<ArenaRenderer | null>(null);
   const localPlayerRef = useRef(state.localPlayer);
-  const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
