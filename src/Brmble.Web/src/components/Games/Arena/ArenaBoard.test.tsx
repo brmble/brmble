@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArenaConnection } from './useArenaConnection';
 import type { ArenaPlayerSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome } from './arenaProtocol';
+import type { EndedMatch } from '../useGameState';
 import { ArenaBoard } from './ArenaBoard';
+import { ArenaRenderer, type ArenaRenderView } from './ArenaRenderer';
 import { GameSurface } from '../GameSurface';
 import bridge from '../../../bridge';
 
@@ -732,6 +734,169 @@ describe('ArenaBoard', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Arena audio arrives in a later release');
     fireEvent.click(audio);
     expect(audio).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // The vanish is only observable on the render frame: it never reaches the DOM,
+  // and the canvas context is stubbed to null, so the renderer call is the seam.
+  const knockoutFrames = (spy: ReturnType<typeof vi.spyOn>) =>
+    (spy.mock.calls.at(-1)![0] as ArenaRenderView).knockout;
+
+  // A forfeit reaches the board as two independent messages: the duel bridge names
+  // the winner, and the arena socket delivers the final board. Neither alone is enough.
+  const closedWith = (reason: 'completed' | 'forfeited') => {
+    const finalState: ArenaStateSnapshot = {
+      ...connection.current.welcome!.state, phase: 'ended', phaseEndsAtTick: null,
+    };
+    connection.current = {
+      ...connection.current,
+      status: 'closed',
+      closed: {
+        type: 'matchClosed', protocolVersion: 1, matchId: 91, sequence: 4, serverTick: 200, reason, finalState,
+      },
+    };
+    return finalState;
+  };
+
+  const endedBy = (overrides: Partial<EndedMatch>): EndedMatch =>
+    ({ matchId: 91, sourceMatchId: 91, gameType: 'arena-knockoff', ...overrides });
+
+  it('vanishes the forfeiting player rather than freezing them in place', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    closedWith('forfeited');
+
+    render(<ArenaBoard {...props({
+      ended: endedBy({ abandoned: true, reason: 'forfeit', winnerId: 10 }),
+    })} />);
+
+    const knockout = knockoutFrames(renderSpy);
+    expect(knockout).toHaveLength(1);
+    // winnerId is a session id despite its name, so the victim is session 20.
+    expect(knockout[0].sessionId).toBe(20);
+    // vanishOnly opens the dust at once: full opacity from zero radius. A knockout
+    // that slides and falls first opens it at opacity 0 instead.
+    expect(knockout[0].puffOpacity).toBe(1);
+    expect(knockout[0].puffRadius).toBe(0);
+  });
+
+  it('vanishes a forfeit that carries no abandoned flag', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    closedWith('forfeited');
+
+    render(<ArenaBoard {...props({ ended: endedBy({ winnerId: 10 }) })} />);
+
+    expect(knockoutFrames(renderSpy).map(frame => frame.sessionId)).toEqual([20]);
+  });
+
+  it('vanishes an abandon that the arena socket closed as completed', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    closedWith('completed');
+
+    render(<ArenaBoard {...props({
+      ended: endedBy({ abandoned: true, reason: 'connection lost', winnerId: 10 }),
+    })} />);
+
+    expect(knockoutFrames(renderSpy).map(frame => frame.sessionId)).toEqual([20]);
+  });
+
+  it('leaves a normally completed match on the board', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    closedWith('completed');
+
+    render(<ArenaBoard {...props({ ended: endedBy({ winnerId: 10 }) })} />);
+
+    expect(knockoutFrames(renderSpy)).toEqual([]);
+  });
+
+  it('vanishes nobody when a forfeit arrives without a final board', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    connection.current = { ...connection.current, status: 'closed', closed: null };
+
+    render(<ArenaBoard {...props({
+      ended: endedBy({ abandoned: true, reason: 'forfeit', winnerId: 10 }),
+    })} />);
+
+    expect(knockoutFrames(renderSpy)).toEqual([]);
+  });
+
+  it('vanishes nobody when a forfeit names no winner', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    closedWith('forfeited');
+
+    render(<ArenaBoard {...props({ ended: endedBy({ abandoned: true, reason: 'forfeit' }) })} />);
+
+    expect(knockoutFrames(renderSpy)).toEqual([]);
+  });
+
+  // The real hook is needed wherever more than one frame must be drawn: the mocked
+  // hook only draws once, from the canvas mount effect.
+  const liveWelcome = () => {
+    const prediction = {
+      unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
+      momentumRetentionPermille: 920, chargeTicks: 90, forcedFireTicks: 30, shotCooldownTicks: 24,
+      projectileRadius: 180, projectilePerTick: 240, projectileBaseKnockback: 130,
+      projectileBonusKnockback: 220, recoilBase: 45, recoilBonus: 105, dashTicks: 6, dashPerTick: 240,
+    } as const;
+    const welcome: ArenaWelcome = {
+      type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91, role: 'participant', sessionId: 10,
+      snapshotSequence: 1, serverTick: 100, tickRate: 60, snapshotRate: 20, interpolationMs: 100,
+      maxExtrapolationMs: 50, inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
+      prediction, acknowledgedInput: 0,
+      state: {
+        phase: 'live', phaseEndsAtTick: 160, score: [1, 0], consecutiveDoubleKos: 0,
+        arena: { radius: 7600, shrinkPhase: 'collapse' }, projectiles: [],
+        players: [player(10, 0), player(20, 1, { chargePermille: 0, forcedFireTicks: null })],
+      },
+    };
+    state.useReal = true;
+    connection.current = { ...connection.current, welcome, latestSnapshot: null };
+    return welcome;
+  };
+
+  it('advances one vanish across frames rather than restarting it on each', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const welcome = liveWelcome();
+    closedWith('forfeited');
+    connection.current = { ...connection.current, welcome };
+    const forfeit = endedBy({ abandoned: true, reason: 'forfeit', winnerId: 10 });
+
+    const rendered = render(<ArenaBoard {...props({ ended: forfeit })} />);
+    expect(knockoutFrames(renderSpy)[0].puffOpacity).toBe(1);
+
+    // Half of KNOCKOUT_DURATION_MS later the puff must be half faded. A vanish
+    // re-armed on this frame would read as opacity 1 again.
+    now.mockReturnValue(1700);
+    rendered.rerender(<ArenaBoard {...props({ ended: forfeit })} />);
+    act(() => {
+      for (const callback of frames.splice(0)) callback(1700);
+    });
+
+    const knockout = knockoutFrames(renderSpy);
+    expect(knockout.map(frame => frame.sessionId)).toEqual([20]);
+    expect(knockout[0].puffOpacity).toBeCloseTo(0.5, 5);
+    expect(knockout[0].scale).toBe(0);
+    now.mockRestore();
+  });
+
+  it('retires the vanish when the board is reused for the next match', () => {
+    const renderSpy = vi.spyOn(ArenaRenderer.prototype, 'render');
+    const welcome = liveWelcome();
+    closedWith('forfeited');
+    connection.current = { ...connection.current, welcome };
+
+    const rendered = render(<ArenaBoard {...props({
+      ended: endedBy({ abandoned: true, reason: 'forfeit', winnerId: 10 }),
+    })} />);
+    expect(knockoutFrames(renderSpy)).toHaveLength(1);
+
+    // The rematch reconnects: a fresh match id, a live socket, no ended payload.
+    connection.current = { ...connection.current, status: 'connected', closed: null };
+    rendered.rerender(<ArenaBoard {...props({ matchId: 92 })} />);
+    act(() => {
+      for (const callback of frames.splice(0)) callback(performance.now());
+    });
+
+    expect(knockoutFrames(renderSpy)).toEqual([]);
   });
 
   it('opts into a filling game surface without changing the default', () => {
