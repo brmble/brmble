@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PREDICTION_V1, type ArenaPlayerSnapshot } from './arenaProtocol';
 import { ArenaRenderer, FALLBACK_AVATAR_SRC, type ArenaRenderView } from './ArenaRenderer';
 
-type Recorded = { op: string; args: unknown[]; strokeStyle?: string; fillStyle?: string; lineWidth?: number };
+type Recorded = {
+  op: string; args: unknown[]; strokeStyle?: string; fillStyle?: string; lineWidth?: number; globalAlpha?: number;
+};
 
 function player(sessionId: number, side: 0 | 1, overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot {
   return {
@@ -18,7 +20,7 @@ function view(overrides: Partial<ArenaRenderView> = {}): ArenaRenderView {
     selfSessionId: 10,
     players: [player(10, 0), player(20, 1)],
     projectiles: [], arena: { radius: 8000, shrinkPhase: 'hold' },
-    names: { 10: 'Local', 20: 'Remote' }, avatarUrls: {}, prediction: PREDICTION_V1, ...overrides,
+    names: { 10: 'Local', 20: 'Remote' }, avatarUrls: {}, prediction: PREDICTION_V1, knockout: [], ...overrides,
   };
 }
 
@@ -35,6 +37,7 @@ function setup() {
         strokeStyle: String(target.strokeStyle),
         fillStyle: String(target.fillStyle),
         lineWidth: target.lineWidth,
+        globalAlpha: target.globalAlpha,
       });
     },
     set(target, property, value) {
@@ -231,6 +234,112 @@ describe('ArenaRenderer', () => {
     expect(discs[0].args).toEqual(discs[1].args);
     // The floor is filled before the ring is stroked, so the lip sits on the seam.
     expect(floor).toBeLessThan(calls.findIndex(call => call.op === 'stroke'));
+  });
+
+  describe('knockout', () => {
+    // World scale is 600/20000 = 0.03 and offsetX is 200, so world x maps to
+    // 200 + (x + 10000) * 0.03. Bodies are PREDICTION_V1.playerRadius (600) -> 18.
+    const bodyArcs = (calls: Recorded[], radius: number) =>
+      calls.filter(call => call.op === 'arc' && call.args[2] === radius);
+
+    it('suppresses the falling player and draws them at the animated position instead', () => {
+      const { renderer, calls } = setup();
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0.5, puffRadius: 0, puffOpacity: 0 }],
+      }), { reducedMotion: false });
+      // The victim's avatar clip arc is drawn at the animated point, not at its
+      // authoritative position.
+      const clips = calls.filter(call => call.op === 'arc');
+      expect(clips.some(call => call.args[0] === 500 + 10200 * 0.03)).toBe(true);
+      // Nothing at all is drawn at the victim's authoritative x of -3000 -> 410.
+      expect(clips.some(call => call.args[0] === 410)).toBe(false);
+      // The body shrinks with the sampled scale: 18 * 0.5.
+      expect(bodyArcs(calls, 9).length).toBeGreaterThan(0);
+      // The falling body is drawn under the ring lip, so the player visibly
+      // passes behind the arena edge. The ring is the 240-radius stroked twin.
+      const lip = calls.findIndex(call => call.op === 'stroke');
+      expect(calls.findIndex(call => call.op === 'clip')).toBeLessThan(lip);
+      // The fade is applied and then restored, so later draws are opaque.
+      expect(bodyArcs(calls, 9)[0].globalAlpha).toBe(0.5);
+      expect(calls[calls.length - 1].globalAlpha).toBe(1);
+    });
+
+    it('leaves the surviving player untouched during a knockout', () => {
+      const { renderer, calls } = setup();
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0.5, puffRadius: 0, puffOpacity: 0 }],
+      }), { reducedMotion: false });
+      // Side 1 draws two full-size body arcs: the avatar clip and the outline.
+      const survivor = bodyArcs(calls, 18);
+      expect(survivor).toHaveLength(2);
+      expect(survivor.every(call => call.args[0] === 590 && call.globalAlpha === 1)).toBe(true);
+      expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'Remote')).toBe(true);
+      // ...and the victim keeps none of its trimmings.
+      expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'Local')).toBe(false);
+      expect(calls.some(call => call.op === 'fillText' && call.args[0] === 'DASH')).toBe(false);
+    });
+
+    it('draws the dust ring once the body has gone', () => {
+      const { renderer, calls } = setup();
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0, puffRadius: 1800, puffOpacity: 0.5 }],
+      }), { reducedMotion: false });
+      // 1800 * 0.03 = 54, at the animated point, faded and then restored.
+      const dust = bodyArcs(calls, 54);
+      expect(dust).toHaveLength(1);
+      expect(dust[0].args[0]).toBe(806);
+      expect(dust[0].globalAlpha).toBe(0.5);
+      expect(calls[calls.length - 1].globalAlpha).toBe(1);
+      // No body at all: the only full-size arcs left are the survivor's two, and
+      // the survivor's is the only avatar clip on the board. A zero-scale body
+      // would draw a zero-radius disc, which the radius filters cannot see.
+      expect(bodyArcs(calls, 18)).toHaveLength(2);
+      expect(calls.filter(call => call.op === 'clip')).toHaveLength(1);
+      // The dust rises above the lip rather than being clipped by it.
+      expect(calls.indexOf(dust[0])).toBeGreaterThan(calls.findIndex(call => call.op === 'stroke'));
+    });
+
+    it('draws no dust before the puff has any size', () => {
+      const { renderer, calls } = setup();
+      // A `vanishOnly` knockout opens at radius 0 with full opacity, so a gate on
+      // opacity alone would stroke a degenerate zero-radius ring on the first frame.
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 1, puffRadius: 0, puffOpacity: 1 }],
+      }), { reducedMotion: false });
+      expect(bodyArcs(calls, 0)).toHaveLength(0);
+      // The body is still there, so this is the puff gate failing and not the body one.
+      expect(bodyArcs(calls, 18).some(call => call.args[0] === 806)).toBe(true);
+    });
+
+    it('draws no dust once it has fully faded', () => {
+      const { renderer, calls } = setup();
+      // The last frame of the animation is a full-size ring at zero opacity. It
+      // is full-size, so the radius gate lets it through; stroking it would put
+      // an invisible draw on the canvas every final frame.
+      renderer.render(view({
+        knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0, puffRadius: 1800, puffOpacity: 0 }],
+      }), { reducedMotion: false });
+      expect(bodyArcs(calls, 54)).toHaveLength(0);
+      expect(calls.every(call => call.globalAlpha === 1)).toBe(true);
+    });
+
+    it('draws the dust for a victim who has already left the player list', () => {
+      const { renderer, calls } = setup();
+      renderer.render(view({
+        players: [player(20, 1)],
+        knockout: [{ sessionId: 10, x: 0, y: 0, scale: 1, puffRadius: 1800, puffOpacity: 1 }],
+      }), { reducedMotion: false });
+      expect(bodyArcs(calls, 54)).toHaveLength(1);
+      // Scale is 1, so an unguarded body draw would add two more 18-radius arcs
+      // on top of the surviving player's own two.
+      expect(bodyArcs(calls, 18)).toHaveLength(2);
+    });
+
+    it('draws nothing extra when no knockout is running', () => {
+      const { renderer, calls } = setup();
+      renderer.render(view(), { reducedMotion: false });
+      expect(calls.every(call => call.globalAlpha === 1)).toBe(true);
+    });
   });
 
   it('stops rendering and releases image handlers when disposed', () => {

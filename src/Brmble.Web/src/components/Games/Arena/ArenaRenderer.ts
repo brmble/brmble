@@ -3,6 +3,7 @@ import type {
   ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot, ArenaStateSnapshot,
 } from './arenaProtocol';
 import { computeLayout, screenToWorld, worldToScreen, type ArenaLayout, type FixedVec } from './arenaMath';
+import type { ArenaKnockoutFrame } from './arenaKnockout';
 
 export const FALLBACK_AVATAR_SRC = brmbleLogo;
 
@@ -14,6 +15,7 @@ export interface ArenaRenderView {
   names: Record<number, string>;
   avatarUrls: Record<number, string | null | undefined>;
   prediction: ArenaPredictionConstants;
+  knockout: ArenaKnockoutFrame[];
 }
 
 interface AvatarEntry {
@@ -104,11 +106,45 @@ export class ArenaRenderer {
     ctx.arc(center.x, center.y, view.arena.radius * scale, 0, Math.PI * 2);
     ctx.fill();
 
+    // The falling bodies go down here, between the floor and the lip, so the ring
+    // is stroked over them and the victim visibly passes behind the arena edge.
+    // That occlusion is the animation's own depth cue and the only one that does
+    // not depend on the floor and the void being distinguishable — on most themes
+    // they are within 1.1:1 of each other, so the fall has to read without it.
+    const falling = new Map(view.knockout.map(frame => [frame.sessionId, frame]));
+    for (const frame of view.knockout) {
+      // Scale reaches 0 when the body has finished falling; from there only the
+      // dust remains. Reduced motion is delivered as scale 0 from the first frame,
+      // and needs no branch of its own here.
+      if (frame.scale <= 0) continue;
+      // A forfeit or abandon can name a victim who is already off the board. There
+      // is no body to fall, but the dust below still marks where they were.
+      const victim = view.players.find(player => player.sessionId === frame.sessionId);
+      if (victim === undefined) continue;
+      this.drawPlayer(ctx, victim, view, { primary, danger, neutral, text }, scale, line, point, frame);
+    }
+
     ctx.strokeStyle = view.arena.shrinkPhase === 'collapse' ? danger : neutral;
     ctx.lineWidth = line(view.arena.shrinkPhase === 'hold' ? 60 : 100);
     ctx.beginPath();
     ctx.arc(center.x, center.y, view.arena.radius * scale, 0, Math.PI * 2);
     ctx.stroke();
+
+    // The dust rises above the lip rather than being hidden behind it: it marks
+    // the point of departure, which sits on the ring itself.
+    for (const frame of view.knockout) {
+      // Gate on opacity as well as radius: `vanishOnly` opens at radius 0 with
+      // full opacity, so radius alone would blank the first frame of a forfeit.
+      if (frame.puffRadius <= 0 || frame.puffOpacity <= 0) continue;
+      const dust = point(frame);
+      ctx.globalAlpha = frame.puffOpacity;
+      ctx.strokeStyle = neutral;
+      ctx.lineWidth = line(100);
+      ctx.beginPath();
+      ctx.arc(dust.x, dust.y, frame.puffRadius * scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.fillStyle = text;
     ctx.font = `${color('--text-xs')} ${color('--font-mono')}`;
     ctx.textAlign = 'center';
@@ -142,6 +178,10 @@ export class ArenaRenderer {
     }
 
     for (const player of view.players) {
+      // A victim is drawn above, at its animated position and under the lip. Its
+      // authoritative position is already back at spawn, so drawing it here too
+      // would put a second copy of the same player on the board.
+      if (falling.has(player.sessionId)) continue;
       this.drawPlayer(ctx, player, view, { primary, danger, neutral, text }, scale, line, point);
     }
   }
@@ -168,13 +208,25 @@ export class ArenaRenderer {
     scale: number,
     line: (worldWidth: number) => number,
     point: (value: FixedVec) => FixedVec,
+    frame?: ArenaKnockoutFrame,
   ) {
-    const body = point(player);
-    const { playerRadius, shotCooldownTicks } = view.prediction;
+    const body = point(frame ?? player);
+    const { playerRadius: fullRadius, shotCooldownTicks } = view.prediction;
+    const playerRadius = frame === undefined ? fullRadius : fullRadius * frame.scale;
     const sideColor = player.side === 0 ? colors.primary : colors.danger;
     const aimLength = Math.hypot(player.aimX, player.aimY) || 1;
     const aimX = player.aimX / aimLength;
     const aimY = player.aimY / aimLength;
+
+    // A falling body keeps only its silhouette: the aim and charge sticks, the
+    // rear marker, the name and the local cooldown and dash cues all describe a
+    // player who is still in the round, and this one is not.
+    if (frame !== undefined) {
+      ctx.globalAlpha = frame.scale;
+      this.drawBody(ctx, player, view, body, playerRadius, scale, sideColor, colors.text, line);
+      ctx.globalAlpha = 1;
+      return;
+    }
 
     ctx.strokeStyle = colors.neutral;
     ctx.lineWidth = line(45);
@@ -204,30 +256,7 @@ export class ArenaRenderer {
       }
     }
 
-    const avatar = this.avatarFor(player.sessionId, view.avatarUrls[player.sessionId]);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
-    ctx.clip();
-    const diameter = playerRadius * scale * 2;
-    if (avatar?.complete && avatar.naturalWidth > 0) {
-      ctx.drawImage(avatar, body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
-    } else {
-      this.drawFallback(ctx, body, diameter, sideColor, colors.text);
-    }
-    ctx.restore();
-
-    ctx.strokeStyle = sideColor;
-    ctx.lineWidth = line(player.side === 0 ? 100 : 140);
-    ctx.beginPath();
-    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
-    ctx.stroke();
-    if (player.side === 0) {
-      ctx.lineWidth = line(45);
-      ctx.beginPath();
-      ctx.arc(body.x, body.y, (playerRadius - 150) * scale, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    this.drawBody(ctx, player, view, body, playerRadius, scale, sideColor, colors.text, line);
 
     // The marker reads as the player's back, so it points opposite the aim vector
     // and rotates with it — the aim and charge sticks above are the front. Aim is
@@ -271,6 +300,44 @@ export class ArenaRenderer {
       ctx.fillStyle = sideColor;
       ctx.textBaseline = 'bottom';
       ctx.fillText('DASH', body.x, body.y - (playerRadius + 180) * scale);
+    }
+  }
+
+  /** The avatar disc, its side outline and the local player's inner ring. */
+  private drawBody(
+    ctx: CanvasRenderingContext2D,
+    player: ArenaPlayerSnapshot,
+    view: ArenaRenderView,
+    body: FixedVec,
+    playerRadius: number,
+    scale: number,
+    sideColor: string,
+    text: string,
+    line: (worldWidth: number) => number,
+  ) {
+    const avatar = this.avatarFor(player.sessionId, view.avatarUrls[player.sessionId]);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
+    ctx.clip();
+    const diameter = playerRadius * scale * 2;
+    if (avatar?.complete && avatar.naturalWidth > 0) {
+      ctx.drawImage(avatar, body.x - diameter / 2, body.y - diameter / 2, diameter, diameter);
+    } else {
+      this.drawFallback(ctx, body, diameter, sideColor, text);
+    }
+    ctx.restore();
+
+    ctx.strokeStyle = sideColor;
+    ctx.lineWidth = line(player.side === 0 ? 100 : 140);
+    ctx.beginPath();
+    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
+    ctx.stroke();
+    if (player.side === 0) {
+      ctx.lineWidth = line(45);
+      ctx.beginPath();
+      ctx.arc(body.x, body.y, Math.max(0, playerRadius - 150) * scale, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 

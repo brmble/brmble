@@ -140,6 +140,7 @@ export function ArenaBoard({
       // welcome.prediction is value-identical to PREDICTION_V1. Revisit if protocol v2 makes
       // these constants variable.
       prediction: connection.welcome?.prediction ?? PREDICTION_V1,
+      knockout: current.knockout,
     }, { reducedMotion });
   };
 
