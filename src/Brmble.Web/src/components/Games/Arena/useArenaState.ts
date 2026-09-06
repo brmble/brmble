@@ -337,6 +337,12 @@ export function useArenaState({
         // (live/live fails its next-phase guard, any other phase fails its
         // previous-phase guard). An `authorityChanged` gate here would be an
         // unpinnable branch — no test can distinguish it — so there is no branch.
+        //
+        // Known limit: holding a pair rather than walking the timeline means a whole
+        // live -> loading -> live cycle completing inside one frame is invisible, since
+        // the pair reads live -> live. Unreachable in practice — round transitions are
+        // hundreds of milliseconds against a 60 Hz loop — and closing it would mean
+        // scanning the timeline, which is far more machinery than the case warrants.
         const detected = detectKnockout(previousAuthorityRef.current, authority, frameTime);
         if (detected !== null) knockoutRef.current = detected;
         previousAuthorityRef.current = authority;

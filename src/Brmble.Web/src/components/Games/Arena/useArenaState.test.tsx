@@ -831,12 +831,15 @@ describe('useArenaState', () => {
 
     // Hoisted per test below rather than here: `welcome()` returns a fresh identity and
     // the [welcome] effect resets every prediction ref, so it must be stable per render.
-    function driveKnockout(reducedMotion = false) {
+    // `options` is spread rather than destructured with a default so that the common
+    // path passes no `reducedMotion` key at all, leaving the hook's own default to be
+    // exercised by every test below. Forwarding an explicit `false` would mask it.
+    function driveKnockout(options: { reducedMotion?: boolean } = {}) {
       vi.setSystemTime(1000);
       const initial = welcome();
       let latest: RenderState | null = null;
       const hook = renderHook(({ latestSnapshot, currentWelcome, selfSessionId }) => useArenaState({
-        welcome: currentWelcome, latestSnapshot, pendingInputs: [], selfSessionId, reducedMotion,
+        welcome: currentWelcome, latestSnapshot, pendingInputs: [], selfSessionId, ...options,
         onFrame: rendered => { latest = rendered; },
       }), { initialProps: {
         latestSnapshot: null as ArenaSnapshot | null,
@@ -931,11 +934,19 @@ describe('useArenaState', () => {
       expect(hook.result.current.snapCount).toBe(1);
       expect(frameOf().knockout[0].sessionId).toBe(10);
 
+      // Load-bearing, and the whole reason this fixture discriminates. `renderedBaseRef`
+      // is rewritten at the end of *every* frame, not just reconcile frames, and it is
+      // the next reconcile's correction origin. The knockout frame above is sampled at
+      // progress 0, where the animated body still coincides with the authoritative
+      // position — so pollution is invisible there. This frame, 150 ms in, is the first
+      // at which the animation has separated from the position it must not contaminate.
+      act(() => { frame?.(1150); });
+      expect(frameOf().knockout[0].x).toBe(1704);
+      expect(frameOf().localPlayer?.x).toBe(1000);
+
       // A second authority frame 300 ms into the animation, with the local player
-      // authoritatively unmoved. This is the discriminating step: the reconcile it
-      // triggers measures its correction origin from `renderedBaseRef`. The animated
-      // body has slid to 2102 by now, and 1102 squared clears the 90_000 snap
-      // threshold, so a knockout that reached the origin would snap a second time.
+      // authoritatively unmoved. Frame 2 must NOT snap: it is the frame that clears
+      // `snappedRef`, and only a cleared `snappedRef` lets frame 3's real snap count.
       hook.rerender({
         latestSnapshot: koSnapshot(3, 1100, koState('loading', [0, 1], 1000, -1000)),
         currentWelcome: initial, selfSessionId: 10,
@@ -943,11 +954,34 @@ describe('useArenaState', () => {
       vi.setSystemTime(1100);
       act(() => { frame?.(1300); });
 
+      // Both of these are inert on their own and are kept only as context for the
+      // assertion that follows. `snapCount` is a *streak* counter gated on
+      // `!snappedRef.current` (useArenaState.ts:267), which the knockout frame has
+      // already latched true, so it reads 1 whether or not pollution occurred. And a
+      // polluted origin gives correctionSquared > 90_000, which makes `snapped` true
+      // and forces `correction` to null (arenaMath.ts:478) — so the displayed x is the
+      // uncorrected 1000 in both worlds too.
       expect(hook.result.current.snapCount).toBe(1);
       expect(frameOf().localPlayer?.x).toBe(1000);
-      // The animation really is far from the published position, so the assertion above
-      // is not passing because nothing moved.
+      // The animation really is far from the published position, so the assertions
+      // above are not passing merely because nothing moved.
       expect(frameOf().knockout[0].x).toBe(2102);
+
+      // The discriminating step. A phase change is a mandatory discrete snap, so this
+      // frame snaps. Whether it *counts* is what separates the two worlds:
+      //   clean    — frame 2 reconciled against an origin of 1000, did not snap, and so
+      //              cleared `snappedRef`; this frame's snap increments to 2.
+      //   polluted — frame 2 reconciled against the 1704 the previous frame published,
+      //              measured a 704-unit error, snapped, and kept `snappedRef` latched
+      //              (its own increment being unreachable for the same reason); this
+      //              frame's increment is then unreachable too, leaving 1.
+      hook.rerender({
+        latestSnapshot: koSnapshot(4, 1150, koState('live', [0, 1], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 10,
+      });
+      vi.setSystemTime(1150);
+      act(() => { frame?.(1350); });
+      expect(hook.result.current.snapCount).toBe(2);
     });
 
     it('samples the knockout with the caller-supplied reduced-motion setting', () => {
@@ -955,13 +989,86 @@ describe('useArenaState', () => {
       // of the hook's own: ArenaBoard owns it. Reduced motion drops the slide and the
       // fall and leaves a static full-size dust mark that only fades, so the very first
       // frame is already at zero scale with the ring at its full 1.5 diameters.
-      const { knockOut, frameOf } = driveKnockout(true);
+      const { knockOut, frameOf } = driveKnockout({ reducedMotion: true });
 
       knockOut();
 
       expect(frameOf().knockout[0]).toMatchObject({
         sessionId: 20, x: -1000, scale: 0, puffRadius: 1800, puffOpacity: 1,
       });
+    });
+
+    it('applies a reduced-motion change made during a match', () => {
+      // The frame loop must never read this option stale, which is why it is an effect
+      // dependency rather than a value carried on `inputsRef`. That ref is reassigned
+      // wholesale (useArenaState.ts:166) by an effect keyed on the *input* props
+      // (:178); a preference toggle changes none of them, so a knockout carried there
+      // would keep sampling the old setting for the rest of the match.
+      vi.setSystemTime(1000);
+      const initial = welcome();
+      let latest: RenderState | null = null;
+      const scored = () => koSnapshot(2, 1050, koState('loading', [1, 0], 1000, -1000));
+      const hook = renderHook(({ latestSnapshot, reducedMotion }) => useArenaState({
+        welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10, reducedMotion,
+        onFrame: rendered => { latest = rendered; },
+      }), { initialProps: {
+        latestSnapshot: null as ArenaSnapshot | null, reducedMotion: false,
+      } });
+
+      hook.rerender({ latestSnapshot: scored(), reducedMotion: false });
+      vi.setSystemTime(1050);
+      act(() => { frame?.(1000); });
+      expect(latest!.knockout[0]).toMatchObject({ scale: 1, puffRadius: 0 });
+
+      // Toggled mid-animation. The next frame must already sample the new setting: a
+      // full-size static dust mark and a body that is gone rather than falling.
+      hook.rerender({ latestSnapshot: scored(), reducedMotion: true });
+      act(() => { frame?.(1200); });
+      expect(latest!.knockout[0]).toMatchObject({ scale: 0, puffRadius: 1800 });
+    });
+
+    it('does not infer a knockout from the previous match when a new welcome lands mid-round', () => {
+      const { hook, frameOf } = driveKnockout();
+      // No knockout is driven at all, so `knockoutRef` is null throughout and this
+      // isolates the `previousAuthorityRef` clear from the `knockoutRef` clear beside
+      // it. Note that reaching this state *requires* the stale pair to be live: the
+      // obvious fixture — knock out first, then swap the welcome — cannot detect
+      // anything, because it leaves the ref holding a `loading` snapshot and
+      // `detectKnockout` rejects any previous phase that is not `live`.
+      //
+      // The hook's mount frame leaves the ref holding the first match's live welcome
+      // frame at [0, 0]. The replacement is a *different* match already in loading at
+      // [2, 0] — a reconnect landing mid-round. Paired against that stale live frame it
+      // reads as a scoring live -> loading transition, i.e. a knockout on the very
+      // first frame of a match in which nobody has been knocked out.
+      hook.rerender({
+        latestSnapshot: null,
+        currentWelcome: { ...welcome(), matchId: 93, state: koState('loading', [2, 0], 500, -500) },
+        selfSessionId: 10,
+      });
+      act(() => { frame?.(1100); });
+
+      expect(frameOf().knockout).toHaveLength(0);
+    });
+
+    it('does not infer a knockout across a session replacement', () => {
+      const { hook, initial, frameOf } = driveKnockout();
+      // The session-path mirror of the test above, and likewise driven with
+      // `knockoutRef` null so that only the `previousAuthorityRef` clear is under test.
+      // No frame is driven between the two rerenders, so the ref still holds the live
+      // welcome frame the mount frame put there when the scoring snapshot lands.
+      hook.rerender({ latestSnapshot: null, currentWelcome: initial, selfSessionId: 20 });
+      hook.rerender({
+        latestSnapshot: koSnapshot(2, 1050, koState('loading', [1, 0], 1000, -1000)),
+        currentWelcome: initial, selfSessionId: 20,
+      });
+      vi.setSystemTime(1050);
+      act(() => { frame?.(1000); });
+
+      // Paired against the pre-replacement authority this looks exactly like a
+      // knockout. It must not be one: the session it was measured for no longer
+      // exists, and a session replacement discards prediction state wholesale.
+      expect(frameOf().knockout).toHaveLength(0);
     });
 
     it('does not carry a knockout into a replacement match', () => {
