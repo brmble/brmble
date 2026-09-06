@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { sampleKnockout, type ArenaKnockout } from './arenaKnockout';
+import { detectKnockout, sampleKnockout, vanishInPlace, type ArenaKnockout } from './arenaKnockout';
+import type { ArenaStateSnapshot } from './arenaProtocol';
 
 const victim = (overrides: Partial<ArenaKnockout['victims'][number]> = {}) => ({
   sessionId: 10, x: 9000, y: 0, vx: 0, vy: 0, ...overrides,
 });
 const knockout = (overrides: Partial<ArenaKnockout> = {}): ArenaKnockout => ({
   victims: [victim()], startedAt: 1000, vanishOnly: false, ...overrides,
+});
+
+const player = (sessionId: number, side: 0 | 1, x: number, vx = 0) => ({
+  sessionId, side, x, y: 0, vx, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0,
+  forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0,
+});
+const snapshot = (
+  phase: ArenaStateSnapshot['phase'], score: [number, number], doubleKos = 0,
+): ArenaStateSnapshot => ({
+  phase, phaseEndsAtTick: null, score, consecutiveDoubleKos: doubleKos,
+  arena: { radius: 9000, shrinkPhase: 'normal' },
+  players: [player(10, 0, 9000, 300), player(20, 1, -3000)],
+  projectiles: [],
 });
 
 describe('sampleKnockout', () => {
@@ -75,5 +89,61 @@ describe('sampleKnockout', () => {
       knockout({ victims: [victim(), victim({ sessionId: 20, x: -9000 })] }), 1200, 600, false,
     );
     expect(frames.map(frame => frame.sessionId)).toEqual([10, 20]);
+  });
+});
+
+describe('detectKnockout', () => {
+  it('names the side that did not score as the victim', () => {
+    const result = detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 1]), 5);
+    expect(result?.victims.map(v => v.sessionId)).toEqual([10]);
+    expect(result?.startedAt).toBe(5);
+    expect(result?.vanishOnly).toBe(false);
+  });
+
+  it('takes position and velocity from before the respawn', () => {
+    const result = detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 1]), 5);
+    expect(result?.victims[0]).toMatchObject({ x: 9000, vx: 300 });
+  });
+
+  it('animates both players on a double knockout', () => {
+    const result = detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 0], 1), 5);
+    expect(result?.victims.map(v => v.sessionId)).toEqual([10, 20]);
+  });
+
+  it('detects the deciding knockout that ends the match', () => {
+    const result = detectKnockout(snapshot('live', [1, 1]), snapshot('ended', [1, 2]), 5);
+    expect(result?.victims.map(v => v.sessionId)).toEqual([10]);
+  });
+
+  it('ignores a phase change that scored nothing', () => {
+    expect(detectKnockout(snapshot('loading', [0, 0]), snapshot('positioning', [0, 0]), 5)).toBeNull();
+  });
+
+  it('ignores the ordinary start of a round', () => {
+    expect(detectKnockout(snapshot('positioning', [0, 0]), snapshot('live', [0, 0]), 5)).toBeNull();
+  });
+
+  // The two `ignores` cases above are both rejected by the phase guard, so only
+  // this transition — a real round end that neither scored nor double-KO'd —
+  // reaches the score check at all.
+  it('ignores a round ending that neither scored nor counted a double knockout', () => {
+    expect(detectKnockout(snapshot('live', [0, 0]), snapshot('loading', [0, 0]), 5)).toBeNull();
+  });
+
+  it('returns null without a previous snapshot to read positions from', () => {
+    expect(detectKnockout(null, snapshot('loading', [0, 1]), 5)).toBeNull();
+  });
+});
+
+describe('vanishInPlace', () => {
+  it('vanishes the named player where they stand', () => {
+    const result = vanishInPlace(snapshot('ended', [1, 2]), [10], 5);
+    expect(result?.vanishOnly).toBe(true);
+    expect(result?.victims.map(v => v.sessionId)).toEqual([10]);
+    expect(result?.victims[0]).toMatchObject({ x: 9000, y: 0 });
+  });
+
+  it('returns null when the named player is not in the state', () => {
+    expect(vanishInPlace(snapshot('ended', [1, 2]), [999], 5)).toBeNull();
   });
 });

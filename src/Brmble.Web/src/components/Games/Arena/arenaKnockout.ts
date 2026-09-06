@@ -1,3 +1,5 @@
+import type { ArenaStateSnapshot } from './arenaProtocol';
+
 export const KNOCKOUT_DURATION_MS = 1400;
 export const SLIDE_END = 0.3;
 export const FALL_END = 0.7;
@@ -108,4 +110,44 @@ export function sampleKnockout(
       puffRadius, puffOpacity,
     };
   });
+}
+
+const toVictim = (player: ArenaStateSnapshot['players'][number]): ArenaKnockoutVictim => ({
+  sessionId: player.sessionId, x: player.x, y: player.y, vx: player.vx, vy: player.vy,
+});
+
+/**
+ * A knockout is inferred, not reported: the server resets the round in the same
+ * tick it detects the boundary crossing, so the out-of-bounds position never
+ * reaches the wire. The score names the winner, so the other side is the victim,
+ * and the previous snapshot still holds where they were and how fast.
+ */
+export function detectKnockout(
+  previous: ArenaStateSnapshot | null,
+  next: ArenaStateSnapshot,
+  startedAt: number,
+): ArenaKnockout | null {
+  if (previous === null || previous.phase !== 'live') return null;
+  if (next.phase !== 'loading' && next.phase !== 'ended') return null;
+
+  const scored = next.score.findIndex((value, side) => value > previous.score[side]);
+  const doubled = next.consecutiveDoubleKos > previous.consecutiveDoubleKos;
+  if (scored === -1 && !doubled) return null;
+
+  const victims = previous.players
+    .filter(player => doubled || player.side !== scored)
+    .map(toVictim);
+  return victims.length === 0 ? null : { victims, startedAt, vanishOnly: false };
+}
+
+/** Forfeit and abandon: the player disappears where they stand. */
+export function vanishInPlace(
+  state: ArenaStateSnapshot,
+  sessionIds: readonly number[],
+  startedAt: number,
+): ArenaKnockout | null {
+  const victims = state.players
+    .filter(player => sessionIds.includes(player.sessionId))
+    .map(toVictim);
+  return victims.length === 0 ? null : { victims, startedAt, vanishOnly: true };
 }
