@@ -134,6 +134,9 @@ export function detectKnockout(
   const doubled = next.consecutiveDoubleKos > previous.consecutiveDoubleKos;
   if (scored === -1 && !doubled) return null;
 
+  // `doubled ||` is defensive and unreachable by design: a double knockout
+  // scores nothing, so `scored` is -1 and no player matches `side === -1`
+  // anyway. It states the intent rather than leaning on that coincidence.
   const victims = previous.players
     .filter(player => doubled || player.side !== scored)
     .map(toVictim);

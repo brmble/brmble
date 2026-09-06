@@ -123,6 +123,22 @@ describe('detectKnockout', () => {
     expect(detectKnockout(snapshot('positioning', [0, 0]), snapshot('live', [0, 0]), 5)).toBeNull();
   });
 
+  // The two `ignores` cases above are both absorbed by the `next.phase` guard,
+  // and the score-guard case below never reaches it either, so only a scored
+  // transition out of a non-live phase exercises `previous.phase !== 'live'`.
+  it('ignores a scored transition that did not come from a live round', () => {
+    expect(detectKnockout(snapshot('positioning', [0, 0]), snapshot('loading', [0, 1]), 5)).toBeNull();
+  });
+
+  // `ResolveRound` zeroes `consecutiveDoubleKos` on an ordinary knockout, so a
+  // double-KO round followed by an ordinary one counts *down*. Only a strict
+  // increase means a double knockout; equality-or-difference would animate a
+  // spurious two-victim knockout here.
+  it('names a single victim when an ordinary knockout resets the double knockout streak', () => {
+    const result = detectKnockout(snapshot('live', [0, 0], 1), snapshot('loading', [0, 1], 0), 5);
+    expect(result?.victims.map(v => v.sessionId)).toEqual([10]);
+  });
+
   // The two `ignores` cases above are both rejected by the phase guard, so only
   // this transition — a real round end that neither scored nor double-KO'd —
   // reaches the score check at all.
