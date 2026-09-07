@@ -131,6 +131,24 @@ docker compose -f docker-local/docker-compose.yml logs -f brmble
 - Specific test: dotnet test tests/MumbleVoiceEngine.Tests/MumbleVoiceEngine.Tests.csproj
 - Server tests: dotnet test tests/Brmble.Server.Tests/Brmble.Server.Tests.csproj
 
+### Verifying a test actually tests something
+
+A passing test proves nothing until you have seen it fail for the right reason.
+Break the code the test covers, confirm that test fails, then restore. Two rules
+this repo has learned the hard way:
+
+- **Confirm the mutation applied.** A find-and-replace that silently matches
+  nothing produces a green run that looks like proof and is worthless. Assert the
+  file actually changed before trusting the result.
+- **Sequential guards shadow each other.** When code has N guards in sequence, a
+  test only pins the one that happens to reject it — the rest can be deleted with
+  the suite still green. Run N mutations, one per guard, each with a test
+  constructed to clear every preceding guard. This has hidden real gaps in the
+  arena work repeatedly; it is not a theoretical concern.
+
+The same applies to fixtures and harnesses: verify the setup does what you think
+before concluding anything from the assertion.
+
 ## Releasing
 
 Versioning is coupled: client and server always share the same version (SemVer). A git tag triggers the full release.
