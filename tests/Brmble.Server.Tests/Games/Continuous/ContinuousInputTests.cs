@@ -123,6 +123,33 @@ public class ContinuousInputTests
         Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY);
     }
 
+
+    [TestMethod]
+    public async Task AimChangeRate_ClampedAimDoesNotKeepSpendingTheBudget()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        var sequence = 1;
+        for (; sequence <= 30; sequence++)
+        {
+            var aimY = (short)(sequence % 2 == 0 ? 1 : -1);
+            Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: aimY)).Accepted);
+        }
+
+        // Spam continues while over budget. These are clamped, so they change nothing
+        // and must not enqueue fresh timestamps: if they did, the player would hold
+        // themselves rate limited for as long as they kept clicking. Enough of them to
+        // refill the whole budget on their own if they were counted.
+        h.Time.Advance(TimeSpan.FromMilliseconds(500));
+        for (var extra = 0; extra < 70; extra++, sequence++)
+            Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: (short)(extra % 2 == 0 ? 1 : -1))).Accepted);
+
+        // Past the original window but not past the spam above, and probing with an aim
+        // that genuinely differs from the clamped one so it has to spend budget.
+        h.Time.Advance(TimeSpan.FromMilliseconds(600));
+        Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: -1)).Accepted);
+        Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY, "the budget should have recovered");
+    }
     [TestMethod]
     public async Task ActionValidation_UsesExactPhaseCooldownAndDashSpentReasons()
     {
