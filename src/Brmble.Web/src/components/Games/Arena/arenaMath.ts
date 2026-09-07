@@ -340,7 +340,15 @@ export function stepLocal(
     next.dashEndsAtTick = tick + constants.dashTicks;
   }
 
-  if (live && player.cooldownTicks === 0 && (rawInput.fireReleased || forcedFire)) {
+  // Mirrors the server exactly: a release below the minimum charge fires nothing,
+  // costs no cooldown and cancels the charge. Predicting the shot here and having the
+  // server refuse it would mispredict both a projectile and a recoil impulse.
+  const refused = rawInput.fireReleased && next.chargeTicks < constants.minChargeTicks;
+
+  if (refused) {
+    next.chargeTicks = 0;
+    player.chargePermille = 0;
+  } else if (live && player.cooldownTicks === 0 && (rawInput.fireReleased || forcedFire)) {
     const spawn = scaleBy(aim, constants.playerRadius + constants.projectileRadius);
     const velocity = scaleBy(aim, constants.projectilePerTick);
     const recoilVector = scaleBy(aim, recoilAmount(player.chargePermille, constants));

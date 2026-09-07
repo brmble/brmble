@@ -10,11 +10,18 @@ import {
 
 const prediction: ArenaPredictionConstants = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
-  momentumRetentionPermille: 920, chargeTicks: 90, forcedFireTicks: 30,
+  momentumRetentionPermille: 920, chargeTicks: 90, minChargeTicks: 30, forcedFireTicks: 30,
   shotCooldownTicks: 24, projectileRadius: 180, projectilePerTick: 240,
   projectileBaseKnockback: 130, projectileBonusKnockback: 220, recoilBase: 45,
   recoilBonus: 105, dashTicks: 6, dashPerTick: 240,
 };
+
+// The minimum charge gate is pinned by its own tests below and by PREDICTION_V1,
+// which is validated against the server. Tests whose subject is movement, recoil or
+// input edges opt out of the gate, so their exact expectations keep describing what
+// they are actually about instead of being refitted around a charge they never meant.
+const ungated: ArenaPredictionConstants = { ...prediction, minChargeTicks: 0 };
+
 
 const right: ArenaInputState = {
   moveX: 32767, moveY: 0, aimX: 32767, aimY: 0,
@@ -77,11 +84,11 @@ describe('arenaMath golden vectors', () => {
 
 describe('arena client prediction', () => {
   it('uses welcome constants for integer movement, charge slowdown, dash, recoil and own projectile', () => {
-    let local = reconcile(authority(), [], prediction).local;
-    local = stepLocal(local, { ...right, charging: true, dash: true }, prediction);
+    let local = reconcile(authority(), [], ungated).local;
+    local = stepLocal(local, { ...right, charging: true, dash: true }, ungated);
     expect(local.player.x).toBe(1330);
     expect(local.player.dashAvailable).toBe(false);
-    local = stepLocal(local, { ...right, charging: false, fireReleased: true }, prediction);
+    local = stepLocal(local, { ...right, charging: false, fireReleased: true }, ungated);
     expect(local.player.x).toBe(1614);
     expect(local.player.vx).toBe(-42);
     expect(local.player.cooldownTicks).toBe(24);
@@ -134,7 +141,7 @@ describe('arena client prediction', () => {
       pending(8, 101, 100, { ...right, dash: true }),
       pending(9, 101, 100, { ...right, fireReleased: true }),
       pending(10, 101, 101),
-    ], prediction);
+    ], ungated);
     expect(next.replayedTicks).toBe(1);
     expect(next.local.player.x).toBe(1285);
     expect(next.local.player.dashAvailable).toBe(false);
@@ -620,5 +627,37 @@ describe('shrinkIntensity', () => {
   it('clamps outside the arena bounds', () => {
     expect(shrinkIntensity(12_000)).toBe(0);
     expect(shrinkIntensity(-500)).toBe(1);
+  });
+});
+
+describe('arena minimum charge gate', () => {
+  const chargeFor = (ticks: number) => {
+    let local = reconcile(authority(), [], prediction).local;
+    for (let tick = 0; tick < ticks; tick++) {
+      local = stepLocal(local, { ...right, moveX: 0, moveY: 0, charging: true }, prediction);
+    }
+    return local;
+  };
+
+  it('refuses a release below the minimum charge, exactly as the server does', () => {
+    let local = chargeFor(prediction.minChargeTicks - 1);
+    const restingVx = local.player.vx;
+
+    local = stepLocal(local, { ...right, moveX: 0, moveY: 0, charging: false, fireReleased: true }, prediction);
+
+    // No shot, no cooldown, no recoil, and the charge is cancelled rather than banked.
+    expect(local.projectiles).toEqual([]);
+    expect(local.player.cooldownTicks).toBe(0);
+    expect(local.player.vx).toBe(restingVx);
+    expect(local.chargeTicks).toBe(0);
+  });
+
+  it('fires at exactly the minimum charge', () => {
+    let local = chargeFor(prediction.minChargeTicks);
+
+    local = stepLocal(local, { ...right, moveX: 0, moveY: 0, charging: false, fireReleased: true }, prediction);
+
+    expect(local.projectiles).toHaveLength(1);
+    expect(local.player.cooldownTicks).toBe(prediction.shotCooldownTicks);
   });
 });

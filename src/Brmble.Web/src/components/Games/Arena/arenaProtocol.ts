@@ -5,6 +5,7 @@ export interface ArenaPredictionConstants {
   chargedMovePerTick: 45;
   momentumRetentionPermille: 920;
   chargeTicks: 90;
+  minChargeTicks: 30;
   forcedFireTicks: 30;
   shotCooldownTicks: 24;
   projectileRadius: 180;
@@ -178,6 +179,7 @@ export const PREDICTION_V1: ArenaPredictionConstants = {
   chargedMovePerTick: 45,
   momentumRetentionPermille: 920,
   chargeTicks: 90,
+  minChargeTicks: 30,
   forcedFireTicks: 30,
   shotCooldownTicks: 24,
   projectileRadius: 180,
