@@ -862,6 +862,50 @@ describe('useArenaState', () => {
       return { hook, initial, knockOut, frameOf: () => latest! };
     }
 
+    it('holds the pre-reset arena and players until the fall has finished', () => {
+      vi.setSystemTime(1000);
+      // A late-round board: small ring, players drawn in close. The server resets the
+      // round in the same tick it rules the knockout, so the very next snapshot
+      // restores the full ring and respawns both players.
+      const board = (
+        phase: ArenaStateSnapshot['phase'], score: [number, number],
+        radius: number, localX: number, remoteX: number,
+      ): ArenaStateSnapshot => ({
+        ...state(0), phase, score,
+        arena: { radius, shrinkPhase: 'normal' },
+        players: [
+          { ...state(0).players[0], x: localX, y: 0, vx: 0 },
+          { ...state(0).players[1], x: remoteX, y: 0, vx: 0 },
+        ],
+      });
+      const initial = { ...welcome(), state: board('live', [0, 0], 4000, 500, -500) } as ArenaWelcome;
+      let latest: RenderState | null = null;
+      const hook = renderHook(({ latestSnapshot }) => useArenaState({
+        welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
+        onFrame: rendered => { latest = rendered; },
+      }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+      hook.rerender({ latestSnapshot: koSnapshot(2, 1050, board('loading', [1, 0], 9000, 3500, -3500)) });
+      vi.setSystemTime(1050);
+      act(() => { frame?.(1000); });
+
+      // Far enough on that sampleTimeline would otherwise be showing the reset board:
+      // renderAt is 1100, past the reset snapshot at 1050. Still inside the animation.
+      vi.setSystemTime(1200);
+      act(() => { frame?.(1200); });
+
+      expect(latest!.arena?.radius).toBe(4000);
+      expect(latest!.remotePlayer?.x).toBe(-500);
+      expect(latest!.localPlayer?.x).toBe(500);
+
+      // Past the animation the board follows live state again.
+      vi.setSystemTime(2500);
+      act(() => { frame?.(2500); });
+
+      expect(latest!.arena?.radius).toBe(9000);
+      expect(latest!.remotePlayer?.x).toBe(-3500);
+    });
+
     it('animates the losing player after a round is decided', () => {
       const { knockOut, frameOf } = driveKnockout();
 

@@ -139,6 +139,9 @@ export function useArenaState({
   // authority is held rather than derived: deriving it from the timeline would
   // compare the newest snapshot against itself and never detect anything.
   const previousAuthorityRef = useRef<ArenaStateSnapshot | null>(null);
+  // The board the round was decided on, held for the duration of the fall so the
+  // arena and the survivor do not snap to their reset positions mid-animation.
+  const frozenBoardRef = useRef<ArenaStateSnapshot | null>(null);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
 
@@ -153,6 +156,7 @@ export function useArenaState({
       correctionRef.current = null;
       knockoutRef.current = null;
       previousAuthorityRef.current = null;
+      frozenBoardRef.current = null;
       snappedRef.current = false;
       snapCountRef.current = 0;
       authorityDirtyRef.current = true;
@@ -200,6 +204,7 @@ export function useArenaState({
     correctionRef.current = null;
     knockoutRef.current = null;
     previousAuthorityRef.current = null;
+    frozenBoardRef.current = null;
     snappedRef.current = false;
     snapCountRef.current = 0;
     authorityDirtyRef.current = true;
@@ -357,19 +362,31 @@ export function useArenaState({
         // it may well read as acceleration rather than as an error. This is the top
         // item for manual validation; measure before changing it.
         const detected = detectKnockout(previousAuthorityRef.current, authority, frameTime);
-        if (detected !== null) knockoutRef.current = detected;
+        if (detected !== null) {
+          knockoutRef.current = detected;
+          // The server resets the round in the same tick it rules the knockout, so the
+          // next snapshot already carries the full ring and both players respawned.
+          // Hold the board the round was actually decided on until the fall finishes,
+          // otherwise a knockout from a shrunken arena plays out across a full-size one.
+          // Display only: the frozen values are published, never fed back.
+          frozenBoardRef.current = previousAuthorityRef.current;
+        }
         previousAuthorityRef.current = authority;
         if (knockoutRef.current !== null
           && frameTime - knockoutRef.current.startedAt > KNOCKOUT_DURATION_MS) {
           knockoutRef.current = null;
+          frozenBoardRef.current = null;
         }
         const knockout = knockoutRef.current === null ? [] : sampleKnockout(
           knockoutRef.current, frameTime, welcome.prediction.playerRadius, reducedMotion,
         );
+        const frozen = frozenBoardRef.current;
+        const frozenLocal = frozen?.players.find(player => player.sessionId === current.selfSessionId);
+        const frozenRemote = frozen?.players.find(player => player.sessionId !== current.selfSessionId);
         const nextRendered: ArenaRenderState = {
-          localPlayer: displayedLocal, remotePlayer: remote,
+          localPlayer: frozenLocal ?? displayedLocal, remotePlayer: frozenRemote ?? remote,
           projectiles: [...sampled.projectiles, ...predictedProjectiles],
-          arena: sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
+          arena: frozen?.arena ?? sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
           score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,
           knockout,
