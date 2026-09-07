@@ -285,11 +285,20 @@ public sealed class ArenaSimulation : IContinuousSimulation
             var forcedFire = _forcedFireSessionIds.Contains(player.SessionId)
                 && player.ForcedFireTicks == 0;
 
+            // A release below the minimum charge is refused outright: no shot, no
+            // cooldown, and the charge is cancelled rather than banked. Forced fire is
+            // exempt by construction — it only triggers at full charge.
+            var refused = releaseEdge && player.ChargeTicks < ArenaRulesetV1.MinChargeTicks;
+
             if (Phase == ContinuousMatchPhase.Live
                 && player.CooldownTicks == 0
-                && (releaseEdge || forcedFire))
+                && ((releaseEdge && !refused) || forcedFire))
             {
                 Fire(player);
+            }
+            else if (refused)
+            {
+                player.ChargeTicks = 0;
             }
 
             if (player.Input.FireReleased)

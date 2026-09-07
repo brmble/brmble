@@ -322,7 +322,14 @@ public class ArenaMatchTests
         public void PlaceBothOutside() { Place(10, -9001, 0); Place(20, 9001, 0); }
         public void Move(long id, short x, short y) => Input(id, moveX: x, moveY: y);
         public void Dash(long id) => Input(id, dash: true);
-        public void ReleaseFire(long id, short aimX = 32767, short aimY = 0) => Input(id, aimX: aimX, aimY: aimY, fire: true);
+        // These tests mean "take a shot" and predate the minimum charge gate, so a
+        // release arms the charge to the minimum first.
+        public void ReleaseFire(long id, short aimX = 32767, short aimY = 0)
+        {
+            var player = Player(id);
+            player.ChargeTicks = Math.Max(player.ChargeTicks, ArenaRulesetV1.MinChargeTicks);
+            Input(id, aimX: aimX, aimY: aimY, fire: true);
+        }
         public void DoubleKo() { PlaceBothOutside(); Step(); StepRoundIntroduction(); }
         public void WinRound(long winner, bool advanceNextRound = true)
         {

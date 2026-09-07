@@ -213,6 +213,8 @@ public class ContinuousInputTests
     public async Task Arena_FireEdgeSurvivesExplicitNeutralUntilStepAndDoesNotRepeat()
     {
         var h = await ArenaCoordinatorHarness.Live();
+        // These pin the input edge latch, not the charge gate; arm the charge so the release is allowed to produce the shot they count.
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
         Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
         Assert.IsTrue(h.Submit(Input(2, predictedTick: h.Simulation.Tick, aimX: 0, aimY: 32_767)).Accepted);
 
@@ -244,6 +246,8 @@ public class ContinuousInputTests
     public async Task Arena_ConsumedFireLatchClearsBeforeOrdinaryInputAndNextStep()
     {
         var h = await ArenaCoordinatorHarness.Live();
+        // These pin the input edge latch, not the charge gate; arm the charge so the release is allowed to produce the shot they count.
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
         Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
 
         h.Simulation.Step();

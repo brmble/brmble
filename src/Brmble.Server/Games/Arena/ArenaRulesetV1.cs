@@ -20,6 +20,10 @@ public static class ArenaRulesetV1
     public const int ChargedMovePerTick = 45;
     public const int MomentumRetentionPermille = 920;
     public const int ChargeTicks = 90;
+    // Releasing before this fires nothing and costs nothing. A tap already lands 37%
+    // of maximum knockback, so without a floor the cheapest shot is also the fastest
+    // one and trading taps beats committing to a charge.
+    public const int MinChargeTicks = 30;
     public const int ForcedFireTicks = 30;
     public const int ShotCooldownTicks = 24;
     public const int ProjectileRadius = 180;
@@ -61,6 +65,7 @@ public static class ArenaRulesetV1
         ChargedMovePerTick,
         MomentumRetentionPermille,
         ChargeTicks,
+        MinChargeTicks,
         ForcedFireTicks,
         ShotCooldownTicks,
         ProjectileRadius,
@@ -80,6 +85,7 @@ public sealed record ArenaPredictionConstants(
     [property: JsonPropertyName("chargedMovePerTick")] int ChargedMovePerTick,
     [property: JsonPropertyName("momentumRetentionPermille")] int MomentumRetentionPermille,
     [property: JsonPropertyName("chargeTicks")] int ChargeTicks,
+    [property: JsonPropertyName("minChargeTicks")] int MinChargeTicks,
     [property: JsonPropertyName("forcedFireTicks")] int ForcedFireTicks,
     [property: JsonPropertyName("shotCooldownTicks")] int ShotCooldownTicks,
     [property: JsonPropertyName("projectileRadius")] int ProjectileRadius,

@@ -79,7 +79,8 @@ public sealed class ContinuousGameCoordinatorTests
         var h = await Harness.LiveAsync();
         while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
-        h.Simulation.Step();
+        // Charge past the minimum: these pin reconnect projection, not the charge gate.
+        for (var charge = 0; charge < ArenaRulesetV1.MinChargeTicks; charge++) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
         h.Simulation.Step();
         Assert.IsTrue(h.Simulation.Projectiles.Any(x => x.OwnerSessionId == 10));
@@ -138,7 +139,8 @@ public sealed class ContinuousGameCoordinatorTests
         var h = await Harness.LiveAsync();
         while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
-        h.Simulation.Step();
+        // Charge past the minimum: these pin reconnect projection, not the charge gate.
+        for (var charge = 0; charge < ArenaRulesetV1.MinChargeTicks; charge++) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
         h.Simulation.Step();
         await h.Coordinator.DetachAsync("one");
@@ -372,7 +374,8 @@ public sealed class ContinuousGameCoordinatorTests
         var h = await Harness.LiveAsync();
         while (h.Simulation.Phase != ContinuousMatchPhase.Live) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(1, h.Simulation.Tick, 0, 0, 32767, 0, true, false, false));
-        h.Simulation.Step();
+        // Charge past the minimum: these pin reconnect projection, not the charge gate.
+        for (var charge = 0; charge < ArenaRulesetV1.MinChargeTicks; charge++) h.Simulation.Step();
         h.Simulation.SetInput(10, new ContinuousInput(2, h.Simulation.Tick, 0, 0, 32767, 0, false, true, false));
         h.Simulation.Step();
         await h.Coordinator.DetachAsync("one");

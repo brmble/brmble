@@ -9,6 +9,54 @@ namespace Brmble.Server.Tests.Games.Arena;
 public class ArenaCombatTests
 {
     [TestMethod]
+    public void ReleaseBelowMinimumCharge_FiresNothingAndCostsNoCooldown()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 0, 0);
+        sim.HoldCharge(10);
+        sim.Step(ArenaRulesetV1.MinChargeTicks - 1);
+
+        sim.ReleaseFireRaw(10);
+        sim.Step();
+
+        Assert.AreEqual(0, sim.Projectiles.Count);
+        // Refusing costs nothing: the shot never happened, so there is no recovery
+        // to pay for. Only Fire starts the cooldown, so this falls out of not firing.
+        Assert.AreEqual(0, sim.Player(10).CooldownTicks);
+    }
+
+    [TestMethod]
+    public void ReleaseBelowMinimumCharge_DoesNotBankProgressTowardTheNextShot()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 0, 0);
+        sim.HoldCharge(10);
+        sim.Step(ArenaRulesetV1.MinChargeTicks - 1);
+
+        sim.ReleaseFireRaw(10);
+        sim.Step();
+
+        // A refused release cancels the charge outright. Without the reset the ticks
+        // would simply sit there, and a second tap would fire off the first one's work.
+        Assert.AreEqual(0, sim.Player(10).ChargeTicks);
+    }
+
+    [TestMethod]
+    public void ReleaseAtExactlyMinimumCharge_Fires()
+    {
+        var sim = ArenaHarness.Live();
+        sim.Place(10, 0, 0);
+        sim.HoldCharge(10);
+        sim.Step(ArenaRulesetV1.MinChargeTicks);
+
+        sim.ReleaseFireRaw(10);
+        sim.Step();
+
+        Assert.AreEqual(1, sim.Projectiles.Count);
+        Assert.AreEqual(ArenaRulesetV1.ShotCooldownTicks, sim.Player(10).CooldownTicks);
+    }
+
+    [TestMethod]
     public void MaximumCharge_ForceFiresAfterThirtyTicksAndStartsTwentyFourTickCooldown()
     {
         var sim = ArenaHarness.Live();
@@ -78,9 +126,11 @@ public class ArenaCombatTests
         Assert.AreEqual(180, ArenaRulesetV1.ProjectileRadius);
         Assert.AreEqual(57_600L, low.ProjectileVelocityLengthSquared(0));
         Assert.AreEqual(57_600L, high.ProjectileVelocityLengthSquared(0));
-        Assert.AreEqual(-41, low.Player(10).Vx);
+        // The weakest shot the game allows is the minimum charge, not zero: permille
+        // 333, so recoil is 45 + 105 * 333 / 1000 = 79, damped to 79 * 920 / 1000 = 72.
+        Assert.AreEqual(-72, low.Player(10).Vx);
         Assert.AreEqual(-138, high.Player(10).Vx);
-        Assert.AreEqual(-3500 - 45, low.Player(10).X);
+        Assert.AreEqual(-3500 - 79, low.Player(10).X);
         Assert.AreEqual(-3500 - 150, high.Player(10).X);
     }
 
@@ -170,12 +220,13 @@ public class ArenaCombatTests
         high.ReleaseFire(10); high.Step();
 
         Assert.AreEqual(0, low.Projectiles.Count);
-        Assert.AreEqual(130, low.Player(20).Vx);
+        // Minimum charge is permille 333: knockback 130 + 220 * 333 / 1000 = 203.
+        Assert.AreEqual(203, low.Player(20).Vx);
         Assert.AreEqual(350, high.Player(20).Vx);
         Assert.AreEqual(1800, low.Player(20).X);
         low.Step();
-        Assert.AreEqual(1930, low.Player(20).X);
-        Assert.AreEqual(119, low.Player(20).Vx);
+        Assert.AreEqual(1800 + 203, low.Player(20).X);
+        Assert.AreEqual(186, low.Player(20).Vx);
     }
 
     [TestMethod]
@@ -312,7 +363,17 @@ public class ArenaCombatTests
 
         public void HoldCharge(long sessionId) => SetInput(sessionId, charging: true);
 
-        public void ReleaseFire(long sessionId, short aimX = 32767, short aimY = 0) =>
+        // Most tests mean "take a shot" and do not care about the charge gate, so a
+        // release arms the charge to the minimum first. Tests that exercise the gate
+        // itself use ReleaseFireRaw and drive ChargeTicks deliberately.
+        public void ReleaseFire(long sessionId, short aimX = 32767, short aimY = 0)
+        {
+            var player = Player(sessionId);
+            player.ChargeTicks = Math.Max(player.ChargeTicks, ArenaRulesetV1.MinChargeTicks);
+            SetInput(sessionId, aimX: aimX, aimY: aimY, fireReleased: true);
+        }
+
+        public void ReleaseFireRaw(long sessionId, short aimX = 32767, short aimY = 0) =>
             SetInput(sessionId, aimX: aimX, aimY: aimY, fireReleased: true);
 
         public void Dash(long sessionId, short aimX = 32767, short aimY = 0) =>
