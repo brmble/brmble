@@ -30,7 +30,11 @@ public sealed record AttachResult(bool Ok, WelcomeMessage? Welcome, string? Erro
 public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 {
     private const int MaxMessagesPerSecond = 120;
-    private const int MaxAimChangesPerSecond = 30;
+    // The client's aim throttle intends 25 changes/second, heartbeats carry aim as
+    // well, and fire and dash bypass the throttle so their direction stays honest.
+    // Aggressive spam measures around 33, so 30 sat below legitimate play. The client
+    // test 'stays under the server aim-change budget' guards this relationship.
+    private const int MaxAimChangesPerSecond = 45;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan NeutralTimeout = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);

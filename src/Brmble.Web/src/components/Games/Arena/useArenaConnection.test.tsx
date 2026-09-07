@@ -161,6 +161,61 @@ describe('useArenaConnection', () => {
     ]);
   });
 
+
+
+  it.each([
+    ['dash', { ...held, aimX: 0, aimY: 32767, dash: true }],
+    ['fire', { ...held, aimX: 0, aimY: 32767, fireReleased: true }],
+  ])('sends an immediate %s with the true aim rather than the throttled one', async (_label, input) => {
+    // A shot or dash commits to a direction. Sending it with the previously
+    // transmitted aim fires it where the player used to be pointing, which is the
+    // visible flick back to the old facing. These are rare enough � the shot cooldown
+    // caps firing at about 2.5/s � that spending an aim change on them is cheap.
+    const h = await connect();
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    act(() => h.result.current.sendInput(input));
+
+    expect(h.socket.sent.at(-1)).toMatchObject({
+      type: 'input', sequence: 2, aimX: 0, aimY: 32767,
+      fireReleased: input.fireReleased, dash: input.dash,
+    });
+    // The aim went out with the action, so there is nothing left to queue.
+    const afterAction = h.socket.sent.length;
+    await act(() => vi.advanceTimersByTimeAsync(40));
+    expect(h.socket.sent).toHaveLength(afterAction);
+  });
+  it('stays under the server aim-change budget under spam clicking', async () => {
+    const h = await connect();
+    let aimAngle = 0;
+    // One second of 60fps mouse movement with a click every ~60ms.
+    for (let ms = 0; ms < 1000; ms += 16) {
+      aimAngle += 0.2;
+      const aimX = Math.round(Math.cos(aimAngle) * 32767);
+      const aimY = Math.round(Math.sin(aimAngle) * 32767);
+      act(() => h.result.current.sendInput({ ...held, aimX, aimY }));
+      if (ms % 64 === 0) {
+        act(() => h.result.current.sendInput({ ...held, aimX, aimY, charging: true }));
+        act(() => h.result.current.sendInput({ ...held, aimX, aimY, fireReleased: true }));
+      }
+      await act(() => vi.advanceTimersByTimeAsync(16));
+    }
+    const wire = h.socket.sent as { aimX: number; aimY: number }[];
+    let aimChanges = 0;
+    let previousX = 32767;
+    let previousY = 0;
+    for (const message of wire) {
+      if (message.aimX !== previousX || message.aimY !== previousY) aimChanges++;
+      previousX = message.aimX;
+      previousY = message.aimY;
+    }
+    // ContinuousGameCoordinator allows 120 messages and MaxAimChangesPerSecond aim
+    // changes per second. Nothing else guards this relationship, and it is not
+    // generous: the 40ms throttle intends 25/s, heartbeats carry aim too, and fire and
+    // dash deliberately bypass the throttle to keep their direction honest.
+    expect(wire.length).toBeLessThan(120);
+    expect(aimChanges).toBeLessThan(45);
+  });
   it('sends held changes and edges immediately but limits aim-only changes to 25Hz', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -176,8 +231,6 @@ describe('useArenaConnection', () => {
 
   it.each([
     ['movement', { ...held, moveX: -32767, aimX: 0, aimY: 32767 }],
-    ['dash', { ...held, aimX: 0, aimY: 32767, dash: true }],
-    ['fire', { ...held, aimX: 0, aimY: 32767, fireReleased: true }],
   ])('sends an immediate %s change with transmitted aim and queues requested aim', async (_label, input) => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -460,17 +513,19 @@ describe('useArenaConnection', () => {
     act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
     h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 2, reason: 'rateLimited' });
     await act(() => vi.advanceTimersByTimeAsync(10));
-    act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 32767, aimY: 0, dash: true }));
+    // A movement edge, not a dash: directional actions deliberately carry their true
+    // aim, so they would not exercise the spacing this test is about.
+    act(() => h.result.current.sendInput({ ...held, moveX: -32767, aimX: 32767, aimY: 0 }));
     expect(h.socket.sent.at(-1)).toMatchObject({
-      type: 'input', sequence: 2, moveX: -32767, dash: true, aimX: 0, aimY: 32767,
+      type: 'input', sequence: 2, moveX: -32767, aimX: 0, aimY: 32767,
     });
     await act(() => vi.advanceTimersByTimeAsync(29));
-    expect(h.socket.sent.at(-1)).toMatchObject({ dash: true, aimX: 0, aimY: 32767 });
+    expect(h.socket.sent.at(-1)).toMatchObject({ aimX: 0, aimY: 32767 });
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(h.socket.sent.at(-1)).toMatchObject({
-      type: 'input', sequence: 3, dash: false, aimX: 32767, aimY: 0,
+      type: 'input', sequence: 3, aimX: 32767, aimY: 0,
     });
-    expect(h.result.current.currentInput).toMatchObject({ moveX: -32767, aimX: 32767, aimY: 0, dash: true });
+    expect(h.result.current.currentInput).toMatchObject({ moveX: -32767, aimX: 32767, aimY: 0 });
   });
 
   it('reconnects when a rejected sequence already has later frames', async () => {

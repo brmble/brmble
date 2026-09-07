@@ -205,7 +205,12 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     const immediate = !sameHeldState(previous, input) || input.fireReleased || input.dash;
     const aimChanged = input.aimX !== runtime.transmittedAimX || input.aimY !== runtime.transmittedAimY;
     if (immediate) {
-      const frame = withLegalAim(runtime, input);
+      // A shot or a dash commits to a direction, so it carries the true aim even inside
+      // the throttle window. Sending the previously transmitted aim instead would fire
+      // it where the player used to be pointing. They are rare — the shot cooldown caps
+      // firing near 2.5/s — so the aim change they spend is affordable.
+      const directional = input.fireReleased || input.dash;
+      const frame = directional ? input : withLegalAim(runtime, input);
       if (frame.aimX === input.aimX && frame.aimY === input.aimY) {
         if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
         runtime.aimTimer = null;

@@ -100,27 +100,29 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task AimChangeRate_IsThirtyPerRollingSecondAndDoesNotCountUnchangedAim()
+    public async Task AimChangeRate_IsFortyFivePerRollingSecondAndDoesNotCountUnchangedAim()
     {
         var h = await CoordinatorHarness.Started();
 
-        for (var sequence = 1; sequence <= 30; sequence++)
+        for (var sequence = 1; sequence <= 45; sequence++)
         {
             var aimY = (short)(sequence % 2 == 0 ? 1 : -1);
             Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: aimY)).Accepted);
         }
 
-        Assert.IsTrue(h.Submit(Input(31, aimX: 32_766, aimY: 1)).Accepted);
+        // Sequence 45 is odd, so the accepted aim ends on -1. Repeating it costs
+        // nothing: an unchanged aim never touches the budget.
+        Assert.IsTrue(h.Submit(Input(46, aimX: 32_766, aimY: -1)).Accepted);
 
-        // Over budget the input is still accepted — movement, charging and dash ride on
-        // the same message and are innocent — but the aim is clamped to the last one
+        // Over budget the input is still accepted - movement, charging and dash ride on
+        // the same message and are innocent - but the aim is clamped to the last one
         // that fit the budget, so aim spam gains the sender nothing.
-        Assert.IsTrue(h.Submit(Input(32, aimX: 32_766, aimY: -1)).Accepted);
-        Assert.AreEqual(1, h.Simulation.LastInput(10).AimY);
+        Assert.IsTrue(h.Submit(Input(47, aimX: 32_766, aimY: 1)).Accepted);
+        Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY);
 
         h.Time.Advance(TimeSpan.FromSeconds(1));
-        Assert.IsTrue(h.Submit(Input(33, aimX: 32_766, aimY: -1)).Accepted);
-        Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY);
+        Assert.IsTrue(h.Submit(Input(48, aimX: 32_766, aimY: 1)).Accepted);
+        Assert.AreEqual(1, h.Simulation.LastInput(10).AimY);
     }
 
 
@@ -130,7 +132,7 @@ public class ContinuousInputTests
         var h = await CoordinatorHarness.Started();
 
         var sequence = 1;
-        for (; sequence <= 30; sequence++)
+        for (; sequence <= 45; sequence++)
         {
             var aimY = (short)(sequence % 2 == 0 ? 1 : -1);
             Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: aimY)).Accepted);
