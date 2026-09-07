@@ -4,7 +4,7 @@ import type {
 } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import {
-  arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15,
+  arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15, rearVector, shrinkIntensity,
   recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
@@ -578,5 +578,47 @@ describe('constrainLocalDisplay', () => {
     expect(result).not.toBe(local);
     expect(result.x).toBe(1201);
     expect({ ...result, x: 0, y: 0 }).toEqual({ ...local, x: 0, y: 0 });
+  });
+});
+
+describe('rearVector', () => {
+  const player = (aimX: number, aimY: number, side: 0 | 1) => ({ aimX, aimY, side }) as const;
+
+  it('points opposite a normalized aim', () => {
+    expect(rearVector(player(0, -32767, 0))).toEqual({ x: 0, y: 1 });
+  });
+
+  it('normalizes a non-unit aim before reversing it', () => {
+    const rear = rearVector(player(3000, 4000, 1));
+    expect(rear.x).toBeCloseTo(-0.6, 6);
+    expect(rear.y).toBeCloseTo(-0.8, 6);
+  });
+
+  it('falls back to the spawn orientation before the first input', () => {
+    // Each side spawns facing away from its own edge, so the rear points back at it.
+    expect(rearVector(player(0, 0, 0))).toEqual({ x: -1, y: 0 });
+    expect(rearVector(player(0, 0, 1))).toEqual({ x: 1, y: 0 });
+  });
+});
+
+describe('shrinkIntensity', () => {
+  it('is zero while the arena is still at full size', () => {
+    expect(shrinkIntensity(9_000)).toBe(0);
+  });
+
+  it('reaches one only when the arena has closed completely', () => {
+    expect(shrinkIntensity(0)).toBe(1);
+  });
+
+  it('ramps continuously across the collapse, not just the normal shrink', () => {
+    // arenaRadius runs 9000 -> 3500 over the normal phase and 3500 -> 0 over the
+    // collapse, so the handover must not be the top of the ramp.
+    expect(shrinkIntensity(3_500)).toBeCloseTo(1 - 3_500 / 9_000, 6);
+    expect(shrinkIntensity(1_750)).toBeGreaterThan(shrinkIntensity(3_500));
+  });
+
+  it('clamps outside the arena bounds', () => {
+    expect(shrinkIntensity(12_000)).toBe(0);
+    expect(shrinkIntensity(-500)).toBe(1);
   });
 });

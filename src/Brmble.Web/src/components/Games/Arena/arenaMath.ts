@@ -205,6 +205,29 @@ export function arenaRadius(liveTick: number): number {
   return 0;
 }
 
+// The rear reads as the player's back, so it points opposite the aim and rotates
+// with it. Aim is zero-length only before the first input, where the spawn
+// orientation — facing away from the player's own side — is the correct rear.
+export function rearVector(player: Pick<ArenaPlayerSnapshot, 'aimX' | 'aimY' | 'side'>): {
+  x: number;
+  y: number;
+} {
+  const length = Math.hypot(player.aimX, player.aimY);
+  if (length === 0) {
+    return { x: player.side === 0 ? -1 : 1, y: 0 };
+  }
+  // Adding zero collapses -0 to 0, which is otherwise contagious through the
+  // trig below and shows up in comparisons and serialized output.
+  return { x: -player.aimX / length + 0, y: -player.aimY / length + 0 };
+}
+
+// How far the arena has closed, on 0..1. `arenaRadius` runs 9000 down to 3500 over
+// the normal shrink and 3500 to 0 over the collapse, so the ramp spans the whole
+// range rather than topping out at the handover between the two.
+export function shrinkIntensity(radius: number): number {
+  return Math.min(1, Math.max(0, 1 - radius / 9_000));
+}
+
 export function damp(vector: FixedVec): FixedVec {
   return {
     x: checkedNumber((BigInt(vector.x) * 920n) / PERMILLE),

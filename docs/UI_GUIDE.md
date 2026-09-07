@@ -125,6 +125,31 @@ These names appear in older code and in AI-generated CSS but are **defined nowhe
 Before using any token, confirm it exists in `index.css` (`:root`) or
 `themes/_template.css`. Font-size tokens are `--text-*`, never `--font-size-*`.
 
+### Blending Between Tokens
+
+Some UI needs a colour *between* two tokens — a value that ramps with state rather
+than switching at a threshold. Do not sample a token and interpolate the channels
+yourself, and do not pick a literal midpoint colour: both break the moment a theme
+changes, which is exactly what tokens exist to prevent.
+
+Use `color-mix` on the tokens themselves:
+
+```ts
+`color-mix(in oklab, ${danger} ${percent}%, ${neutral})`
+```
+
+Mix in `oklab` rather than `srgb`; sRGB interpolation darkens and desaturates
+through the middle of a ramp, which is very visible on a slow transition.
+
+This works in CSS and as a canvas `strokeStyle` / `fillStyle`. **On canvas it fails
+silently** — an invalid value leaves the previous colour in place rather than
+throwing, so a ramp that quietly stops updating looks like a rendering bug rather
+than an unsupported colour. Pin the computed string in a test.
+
+Example: the Arena lip ramps from `--text-muted` to `--accent-danger` as the arena
+closes (`ArenaRenderer.ts`), replacing a phase label that stated the same thing in
+text without ever making it feel urgent.
+
 ---
 
 ## 3. Heading System

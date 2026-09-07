@@ -2,7 +2,10 @@ import brmbleLogo from '../../../assets/brmble-logo.svg';
 import type {
   ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot, ArenaStateSnapshot,
 } from './arenaProtocol';
-import { computeLayout, screenToWorld, worldToScreen, type ArenaLayout, type FixedVec } from './arenaMath';
+import {
+  computeLayout, rearVector, screenToWorld, shrinkIntensity, worldToScreen,
+  type ArenaLayout, type FixedVec,
+} from './arenaMath';
 import type { ArenaKnockoutFrame } from './arenaKnockout';
 
 export const FALLBACK_AVATAR_SRC = brmbleLogo;
@@ -28,6 +31,9 @@ interface AvatarEntry {
 const WORLD_SIZE = 20_000;
 const CHARGE_LENGTH = 2_200;
 const AIM_LENGTH = 3_000;
+// Half-width of the rear notch, and how far it bites into the radius.
+const NOTCH_HALF_ANGLE = 0.42;
+const NOTCH_DEPTH = 0.35;
 
 export class ArenaRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -129,8 +135,13 @@ export class ArenaRenderer {
       this.drawPlayer(ctx, victim, view, { primary, danger, neutral, text }, scale, line, point, frame);
     }
 
-    ctx.strokeStyle = view.arena.shrinkPhase === 'collapse' ? danger : neutral;
-    ctx.lineWidth = line(view.arena.shrinkPhase === 'hold' ? 60 : 100);
+    // The lip carries the shrink phase itself: it reddens and thickens as the arena
+    // closes, which a label at the edge of the battlefield never made urgent. Mixed
+    // from the existing tokens so the ramp holds up on every theme. The phase is
+    // still announced in the board's live region for screen readers.
+    const intensity = shrinkIntensity(view.arena.radius);
+    ctx.strokeStyle = `color-mix(in oklab, ${danger} ${Math.round(intensity * 100)}%, ${neutral})`;
+    ctx.lineWidth = line(60 + 60 * intensity);
     ctx.beginPath();
     ctx.arc(center.x, center.y, view.arena.radius * scale, 0, Math.PI * 2);
     ctx.stroke();
@@ -158,12 +169,6 @@ export class ArenaRenderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    ctx.fillStyle = text;
-    ctx.font = `${color('--text-xs')} ${color('--font-mono')}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(view.arena.shrinkPhase.toUpperCase(), center.x, this.layout.offsetY + line(420));
-
     for (const projectile of view.projectiles) {
       const projectilePoint = point(projectile);
       const projectileColor = view.players.find(player => player.sessionId === projectile.ownerSessionId)?.side === 1 ? danger : primary;
@@ -271,25 +276,6 @@ export class ArenaRenderer {
 
     this.drawBody(ctx, player, view, body, playerRadius, scale, sideColor, colors.text, line);
 
-    // The marker reads as the player's back, so it points opposite the aim vector
-    // and rotates with it — the aim and charge sticks above are the front. Aim is
-    // zero-length only before the first input, where the spawn orientation (facing
-    // away from the player's own side) is the correct rear.
-    const aimed = player.aimX !== 0 || player.aimY !== 0;
-    const rearX = aimed ? -aimX : player.side === 0 ? -1 : 1;
-    const rearY = aimed ? -aimY : 0;
-    const spreadX = -rearY * line(180);
-    const spreadY = rearX * line(180);
-    const baseDistance = playerRadius * scale;
-    const apexDistance = (playerRadius + 300) * scale;
-    ctx.fillStyle = sideColor;
-    ctx.beginPath();
-    ctx.moveTo(body.x + rearX * baseDistance + spreadX, body.y + rearY * baseDistance + spreadY);
-    ctx.lineTo(body.x + rearX * apexDistance, body.y + rearY * apexDistance);
-    ctx.lineTo(body.x + rearX * baseDistance - spreadX, body.y + rearY * baseDistance - spreadY);
-    ctx.closePath();
-    ctx.fill();
-
     ctx.fillStyle = colors.text;
     const style = getComputedStyle(this.canvas);
     ctx.font = `${style.getPropertyValue('--text-sm')} ${style.getPropertyValue('--font-body')}`;
@@ -329,9 +315,9 @@ export class ArenaRenderer {
     line: (worldWidth: number) => number,
   ) {
     const avatar = this.avatarFor(player.sessionId, view.avatarUrls[player.sessionId]);
+    const rear = rearVector(player);
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
+    this.bodyPath(ctx, body, playerRadius * scale, rear);
     ctx.clip();
     const diameter = playerRadius * scale * 2;
     if (avatar?.complete && avatar.naturalWidth > 0) {
@@ -343,15 +329,32 @@ export class ArenaRenderer {
 
     ctx.strokeStyle = sideColor;
     ctx.lineWidth = line(player.side === 0 ? 100 : 140);
-    ctx.beginPath();
-    ctx.arc(body.x, body.y, playerRadius * scale, 0, Math.PI * 2);
+    this.bodyPath(ctx, body, playerRadius * scale, rear);
     ctx.stroke();
     if (player.side === 0) {
       ctx.lineWidth = line(45);
-      ctx.beginPath();
-      ctx.arc(body.x, body.y, Math.max(0, playerRadius - 150) * scale, 0, Math.PI * 2);
+      this.bodyPath(ctx, body, Math.max(0, playerRadius - 150) * scale, rear);
       ctx.stroke();
     }
+  }
+
+  // The body is a disc with a wedge cut out of its rear, which reads as the
+  // player's back and turns with the aim. Every ring of the body shares this path:
+  // a full-circle outline would paint straight back over the carved fill.
+  private bodyPath(
+    ctx: CanvasRenderingContext2D,
+    body: FixedVec,
+    radius: number,
+    rear: { x: number; y: number },
+  ) {
+    const angle = Math.atan2(rear.y, rear.x);
+    ctx.beginPath();
+    // Sweep the long way round from one lip of the notch to the other, then close
+    // through the vertex so the wedge is absent from the path rather than drawn.
+    ctx.arc(body.x, body.y, radius, angle + NOTCH_HALF_ANGLE, angle - NOTCH_HALF_ANGLE + Math.PI * 2);
+    const depth = radius * (1 - NOTCH_DEPTH);
+    ctx.lineTo(body.x + rear.x * depth, body.y + rear.y * depth);
+    ctx.closePath();
   }
 
   private drawFallback(ctx: CanvasRenderingContext2D, body: FixedVec, diameter: number, fill: string, text: string) {

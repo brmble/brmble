@@ -156,14 +156,40 @@ describe('ArenaRenderer', () => {
     expect(markerStarts).toEqual(expect.arrayContaining([470, 530]));
   });
 
-  it('places the shrink label at a fixed battlefield edge regardless of radius', () => {
-    const first = setup();
-    first.renderer.render(view({ arena: { radius: 8000, shrinkPhase: 'normal' } }), { reducedMotion: false });
-    const firstLabel = first.calls.find(call => call.op === 'fillText' && call.args[0] === 'NORMAL')!;
-    const second = setup();
-    second.renderer.render(view({ arena: { radius: 4000, shrinkPhase: 'normal' } }), { reducedMotion: false });
-    const secondLabel = second.calls.find(call => call.op === 'fillText' && call.args[0] === 'NORMAL')!;
-    expect(firstLabel.args.slice(1)).toEqual(secondLabel.args.slice(1));
+  it('reddens and thickens the arena lip as it closes, instead of labelling the phase', () => {
+    const ring = (radius: number, shrinkPhase: 'hold' | 'normal' | 'collapse') => {
+      const { renderer, calls } = setup();
+      renderer.render(view({ arena: { radius, shrinkPhase } }), { reducedMotion: false });
+      // The floor disc and the lip share a centre and radius; the floor is filled
+      // first, so the lip is the second arc of that size.
+      const discs = calls.filter(call => call.op === 'arc' && call.args[2] === radius * 0.03);
+      return { lip: discs[1]!, calls };
+    };
+
+    const full = ring(9_000, 'hold');
+    const closing = ring(900, 'collapse');
+
+    // Mixed from the existing tokens so every theme keeps working.
+    expect(full.lip.strokeStyle).toBe('color-mix(in oklab, danger 0%, muted)');
+    expect(closing.lip.strokeStyle).toBe('color-mix(in oklab, danger 90%, muted)');
+    expect(closing.lip.lineWidth).toBeGreaterThan(full.lip.lineWidth!);
+
+    // The phase name is carried by the colour now, not printed.
+    for (const label of ['HOLD', 'NORMAL', 'COLLAPSE']) {
+      expect(full.calls.some(call => call.op === 'fillText' && call.args[0] === label)).toBe(false);
+      expect(closing.calls.some(call => call.op === 'fillText' && call.args[0] === label)).toBe(false);
+    }
+  });
+
+  it('ramps the lip across the collapse rather than topping out at the handover', () => {
+    const intensity = (radius: number) => {
+      const { renderer, calls } = setup();
+      renderer.render(view({ arena: { radius, shrinkPhase: 'collapse' } }), { reducedMotion: false });
+      const discs = calls.filter(call => call.op === 'arc' && call.args[2] === radius * 0.03);
+      return Number(/danger (\d+)%/.exec(String(discs[1].strokeStyle))![1]);
+    };
+
+    expect(intensity(1_750)).toBeGreaterThan(intensity(3_500));
   });
 
   it('removes moving trails under reduced motion without changing body positions or state cues', () => {
@@ -177,34 +203,28 @@ describe('ArenaRenderer', () => {
       .toEqual(reduced.calls.filter(call => call.op === 'arc').map(call => call.args.slice(0, 3)));
   });
 
-  it('points the rear marker opposite the aim vector rather than at a fixed side', () => {
-    // The marker is the only closePath in the renderer, so the three calls before
-    // it are its vertices, in draw order: base corner, apex, base corner.
-    const rearMarker = (calls: Recorded[]) => {
-      const end = calls.findIndex(call => call.op === 'closePath');
-      const [baseA, apex, baseB] = calls.slice(end - 3, end).map(call => call.args as [number, number]);
-      return { baseA, apex, baseB };
+  it('points the rear notch opposite the aim vector rather than at a fixed side', () => {
+    // The notch is carved out of the body path itself, so its bearing is the start
+    // angle of the body arc, offset by the notch half-width.
+    const notchBearing = (calls: Recorded[]) => {
+      const arc = calls.find(call => call.op === 'arc' && call.args[2] === 18);
+      return (arc!.args[3] as number) - 0.42;
     };
-    // World origin maps to CSS (500, 300); scale is 600/20000 = 0.03.
     const down = setup();
     down.renderer.render(
       view({ players: [player(10, 0, { x: 0, y: 0, aimX: 0, aimY: 32767 })] }),
       { reducedMotion: false },
     );
-    const marker = rearMarker(down.calls);
-    // Aim is +y, so the rear apex sits at -y: 300 - (600 + 300) * 0.03 = 273.
-    expect(marker.apex).toEqual([500, 273]);
-    // Base corners straddle the body edge at 600 * 0.03 = 18, offset by line(180) = 5.4.
-    expect(marker.baseA).toEqual([505.4, 282]);
-    expect(marker.baseB).toEqual([494.6, 282]);
+    // Aim is +y, so the rear bears -y, which is -pi/2 in canvas coordinates.
+    expect(notchBearing(down.calls)).toBeCloseTo(-Math.PI / 2, 6);
 
-    // Same player, aim rotated to -x: the marker must follow it to +x.
+    // Same player, aim rotated to -x: the notch must follow it to +x.
     const leftward = setup();
     leftward.renderer.render(
       view({ players: [player(10, 0, { x: 0, y: 0, aimX: -32767, aimY: 0 })] }),
       { reducedMotion: false },
     );
-    expect(rearMarker(leftward.calls).apex).toEqual([527, 300]);
+    expect(notchBearing(leftward.calls)).toBeCloseTo(0, 6);
   });
 
   it('falls back to the side direction when aim is zero-length', () => {
@@ -213,9 +233,9 @@ describe('ArenaRenderer', () => {
       view({ players: [player(10, 0, { x: 0, y: 0, aimX: 0, aimY: 0 })] }),
       { reducedMotion: false },
     );
-    const end = calls.findIndex(call => call.op === 'closePath');
-    // Side 0 spawns aiming +x, so its rear falls back to -x: 500 - 27 = 473.
-    expect(calls[end - 2].args).toEqual([473, 300]);
+    const arc = calls.find(call => call.op === 'arc' && call.args[2] === 18);
+    // Side 0 spawns aiming +x, so its rear falls back to -x, a bearing of pi.
+    expect((arc!.args[3] as number) - 0.42).toBeCloseTo(Math.PI, 6);
   });
 
   it('fills the void behind the arena and the floor inside it with different colours', () => {
@@ -399,5 +419,58 @@ describe('ArenaRenderer', () => {
     expect(calls).toHaveLength(0);
     expect(disconnect).toHaveBeenCalledOnce();
     expect(images.every(image => image.onload === null && image.onerror === null)).toBe(true);
+  });
+});
+
+describe('ArenaRenderer rear notch', () => {
+  it('carves the notch out of the body instead of spiking out of it', () => {
+    const { renderer, calls } = setup();
+    renderer.render(view(), { reducedMotion: false });
+
+    // Every ring that makes up the body must skip the same wedge; if the outline
+    // stayed a full circle it would paint straight back over the carved fill.
+    const bodyArcs = calls.filter(call => call.op === 'arc' && (call.args[2] === 18 || call.args[2] === 13.5));
+    expect(bodyArcs.length).toBeGreaterThan(0);
+    for (const arc of bodyArcs) {
+      const span = (arc.args[4] as number) - (arc.args[3] as number);
+      expect(span).toBeLessThan(Math.PI * 2 - 0.1);
+    }
+
+    // The protruding triangle filled a path in the player's own side colour; the
+    // floor disc below still fills legitimately, so gate on the colour.
+    expect(calls.filter(call => call.op === 'fill' && (call.fillStyle === 'primary' || call.fillStyle === 'danger')))
+      .toHaveLength(0);
+
+    // The wedge must bite inward. Closing the path on the rim instead would leave a
+    // flat chord, which still is not a full circle but reads as a shaved edge.
+    const index = calls.findIndex(call => call.op === 'arc' && call.args[2] === 18);
+    const [cx, cy] = calls[index].args as [number, number];
+    const vertex = calls.slice(index + 1).find(call => call.op === 'lineTo');
+    const [vx, vy] = vertex!.args as [number, number];
+    expect(Math.hypot(vx - cx, vy - cy)).toBeCloseTo(18 * 0.65, 6);
+  });
+
+  it('rotates the notch to the rear of the aim', () => {
+    const { renderer, calls } = setup();
+    renderer.render(view(), { reducedMotion: false });
+
+    const bodyArcs = calls.filter(call => call.op === 'arc' && call.args[2] === 18);
+    // Side 0 aims +x so its rear is -x (angle pi); side 1 aims -x so its rear is +x.
+    const starts = bodyArcs.map(arc => (arc.args[3] as number));
+    expect(starts.some(start => Math.abs(start - Math.PI) < 1)).toBe(true);
+    expect(starts.some(start => Math.abs(start) < 1)).toBe(true);
+  });
+
+  it('keeps the notch on a body that is falling out of the arena', () => {
+    const { renderer, calls } = setup();
+    renderer.render(view({
+      knockout: [{ sessionId: 10, x: 10200, y: 0, scale: 0.5, puffRadius: 0, puffOpacity: 0 }],
+    }), { reducedMotion: false });
+
+    const falling = calls.filter(call => call.op === 'arc' && call.args[2] === 9);
+    expect(falling.length).toBeGreaterThan(0);
+    for (const arc of falling) {
+      expect((arc.args[4] as number) - (arc.args[3] as number)).toBeLessThan(Math.PI * 2 - 0.1);
+    }
   });
 });
