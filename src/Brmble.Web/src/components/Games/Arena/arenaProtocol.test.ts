@@ -26,7 +26,7 @@ const welcome = () => ({
   inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
   prediction: {
     unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90,
-    chargedMovePerTick: 45, momentumRetentionPermille: 920, chargeTicks: 90,
+    chargedMovePerTick: 45, momentumRetentionPermille: 920, chargeTicks: 90, minChargeTicks: 30,
     forcedFireTicks: 30, shotCooldownTicks: 24, projectileRadius: 180,
     projectilePerTick: 240, projectileBaseKnockback: 130, projectileBonusKnockback: 220,
     recoilBase: 45, recoilBonus: 105, dashTicks: 6, dashPerTick: 240,

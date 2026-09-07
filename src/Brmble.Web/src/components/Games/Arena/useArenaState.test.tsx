@@ -8,17 +8,19 @@ import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState }
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
-  momentumRetentionPermille: 920, chargeTicks: 90, forcedFireTicks: 30, shotCooldownTicks: 24,
+  momentumRetentionPermille: 920, chargeTicks: 90, minChargeTicks: 30, forcedFireTicks: 30, shotCooldownTicks: 24,
   projectileRadius: 180, projectilePerTick: 240, projectileBaseKnockback: 130,
   projectileBonusKnockback: 220, recoilBase: 45, recoilBonus: 105, dashTicks: 6, dashPerTick: 240,
 } as const;
 
-function state(x = 1000) {
+// chargePermille 333 is the minimum charge (30 of 90 ticks); tests that fire need it,
+// because a release below the minimum is refused by both the server and stepLocal.
+function state(x = 1000, chargePermille = 0) {
   return {
     phase: 'live' as const, phaseEndsAtTick: null, score: [0, 0] as [number, number], consecutiveDoubleKos: 0,
     arena: { radius: 9000, shrinkPhase: 'hold' as const }, projectiles: [],
     players: [
-      { sessionId: 10, side: 0 as const, x, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0,
+      { sessionId: 10, side: 0 as const, x, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille,
         forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
       { sessionId: 20, side: 1 as const, x: -1000, y: 0, vx: 10, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0,
         forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
@@ -26,11 +28,11 @@ function state(x = 1000) {
   };
 }
 
-function welcome(): ArenaWelcome {
+function welcome(chargePermille = 0): ArenaWelcome {
   return { type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91, role: 'participant', sessionId: 10,
     snapshotSequence: 1, serverTick: 100, tickRate: 60, snapshotRate: 20, interpolationMs: 100,
     maxExtrapolationMs: 50, inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
-    prediction, state: state(), acknowledgedInput: 0 };
+    prediction, state: state(1000, chargePermille), acknowledgedInput: 0 };
 }
 
 const snapshot = (sequence: number, generatedAtUnixMs: number, x: number): ArenaSnapshot => ({
@@ -179,7 +181,7 @@ describe('useArenaState', () => {
     // effect's first synchronous update runs at performance.now(). Anchoring here
     // keeps the first driven frame at the mount instant instead of a second later.
     const startedAt = performance.now();
-    const initial = welcome();
+    const initial = welcome(333);
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const fire: PendingArenaInput = {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
@@ -191,9 +193,11 @@ describe('useArenaState', () => {
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
     act(() => frame?.(startedAt));
-    expect(hook.result.current.localPlayer?.x).toBe(955);
+    // Recoil at the minimum charge: 45 + 105 * 333 / 1000 = 79, so 1000 - 79.
+    expect(hook.result.current.localPlayer?.x).toBe(921);
     act(() => frame?.(startedAt + 50));
-    expect(latestFrame?.localPlayer?.x).toBe(1077);
+    // Half way through the blend, so it moves by half the 34-unit recoil difference.
+    expect(latestFrame?.localPlayer?.x).toBe(1060);
     act(() => frame?.(startedAt + 100));
     expect(latestFrame?.localPlayer?.x).toBe(1200);
     act(() => frame?.(startedAt + 250));
@@ -201,7 +205,7 @@ describe('useArenaState', () => {
   });
 
   it('presents predicted own projectiles immediately', () => {
-    const initial = welcome();
+    const initial = welcome(333);
     const fire: PendingArenaInput = {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },

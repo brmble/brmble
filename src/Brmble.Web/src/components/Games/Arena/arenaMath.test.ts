@@ -20,7 +20,9 @@ const prediction: ArenaPredictionConstants = {
 // which is validated against the server. Tests whose subject is movement, recoil or
 // input edges opt out of the gate, so their exact expectations keep describing what
 // they are actually about instead of being refitted around a charge they never meant.
-const ungated: ArenaPredictionConstants = { ...prediction, minChargeTicks: 0 };
+// The cast is deliberate: minChargeTicks is a literal type precisely so production
+// code cannot vary it, and this fixture is not production configuration.
+const ungated = { ...prediction, minChargeTicks: 0 } as unknown as ArenaPredictionConstants;
 
 
 const right: ArenaInputState = {
