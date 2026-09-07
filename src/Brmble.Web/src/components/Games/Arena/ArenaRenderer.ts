@@ -265,6 +265,23 @@ export class ArenaRenderer {
       ctx.lineTo(endX, endY);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // Refusing a short charge is silent by design, so the gate has to be visible or
+      // the first few taps read as a broken game. Only while the shot would still be
+      // refused, and only for the player whose shot it is.
+      const minimumPermille = Math.min(1000, Math.floor(
+        view.prediction.minChargeTicks * 1000 / view.prediction.chargeTicks,
+      ));
+      if (player.sessionId === view.selfSessionId && player.chargePermille < minimumPermille) {
+        const gate = CHARGE_LENGTH * minimumPermille / 1000 * scale;
+        const half = line(260);
+        ctx.strokeStyle = colors.neutral;
+        ctx.lineWidth = line(45);
+        ctx.beginPath();
+        ctx.moveTo(body.x + aimX * gate - aimY * half, body.y + aimY * gate + aimX * half);
+        ctx.lineTo(body.x + aimX * gate + aimY * half, body.y + aimY * gate - aimX * half);
+        ctx.stroke();
+      }
       if (player.forcedFireTicks !== null) {
         ctx.fillStyle = colors.text;
         const style = getComputedStyle(this.canvas);

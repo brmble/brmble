@@ -474,3 +474,36 @@ describe('ArenaRenderer rear notch', () => {
     }
   });
 });
+
+describe('ArenaRenderer minimum charge marker', () => {
+  const charging = (sessionId: number, chargePermille: number) => {
+    const { renderer, calls } = setup();
+    renderer.render(view({
+      players: [player(10, 0, { x: 0, y: 0, chargePermille: sessionId === 10 ? chargePermille : 0 }),
+        player(20, 1, { x: 3000, y: 0, chargePermille: sessionId === 20 ? chargePermille : 0 })],
+    }), { reducedMotion: false });
+    return calls;
+  };
+
+  it('marks the gate on the local charge stick while the shot would be refused', () => {
+    // The refusal is otherwise silent: nothing happens on release and there is no
+    // way to learn why. 30 of 90 ticks is permille 333.
+    const calls = charging(10, 200);
+    const marker = calls.find(call => call.op === 'lineTo' && (call.args[1] as number) !== 300);
+    expect(marker).toBeDefined();
+    // Perpendicular to an aim of +x, so the mark is vertical: same x, offset y.
+    const [x, y] = marker!.args as [number, number];
+    expect(x).toBeCloseTo(500 + 2_200 * 0.333 * 0.03, 0);
+    expect(y).not.toBe(300);
+  });
+
+  it('drops the marker once the charge clears the minimum', () => {
+    const calls = charging(10, 500);
+    expect(calls.find(call => call.op === 'lineTo' && (call.args[1] as number) !== 300)).toBeUndefined();
+  });
+
+  it('does not mark the gate on the opponent', () => {
+    const calls = charging(20, 200);
+    expect(calls.find(call => call.op === 'lineTo' && (call.args[1] as number) !== 300)).toBeUndefined();
+  });
+});
