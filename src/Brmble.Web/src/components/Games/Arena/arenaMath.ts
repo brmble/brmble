@@ -367,6 +367,27 @@ export function stepLocal(
     next.opponent = resolved.b;
   }
 
+  // Server stage 9b. Positioning lets players move but does not evaluate boundaries,
+  // so without this a player could walk out of the ring during the countdown. Must
+  // match ArenaSimulation.ClampToArenaBeforeLive exactly, including the distance + 1
+  // divisor: integerSqrt truncates downward, so dividing by the raw distance would
+  // leave the point fractionally outside.
+  if (next.phase === 'positioning') {
+    const radius = next.arena.radius;
+    const distanceSquared = next.player.x * next.player.x + next.player.y * next.player.y;
+    if (distanceSquared > radius * radius) {
+      const distance = Number(integerSqrt(BigInt(distanceSquared)));
+      if (distance !== 0) {
+        const divisor = distance + 1;
+        next.player = {
+          ...next.player,
+          x: Math.trunc(next.player.x * radius / divisor),
+          y: Math.trunc(next.player.y * radius / divisor),
+        };
+      }
+    }
+  }
+
   return next;
 }
 

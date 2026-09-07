@@ -120,6 +120,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
         IntegrateVelocity();                       // 7
         DampVelocity();                            // 8
         ResolveBodyOverlap();                      // 9
+        ClampToArenaBeforeLive();                  // 9b
         AdvanceProjectilesAndResolveHits();        // 10
         RemoveExpiredProjectiles();                // 11
         UpdateShrink();                            // 12
@@ -390,6 +391,37 @@ public sealed class ArenaSimulation : IContinuousSimulation
         {
             player.Vx = checked((int)(player.Vx * (long)ArenaRulesetV1.MomentumRetentionPermille / 1000L));
             player.Vy = checked((int)(player.Vy * (long)ArenaRulesetV1.MomentumRetentionPermille / 1000L));
+        }
+    }
+
+    /// <summary>
+    /// Positioning lets players move but does not evaluate boundaries, so without this
+    /// a player could simply walk out of the ring during the countdown and be knocked
+    /// out on the first live tick. Clamping rather than blocking means pushing against
+    /// the edge slides along it instead of sticking.
+    /// </summary>
+    private void ClampToArenaBeforeLive()
+    {
+        if (Phase != ContinuousMatchPhase.Positioning)
+            return;
+
+        foreach (var player in Players)
+        {
+            if (IsInsideArena(player.X, player.Y))
+                continue;
+
+            var distanceSquared = checked((long)player.X * player.X + (long)player.Y * player.Y);
+            var distance = FixedVec.IntegerSqrt(distanceSquared);
+            if (distance == 0)
+                continue;
+
+            // Divide by distance + 1, not distance: IntegerSqrt truncates downward, so
+            // scaling by radius/distance would leave the point fractionally outside the
+            // ring. The extra unit makes the scale factor slightly small, which with
+            // truncation toward zero puts the result provably inside.
+            var divisor = checked(distance + 1L);
+            player.X = checked((int)(player.X * (long)ArenaRadius / divisor));
+            player.Y = checked((int)(player.Y * (long)ArenaRadius / divisor));
         }
     }
 

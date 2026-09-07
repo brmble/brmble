@@ -58,6 +58,37 @@ public class ArenaPhaseAndMovementTests
     }
 
     [TestMethod]
+    public void PositioningKeepsPlayersInsideTheArena()
+    {
+        var sim = ArenaHarness.Positioning();
+        // One tick of movement from here would land on 9040, outside the 9000 ring.
+        sim.Place(10, 8950, 0);
+        sim.Hold(10, moveX: 32767, moveY: 0);
+
+        sim.Step();
+
+        // 9040 * 9000 / (9040 + 1) truncates to 8999: on the ring, provably inside it.
+        Assert.AreEqual(8999, sim.Player(10).X);
+        Assert.AreEqual(0, sim.Player(10).Y);
+        Assert.IsTrue(sim.IsInside(sim.Player(10).X, sim.Player(10).Y));
+    }
+
+    [TestMethod]
+    public void PositioningClampSlidesAlongTheRingRatherThanSticking()
+    {
+        var sim = ArenaHarness.Positioning();
+        // Pinned against the top of the ring, pushing up and right: the up component is
+        // clamped away but the player must still travel sideways along the edge.
+        sim.Place(10, 0, -8990);
+        sim.Hold(10, moveX: 23170, moveY: -23170);
+
+        sim.Step();
+
+        Assert.IsTrue(sim.IsInside(sim.Player(10).X, sim.Player(10).Y));
+        Assert.IsTrue(sim.Player(10).X > 0, "clamping must not stop lateral travel");
+    }
+
+    [TestMethod]
     public void PositioningAllowsMovementButNoCombatAction()
     {
         var sim = ArenaHarness.Positioning();

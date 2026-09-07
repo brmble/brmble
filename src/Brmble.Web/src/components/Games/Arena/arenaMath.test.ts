@@ -411,6 +411,39 @@ describe('resolveBodyOverlap', () => {
   });
 });
 
+describe('stepLocal arena clamp during positioning', () => {
+  const idle = { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false };
+  const positioning = (x: number) => reconcile(
+    authority(snapshot({
+      phase: 'positioning',
+      arena: { radius: 9000, shrinkPhase: 'hold' },
+      players: [
+        { ...snapshot().players[0], x, y: 0, vx: 0, vy: 0 },
+        { ...snapshot().players[1], x: -8000, y: 0, vx: 0, vy: 0 },
+      ],
+    })),
+    [],
+    prediction,
+  ).local;
+
+  it('keeps a player walking at the edge inside the ring', () => {
+    // 8950 + 90 = 9040, outside 9000. 9040 * 9000 / (9040 + 1) truncates to 8999.
+    const next = stepLocal(positioning(8950), idle, prediction);
+    expect(next.player.x).toBe(8999);
+    expect(next.player.y).toBe(0);
+  });
+
+  it('leaves a player well inside the ring untouched', () => {
+    const next = stepLocal(positioning(0), idle, prediction);
+    expect(next.player.x).toBe(90);
+  });
+
+  it('does not clamp once the round is live', () => {
+    const live = { ...positioning(8950), phase: 'live' as const };
+    expect(stepLocal(live, idle, prediction).player.x).toBe(9040);
+  });
+});
+
 describe('stepLocal body overlap', () => {
   const liveState = (localX: number, opponentX: number) => reconcile(
     authority(snapshot({
