@@ -323,8 +323,20 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             {
                 return Reject(ContinuousRejectReason.DashSpent, participant);
             }
-            if (messageRateExceeded || aimRateExceeded)
+            if (messageRateExceeded)
                 return Reject(ContinuousRejectReason.RateLimited, participant);
+
+            // An aim-rate violation clamps the aim to the last accepted one and lets the
+            // rest of the input through. Movement, charging and dash merely shared a
+            // message with the offending aim; discarding them makes the character stop
+            // responding to the player, which reads as a broken game rather than as a
+            // rate limit. Volume is still capped by the message budget above, and an aim
+            // that is refused here simply does not move.
+            if (aimRateExceeded)
+            {
+                input = input with { AimX = participant.AimX, AimY = participant.AimY };
+                aimChanged = false;
+            }
 
             participant.MessageTimestamps.Enqueue(now);
             if (aimChanged)

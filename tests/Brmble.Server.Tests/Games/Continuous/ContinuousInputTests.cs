@@ -111,10 +111,16 @@ public class ContinuousInputTests
         }
 
         Assert.IsTrue(h.Submit(Input(31, aimX: 32_766, aimY: 1)).Accepted);
-        Assert.AreEqual(ContinuousRejectReason.RateLimited,
-            h.Submit(Input(32, aimX: 32_766, aimY: -1)).Reason);
-        h.Time.Advance(TimeSpan.FromSeconds(1));
+
+        // Over budget the input is still accepted — movement, charging and dash ride on
+        // the same message and are innocent — but the aim is clamped to the last one
+        // that fit the budget, so aim spam gains the sender nothing.
         Assert.IsTrue(h.Submit(Input(32, aimX: 32_766, aimY: -1)).Accepted);
+        Assert.AreEqual(1, h.Simulation.LastInput(10).AimY);
+
+        h.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.IsTrue(h.Submit(Input(33, aimX: 32_766, aimY: -1)).Accepted);
+        Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY);
     }
 
     [TestMethod]
@@ -294,6 +300,33 @@ public class ContinuousInputTests
         Assert.IsTrue(h.Submit(Input(4, predictedTick: h.Simulation.Tick, dash: true)).Accepted);
     }
 
+    [TestMethod]
+    public async Task Arena_AimRateRejectionMustNotDiscardMovementOnTheSameInput()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+
+        // The client substitutes the last transmitted aim on frames inside its 40ms
+        // window rather than delaying them, so a spam-clicking player transmits an aim
+        // that oscillates between the stale direction and the true one. The server
+        // counts every flip as an aim change, so the budget burns twice as fast as the
+        // client's throttle intends.
+        var sequence = 1L;
+        for (var flip = 0; flip < 30; flip++)
+        {
+            var aimX = (short)(flip % 2 == 0 ? -32_767 : 32_767);
+            h.Submit(Input(sequence++, predictedTick: h.Simulation.Tick, aimX: aimX, charging: flip % 2 == 0));
+        }
+
+        // The player is holding W throughout; this is the frame carrying that edge.
+        var move = h.Submit(Input(sequence, predictedTick: h.Simulation.Tick, moveY: -32_767, aimX: -32_767));
+        h.Simulation.Step();
+
+        // An aim-rate violation must not silently cost the player their movement. The
+        // aim may be clamped or dropped; MoveY rode on the same message and is innocent.
+        Assert.AreNotEqual(0, h.Player.Input.MoveY,
+            $"movement was discarded by an aim-rate rejection (reason: {move.Reason})");
+    }
+
     private static ContinuousInput Input(
         long sequence,
         long predictedTick = 0,
@@ -457,6 +490,8 @@ public class ContinuousInputTests
         }
         public void SetNeutralInput(long sessionId) =>
             _inputs[sessionId] = Input(0, aimX: 32_767);
+        public ContinuousInput LastInput(long sessionId) => _inputs[sessionId];
+
         public bool IsNeutral(long sessionId) =>
             _inputs.TryGetValue(sessionId, out var input)
             && input.MoveX == 0
