@@ -453,6 +453,20 @@ rather than re-derive.
 
 *Correctness and robustness*
 
+- **Holding fire through the countdown does not start a charge when the round goes
+  live.** `ArenaBoard` passes `combatEnabled: state.phase === 'live' && …`, and
+  `useArenaInput`'s pointerdown handler returns early on `!combatEnabledRef.current`.
+  So a press during `positioning` is dropped outright — no `charging: true` is ever
+  sent. When `live` begins the button is already down, `pointerdown` cannot fire
+  again, and nothing charges until the player releases and presses a second time.
+  That punishes exactly the instinct the "Hold to shoot" legend teaches during the
+  countdown it is shown in. `useArenaInput` already tracks the held button in
+  `heldRef` (`'MouseLeft'`), so the fix is to re-send `charging: true` when
+  `combatEnabled` transitions false → true while it is still held — the mirror of
+  the existing effect that clears charging when combat becomes disabled. Client-only;
+  no protocol or simulation change. Note the same reasoning applies to a held
+  movement key, which `combatEnabled` does not gate, and to dash, which does.
+
 - **`fromAuthority` throws on a missing local player, permanently killing the
   frame loop.** `arenaMath.ts` throws `'Arena authority does not contain the
   current session'`; the throw escapes the animation-frame callback *before*
