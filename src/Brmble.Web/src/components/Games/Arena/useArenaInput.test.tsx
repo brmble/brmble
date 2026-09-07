@@ -69,6 +69,47 @@ describe('useArenaInput', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   });
 
+  it('starts charging when combat opens with fire already held', () => {
+    // The legend says "Hold to shoot" during the countdown, where combat is disabled.
+    // A press there is dropped, and the button is already down when the round goes
+    // live, so pointerdown cannot fire again — nothing would ever start the charge.
+    const h = inputHarness('connected', false, { x: 0, y: 0 }, false);
+    h.clickBoard();
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    expect(h.sent).not.toContainEqual(expect.objectContaining({ charging: true }));
+
+    h.hook.rerender({ enabled: true, combatEnabled: true });
+
+    expect(h.sent.at(-1)).toMatchObject({ charging: true });
+  });
+
+  it('does not start charging when combat opens with fire released', () => {
+    const h = inputHarness('connected', false, { x: 0, y: 0 }, false);
+    h.clickBoard();
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    fireEvent.pointerUp(window, { button: 0 });
+
+    h.hook.rerender({ enabled: true, combatEnabled: true });
+
+    expect(h.sent).not.toContainEqual(expect.objectContaining({ charging: true }));
+  });
+
+  it('resumes charging when a cooldown closes and reopens combat under a held button', () => {
+    // combatEnabled also covers the shot cooldown, so this is the mid-match case:
+    // hold through your own cooldown and the next charge must start on its own.
+    const h = inputHarness();
+    h.clickBoard();
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    expect(h.sent.at(-1)).toMatchObject({ charging: true });
+
+    h.hook.rerender({ enabled: true, combatEnabled: false });
+    expect(h.sent.at(-1)).toMatchObject({ charging: false });
+
+    h.hook.rerender({ enabled: true, combatEnabled: true });
+
+    expect(h.sent.at(-1)).toMatchObject({ charging: true });
+  });
+
   it('captures only after a board click and normalizes diagonal movement', () => {
     const h = inputHarness();
     h.keyDown('KeyW');

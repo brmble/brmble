@@ -146,10 +146,12 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
     const onPointerDown = (event: PointerEvent) => {
       if (!capturedRef.current) return;
       consume(event);
-      if (!combatEnabledRef.current) return;
+      // Track the physical button even while combat is closed. The countdown tells
+      // the player to hold, and a press there produces the only pointerdown we will
+      // ever get — the button is already down when the round goes live.
       if (event.button === 0 && !heldRef.current.has('MouseLeft')) {
         heldRef.current.add('MouseLeft');
-        send({ charging: true });
+        if (combatEnabledRef.current) send({ charging: true });
       }
     };
     const onPointerUp = (event: PointerEvent) => {
@@ -189,9 +191,17 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
   }, [connection.status, enabled]);
 
   useLayoutEffect(() => {
-    if (combatEnabled) return;
+    if (combatEnabled) {
+      // Combat just opened. A button the player is already holding produced its only
+      // pointerdown while combat was closed, so start its charge now rather than
+      // making them release and press again. Dash is deliberately not mirrored here:
+      // it is a press action, and auto-dashing on the round start would surprise.
+      if (capturedRef.current && heldRef.current.has('MouseLeft') && !inputRef.current.charging) {
+        send({ charging: true });
+      }
+      return;
+    }
     heldRef.current.delete('Space');
-    heldRef.current.delete('MouseLeft');
     if (capturedRef.current && inputRef.current.charging) {
       send({ charging: false, fireReleased: false, dash: false });
     }

@@ -454,7 +454,7 @@ rather than re-derive.
 *Correctness and robustness*
 
 - **Holding fire through the countdown does not start a charge when the round goes
-  live.** `ArenaBoard` passes `combatEnabled: state.phase === 'live' && …`, and
+  live.** *Fixed.* `ArenaBoard` passes `combatEnabled: state.phase === 'live' && …`, and
   `useArenaInput`'s pointerdown handler returns early on `!combatEnabledRef.current`.
   So a press during `positioning` is dropped outright — no `charging: true` is ever
   sent. When `live` begins the button is already down, `pointerdown` cannot fire
