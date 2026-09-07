@@ -236,8 +236,12 @@ describe('ArenaBoard', () => {
   it('puts the match action in the header and keeps close beside the result', () => {
     const live = render(<ArenaBoard {...props()} />);
     expect(screen.getByRole('button', { name: 'Forfeit' }).closest('header')).not.toBeNull();
-    // Nothing to report yet, so the footer does not take height from the canvas.
-    expect(live.container.querySelector('[data-testid="arena-footer"]')).toBeNull();
+    // The footer is always present so the arena never resizes when a match ends;
+    // during play it is an empty reserved strip.
+    const playing = live.container.querySelector('[data-testid="arena-footer"]');
+    expect(playing).not.toBeNull();
+    expect(within(playing as HTMLElement).queryByRole('button')).toBeNull();
+    expect(playing?.textContent).toBe('');
     live.unmount();
 
     render(<ArenaBoard {...props({

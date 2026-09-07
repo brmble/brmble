@@ -97,8 +97,11 @@ export class ArenaRenderer {
     // The floor is --bg-primary, not --bg-surface: surface is a low-alpha rgba on
     // every theme but windows-2000, so over an opaque void it would composite back
     // to nearly the void itself and there would still be nothing to fall into.
+    // The void covers the whole canvas, not just the square playfield. The arena
+    // is letterboxed inside a wider box, so filling only the square leaves the
+    // margins transparent and the panel shows through them.
     ctx.fillStyle = deep;
-    ctx.fillRect(this.layout.offsetX, this.layout.offsetY, this.layout.size, this.layout.size);
+    ctx.fillRect(0, 0, this.layout.cssWidth, this.layout.cssHeight);
 
     const center = point({ x: 0, y: 0 });
     ctx.fillStyle = floor;

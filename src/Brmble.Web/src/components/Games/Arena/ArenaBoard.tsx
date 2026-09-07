@@ -341,14 +341,18 @@ export function ArenaBoard({
           </div>
         )}
       </div>
-      {matchEnded && (
-        <div className={styles.footer} data-testid="arena-footer">
-          <div className={styles.result}>
-            <p className={styles.resultText}>{resultMessage}</p>
-          </div>
-          <button className="btn btn-primary" onClick={handleClose}>Close</button>
-        </div>
-      )}
+      {/* Always rendered, so the arena never resizes when a match ends — it should
+          only change with the channel activity panel. Empty during play. */}
+      <div className={styles.footer} data-testid="arena-footer">
+        {matchEnded && (
+          <>
+            <div className={styles.result}>
+              <p className={styles.resultText}>{resultMessage}</p>
+            </div>
+            <button className="btn btn-primary" onClick={handleClose}>Close</button>
+          </>
+        )}
+      </div>
       <div className="sr-only" data-testid="arena-live-region" role="status" aria-live="polite">{liveText}</div>
     </section>
   );

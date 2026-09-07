@@ -223,9 +223,11 @@ describe('ArenaRenderer', () => {
 
     renderer.render(view(), { reducedMotion: false });
 
-    // The square is the void; the disc drawn on top of it is the floor.
+    // The void covers the whole canvas, not just the square playfield: the arena
+    // is letterboxed, and an unfilled margin shows the panel through it.
     const square = calls.find(call => call.op === 'fillRect');
     expect(square?.fillStyle).toBe('deep');
+    expect(square?.args).toEqual([0, 0, 1000, 600]);
     const floor = calls.findIndex(call => call.op === 'fill');
     expect(calls[floor].fillStyle).toBe('floor');
     // The floor disc is the ring's twin: same centre, same radius (8000 * 0.03).
