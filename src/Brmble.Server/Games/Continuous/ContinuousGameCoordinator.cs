@@ -321,20 +321,28 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 aimRateExceeded = participant.AimChangeTimestamps.Count >= MaxAimChangesPerSecond;
             }
 
+            // A refused action strips itself from the input rather than rejecting the
+            // whole message. Reject does not advance AcknowledgedInput, so rejecting
+            // sequence N turns every later frame into a SequenceGap and forces the
+            // client to reconnect — and reconnecting drops input capture, which
+            // silently clears the player's held movement keys. Spam clicking means most
+            // clicks land during the shot cooldown, so this fired constantly in normal
+            // play. The action is still refused; only the disconnect is gone.
             if (state.Simulation.Phase != ContinuousMatchPhase.Live)
             {
                 if (input.FireReleased || input.Dash)
-                    return Reject(ContinuousRejectReason.PhaseDenied, participant);
+                    input = input with { FireReleased = false, Dash = false };
             }
-            else if (input.FireReleased
-                     && (state.Simulation.Tick < participant.CooldownUntilTick
-                         || arenaPlayer is { CooldownTicks: > 0 }))
+            else
             {
-                return Reject(ContinuousRejectReason.Cooldown, participant);
-            }
-            else if (input.Dash && participant.DashSpent)
-            {
-                return Reject(ContinuousRejectReason.DashSpent, participant);
+                if (input.FireReleased
+                    && (state.Simulation.Tick < participant.CooldownUntilTick
+                        || arenaPlayer is { CooldownTicks: > 0 }))
+                {
+                    input = input with { FireReleased = false };
+                }
+                if (input.Dash && participant.DashSpent)
+                    input = input with { Dash = false };
             }
             if (messageRateExceeded)
                 return Reject(ContinuousRejectReason.RateLimited, participant);
