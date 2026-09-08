@@ -231,11 +231,36 @@ public class MumbleAdapterBridgeTests
         Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
         h.Adapter.Disconnect();
         _ = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+        var healthStartsBefore = h.HealthStarts;
 
         fetch.SetResult(succeeds ? SuccessfulCredentials("old-instance", 4) : FailedCredentials(503));
         h.WaitForCredentialContinuations();
 
-        h.AssertNoCredentialSideEffects();
+        h.AssertNoCredentialSideEffects(healthStartsBefore);
+    }
+
+    [TestMethod]
+    public void HealthMonitoringStartsWhileTheCredentialFetchIsStillInFlight()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var pending = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => pending.Task);
+
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://api.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+
+        // The fetch has not resolved and may not for a long time. Health monitoring
+        // has to be running by now: starting it only after the credential result is
+        // applied means a slow or hung request hides server health entirely and stops
+        // the recovery polling that would report the outage.
+        Assert.AreEqual(1, h.HealthStarts, "health monitoring was suppressed by an unresolved credential fetch");
+
+        pending.SetResult(SuccessfulCredentials("instance", 4));
+        h.WaitForCredentialContinuations();
+
+        // Resolving must not start a second monitor for the same connection.
+        Assert.AreEqual(1, h.HealthStarts);
     }
 
     [TestMethod]
@@ -262,7 +287,10 @@ public class MumbleAdapterBridgeTests
         h.WaitForCredentialContinuations(expectedCompleted: 1);
         Assert.AreEqual("https://current.example.com", h.Adapter.ApiUrl);
         Assert.AreEqual(0, h.WebSocketStarts);
-        Assert.AreEqual(0, h.HealthStarts);
+        // Both connections issued a fetch, and each started monitoring for its own
+        // apiUrl at that point. What matters is that the stale completion adds nothing.
+        var healthStartsAfterStale = h.HealthStarts;
+        Assert.AreEqual(2, healthStartsAfterStale);
         Assert.IsFalse(h.PasswordProtectedChannels.ContainsKey(4));
         Assert.IsFalse(h.Projection.Any());
         Assert.IsFalse(NativeBridgeTestHarness.DrainMessages(h.Bridge).Any(message =>
@@ -276,7 +304,8 @@ public class MumbleAdapterBridgeTests
         Assert.IsTrue(h.PasswordProtectedChannels.ContainsKey(5));
         Assert.AreEqual("@current-instance:test", h.Projection[2].MatrixUserId);
         Assert.AreEqual(1, h.WebSocketStarts);
-        Assert.AreEqual(1, h.HealthStarts);
+        // Applying the current result must not start another monitor.
+        Assert.AreEqual(healthStartsAfterStale, h.HealthStarts);
         Assert.IsTrue(currentMessages.Any(message => message.Type == "server.credentials"));
         Assert.IsTrue(currentMessages.Any(message => message.Type == "brmble.serviceStatus" && message.DataJson.Contains("\"state\":\"connected\"")));
     }
@@ -1196,7 +1225,11 @@ public class MumbleAdapterBridgeTests
             SetPrivateField(Adapter, "_apiUrl", apiUrl);
         }
 
-        public void AssertNoCredentialSideEffects()
+        // Health monitoring now starts when the credential fetch is issued, not when
+        // its result is applied, so a monitor started while the connection was still
+        // current is not a side effect of the stale completion. The caller passes the
+        // count taken before resolving so this asserts the completion added nothing.
+        public void AssertNoCredentialSideEffects(int healthStartsBefore = 0)
         {
             var messages = NativeBridgeTestHarness.DrainMessages(Bridge);
             Assert.IsNull(Adapter.ApiUrl);
@@ -1204,7 +1237,7 @@ public class MumbleAdapterBridgeTests
             Assert.IsFalse(Projection.Any());
             Assert.IsFalse(PasswordProtectedChannels.Any());
             Assert.AreEqual(0, WebSocketStarts);
-            Assert.AreEqual(0, HealthStarts);
+            Assert.AreEqual(healthStartsBefore, HealthStarts);
             Assert.IsFalse(messages.Any(message =>
                 message.Type is "server.credentials" or "voice.authError" or "voice.error" or "brmble.serviceStatus" or "server.healthStatus"));
         }

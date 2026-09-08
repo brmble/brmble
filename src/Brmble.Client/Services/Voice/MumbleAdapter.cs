@@ -2041,7 +2041,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             var apiUrlDiscovered = _apiUrl is null;
             _apiUrl = apiUrl;
             if (apiUrlDiscovered) OnApiUrlDiscovered?.Invoke(apiUrl);
-            StartHealthCheckForConnection(apiUrl);
 
             if (result.Exception is { } exception)
             {
@@ -2152,6 +2151,15 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     private async Task<bool> FetchAndSendCredentials(string apiUrl, long generation, MumbleConnection? connection)
     {
+        // Health monitoring starts before the credential request is awaited. Starting
+        // it only once the result was applied meant a slow or hung fetch hid server
+        // health entirely and suppressed the recovery polling that would report the
+        // outage — the request has no bounded deadline of its own. The generation check
+        // keeps a superseded connection from starting a monitor for a stale apiUrl.
+        if (ShouldStartHealthCheckBeforeCredentialFetch(apiUrl)
+            && IsCurrentConnectionGeneration(generation, connection))
+            StartHealthCheckForConnection(apiUrl);
+
         var result = CredentialFetchForTests is { } testFetch
             ? await testFetch(apiUrl)
             : await FetchCredentialsForConnection(apiUrl);
