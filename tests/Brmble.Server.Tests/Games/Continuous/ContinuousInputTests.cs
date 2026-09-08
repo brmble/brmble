@@ -99,6 +99,27 @@ public class ContinuousInputTests
         Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121)).Reason);
     }
 
+
+    [TestMethod]
+    public async Task MessageRate_HeartbeatStillRefreshesHeldStateWhenTheInputBudgetIsSpent()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        // Mashing direction keys while spam clicking measures around 115 messages a
+        // second on the wire, so the input budget is genuinely reachable in normal play.
+        for (var sequence = 1; sequence <= 120; sequence++)
+            h.Submit(Input(sequence, moveY: -32_767));
+        Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121, moveY: -32_767)).Reason);
+
+        // The heartbeat carries held state and nothing else. If it is rejected too, a
+        // player who keeps mashing never recovers the movement that was dropped, which
+        // is the difference between a dropped frame and a character that stops
+        // responding until you let go.
+        var beat = h.Submit(Input(121, moveY: -32_767), heartbeat: true);
+
+        Assert.IsTrue(beat.Accepted, $"heartbeat was rejected: {beat.Reason}");
+        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY);
+    }
     [TestMethod]
     public async Task AimChangeRate_IsFortyFivePerRollingSecondAndDoesNotCountUnchangedAim()
     {

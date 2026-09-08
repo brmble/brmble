@@ -30,6 +30,8 @@ public sealed record AttachResult(bool Ok, WelcomeMessage? Welcome, string? Erro
 public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 {
     private const int MaxMessagesPerSecond = 120;
+    // The client sends four a second; this only has to stop abuse.
+    private const int MaxHeartbeatsPerSecond = 12;
     // The client's aim throttle intends 25 changes/second, heartbeats carry aim as
     // well, and fire and dash bypass the throttle so their direction stays honest.
     // Aggressive spam measures around 33, so 30 sat below legitimate play. The client
@@ -283,8 +285,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return Reject(ContinuousRejectReason.WrongMatch, participant);
 
             var now = _time.GetTimestamp();
-            RemoveExpired(participant.MessageTimestamps, now);
-            var messageRateExceeded = participant.MessageTimestamps.Count >= MaxMessagesPerSecond;
+            // Heartbeats are budgeted separately. They carry held state and nothing
+            // else — IsInRange already refuses a heartbeat bearing a fire or a dash — so
+            // letting the input budget silence them is what turns a dropped frame into a
+            // character that ignores the player until they let go of the keys. The
+            // client sends four a second; this budget only has to stop abuse.
+            var timestamps = isHeartbeat ? participant.HeartbeatTimestamps : participant.MessageTimestamps;
+            var budget = isHeartbeat ? MaxHeartbeatsPerSecond : MaxMessagesPerSecond;
+            RemoveExpired(timestamps, now);
+            var messageRateExceeded = timestamps.Count >= budget;
 
             var acknowledgedInput = participant.AcknowledgedInput;
             if (input.Sequence <= acknowledgedInput)
@@ -342,7 +351,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 aimChanged = false;
             }
 
-            participant.MessageTimestamps.Enqueue(now);
+            timestamps.Enqueue(now);
             if (aimChanged)
                 participant.AimChangeTimestamps.Enqueue(now);
             state.Simulation.SetInput(participant.SimulationSessionId, input);
@@ -884,6 +893,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public long RoundGeneration;
         public long AcceptedGeneration;
         public Queue<long> MessageTimestamps { get; } = [];
+        public Queue<long> HeartbeatTimestamps { get; } = [];
         public Queue<long> AimChangeTimestamps { get; } = [];
         public ITimer? NeutralTimer;
     }
