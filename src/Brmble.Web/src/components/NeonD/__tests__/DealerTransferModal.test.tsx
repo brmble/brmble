@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ComponentProps } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createBaseGameState } from '../constants';
 import { DealerTransferModal } from '../DealerTransferModal';
@@ -109,5 +109,41 @@ describe('DealerTransferModal', () => {
     renderModal({ dealer: makeReferenceDealer({ equipmentIds: [] }) });
 
     expect(screen.getByText('No equipment is at risk.')).toBeInTheDocument();
+  });
+
+  it('moves focus into the dialog, traps Tab, and restores focus to the opener', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [isOpen, setIsOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setIsOpen(true)}>Open transfer</button>
+          {isOpen ? <DealerTransferModal {...renderModalProps()} onClose={() => setIsOpen(false)} /> : null}
+        </>
+      );
+    }
+
+    const renderModalProps = () => ({
+      state,
+      dealer,
+      sourceZoneId: 'amsterdam' as const,
+      onConfirm: vi.fn(),
+    });
+
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Open transfer' });
+    await user.click(opener);
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(screen.getByRole('button', { name: 'Close transfer confirmation' })).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('combobox', { name: 'Transfer destination' })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Close transfer confirmation' }));
+    expect(opener).toHaveFocus();
   });
 });

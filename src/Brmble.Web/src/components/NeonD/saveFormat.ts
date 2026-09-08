@@ -478,9 +478,17 @@ export function migrateNeonDState(value: unknown): unknown {
         ? seller
         : null
     ));
+    const firstCaptainId = isObject(captains[0]) && typeof captains[0].id === 'string'
+      ? captains[0].id
+      : null;
+    const activeCaptainId = legacyActiveDealers
+      .map((seller) => isObject(seller) && typeof seller.id === 'string' ? seller.id : null)
+      .find((captainId) => captainId !== null && captains.some(
+        (captain) => isObject(captain) && captain.id === captainId,
+      )) ?? firstCaptainId;
     const zones = captains.length > 0
       ? [createAmsterdamZone(
-          isObject(captains[0]) && typeof captains[0].id === 'string' ? captains[0].id : null,
+          activeCaptainId,
           legacyActiveDealers.length,
           normalDealers as (Dealer | null)[],
         )]

@@ -1,10 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../Icon/Icon';
 import { Select } from '../Select';
 import { getEquipmentDefinition } from './economy';
 import type { Dealer, GameState, ZoneCityId } from './types';
 import { getActiveDealerEntries, getAvailableZoneDealerSlots } from './zones';
 import styles from './NeonD.module.css';
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  ));
+}
 
 type DealerTransferModalProps = {
   state: GameState;
@@ -18,6 +24,8 @@ type DealerTransferModalProps = {
 export function DealerTransferModal({ state, dealer, sourceZoneId, destination: fixedDestination, onConfirm, onClose }: DealerTransferModalProps) {
   const [destination, setDestination] = useState('');
   const [dealerId, setDealerId] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const isDestinationInitiated = fixedDestination !== undefined;
   const availableSlots = useMemo(
     () => getAvailableZoneDealerSlots(state).filter((slot) => slot.zoneId !== sourceZoneId),
@@ -48,6 +56,42 @@ export function DealerTransferModal({ state, dealer, sourceZoneId, destination: 
     ? fixedDestinationZone.dealerSlots.findIndex((slot) => slot.id === fixedDestination.slotId) + 1
     : 0;
 
+  useEffect(() => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => openerRef.current?.focus();
+  }, []);
+
+  const closeModal = useCallback(() => {
+    openerRef.current?.focus();
+    onClose();
+  }, [onClose]);
+
+  const handleKeyDown = useCallback((event: globalThis.KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      closeModal();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = getFocusableElements(dialogRef.current);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+    const nextIndex = event.shiftKey
+      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+      : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+    event.preventDefault();
+    focusable[nextIndex].focus();
+  }, [closeModal]);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
   const confirmTransfer = () => {
     if (isDestinationInitiated) {
       if (!selectedDealer || !fixedDestination) return;
@@ -56,18 +100,18 @@ export function DealerTransferModal({ state, dealer, sourceZoneId, destination: 
       if (!dealer || !selectedDestination) return;
       onConfirm(dealer.id, selectedDestination.zoneId, selectedDestination.slotId);
     }
-    onClose();
+    closeModal();
   };
 
   return (
-    <div className="modal-overlay" data-testid="transfer-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className={`glass-panel animate-slide-up ${styles.dealerHiringModal}`} role="dialog" aria-modal="true" aria-labelledby="dealer-transfer-title" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-overlay" data-testid="transfer-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
+      <div ref={dialogRef} className={`glass-panel animate-slide-up ${styles.dealerHiringModal}`} role="dialog" aria-modal="true" aria-labelledby="dealer-transfer-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
         <div className={`modal-header ${styles.dealerHiringHeader}`}>
           <div>
             <span className={styles.label}>Irreversible travel</span>
             <h2 id="dealer-transfer-title" className="heading-title modal-title">Transfer {selectedDealerForRisk?.name ?? 'dealer'}</h2>
           </div>
-          <button type="button" className="modal-close" aria-label="Close transfer confirmation" onClick={onClose}><Icon name="x" size={18} /></button>
+          <button type="button" className="modal-close" aria-label="Close transfer confirmation" onClick={closeModal}><Icon name="x" size={18} /></button>
         </div>
         {isDestinationInitiated ? (
           <>

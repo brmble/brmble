@@ -130,6 +130,27 @@ describe('Neon-D save format', () => {
     expect(migrated.captains[1].zoneBulkSellAvailableAt).toBe(0);
   });
 
+  it('preserves the Captain assigned in legacy active dealer slots during migration', () => {
+    const firstCaptain = makeReferenceCaptain({ id: 'captain-first', name: 'First Captain' });
+    const activeCaptain = makeReferenceCaptain({ id: 'captain-active', name: 'Active Captain' });
+    const legacy = {
+      ...createState({
+        territoryLevel: 1,
+        activeDealers: [makeReferenceDealer({ id: 'legacy-dealer' }), activeCaptain],
+        captains: [firstCaptain, activeCaptain],
+      }),
+      schemaVersion: 5,
+    };
+
+    const migrated = parseNeonDSave(JSON.stringify({
+      format: NEON_D_SAVE_FORMAT,
+      version: 3,
+      state: legacy,
+    }));
+
+    expect(migrated.zones[0].captainId).toBe(activeCaptain.id);
+  });
+
   it('serializes and parses a versioned save envelope', () => {
     const state = createState({ cash: 1234.5 });
 

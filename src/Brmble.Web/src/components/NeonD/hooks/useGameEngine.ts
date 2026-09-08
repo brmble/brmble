@@ -591,6 +591,7 @@ export const useGameEngine = () => {
       return {
         ...prev,
         captains,
+        cash: prev.cash - cost,
       };
     });
   };

@@ -532,6 +532,23 @@ describe('useGameEngine', () => {
     expect(result.current.state.pendingAmsterdamCaptainSelection).toBe(false);
   });
 
+  it('charges the current Captain cost when recruiting an additional Captain', () => {
+    const existingCaptain = makeReferenceCaptain({ id: 'old-captain' });
+    const { result } = renderSeededGame({
+      cash: 10_000_000,
+      runEarnings: 7_500_000,
+      captains: [existingCaptain],
+      activeDealers: [],
+      zones: [createAmsterdamZone(existingCaptain.id)],
+    });
+    const cashBeforeRecruitment = result.current.state.cash;
+    const cost = getCaptainCost(result.current.state);
+
+    act(() => result.current.buyCaptain('New Captain'));
+
+    expect(result.current.state.cash).toBe(cashBeforeRecruitment - cost);
+  });
+
   it('preserves Captain zone bulk cooldowns when adding a Captain', () => {
     const existing = makeReferenceCaptain({
       id: 'cooldown-captain',
