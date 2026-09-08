@@ -100,6 +100,24 @@ public class ContinuousInputTests
     }
 
 
+
+    [TestMethod]
+    public async Task HeartbeatRate_IsTwelvePerRollingSecondSoTheExemptionCannotBeAbused()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        for (var sequence = 1; sequence <= 12; sequence++)
+            Assert.IsTrue(h.Submit(Input(sequence, moveY: -32_767), heartbeat: true).Accepted, $"beat {sequence}");
+
+        // The exemption exists so held state survives an input flood, not as an
+        // unmetered channel: the client sends four a second and has no reason to reach
+        // twelve.
+        Assert.AreEqual(ContinuousRejectReason.RateLimited,
+            h.Submit(Input(13, moveY: -32_767), heartbeat: true).Reason);
+
+        h.Time.Advance(TimeSpan.FromSeconds(1));
+        Assert.IsTrue(h.Submit(Input(13, moveY: -32_767), heartbeat: true).Accepted);
+    }
     [TestMethod]
     public async Task MessageRate_HeartbeatStillRefreshesHeldStateWhenTheInputBudgetIsSpent()
     {
