@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { requestRealtimeTicket } from '../../../api/games';
+import { noteReject } from './arenaDiagnostics';
 import type {
   ArenaClientMessage,
   ArenaInputState,
@@ -392,6 +393,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
               setRecentInputs(runtime.recentInputs);
             }
           } else if (message.type === 'inputRejected') {
+            noteReject(String(message.reason));
             if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
             runtime.aimTimer = null;
             runtime.queuedAimInput = null;

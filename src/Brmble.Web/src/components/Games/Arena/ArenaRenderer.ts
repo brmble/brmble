@@ -1,4 +1,5 @@
 import brmbleLogo from '../../../assets/brmble-logo.svg';
+import { diag } from './arenaDiagnostics';
 import type {
   ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot, ArenaStateSnapshot,
 } from './arenaProtocol';
@@ -169,6 +170,18 @@ export class ArenaRenderer {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    // TEMPORARY diagnostic readout for the held-direction input bug.
+    ctx.fillStyle = text;
+    ctx.font = `${color('--text-xs')} ${color('--font-mono')}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const lines = [
+      `rel ${diag.releases} ${diag.lastRelease}`,
+      `rej ${diag.rejects} ${diag.lastReject}`,
+      `mv ${diag.lastMove} held ${diag.held}`,
+    ];
+    lines.forEach((entry, index) => ctx.fillText(entry, 8, 8 + index * 14));
+
     for (const projectile of view.projectiles) {
       const projectilePoint = point(projectile);
       const projectileColor = view.players.find(player => player.sessionId === projectile.ownerSessionId)?.side === 1 ? danger : primary;
