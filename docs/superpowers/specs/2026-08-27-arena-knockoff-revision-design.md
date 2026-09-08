@@ -453,6 +453,19 @@ rather than re-derive.
 
 *Correctness and robustness*
 
+- **The health-monitor generation guard has no mutation-sensitive test.**
+  `FetchAndSendCredentials` starts health monitoring before awaiting the credential
+  request, guarded by `IsCurrentConnectionGeneration` so a superseded connection
+  cannot start a monitor for a stale `apiUrl`. Both call sites dispatch through
+  `Task.Run`, so the window between capturing the generation and running the body
+  is real. Removing that guard leaves the suite green: hitting the window
+  deterministically needs a test seam between the capture and the call, and adding
+  one to this path purely for coverage was judged a worse trade than recording the
+  gap. The `apiUrl` half of the same condition is unreachable from both call sites
+  — neither can pass an empty URL — though the predicate itself is unit-tested
+  directly. Cost if wrong: a future refactor could drop the generation check and a
+  replaced connection would start a monitor against the URL it just abandoned.
+
 - **Holding fire through the countdown does not start a charge when the round goes
   live.** *Fixed.* `ArenaBoard` passes `combatEnabled: state.phase === 'live' && …`, and
   `useArenaInput`'s pointerdown handler returns early on `!combatEnabledRef.current`.
