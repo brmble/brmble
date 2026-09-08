@@ -3,7 +3,6 @@ import bridge from '../../../bridge';
 import type { ArenaInputState, ArenaPlayerSnapshot } from './arenaProtocol';
 import type { ArenaConnection } from './useArenaConnection';
 import type { ArenaRenderer } from './ArenaRenderer';
-import { noteMove, noteRelease } from './arenaDiagnostics';
 
 const MAX_AXIS = 32767;
 const DIAGONAL_AXIS = 23170;
@@ -61,9 +60,8 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
     }
   };
 
-  const release = (reason = 'unknown') => {
+  const release = () => {
     if (!capturedRef.current) return;
-    noteRelease(reason);
     acquisitionRef.current++;
     capturedRef.current = false;
     heldRef.current.clear();
@@ -88,17 +86,17 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
       capturedRef.current = true;
       setCaptured(true);
       sendCaptureState(true, () => {
-        if (capturedRef.current && acquisitionRef.current === acquisition) release('bridgeFailure');
+        if (capturedRef.current && acquisitionRef.current === acquisition) release();
       });
     };
     const movement = () => {
       const horizontal = Number(heldRef.current.has('KeyD')) - Number(heldRef.current.has('KeyA'));
       const vertical = Number(heldRef.current.has('KeyS')) - Number(heldRef.current.has('KeyW'));
       const diagonal = horizontal !== 0 && vertical !== 0;
-      const moveX = horizontal * (diagonal ? DIAGONAL_AXIS : MAX_AXIS);
-      const moveY = vertical * (diagonal ? DIAGONAL_AXIS : MAX_AXIS);
-      noteMove(moveX, moveY, heldRef.current);
-      send({ moveX, moveY });
+      send({
+        moveX: horizontal * (diagonal ? DIAGONAL_AXIS : MAX_AXIS),
+        moveY: vertical * (diagonal ? DIAGONAL_AXIS : MAX_AXIS),
+      });
     };
     const consume = (event: Event) => {
       event.preventDefault();
@@ -108,7 +106,7 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
       if (!capturedRef.current) return;
       consume(event);
       if (event.code === 'Escape') {
-        release('escape');
+        release();
         return;
       }
       if (event.code === 'Space') {
@@ -164,7 +162,7 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
       }
     };
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') release('visibility');
+      if (document.visibilityState === 'hidden') release();
     };
 
     canvas.addEventListener('click', capture, true);
@@ -173,24 +171,23 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
     canvas.addEventListener('pointermove', onPointerMove, true);
     canvas.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('pointerup', onPointerUp, true);
-    const onBlur = () => release('blur');
-    window.addEventListener('blur', onBlur, true);
+    window.addEventListener('blur', release, true);
     document.addEventListener('visibilitychange', onVisibility, true);
     return () => {
-      release('cleanup');
+      release();
       canvas.removeEventListener('click', capture, true);
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
       canvas.removeEventListener('pointermove', onPointerMove, true);
       canvas.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('pointerup', onPointerUp, true);
-      window.removeEventListener('blur', onBlur, true);
+      window.removeEventListener('blur', release, true);
       document.removeEventListener('visibilitychange', onVisibility, true);
     };
   }, [canvasRef]);
 
   useLayoutEffect(() => {
-    if (!enabled || connection.status !== 'connected') release(`enabled=${enabled} status=${connection.status}`);
+    if (!enabled || connection.status !== 'connected') release();
   }, [connection.status, enabled]);
 
   useLayoutEffect(() => {
