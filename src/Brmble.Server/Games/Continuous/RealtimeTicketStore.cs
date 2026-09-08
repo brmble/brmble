@@ -141,9 +141,20 @@ internal sealed class GamesRealtimeOptionsValidator(IHostEnvironment environment
     {
         if (options.PerUserTicketLimit <= 0 || options.GlobalTicketLimit <= 0)
             return ValidateOptionsResult.Fail("Games realtime ticket limits must be positive.");
-        if (environment.IsDevelopment()) return ValidateOptionsResult.Success;
-        return Uri.TryCreate(options.RealtimePublicWebSocketUrl, UriKind.Absolute, out var uri)
-            && string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase)
+
+        // The URL is validated in every environment. Development previously returned
+        // success before looking at it, so a missing or mistyped setting started the
+        // server and the ticket endpoint then handed the client a null url — a startup
+        // misconfiguration surfacing as a runtime failure in the browser. Development
+        // still accepts ws:// so a local stack without TLS works, which is the only
+        // thing the old bypass was for.
+        if (!Uri.TryCreate(options.RealtimePublicWebSocketUrl, UriKind.Absolute, out var uri))
+            return ValidateOptionsResult.Fail("Games:RealtimePublicWebSocketUrl must be an absolute URL.");
+
+        if (string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase))
+            return ValidateOptionsResult.Success;
+
+        return environment.IsDevelopment() && string.Equals(uri.Scheme, "ws", StringComparison.OrdinalIgnoreCase)
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail("Games:RealtimePublicWebSocketUrl must be an absolute wss URL.");
     }

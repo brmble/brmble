@@ -74,6 +74,49 @@ public sealed class RealtimeTicketStoreTests
 
     [DataTestMethod]
     [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow("not-a-url")]
+    [DataRow("/games/realtime")]
+    public void DevelopmentRejectsMissingOrRelativeRealtimeUrl(string? url)
+    {
+        // Development skipped URL validation entirely, so a missing or mistyped
+        // setting started the server and /games/realtime-ticket then handed the client
+        // a null url. The failure surfaced at runtime in the browser instead of at
+        // startup where it belongs.
+        var environment = new Mock<IHostEnvironment>();
+        environment.SetupGet(x => x.EnvironmentName).Returns(Environments.Development);
+        var validator = new GamesRealtimeOptionsValidator(environment.Object);
+
+        var result = validator.Validate(null, new GamesRealtimeOptions
+        {
+            RealtimePublicWebSocketUrl = url,
+        });
+
+        Assert.IsTrue(result.Failed, $"expected failure for '{url ?? "<null>"}'");
+    }
+
+    [DataTestMethod]
+    [DataRow("ws://localhost:5000/games/realtime")]
+    [DataRow("wss://localhost:1912/games/realtime")]
+    public void DevelopmentAllowsPlaintextAndSecureAbsoluteRealtimeUrls(string url)
+    {
+        // The Development bypass existed so a local stack can serve ws://. That
+        // allowance is kept; only the absence of any validation is removed.
+        var environment = new Mock<IHostEnvironment>();
+        environment.SetupGet(x => x.EnvironmentName).Returns(Environments.Development);
+        var validator = new GamesRealtimeOptionsValidator(environment.Object);
+
+        var result = validator.Validate(null, new GamesRealtimeOptions
+        {
+            RealtimePublicWebSocketUrl = url,
+        });
+
+        Assert.IsTrue(result.Succeeded, $"expected success for '{url}'");
+    }
+
+    [DataTestMethod]
+    [DataRow(null)]
     [DataRow("https://games.example/realtime")]
     [DataRow("ws://games.example/realtime")]
     public void ProductionRejectsMissingOrNonWssRealtimeUrl(string? url)
