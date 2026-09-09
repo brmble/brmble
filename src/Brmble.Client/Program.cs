@@ -39,6 +39,7 @@ static class Program
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+    private static volatile bool _mainUiReady;
     private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
     /// <summary>
@@ -188,7 +189,7 @@ static class Program
             Win32Window.SetBorderColor(_hwnd, Win32Window.ToColorRef(sbr, sbg, sbb));
             TrayIcon.Create(_hwnd);
             TaskbarBadge.Initialize(_hwnd);
-            _ = InitWebView2Async(_hwnd, useDevServer);
+            _ = InitWebView2Async(_hwnd, useDevServer, startupTheme);
             Win32Window.RunMessageLoop();
         }
         catch (Exception ex)
@@ -197,7 +198,10 @@ static class Program
         }
     }
 
-    private static async Task InitWebView2Async(IntPtr hwnd, bool useDevServer)
+    private static async Task InitWebView2Async(
+        IntPtr hwnd,
+        bool useDevServer,
+        string startupTheme)
     {
         try
         {
@@ -221,6 +225,12 @@ static class Program
                 browserExecutableFolder: null,
                 userDataFolder: webViewUserDataPath);
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+
+            var (startupR, startupG, startupB) = ThemeColors.GetBgDeep(startupTheme);
+            _controller.DefaultBackgroundColor = Color.FromArgb(
+                startupR,
+                startupG,
+                startupB);
 
             Win32Window.GetClientRect(hwnd, out var rect);
             _controller.Bounds = GetWebViewBounds(hwnd);
@@ -321,6 +331,12 @@ static class Program
             WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
                 _controller.CoreWebView2, env, webRoot);
 
+            _controller.CoreWebView2.Navigate(
+                StartupPageUri.Build(
+                    useDevServer,
+                    DevServerUrl,
+                    StartupPageState.Loading));
+
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
             _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
@@ -411,43 +427,74 @@ static class Program
             _paintService.Initialize(_bridge);
             _paintService.RegisterHandlers(_bridge);
 
-            // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
-            EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
+            // Auto-connect after the main frontend loads (one-shot final navigation handler)
+            EventHandler<CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
             onNavCompleted = (s, e) =>
             {
-                if (e.IsSuccess)
+                _controller!.CoreWebView2.NavigationCompleted -= onNavCompleted;
+
+                if (!e.IsSuccess)
                 {
-                    _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
-                    // Send initial window state — WM_SIZE fires before the bridge
-                    // exists when starting maximized, so without this the React
-                    // app would default to maximized=false and render the
-                    // resize handles over a maximized window.
-                    _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(_hwnd) });
-                    TryAutoConnect();
-                    _updateService?.SendVersion();
-                    _updateService?.StartPeriodicChecks();
+                    _controller.CoreWebView2.Navigate(
+                        StartupPageUri.Build(
+                            useDevServer,
+                            DevServerUrl,
+                            StartupPageState.Error));
+                    return;
                 }
+
+                _mainUiReady = true;
+
+                // Send initial window state — WM_SIZE fires before the bridge
+                // exists when starting maximized, so without this the React
+                // app would default to maximized=false and render the
+                // resize handles over a maximized window.
+                _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(_hwnd) });
+                TryAutoConnect();
+                _updateService?.SendVersion();
+                _updateService?.StartPeriodicChecks();
             };
             _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
 
             if (useDevServer)
                 _controller.CoreWebView2.Navigate(DevServerUrl);
             else
-                _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
+                _controller.CoreWebView2.Navigate(
+                    $"https://{WebViewCacheConfig.VirtualHost}/index.html");
         }
         catch (Exception ex)
         {
-            // A failure here leaves the window blank (Navigate never runs) and
-            // Debug.WriteLine is invisible in a WinExe — persist to the same
-            // file the unhandled-exception hooks in Main use.
             Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
             try
             {
                 File.AppendAllText(
                     Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
-                    $"[{DateTime.Now:HH:mm:ss.fff}] InitWebView2Async FAILED (window will stay blank): {ex}\n\n");
+                    $"[{DateTime.Now:HH:mm:ss.fff}] InitWebView2Async FAILED: {ex}\n\n");
             }
-            catch { /* logging is best-effort */ }
+            catch
+            {
+                // Logging is best-effort.
+            }
+
+            if (_controller?.CoreWebView2 is { } webView)
+            {
+                try
+                {
+                    webView.Navigate(
+                        StartupPageUri.Build(
+                            useDevServer,
+                            DevServerUrl,
+                            StartupPageState.Error));
+                    return;
+                }
+                catch
+                {
+                    // Fall through to the native dialog if WebView2 cannot navigate.
+                }
+            }
+
+            Win32Window.ShowStartupError(hwnd);
+            Win32Window.DestroyWindow(hwnd);
         }
     }
 
@@ -684,15 +731,15 @@ static class Program
                 {
                     Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
                 }
-                else if (_bridge != null)
+                else if (_bridge != null && _mainUiReady)
                 {
-                    // Ask via WebView2 modal — fire-and-forget
+                    // Ask via the React modal only after the main UI has mounted.
                     _bridge.Send("window.showCloseDialog");
                     _bridge.Flush();
                 }
                 else
                 {
-                    // Bridge not ready yet — just quit
+                    // Startup/loading/error pages have no close-dialog listener.
                     Win32Window.DestroyWindow(hwnd);
                 }
                 return IntPtr.Zero;

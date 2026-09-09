@@ -1,72 +1,76 @@
-# Task 5 Report: Certificate-authenticated native bridge requests
+# Task 5 Report: Navigate the startup page before expensive native initialization
 
 ## What changed
 
-- Added `CustomCompanionBridgeHandler` for `companions.request` create and delete actions.
-- Create requests send only `name` and `mediaUri` to `POST /companions`; browser MIME type and dimensions are never forwarded.
-- Delete requests call `DELETE /companions/{eventId}` with the Matrix event ID URI-escaped.
-- The handler validates API URL, certificate, action-specific required fields locally and always emits `companions.response` with `requestId`, `success`, `body`, `statusCode`, and `error`.
-- Added `DeleteViaBcTls`, handler construction, and `companions.request` registration in `MumbleAdapter`.
-- Added `ParseWireCompanionId` and used it for session mappings, snapshot additions, and `companionChanged`, preferring valid additive `customCompanionId` values while retaining the legacy fallback.
+- Added the volatile `_mainUiReady` flag beside the close preference state.
+- Passed the startup theme into `InitWebView2Async` and set WebView2's default background to the theme's deep background immediately after controller creation.
+- Kept the production virtual-host mapping and HTML-cache configuration after WebView settings and navigation-handler setup, then moved startup loading navigation immediately after that block.
+- Navigated to the loading startup page before overlay initialization and all certificate, update, idle, voice, game, and paint service initialization.
+- Deferred the one-shot `NavigationCompleted` handler until immediately before final navigation to the main application. It now removes itself on the first final-navigation result, routes failures to the branded startup error page, and on success marks the main UI ready before sending initial window state and starting the existing auto-connect/version/update sequence.
+- Preserved the dev-server main URI and changed the packaged main URI to use `WebViewCacheConfig.VirtualHost` consistently.
+- Replaced the blank-window initialization failure tail with diagnostic logging, WebView error-page navigation when possible, and the native startup error dialog plus window destruction when WebView2 is unavailable or cannot navigate.
+- Restricted React-owned close handling to the state where both the bridge exists and the main UI is ready; startup and error pages now destroy the window directly.
 
-## Test results
+## Test and build results
 
-Command:
+All requested checks were run after the implementation:
 
-```powershell
-dotnet test tests\Brmble.Client.Tests\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~CustomCompanionBridgeHandlerTests|FullyQualifiedName~MumbleAdapterParseTests"
-```
+1. Focused native startup URI tests:
 
-Result: passed, 52 total tests; 0 failed; 0 skipped. The same focused suite also passed in the post-commit rerun.
+   ```powershell
+   dotnet test tests\Brmble.Client.Tests\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupPageUriTests" -v minimal
+   ```
 
-## TDD evidence
+   Result: passed, 4 total; 0 failed; 0 skipped.
 
-1. Added `CustomCompanionBridgeHandlerTests` and parser coverage before the handler existed.
-2. Ran the requested focused handler filter. It failed at compile time with `CS0246` because `CustomCompanionBridgeHandler` was missing.
-3. Implemented the minimal handler, TLS delegates, registration, and shared parser.
-4. Re-ran the focused suite until it passed. Added snapshot, mapping-added, and companion-change integration coverage for custom ID propagation, then reran successfully.
+2. Full client test suite:
 
-## Files changed
+   ```powershell
+   dotnet test tests\Brmble.Client.Tests\Brmble.Client.Tests.csproj -v minimal
+   ```
 
-- `src/Brmble.Client/Services/Voice/CustomCompanionBridgeHandler.cs`
-- `src/Brmble.Client/Services/Voice/MumbleAdapter.cs`
-- `tests/Brmble.Client.Tests/Services/CustomCompanionBridgeHandlerTests.cs`
-- `tests/Brmble.Client.Tests/Services/MumbleAdapterParseTests.cs`
+   Result: passed, 393 total; 0 failed; 0 skipped.
 
-## Self-review
+3. Web application build, run before the native build as required:
 
-- Verified create serialization contains only `name` and `mediaUri`.
-- Verified delete URI encoding for `$sprite:test`.
-- Verified a 415 upstream response preserves the response body, status code, and error.
-- Verified custom IDs flow through session mapping, snapshots, user mapping additions, and companion changes.
-- Ran `git diff --check`; no whitespace errors.
-- Reviewed committed Task 5 scope after commit and found no defects or out-of-scope changes.
-- Kept unrelated untracked files untouched.
+   ```powershell
+   npm run build
+   ```
+
+   Result: Vite build passed; TypeScript compilation passed; startup, overlay, and main entries were emitted.
+
+4. Native Debug build:
+
+   ```powershell
+   dotnet build src\Brmble.Client\Brmble.Client.csproj -c Debug
+   ```
+
+   Result: build succeeded with 0 warnings and 0 errors. The first sandboxed attempt was blocked by access to the installed Windows SDK metadata; the same build then completed successfully with the required permission escalation.
+
+5. Startup artifact and overhead guardrail:
+
+   ```powershell
+   Test-Path src\Brmble.Client\bin\Debug\net10.0-windows\web\startup.html
+   Select-String -Path src\Brmble.Web\dist\startup.html -Pattern 'matrix-sdk' -SimpleMatch -Quiet
+   ```
+
+   Result: `src\Brmble.Client\bin\Debug\net10.0-windows\web\startup.html` exists and is 804 bytes; the startup entry does not reference `matrix-sdk`.
+
+6. `git diff --check` passed with no whitespace errors.
+
+## TDD and scope notes
+
+The Task 5 brief restricts source implementation changes to `src/Brmble.Client/Program.cs`, so no new test file was added. The existing startup URI contract was run before and after the change; it passed both times. The implementation was kept limited to the requested startup sequencing and error/close handling. The user’s untracked plan file was not modified.
+
+## Review observations
+
+- The loading navigation occurs before `_overlayHost.InitializeAsync()` and before native service initialization.
+- The final-navigation handler is attached only after all existing initialization work and is removed before handling either success or failure.
+- Auto-connect, version notification, and periodic update checks remain in their existing order and occur only after successful main UI navigation.
+- Exception text is written only to diagnostics and is not passed to either startup UI state or the native error dialog.
+- Startup and WebView failure pages remain directly closable because `_mainUiReady` is false until successful main navigation.
 
 ## Concerns
 
-None.
-
-## Review Fixes
-
-### Summary
-
-- Made `CustomCompanionBridgeHandler` safely reject malformed JSON fields while always emitting `companions.response` with the best available `requestId`.
-- Restricted certificate-authenticated companion transport to absolute HTTPS API URLs.
-- Updated the companion-sync response path to use `ParseWireCompanionId`, preserving `customCompanionId` when the legacy field remains `floppy`.
-
-### Tests run
-
-```powershell
-dotnet test tests\Brmble.Client.Tests\Brmble.Client.Tests.csproj --no-restore --filter "FullyQualifiedName~CustomCompanionBridgeHandlerTests|FullyQualifiedName~MumbleAdapterParseTests"
-```
-
-Result: passed, 57 total tests; 0 failed; 0 skipped.
-
-### Files changed
-
-- `src/Brmble.Client/Services/Voice/CustomCompanionBridgeHandler.cs`
-- `src/Brmble.Client/Services/Voice/MumbleAdapter.cs`
-- `tests/Brmble.Client.Tests/Services/CustomCompanionBridgeHandlerTests.cs`
-- `tests/Brmble.Client.Tests/Services/MumbleAdapterParseTests.cs`
-- `.superpowers/sdd/task-5-report.md`
+- No automated test directly exercises WebView2 event sequencing or the native fallback dialog because those paths require a live Windows WebView2 runtime and native window.
+- The build and tests completed successfully; no remaining implementation concerns were identified.
