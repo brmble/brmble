@@ -13,8 +13,11 @@ namespace Brmble.Client;
 internal sealed class StartupSplashWindow : IDisposable
 {
     internal event Action? Dismissed;
-    private const int Width = 360;
-    private const int Height = 240;
+    private const int Width = 200;
+    private const int Height = 200;
+    private const int LogoSize = 112;
+    private const int LogoTop = 16;
+    private const int LabelTop = 136;
     private const uint WsPopup = 0x80000000;
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExTopmost = 0x00000008;
@@ -32,12 +35,16 @@ internal sealed class StartupSplashWindow : IDisposable
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
     private const uint SwShow = 5;
+    private const uint UlwAlpha = 0x00000002;
+    private const byte AcSrcOver = 0;
+    private const byte AcSrcAlpha = 1;
 
     private static readonly WndProc WindowProcedure = WindowProc;
     private readonly string _className = $"BrmbleStartupSplash_{Environment.ProcessId}";
     private IntPtr _windowHandle;
     private IntPtr _classAtom;
     private Bitmap? _mark;
+    private Bitmap? _surface;
     private Color _background;
     private Color _accent;
     private bool _error;
@@ -76,6 +83,7 @@ internal sealed class StartupSplashWindow : IDisposable
         }
 
         ShowWindow(_windowHandle, SwShow);
+        RefreshSurface();
         UpdateWindow(_windowHandle);
         if (_animationEnabled)
             SetTimer(_windowHandle, TimerId, 90, IntPtr.Zero);
@@ -89,6 +97,8 @@ internal sealed class StartupSplashWindow : IDisposable
             DestroyWindow(_windowHandle);
             _windowHandle = IntPtr.Zero;
         }
+        _surface?.Dispose();
+        _surface = null;
         DisposeMark();
         if (_classAtom != IntPtr.Zero)
         {
@@ -106,6 +116,7 @@ internal sealed class StartupSplashWindow : IDisposable
 
         _error = true;
         KillTimer(_windowHandle, TimerId);
+        RefreshSurface();
         InvalidateRect(_windowHandle, IntPtr.Zero, false);
         UpdateWindow(_windowHandle);
     }
@@ -145,16 +156,19 @@ internal sealed class StartupSplashWindow : IDisposable
         catch { return null; }
     }
 
-    private void Paint(IntPtr hdc)
+    private void RefreshSurface()
     {
-        using var graphics = Graphics.FromHdc(hdc);
+        if (_windowHandle == IntPtr.Zero)
+            return;
+
+        _surface ??= new Bitmap(Width, Height, PixelFormat.Format32bppPArgb);
+        using var graphics = Graphics.FromImage(_surface);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        graphics.Clear(_background);
+        graphics.Clear(Color.Transparent);
 
         if (_mark != null)
         {
-            const int markSize = 112;
-            var markBounds = new Rectangle((Width - markSize) / 2, 36, markSize, markSize);
+            var markBounds = new Rectangle((Width - LogoSize) / 2, LogoTop, LogoSize, LogoSize);
             using var attributes = new ImageAttributes();
             var alpha = _error || !_animationEnabled ? 1f : 0.78f + (_pulse / 100f) * 0.22f;
             var matrix = new ColorMatrix { Matrix33 = alpha };
@@ -171,9 +185,56 @@ internal sealed class StartupSplashWindow : IDisposable
         using var font = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Point);
         var message = _error ? "Brmble couldn't finish starting" : "Starting Brmble…";
         var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        graphics.DrawString(message, font, textBrush, new RectangleF(20, 168, Width - 40, 28), format);
+        graphics.DrawString(message, font, textBrush, new RectangleF(8, LabelTop, Width - 16, 26), format);
         if (_error)
-            graphics.DrawString("See the log for more information.", font, textBrush, new RectangleF(20, 194, Width - 40, 24), format);
+            graphics.DrawString("See the log for more information.", font, textBrush, new RectangleF(8, LabelTop + 24, Width - 16, 26), format);
+
+        PresentSurface();
+    }
+
+    private void PresentSurface()
+    {
+        if (_surface == null || _windowHandle == IntPtr.Zero)
+            return;
+
+        var bitmapHandle = _surface.GetHbitmap(Color.Transparent);
+        var memoryDc = CreateCompatibleDC(IntPtr.Zero);
+        var previousBitmap = IntPtr.Zero;
+        try
+        {
+            if (memoryDc == IntPtr.Zero)
+                return;
+
+            previousBitmap = SelectObject(memoryDc, bitmapHandle);
+            if (previousBitmap == IntPtr.Zero)
+                return;
+
+            if (!GetWindowRect(_windowHandle, out var windowRect))
+                return;
+
+            var destination = new POINT { X = windowRect.Left, Y = windowRect.Top };
+            var size = new SIZE { Width = Width, Height = Height };
+            var source = new POINT { X = 0, Y = 0 };
+            var blend = new BLENDFUNCTION
+            {
+                BlendOp = AcSrcOver,
+                BlendFlags = 0,
+                SourceConstantAlpha = 255,
+                AlphaFormat = AcSrcAlpha,
+            };
+            UpdateLayeredWindow(_windowHandle, IntPtr.Zero, ref destination, ref size, memoryDc, ref source, 0, ref blend, UlwAlpha);
+        }
+        finally
+        {
+            if (memoryDc != IntPtr.Zero)
+            {
+                if (previousBitmap != IntPtr.Zero)
+                    SelectObject(memoryDc, previousBitmap);
+                DeleteDC(memoryDc);
+            }
+            if (bitmapHandle != IntPtr.Zero)
+                DeleteObject(bitmapHandle);
+        }
     }
 
     private static bool GetClientAreaAnimationSetting()
@@ -198,14 +259,14 @@ internal sealed class StartupSplashWindow : IDisposable
         {
             case WmPaint:
                 BeginPaint(hwnd, out var paint);
-                splash.Paint(paint.DeviceContext);
+                splash.RefreshSurface();
                 EndPaint(hwnd, ref paint);
                 return IntPtr.Zero;
             case WmEraseBkgnd:
                 return new IntPtr(1);
             case WmTimer:
                 splash._pulse = (splash._pulse + 15) % 100;
-                InvalidateRect(hwnd, IntPtr.Zero, false);
+                splash.RefreshSurface();
                 return IntPtr.Zero;
             case WmClose:
                 splash.Dismissed?.Invoke();
@@ -250,6 +311,21 @@ internal sealed class StartupSplashWindow : IDisposable
     private struct RECT { public int Left, Top, Right, Bottom; }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SIZE { public int Width, Height; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BLENDFUNCTION
+    {
+        public byte BlendOp;
+        public byte BlendFlags;
+        public byte SourceConstantAlpha;
+        public byte AlphaFormat;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct PAINTSTRUCT
     {
         public IntPtr DeviceContext;
@@ -272,6 +348,8 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern bool UpdateWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hwnd, IntPtr rect, bool erase);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr destinationDc, ref POINT destination, ref SIZE size, IntPtr sourceDc, ref POINT source, uint colorKey, ref BLENDFUNCTION blend, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr SetTimer(IntPtr hwnd, uint id, uint interval, IntPtr callback);
     [DllImport("user32.dll")] private static extern bool KillTimer(IntPtr hwnd, uint id);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int cursor);
@@ -282,4 +360,8 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hwnd, out PAINTSTRUCT paintStruct);
     [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hwnd, ref PAINTSTRUCT paintStruct);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr hdc, IntPtr objectHandle);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr objectHandle);
 }
