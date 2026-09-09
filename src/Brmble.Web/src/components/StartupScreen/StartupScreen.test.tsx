@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { StartupScreen } from './StartupScreen';
 
 describe('StartupScreen', () => {
-  it('renders an accessible loading state with the heartbeat logo', () => {
+  it('renders an accessible loading state with a static logo', () => {
     const { container } = render(<StartupScreen state="loading" />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Brmble is starting');
-    expect(container.querySelector('.brmble-logo-heartbeat')).toBeInTheDocument();
+    expect(container.querySelector('.brmble-logo-heartbeat')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

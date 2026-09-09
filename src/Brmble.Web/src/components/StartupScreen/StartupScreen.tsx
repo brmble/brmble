@@ -17,7 +17,7 @@ export function StartupScreen({ state }: StartupScreenProps) {
       aria-live={failed ? 'assertive' : 'polite'}
     >
       <div className="startup-screen__content">
-        <BrmbleLogo size={192} heartbeat={!failed} className="startup-screen__logo" />
+        <BrmbleLogo size={192} className="startup-screen__logo" />
         {failed ? (
           <div className="startup-screen__message">
             <h1 className="heading-title">Brmble couldn't start</h1>

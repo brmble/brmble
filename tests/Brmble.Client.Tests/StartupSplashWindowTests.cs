@@ -27,6 +27,12 @@ public sealed class StartupSplashWindowTests
     }
 
     [TestMethod]
+    public void LoadingSplashKeepsLogoAtFullAlpha()
+    {
+        Assert.AreEqual(1f, StartupSplashWindow.GetLogoAlpha());
+    }
+
+    [TestMethod]
     public void StartupSplashCanResolveItsModuleHandle()
     {
         var method = typeof(StartupSplashWindow).GetMethod(

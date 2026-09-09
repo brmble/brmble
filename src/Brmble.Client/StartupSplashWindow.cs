@@ -30,9 +30,6 @@ internal sealed class StartupSplashWindow : IDisposable
     private const uint WmEraseBkgnd = 0x0014;
     private const uint WmClose = 0x0010;
     private const uint WmDestroy = 0x0002;
-    private const uint WmTimer = 0x0113;
-    private const uint SpiGetClientAreaAnimation = 0x1042;
-    private const uint TimerId = 1;
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
     private const uint SwShow = 5;
@@ -49,25 +46,23 @@ internal sealed class StartupSplashWindow : IDisposable
     private Color _background;
     private Color _accent;
     private bool _error;
-    private bool _animationEnabled;
-    private int _pulse;
 
     internal bool IsVisible => _windowHandle != IntPtr.Zero;
 
     internal static uint GetExtendedWindowStyle() => WsExToolWindow | WsExTopmost | WsExNoActivate | WsExLayered;
+
+    internal static float GetLogoAlpha() => 1f;
 
     internal void Show(string theme)
     {
         Close();
         _active = this;
         _error = false;
-        _pulse = 0;
         var (r, g, b) = ThemeColors.GetBgDeep(theme);
         _background = Color.FromArgb(r, g, b);
         (r, g, b) = ThemeColors.GetAccent(theme);
         _accent = Color.FromArgb(r, g, b);
         _mark = LoadMark(theme);
-        _animationEnabled = GetClientAreaAnimationSetting();
 
         RegisterWindowClass();
         var workArea = GetPrimaryWorkArea();
@@ -86,15 +81,12 @@ internal sealed class StartupSplashWindow : IDisposable
         ShowWindow(_windowHandle, SwShow);
         RefreshSurface();
         UpdateWindow(_windowHandle);
-        if (_animationEnabled)
-            SetTimer(_windowHandle, TimerId, 90, IntPtr.Zero);
     }
 
     internal void Close()
     {
         if (_windowHandle != IntPtr.Zero)
         {
-            KillTimer(_windowHandle, TimerId);
             DestroyWindow(_windowHandle);
             _windowHandle = IntPtr.Zero;
         }
@@ -116,7 +108,6 @@ internal sealed class StartupSplashWindow : IDisposable
             return;
 
         _error = true;
-        KillTimer(_windowHandle, TimerId);
         RefreshSurface();
     }
 
@@ -169,7 +160,7 @@ internal sealed class StartupSplashWindow : IDisposable
         {
             var markBounds = new Rectangle((Width - LogoSize) / 2, LogoTop, LogoSize, LogoSize);
             using var attributes = new ImageAttributes();
-            var alpha = _error || !_animationEnabled ? 1f : 0.78f + (_pulse / 100f) * 0.22f;
+            var alpha = GetLogoAlpha();
             var matrix = new ColorMatrix { Matrix33 = alpha };
             attributes.SetColorMatrix(matrix);
             graphics.DrawImage(_mark, markBounds, 0, 0, _mark.Width, _mark.Height, GraphicsUnit.Pixel, attributes);
@@ -309,11 +300,6 @@ internal sealed class StartupSplashWindow : IDisposable
         return bitmapHandle;
     }
 
-    private static bool GetClientAreaAnimationSetting()
-    {
-        return SystemParametersInfo(SpiGetClientAreaAnimation, 0, out bool enabled, 0) && enabled;
-    }
-
     private static RECT GetPrimaryWorkArea()
     {
         if (SystemParametersInfo(0x0030, 0, out RECT workArea, 0))
@@ -336,16 +322,11 @@ internal sealed class StartupSplashWindow : IDisposable
                 return IntPtr.Zero;
             case WmEraseBkgnd:
                 return new IntPtr(1);
-            case WmTimer:
-                splash._pulse = (splash._pulse + 15) % 100;
-                splash.RefreshSurface();
-                return IntPtr.Zero;
             case WmClose:
                 splash.Dismissed?.Invoke();
                 splash.Close();
                 return IntPtr.Zero;
             case WmDestroy:
-                KillTimer(hwnd, TimerId);
                 return IntPtr.Zero;
             default:
                 return DefWindowProc(hwnd, message, wParam, lParam);
@@ -437,12 +418,9 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern bool UpdateWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr destinationDc, ref POINT destination, ref SIZE size, IntPtr sourceDc, ref POINT source, uint colorKey, ref BLENDFUNCTION blend, uint flags);
-    [DllImport("user32.dll")] private static extern IntPtr SetTimer(IntPtr hwnd, uint id, uint interval, IntPtr callback);
-    [DllImport("user32.dll")] private static extern bool KillTimer(IntPtr hwnd, uint id);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int cursor);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? moduleName);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
-    [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint parameter, out bool result, uint update);
     [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint parameter, out RECT result, uint update);
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hwnd, out PAINTSTRUCT paintStruct);
