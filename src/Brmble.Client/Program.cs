@@ -180,6 +180,7 @@ static class Program
             try
             {
                 _startupSplash = new StartupSplashWindow();
+                _startupSplash.Dismissed += CancelStartup;
                 _startupSplash.Show(startupTheme);
                 if (!_startupSplash.IsVisible)
                 {
@@ -366,6 +367,9 @@ static class Program
             WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
                 _controller.CoreWebView2, env, webRoot);
 
+            if (_startupCancelled)
+                return;
+
             _controller.CoreWebView2.Navigate(
                 StartupPageUri.Build(
                     useDevServer,
@@ -373,6 +377,8 @@ static class Program
                     StartupPageState.Loading));
 
             await ApplyStartupTestDelayAsync();
+            if (_startupCancelled)
+                return;
 
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
@@ -471,25 +477,43 @@ static class Program
                 if (mainUiNavigationId != e.NavigationId)
                     return;
 
+                if (_startupCancelled)
+                    return;
+
                 _controller!.CoreWebView2.NavigationCompleted -= onNavCompleted;
 
                 if (!e.IsSuccess)
                 {
                     if (_startupSplash is null)
                     {
-                        Win32Window.ShowStartupError(hwnd);
-                        Win32Window.DestroyWindow(hwnd);
+                        ShowNativeStartupError(hwnd);
                         return;
                     }
 
-                    _startupSplash?.ShowError(GetStartupLogPath());
-                    _controller.CoreWebView2.Navigate(
-                        StartupPageUri.Build(
-                            useDevServer,
-                            DevServerUrl,
-                            StartupPageState.Error));
+                    if (_startupCancelled)
+                        return;
+
+                    _startupSplash.ShowError(GetStartupLogPath());
+                    if (_startupCancelled)
+                        return;
+
+                    try
+                    {
+                        _controller.CoreWebView2.Navigate(
+                            StartupPageUri.Build(
+                                useDevServer,
+                                DevServerUrl,
+                                StartupPageState.Error));
+                    }
+                    catch
+                    {
+                        ShowNativeStartupError(hwnd);
+                    }
                     return;
                 }
+
+                if (_startupCancelled)
+                    return;
 
                 _mainUiReady = true;
                 Win32Window.ShowWindow(
@@ -508,6 +532,9 @@ static class Program
                 _updateService?.StartPeriodicChecks();
             };
             _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
+
+            if (_startupCancelled)
+                return;
 
             _controller.CoreWebView2.Navigate(mainUiUri);
         }
@@ -528,11 +555,17 @@ static class Program
                 // Logging is best-effort.
             }
 
-            if (_controller?.CoreWebView2 is { } webView)
+            if (_startupSplash is not null && _controller?.CoreWebView2 is { } webView)
             {
                 try
                 {
-                    _startupSplash?.ShowError(GetStartupLogPath());
+                    if (_startupCancelled)
+                        return;
+
+                    _startupSplash.ShowError(GetStartupLogPath());
+                    if (_startupCancelled)
+                        return;
+
                     webView.Navigate(
                         StartupPageUri.Build(
                             useDevServer,
@@ -546,11 +579,28 @@ static class Program
                 }
             }
 
-            _startupSplash?.Close();
-            _startupSplash = null;
-            Win32Window.ShowStartupError(hwnd);
-            Win32Window.DestroyWindow(hwnd);
+            ShowNativeStartupError(hwnd);
         }
+    }
+
+    private static void CancelStartup()
+    {
+        _startupCancelled = true;
+        _startupSplash?.Close();
+        _startupSplash = null;
+        if (_hwnd != IntPtr.Zero && !_mainUiReady)
+            Win32Window.DestroyWindow(_hwnd);
+    }
+
+    private static void ShowNativeStartupError(IntPtr hwnd)
+    {
+        if (_startupCancelled)
+            return;
+
+        _startupSplash?.Close();
+        _startupSplash = null;
+        Win32Window.ShowStartupError(hwnd, GetStartupLogPath());
+        Win32Window.DestroyWindow(hwnd);
     }
 
     private static string GetStartupLogPath() =>
@@ -794,10 +844,7 @@ static class Program
                 {
                     // Startup/loading/error pages have no close-dialog listener;
                     // always exit, even when the saved preference is minimize.
-                    _startupCancelled = true;
-                    _startupSplash?.Close();
-                    _startupSplash = null;
-                    Win32Window.DestroyWindow(hwnd);
+                    CancelStartup();
                 }
                 else if (_closeAction == "quit")
                 {
@@ -856,7 +903,10 @@ static class Program
                         Console.WriteLine("[Console] Debug console opened");
                         break;
                     case TrayIcon.IDM_QUIT:
-                        Win32Window.DestroyWindow(hwnd);
+                        if (!_mainUiReady)
+                            CancelStartup();
+                        else
+                            Win32Window.DestroyWindow(hwnd);
                         break;
                 }
                 return IntPtr.Zero;

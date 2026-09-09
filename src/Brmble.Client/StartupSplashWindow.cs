@@ -12,6 +12,7 @@ namespace Brmble.Client;
 /// </summary>
 internal sealed class StartupSplashWindow : IDisposable
 {
+    internal event Action? Dismissed;
     private const int Width = 360;
     private const int Height = 240;
     private const uint WsPopup = 0x80000000;
@@ -203,6 +204,7 @@ internal sealed class StartupSplashWindow : IDisposable
                 InvalidateRect(hwnd, IntPtr.Zero, false);
                 return IntPtr.Zero;
             case WmClose:
+                splash.Dismissed?.Invoke();
                 splash.Close();
                 return IntPtr.Zero;
             case WmDestroy:

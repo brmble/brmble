@@ -107,9 +107,9 @@ internal static class Win32Window
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr MessageBox(IntPtr hWnd, string lpText, string lpCaption, uint uType);
 
-    public static void ShowStartupError(IntPtr hwnd)
+    public static void ShowStartupError(IntPtr hwnd, string? logPath = null)
     {
-        var logPath = Path.Combine(Path.GetTempPath(), "brmble-tls.log");
+        logPath ??= Path.Combine(Path.GetTempPath(), "brmble-tls.log");
         var message = $"Brmble couldn't finish starting. Please close Brmble and try again. For more information, see the log at {logPath}.";
         MessageBox(hwnd, message, "Brmble couldn't start", MB_OK | MB_ICONERROR);
     }
