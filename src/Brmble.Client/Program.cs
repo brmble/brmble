@@ -271,6 +271,11 @@ static class Program
                 }
             };
 
+            var mainUiUri = useDevServer
+                ? DevServerUrl
+                : $"https://{WebViewCacheConfig.VirtualHost}/index.html";
+            ulong? mainUiNavigationId = null;
+
             // Open target="_blank" links in the system default browser
             // instead of spawning a WebView2 popup window.
             _controller.CoreWebView2.NewWindowRequested += (_, args) =>
@@ -294,6 +299,11 @@ static class Program
             _controller.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 var uri = args.Uri;
+
+                if (string.Equals(uri, mainUiUri, StringComparison.OrdinalIgnoreCase))
+                {
+                    mainUiNavigationId = args.NavigationId;
+                }
 
                 // No URI provided; treat as internal navigation
                 if (string.IsNullOrEmpty(uri))
@@ -431,6 +441,9 @@ static class Program
             EventHandler<CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
             onNavCompleted = (s, e) =>
             {
+                if (mainUiNavigationId != e.NavigationId)
+                    return;
+
                 _controller!.CoreWebView2.NavigationCompleted -= onNavCompleted;
 
                 if (!e.IsSuccess)
@@ -456,11 +469,7 @@ static class Program
             };
             _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
 
-            if (useDevServer)
-                _controller.CoreWebView2.Navigate(DevServerUrl);
-            else
-                _controller.CoreWebView2.Navigate(
-                    $"https://{WebViewCacheConfig.VirtualHost}/index.html");
+            _controller.CoreWebView2.Navigate(mainUiUri);
         }
         catch (Exception ex)
         {
@@ -723,7 +732,13 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
-                if (_closeAction == "quit")
+                if (!_mainUiReady)
+                {
+                    // Startup/loading/error pages have no close-dialog listener;
+                    // always exit, even when the saved preference is minimize.
+                    Win32Window.DestroyWindow(hwnd);
+                }
+                else if (_closeAction == "quit")
                 {
                     Win32Window.DestroyWindow(hwnd);
                 }
@@ -731,16 +746,11 @@ static class Program
                 {
                     Win32Window.ShowWindow(hwnd, Win32Window.SW_HIDE);
                 }
-                else if (_bridge != null && _mainUiReady)
+                else if (_bridge != null)
                 {
-                    // Ask via the React modal only after the main UI has mounted.
+                    // Ask via the React modal after the main UI has mounted.
                     _bridge.Send("window.showCloseDialog");
                     _bridge.Flush();
-                }
-                else
-                {
-                    // Startup/loading/error pages have no close-dialog listener.
-                    Win32Window.DestroyWindow(hwnd);
                 }
                 return IntPtr.Zero;
 
