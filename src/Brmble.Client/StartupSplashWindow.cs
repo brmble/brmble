@@ -19,6 +19,7 @@ internal sealed class StartupSplashWindow : IDisposable
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExTopmost = 0x00000008;
     private const uint WsExNoActivate = 0x08000000;
+    private const uint WsExLayered = 0x00080000;
     private const uint ClassHRedraw = 0x0002;
     private const uint ClassVRedraw = 0x0001;
     private const uint WmPaint = 0x000F;
@@ -45,7 +46,7 @@ internal sealed class StartupSplashWindow : IDisposable
 
     internal bool IsVisible => _windowHandle != IntPtr.Zero;
 
-    internal static uint GetExtendedWindowStyle() => WsExToolWindow | WsExTopmost | WsExNoActivate;
+    internal static uint GetExtendedWindowStyle() => WsExToolWindow | WsExTopmost | WsExNoActivate | WsExLayered;
 
     internal void Show(string theme)
     {

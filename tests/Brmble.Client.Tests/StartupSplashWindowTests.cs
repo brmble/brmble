@@ -16,6 +16,17 @@ public sealed class StartupSplashWindowTests
     }
 
     [TestMethod]
+    public void LoadingSplashUsesPerPixelLayering()
+    {
+        var extendedStyle = StartupSplashWindow.GetExtendedWindowStyle();
+
+        Assert.AreNotEqual(
+            0u,
+            extendedStyle & 0x00080000u,
+            "The splash must use a layered window for per-pixel transparency.");
+    }
+
+    [TestMethod]
     public void StartupSplashCanResolveItsModuleHandle()
     {
         var method = typeof(StartupSplashWindow).GetMethod(
