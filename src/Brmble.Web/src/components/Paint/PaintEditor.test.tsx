@@ -5,13 +5,14 @@ import { PaintEditor, PAINT_PREVIEW_THROTTLE_MS } from './PaintEditor';
 import type { PaintSessionSnapshot } from '../../types/paint';
 
 const activeSnapshot: PaintSessionSnapshot = {
-  sessionId: 'session-1', channelId: 5, hostUserId: 1, matrixRoomId: '!paint:server', sourceEventId: '$source', status: 'active', expiresAt: '',
-  source: { matrixRoomId: '!paint:server', sourceEventId: '$source', mxcUrl: 'mxc://server/source', mimeType: 'image/png', width: 100, height: 100, sizeBytes: 1 },
+  sessionId: 'session-1', channelId: 5, hostUserId: 1, status: 'active', expiresAt: '',
+  source: { mimeType: 'image/png', width: 100, height: 100, sizeBytes: 1 },
   participants: [], strokes: [], generation: 0, revision: 0,
 };
 
 function fakePaintApi() {
   return {
+    getSource: vi.fn().mockResolvedValue(new Blob(['image'], { type: 'image/png' })),
     commitStroke: vi.fn(),
     sendPreview: vi.fn(),
     undo: vi.fn(),
@@ -21,8 +22,6 @@ function fakePaintApi() {
 }
 
 async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
-  const matrixClient = { getAccessToken: () => 'token', mxcUrlToHttp: () => 'https://matrix/source' };
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob() }));
   vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:source'), revokeObjectURL: vi.fn() });
   Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { configurable: true, get: () => 100 });
   Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 100 });
@@ -33,13 +32,14 @@ async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
   } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(new Blob(['png'], { type: 'image/png' })));
 
-  render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} matrixClient={matrixClient} onSave={onSave} />);
+  render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} onSave={onSave} />);
   await waitFor(() => expect(drawImage).toHaveBeenCalled());
 }
 
 describe('PaintEditor', () => {
   beforeEach(() => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
   });
 
   afterEach(() => {
@@ -49,7 +49,7 @@ describe('PaintEditor', () => {
   });
 
   it('reuses one correlation ID for every preview and commit in a pointer gesture', () => {
-    const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
+    const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
 
     const canvas = screen.getByTestId('paint-annotation-canvas');
@@ -69,7 +69,7 @@ describe('PaintEditor', () => {
   });
 
   it('ignores overlapping pointers so the active gesture keeps its correlation ID', () => {
-    const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
+    const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
 
     const canvas = screen.getByTestId('paint-annotation-canvas');
@@ -91,7 +91,7 @@ describe('PaintEditor', () => {
   });
 
   it('cleans up a cancelled gesture so a later gesture can commit', () => {
-    const paintApi = { commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() };
+    const paintApi = fakePaintApi();
     render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
 
     const canvas = screen.getByTestId('paint-annotation-canvas');
@@ -336,7 +336,7 @@ describe('PaintEditor', () => {
   });
 
   it('hides host-only actions from participants', () => {
-    render(<PaintEditor sessionId="session-1" paintApi={{ commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() }} snapshot={activeSnapshot} currentUserId={2} />);
+    render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={2} />);
 
     expect(screen.queryByRole('button', { name: /clear/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /save to chat/i })).toBeNull();
@@ -353,10 +353,8 @@ describe('PaintEditor', () => {
   });
 
   it('redraws committed strokes and previews after the source image loads', async () => {
-    const matrixClient = { getAccessToken: () => 'token', mxcUrlToHttp: () => 'https://matrix/source' };
     const strokes = [{ ...activeSnapshot.strokes[0], id: 'stroke-1', authorUserId: 1, authorMatrixUserId: '@one:server', sequence: 1, active: true, correlationId: 'one', generation: 0, tool: 'pen' as const, width: 2, points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }];
     const preview = { correlationId: 'two', generation: 0, tool: 'pen' as const, width: 2, points: [{ x: 0, y: 1 }, { x: 1, y: 0 }], sessionId: 'session-1', authorUserId: 2, authorMatrixUserId: '@two:server' };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob() }));
     vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:source'), revokeObjectURL: vi.fn() });
     Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { configurable: true, get: () => 100 });
     Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 100 });
@@ -364,10 +362,35 @@ describe('PaintEditor', () => {
     const draw = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ clearRect: vi.fn(), drawImage: draw, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn() } as unknown as CanvasRenderingContext2D);
 
-    render(<PaintEditor sessionId="session-1" paintApi={{ commitStroke: vi.fn(), sendPreview: vi.fn(), undo: vi.fn(), clear: vi.fn(), end: vi.fn() }} snapshot={{ ...activeSnapshot, strokes }} previews={[preview]} currentUserId={1} matrixClient={matrixClient} />);
+    render(<PaintEditor sessionId="session-1" paintApi={{ ...fakePaintApi(), getSource: vi.fn().mockResolvedValue(new Blob(['image'], { type: 'image/png' })) }} snapshot={{ ...activeSnapshot, strokes }} previews={[preview]} currentUserId={1} />);
 
     await waitFor(() => expect(draw).toHaveBeenCalled());
     expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalled();
+  });
+
+  it('does not refetch an unchanged source when snapshot metadata is reallocated', async () => {
+    const paintApi = fakePaintApi();
+    const { rerender } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    await waitFor(() => expect(paintApi.getSource).toHaveBeenCalledTimes(1));
+
+    rerender(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={{ ...activeSnapshot, source: { ...activeSnapshot.source! } }} currentUserId={1} />);
+
+    expect(paintApi.getSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a source load that resolves after the editor unmounts', async () => {
+    let resolveSource!: (source: Blob) => void;
+    const paintApi = { ...fakePaintApi(), getSource: vi.fn(() => new Promise<Blob>(resolve => { resolveSource = resolve; })) };
+    const initialize = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ clearRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    const { unmount } = render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    await waitFor(() => expect(paintApi.getSource).toHaveBeenCalledOnce());
+
+    initialize.mockClear();
+    unmount();
+    resolveSource(new Blob(['image'], { type: 'image/png' }));
+    await Promise.resolve();
+
+    expect(initialize).not.toHaveBeenCalled();
   });
 
   it('keeps save disabled while a save operation is in progress', async () => {

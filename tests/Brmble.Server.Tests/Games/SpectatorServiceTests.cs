@@ -1,0 +1,403 @@
+using Brmble.Server.Games;
+using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace Brmble.Server.Tests.Games;
+
+internal sealed class SpectatorPublisher : IGameEventPublisher
+{
+    public List<(IReadOnlySet<long> Users, object Message)> ToUsers { get; } = [];
+    public List<(int ChannelId, object Message)> ToChannel { get; } = [];
+
+    public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
+    {
+        ToUsers.Add((userIds, message));
+        return Task.CompletedTask;
+    }
+
+    public Task PublishToChannelAsync(int channelId, object message)
+    {
+        ToChannel.Add((channelId, message));
+        return Task.CompletedTask;
+    }
+
+    public IEnumerable<(IReadOnlySet<long> Users, T Message)> OfType<T>() =>
+        ToUsers.Where(x => x.Message is T).Select(x => (x.Users, (T)x.Message));
+}
+
+internal sealed class SpectatorPresence : IGamePresence
+{
+    public Dictionary<long, int> Channels { get; } = [];
+    public Dictionary<long, long> Users { get; } = [];
+
+    public bool TryGetChannel(long sessionId, out int channelId, out bool isBrmble, out long userId)
+    {
+        isBrmble = true;
+        userId = Users.TryGetValue(sessionId, out var u) ? u : 0;
+        return Channels.TryGetValue(sessionId, out channelId);
+    }
+
+    public string? GetDisplayName(long sessionId) => null;
+
+    public Task<bool> AreChallengesBlockedAsync(long sessionId) => Task.FromResult(false);
+}
+
+[TestClass]
+public class SpectatorServiceTests
+{
+    private SpectatorPublisher _publisher = null!;
+    private SpectatorPresence _presence = null!;
+    private SpectatorService _service = null!;
+
+    [TestInitialize]
+    public void Setup()
+    {
+        _publisher = new SpectatorPublisher();
+        _presence = new SpectatorPresence();
+        // Watchers.
+        Place(session: 30, user: 300, channel: 7);
+        Place(session: 40, user: 400, channel: 7);
+        // Players.
+        Place(session: 10, user: 100, channel: 7);
+        Place(session: 20, user: 200, channel: 7);
+        // Someone in another channel.
+        Place(session: 50, user: 500, channel: 8);
+        _service = new SpectatorService(_publisher, _presence, NullLogger<SpectatorService>.Instance);
+    }
+
+    private void Place(long session, long user, int channel)
+    {
+        _presence.Channels[session] = channel;
+        _presence.Users[session] = user;
+    }
+
+    private static SpectatorSourceFrame Frame(long matchId, long sequence, int channelId = 7) => new(
+        MatchId: matchId,
+        ChannelId: channelId,
+        Configuration: new DuelConfiguration("deathroll", "1v1", 1, new Dictionary<string, object?>(), "discrete"),
+        Players: [new DuelPlayerSnapshot(100, 10, "Qy"), new DuelPlayerSnapshot(200, 20, "Broan")],
+        ParticipantUserIds: new HashSet<long> { 100, 200 },
+        Sequence: sequence,
+        GeneratedAt: DateTimeOffset.UnixEpoch.AddSeconds(sequence),
+        View: new DeathrollSpectatorView("deathroll", [10, 20], 10, 100, 50, false, null, null));
+
+    private IReadOnlyList<(IReadOnlySet<long> Users, SpectatorSnapshotEvent Message)> Snapshots() =>
+        _publisher.OfType<SpectatorSnapshotEvent>().ToList();
+
+    [TestMethod]
+    public async Task Subscribe_ToIdleChannel_SucceedsWithNullMatch()
+    {
+        var result = await _service.SubscribeAsync(30, 300, 7);
+        Assert.IsTrue(result.Success);
+        Assert.IsNull(result.Match);
+        Assert.AreEqual(SpectatorSubscribeReason.None, result.Reason);
+    }
+
+    [TestMethod]
+    public async Task Subscribe_ToLiveChannel_ReturnsTheCurrentFrame()
+    {
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        var result = await _service.SubscribeAsync(30, 300, 7);
+        Assert.IsTrue(result.Success);
+        Assert.IsNotNull(result.Match);
+        Assert.AreEqual(91, result.Match!.MatchId);
+        Assert.AreEqual(1, result.Match.Sequence);
+    }
+
+    [TestMethod]
+    public async Task Subscribe_ToAnotherChannel_RejectsWithNotSameChannel()
+    {
+        var result = await _service.SubscribeAsync(30, 300, 8);
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(SpectatorSubscribeReason.NotSameChannel, result.Reason);
+    }
+
+    [TestMethod]
+    public async Task Subscribe_WithNoLiveSession_RejectsWithNotPresent()
+    {
+        var result = await _service.SubscribeAsync(999, 999, 7);
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(SpectatorSubscribeReason.NotPresent, result.Reason);
+    }
+
+    [TestMethod]
+    public async Task Participant_NeverReceivesAFrameForTheirOwnMatch()
+    {
+        // A watcher who then accepts a challenge: still subscribed, now a participant.
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(10, 100, 7);
+
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        var (users, _) = Snapshots().Single();
+        CollectionAssert.AreEquivalent(new[] { 300L }, users.ToArray());
+        Assert.IsFalse(users.Contains(100L), "A participant of match 91 must never receive a frame for match 91.");
+    }
+
+    [TestMethod]
+    public async Task Frames_AtOrBelowTheHighWaterMark_AreDropped()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 2));
+        await _service.PublishDiscreteFrameAsync(Frame(91, 2));
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.PublishDiscreteFrameAsync(Frame(91, 3));
+
+        CollectionAssert.AreEqual(new long[] { 2, 3 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+    }
+
+    [TestMethod]
+    public async Task ANewMatch_ResetsTheSequenceHighWaterMark()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 9));
+        await _service.EndMatchAsync(91, 7, 9, MatchEndReason.Completed, new { winnerId = 100L });
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1));
+
+        CollectionAssert.AreEqual(new long[] { 9, 1 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+    }
+
+    [TestMethod]
+    public async Task MatchEnding_DoesNotRemoveTheSubscription()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+
+        var ended = _publisher.OfType<SpectatorMatchEndedEvent>().Single();
+        CollectionAssert.AreEquivalent(new[] { 300L }, ended.Users.ToArray());
+        Assert.AreEqual("completed", ended.Message.Reason);
+        Assert.AreEqual(0, _publisher.OfType<SpectatorClosedEvent>().Count(), "Ending a match must not close a subscription.");
+
+        // The next match flows with no resubscribe.
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1));
+        Assert.AreEqual(2, Snapshots().Count);
+    }
+
+    [TestMethod]
+    public async Task EndMatch_IsIdempotentPerMatch()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task Subscribe_AfterAMatchEnded_ReturnsNullMatch()
+    {
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+
+        var result = await _service.SubscribeAsync(30, 300, 7);
+        Assert.IsTrue(result.Success);
+        Assert.IsNull(result.Match, "An ended match is not live; a fresh subscriber sees idle.");
+    }
+
+    [TestMethod]
+    public async Task Unsubscribe_StopsDeliveryAndPublishesUnsubscribed()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.UnsubscribeAsync(30, 300);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(0, Snapshots().Count);
+        var closed = _publisher.OfType<SpectatorClosedEvent>().Single();
+        Assert.AreEqual("unsubscribed", closed.Message.Reason);
+        Assert.AreEqual(7, closed.Message.ChannelId);
+    }
+
+    [TestMethod]
+    public async Task EndMatch_WithNoPriorFrame_AdoptsTheMatchAndPublishes()
+    {
+        // The forfeit shape: a match can end without ever having produced a frame.
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.EndMatchAsync(91, 7, 4, MatchEndReason.Forfeited, new { winnerId = 100L });
+
+        var ended = _publisher.OfType<SpectatorMatchEndedEvent>().Single();
+        CollectionAssert.AreEquivalent(new[] { 300L }, ended.Users.ToArray());
+        Assert.AreEqual(91, ended.Message.MatchId);
+        Assert.AreEqual(7, ended.Message.ChannelId);
+        Assert.AreEqual(4, ended.Message.FinalSequence, "finalSequence must be carried onto the wire.");
+        Assert.AreEqual("forfeited", ended.Message.Reason);
+
+        // The match was adopted and marked ended, so a repeat end is suppressed.
+        await _service.EndMatchAsync(91, 7, 4, MatchEndReason.Forfeited, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task EndMatch_ForADifferentLiveMatch_IsIgnored()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        await _service.EndMatchAsync(90, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+
+        Assert.AreEqual(0, _publisher.OfType<SpectatorMatchEndedEvent>().Count(),
+            "An end for a match other than the live one must not be published.");
+
+        // Match 91 is untouched: still live, high-water mark still 1, so 2 flows and 1 drops.
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.PublishDiscreteFrameAsync(Frame(91, 2));
+        CollectionAssert.AreEqual(new long[] { 1, 2 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+
+        // And 91 can still be ended normally.
+        await _service.EndMatchAsync(91, 7, 2, MatchEndReason.Completed, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task EndMatch_ForAnOlderMatchAfterTheCurrentOneEnded_ClobbersStateWithoutPublishing()
+    {
+        // CHARACTERISATION ONLY. This documents current behaviour; it does not claim the
+        // behaviour is desirable. The adoption guard's `Ended is false` conjunct lets a
+        // late end for an older match overwrite MatchId/LastSequence, then the `Ended`
+        // check suppresses the publish. It is self-healing (the next frame for a genuinely
+        // new match resets anyway) and Task 5 structurally cannot reorder two matches'
+        // ends, so the logic is deliberately left as-is.
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.EndMatchAsync(91, 7, 1, MatchEndReason.Completed, new { winnerId = 100L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count());
+
+        // A late end for the older match 90 arrives after 91 already ended.
+        await _service.EndMatchAsync(90, 7, 7, MatchEndReason.Completed, new { winnerId = 200L });
+        Assert.AreEqual(1, _publisher.OfType<SpectatorMatchEndedEvent>().Count(),
+            "The stale end is silently absorbed: state is clobbered but nothing is published.");
+
+        // Self-healing: the next real match resets the mark and flows normally.
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1));
+        CollectionAssert.AreEqual(new long[] { 1, 1 }, Snapshots().Select(s => s.Message.Sequence).ToArray());
+    }
+
+    [TestMethod]
+    public async Task Subscribing_Twice_DoesNotDuplicateDelivery()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(1, Snapshots().Count);
+    }
+
+    [TestMethod]
+    public async Task ChannelChange_DropsTheSubscriptionAndReportsAuthorizationLost()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandleChannelChangedAsync(30, 8);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(0, Snapshots().Count);
+        var closed = _publisher.OfType<SpectatorClosedEvent>().Single();
+        Assert.AreEqual("authorizationLost", closed.Message.Reason);
+        Assert.AreEqual(7, closed.Message.ChannelId, "The close names the channel that was left.");
+        CollectionAssert.AreEquivalent(new[] { 300L }, closed.Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task ChannelChange_BackToTheSameChannel_KeepsTheSubscription()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandleChannelChangedAsync(30, 7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(1, Snapshots().Count);
+        Assert.AreEqual(0, _publisher.OfType<SpectatorClosedEvent>().Count());
+    }
+
+    [TestMethod]
+    public async Task PresenceLost_DropsTheSubscriptionAndReportsDisconnected()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        Assert.AreEqual(0, Snapshots().Count);
+        Assert.AreEqual("disconnected", _publisher.OfType<SpectatorClosedEvent>().Single().Message.Reason);
+    }
+
+    [TestMethod]
+    public async Task ChannelRemoved_DropsEverySubscriberInThatChannelOnly()
+    {
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(40, 400, 7);
+        await _service.SubscribeAsync(50, 500, 8);
+
+        await _service.HandleChannelRemovedAsync(7);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+        await _service.PublishDiscreteFrameAsync(Frame(92, 1, channelId: 8));
+
+        Assert.AreEqual(1, Snapshots().Count, "Only the channel-8 subscriber still receives frames.");
+        CollectionAssert.AreEquivalent(new[] { 500L }, Snapshots().Single().Users.ToArray());
+
+        // The brief's draft asserted two closed events, which contradicted its own
+        // implementation and the "one close event naming that channel" rule. Channel
+        // removal is a single fan-out to every dropped subscriber, not one send each.
+        var closed = _publisher.OfType<SpectatorClosedEvent>().Single();
+        Assert.AreEqual("channelRemoved", closed.Message.Reason);
+        Assert.AreEqual(7, closed.Message.ChannelId);
+        CollectionAssert.AreEquivalent(new[] { 300L, 400L }, closed.Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task TransportDisconnected_DropsEverySessionOfThatUser()
+    {
+        Place(session: 31, user: 300, channel: 7); // same user, second Mumble session
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(31, 300, 7);
+        await _service.SubscribeAsync(40, 400, 7);
+
+        await _service.HandleTransportDisconnectedAsync(300);
+        await _service.PublishDiscreteFrameAsync(Frame(91, 1));
+
+        CollectionAssert.AreEquivalent(new[] { 400L }, Snapshots().Single().Users.ToArray());
+    }
+
+    [TestMethod]
+    public async Task TransportDisconnected_EmitsOneClosedEventPerSessionEvenWhenIdentical()
+    {
+        // Pins a deliberate asymmetry with HandleChannelRemovedAsync, which batches ONE
+        // closed event for all subscribers of a channel. The disconnect path is per-session
+        // because it reuses CloseSessionAsync, and a session is the only thing that knows
+        // WHICH channel it was watching — one user's two sessions can sit in two channels,
+        // so the events are usually distinct and genuinely both needed.
+        //
+        // When both sessions watch the SAME channel the two events are byte-identical,
+        // because SpectatorClosedEvent carries no session identity. That duplicate is
+        // accepted, not overlooked: closing an already-closed spectator view is idempotent
+        // on the client, and de-duplicating would mean grouping by channel inside the
+        // disconnect path alone, diverging it from every other teardown path for no
+        // correctness gain. If a future change wants a single batched publish here, this
+        // test is the thing it has to argue with.
+        Place(session: 31, user: 300, channel: 7);
+        await _service.SubscribeAsync(30, 300, 7);
+        await _service.SubscribeAsync(31, 300, 7);
+
+        await _service.HandleTransportDisconnectedAsync(300);
+
+        var closed = _publisher.OfType<SpectatorClosedEvent>().ToList();
+        Assert.AreEqual(2, closed.Count, "one close per session, not one per user");
+        foreach (var (users, message) in closed)
+        {
+            CollectionAssert.AreEquivalent(new[] { 300L }, users.ToArray());
+            Assert.AreEqual(7, message.ChannelId);
+            Assert.AreEqual("disconnected", message.Reason);
+        }
+    }
+
+    [TestMethod]
+    public async Task Teardown_OfAnUnsubscribedSession_IsSilent()
+    {
+        await _service.HandleChannelChangedAsync(30, 8);
+        await _service.HandlePresenceLostAsync(30, SpectatorCloseReason.Disconnected);
+        await _service.HandleTransportDisconnectedAsync(300);
+        await _service.HandleChannelRemovedAsync(7);
+
+        Assert.AreEqual(0, _publisher.ToUsers.Count);
+    }
+}

@@ -4,7 +4,7 @@ import { parseMessageMedia, parsePaintInvitation } from './parseMessageMedia';
 describe('parseMessageMedia', () => {
   it('parses a serialized paint invitation from the chat message body', () => {
     expect(parsePaintInvitation('[brmble-paint]{"sessionId":"session-1","hostUserId":7,"participantUserIds":[8],"channelId":5,"status":"active"}'))
-      .toEqual({ sessionId: 'session-1', hostUserId: 7, participantUserIds: [8], channelId: 5, status: 'active', sourceEventId: undefined, sourcePreview: undefined });
+      .toEqual({ sessionId: 'session-1', channelId: 5, status: 'active' });
   });
 
   it('parses version 2 paint invitations without identity or source fields', () => {

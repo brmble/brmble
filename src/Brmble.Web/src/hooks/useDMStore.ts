@@ -49,7 +49,7 @@ export interface DMStore {
   selectedContact: DMContact | null;
   messages: ChatMessage[];
   selectContact: (id: string) => void;
-  sendMessage: (content: string) => void;
+  sendMessage: (content: string, explicitContactId?: string) => void;
   startDM: (matrixUserId: string, displayName: string, avatarUrl?: string) => void;
   clearSelection: () => void;
   closeDM: (id: string) => void;
@@ -338,11 +338,19 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     setSelectedContactId(null);
   }, []);
 
-  const sendMessage = useCallback((content: string) => {
-    if (!selectedContactId) return;
+  /**
+   * Send a DM. `explicitContactId` lets the caller name the recipient instead of relying
+   * on the ambient selection: the conversation the user is reading is owned by the tab
+   * strip, and a send must never be able to land on whichever contact happened to be
+   * selected last. The ambient selection remains the fallback for callers that have no
+   * tab context.
+   */
+  const sendMessage = useCallback((content: string, explicitContactId?: string) => {
+    const targetContactId = explicitContactId ?? selectedContactId;
+    if (!targetContactId) return;
 
-    const derivedContact = contacts.find(c => c.id === selectedContactId && c.isEphemeral);
-    const storedContact = mumbleContacts.get(selectedContactId);
+    const derivedContact = contacts.find(c => c.id === targetContactId && c.isEphemeral);
+    const storedContact = mumbleContacts.get(targetContactId);
     const contact = derivedContact ?? storedContact;
     if (contact?.isEphemeral) {
       // Mumble DM path
@@ -371,19 +379,19 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       });
       const msg: ChatMessage = {
         id: `mumble-${Date.now()}-${Math.random()}`,
-        channelId: selectedContactId,
+        channelId: targetContactId,
         sender: username,
         content,
         timestamp: new Date(),
       };
       setMumbleMessages(prev => {
         const next = new Map(prev);
-        const existing = next.get(selectedContactId!) ?? [];
+        const existing = next.get(targetContactId) ?? [];
         let updated = [...existing, msg];
         if (updated.length > MUMBLE_MESSAGES_MAX_PER_CONTACT) {
           updated = updated.slice(updated.length - MUMBLE_MESSAGES_MAX_PER_CONTACT);
         }
-        next.set(selectedContactId!, updated);
+        next.set(targetContactId, updated);
         return next;
       });
       sendMumbleDM?.(contact.mumbleSessionId, content);
@@ -393,7 +401,7 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     // Insert optimistic local echo
     const optimisticMsg: ChatMessage = {
       id: `pending-${Date.now()}-${Math.random()}`,
-      channelId: selectedContactId,
+      channelId: targetContactId,
       sender: username,
       content,
       timestamp: new Date(),
@@ -401,19 +409,18 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     };
     setPendingMessages(prev => {
       const next = new Map(prev);
-      const existing = next.get(selectedContactId!) ?? [];
-      next.set(selectedContactId!, [...existing, optimisticMsg]);
+      const existing = next.get(targetContactId) ?? [];
+      next.set(targetContactId, [...existing, optimisticMsg]);
       return next;
     });
 
     if (sendMatrixDM) {
-      const contactId = selectedContactId;
-      sendMatrixDM(contactId, content)
+      sendMatrixDM(targetContactId, content)
         .then(() => {
           setPendingMessages(prev => {
             const next = new Map(prev);
-            const existing = next.get(contactId!) ?? [];
-            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            const existing = next.get(targetContactId) ?? [];
+            next.set(targetContactId, existing.filter(m => m.id !== optimisticMsg.id));
             return next;
           });
         })
@@ -421,8 +428,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
           console.error('Matrix DM send failed:', err);
           setPendingMessages(prev => {
             const next = new Map(prev);
-            const existing = next.get(contactId!) ?? [];
-            next.set(contactId!, existing.filter(m => m.id !== optimisticMsg.id));
+            const existing = next.get(targetContactId) ?? [];
+            next.set(targetContactId, existing.filter(m => m.id !== optimisticMsg.id));
             return next;
           });
         });

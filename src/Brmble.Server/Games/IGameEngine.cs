@@ -58,6 +58,15 @@ public interface IGameEngine : IDuelGameDefinition
     // Per-player public view (hide opponent secrets). For Deathroll everything is public.
     object PublicView(object state, long forUserId);
 
+    /// <summary>
+    /// What a non-participant may see. Deliberately has NO default implementation:
+    /// a new engine must not compile until its author has decided what a spectator
+    /// is allowed to know. Never infer this from <see cref="PublicView"/> — that
+    /// view is filtered FOR a participant, and collapsing its per-player fields for
+    /// a non-participant produces wrong answers, not merely redacted ones.
+    /// </summary>
+    object SpectatorView(object state);
+
     // Game-specific match-level summary for persistence (metadata_json.summary).
     // Returns null when the game has no summary. Default: none.
     object? MatchSummary(object state) => null;

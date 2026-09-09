@@ -28,6 +28,8 @@ interface SidebarProps {
   channels: Channel[];
   users: User[];
   currentChannelId?: number;
+  /** The channel the local user's voice is in — drives the presence marker and duel gate. */
+  joinedChannelId?: number;
   onJoinChannel: (channelId: number) => void;
   onSelectChannel: (channelId: number) => void;
   onSelectServer?: () => void;
@@ -46,6 +48,9 @@ interface SidebarProps {
   /** Sessions with a live duel commitment; challenging them is refused by the server. */
   committedDuelSessions?: ReadonlySet<number>;
   onOpenDuelQueue?: (channelId: number) => void;
+  /** Channel currently being spectated, if any. Lights the matching row's watch toggle. */
+  spectatingChannelId?: number | null;
+  onToggleSpectate?: (channelId: number) => void;
   speakingUsers?: Map<number, boolean>;
   voiceIdle?: Record<number, number>;
   pendingChannelAction?: number | 'leave' | null;
@@ -70,6 +75,7 @@ export function Sidebar({
   channels,
   users,
   currentChannelId,
+  joinedChannelId,
   onJoinChannel,
   onSelectChannel,
   onSelectServer,
@@ -87,6 +93,8 @@ export function Sidebar({
   personalDuelChannelIds,
   committedDuelSessions,
   onOpenDuelQueue,
+  spectatingChannelId,
+  onToggleSpectate,
   speakingUsers,
   voiceIdle,
   pendingChannelAction,
@@ -450,6 +458,7 @@ export function Sidebar({
           channels={nonRootChannels}
           users={nonRootUsers}
           currentChannelId={currentChannelId}
+          joinedChannelId={joinedChannelId}
           onJoinChannel={onJoinChannel}
           onSelectChannel={onSelectChannel}
           onStartDM={onStartDM}
@@ -459,6 +468,8 @@ export function Sidebar({
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={onOpenDuelQueue}
+          spectatingChannelId={spectatingChannelId}
+          onToggleSpectate={onToggleSpectate}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           pendingChannelAction={pendingChannelAction}

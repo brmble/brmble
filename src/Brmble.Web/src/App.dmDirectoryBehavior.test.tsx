@@ -1,10 +1,16 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App from './App';
+import {
+  appHarnessMocks,
+  overrideComponent,
+  renderConnectedApp as renderApp,
+  renderDisconnectedApp,
+  resetAppHarness,
+  type HarnessProps,
+} from './testing/appHarness';
 import bridge from './bridge';
-import { ServiceStatusProvider } from './hooks/useServiceStatus';
-import type { ChatMessage, MediaAttachment } from './types';
+import type { MediaAttachment } from './types';
 
 const paintSourceMocks = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -20,203 +26,76 @@ vi.mock('./utils/chatImagePaintSource', async (importOriginal) => {
   };
 });
 
-const mockValues = vi.hoisted(() => {
-  let dmChatPanelProps: Record<string, unknown> | undefined;
-  let channelChatPanelProps: Record<string, unknown> | undefined;
-  let dmContactListProps: Record<string, unknown> | undefined;
-  let headerProps: Record<string, unknown> | undefined;
-  let dmStoreOptions: Record<string, unknown> | undefined;
-  const matrixClient = {
-    lastMessages: new Map(),
-    activeMessages: [],
-    setActiveChannel: vi.fn(),
-    sendMessage: vi.fn(),
-    sendImageMessage: vi.fn(),
-    uploadContent: vi.fn(),
-    fetchHistory: vi.fn().mockResolvedValue(undefined),
-    sendReaction: vi.fn(),
-    removeReaction: vi.fn(),
-    dmLastMessages: new Map(),
-    activeDmMessages: [],
-    setActiveDmContact: vi.fn(),
-    dmRoomMap: new Map<string, string>(),
-    dmUserDisplayNames: new Map(),
-    dmUserAvatarUrls: new Map(),
-    sendDMMessage: vi.fn(),
-    fetchDMHistory: vi.fn(),
-    fetchAvatarUrl: vi.fn().mockResolvedValue(undefined),
-    client: { marker: 'matrix-client', getRoom: vi.fn((): unknown => undefined) },
-    activeTypingText: 'Val is typing',
-    startTyping: vi.fn(),
-    stopTyping: vi.fn(),
-    deleteMessage: vi.fn().mockResolvedValue(undefined),
-  };
-  const dmStore = {
-    contacts: [],
-    selectedContact: null as { id: string; displayName: string; unreadCount: number; isEphemeral?: boolean; mumbleSessionId?: number | null } | null,
-    messages: [] as ChatMessage[],
-    selectContact: vi.fn(),
-    sendMessage: vi.fn(),
-    startDM: vi.fn(),
-    clearSelection: vi.fn(),
-    closeDM: vi.fn(),
-    selectedContactIdRef: { current: null as string | null },
-    receiveMumbleDM: vi.fn(),
-    updateMumbleSession: vi.fn(),
-    clearMumbleContacts: vi.fn(),
-    startMumbleDM: vi.fn(),
-  };
-  const unreadTracker = {
-    roomUnreads: new Map(),
-    getRoomUnread: vi.fn(() => ({ notificationCount: 0, highlightCount: 0, fullyReadEventId: null })),
-    markRoomRead: vi.fn(),
-    getFullyReadEventId: vi.fn(() => null),
-    getMarkerTimestamp: vi.fn((): number | null => null),
-    totalUnreadCount: 0,
-    totalDmUnreadCount: 0,
-  };
-  const idleActions = { autoLeftAt: null, preLeaveStartedAt: null, preLeaveCancelledAt: null, dismissNotification: vi.fn(), dismissPreLeaveCancelled: vi.fn() };
-  const screenShare = {
-    isSharing: false, startSharing: vi.fn(), stopSharing: vi.fn(), markLocalShareTeardownIntent: vi.fn(), error: null,
-    activeShare: null, activeShares: [], watchingShare: null, watchingShares: [] as Array<{ roomName: string; userId: number; userName: string }>, pendingViewerShares: [], remoteWatchCount: 0, isViewerConnectPending: false,
-    focusedShare: null as { roomName: string; userId: number; userName: string } | null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null, remoteVideoEls: new Map<number, HTMLVideoElement>(),
-    roomQuality: undefined as string | undefined, shareQualities: new Map<number, string>(), viewerQualities: new Map<number, string>(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), setViewerQuality: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
-  };
-  const notificationQueueIds = new Set<string>();
-  const notificationQueue = {
-    register: vi.fn((id: string) => {
-      notificationQueueIds.add(id);
-    }),
-    unregister: vi.fn((id: string) => {
-      notificationQueueIds.delete(id);
-    }),
-    isVisible: vi.fn((id: string) => notificationQueueIds.has(id)),
-    visibleCount: 0,
-    totalCount: 0,
-  };
+// The shared harness owns every App mock; this suite only needs the recorded props and
+// the simplified stubs it has always asserted against.
+const mockValues = {
+  matrixClient: appHarnessMocks.matrixClient,
+  dmStore: appHarnessMocks.dmStore,
+  unreadTracker: appHarnessMocks.unreadTracker,
+  screenShare: appHarnessMocks.screenShare,
+  notificationQueue: appHarnessMocks.notificationQueue,
+  notificationQueueIds: appHarnessMocks.notificationQueueIds,
+  get headerProps(): HarnessProps | undefined { return appHarnessMocks.captured.get('Header'); },
+  get channelChatPanelProps(): HarnessProps | undefined { return appHarnessMocks.captured.get('ChatPanel:channel'); },
+  get dmChatPanelProps(): HarnessProps | undefined { return appHarnessMocks.captured.get('ChatPanel:dm'); },
+  get dmContactListProps(): HarnessProps | undefined { return appHarnessMocks.captured.get('DMContactList'); },
+  get dmStoreOptions(): HarnessProps | undefined { return appHarnessMocks.captured.get('useDMStore'); },
+};
 
-  return {
-    matrixClient, dmStore, unreadTracker, idleActions, screenShare,
-    notificationQueue, notificationQueueIds,
-    get dmChatPanelProps() { return dmChatPanelProps; },
-    setDmChatPanelProps: (props: Record<string, unknown> | undefined) => { dmChatPanelProps = props; },
-    get channelChatPanelProps() { return channelChatPanelProps; },
-    setChannelChatPanelProps: (props: Record<string, unknown> | undefined) => { channelChatPanelProps = props; },
-    get dmContactListProps() { return dmContactListProps; },
-    setDmContactListProps: (props: Record<string, unknown> | undefined) => { dmContactListProps = props; },
-    get headerProps() { return headerProps; },
-    setHeaderProps: (props: Record<string, unknown> | undefined) => { headerProps = props; },
-    get dmStoreOptions() { return dmStoreOptions; },
-    setDmStoreOptions: (options: Record<string, unknown> | undefined) => { dmStoreOptions = options; },
-  };
-});
-
-vi.mock('./bridge', () => {
-  const handlers = new Map<string, Set<(data: unknown) => void>>();
-  return { default: {
-    send: vi.fn(),
-    on: vi.fn((event: string, handler: (data: unknown) => void) => { if (!handlers.has(event)) handlers.set(event, new Set()); handlers.get(event)!.add(handler); }),
-    off: vi.fn((event: string, handler: (data: unknown) => void) => handlers.get(event)?.delete(handler)),
-    __emit: (event: string, data?: unknown) => handlers.get(event)?.forEach(handler => handler(data)),
-    __reset: () => handlers.clear(),
-  } };
-});
-
-vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => { mockValues.setHeaderProps(props); return <header />; } }));
-vi.mock('./components/Sidebar/Sidebar', () => ({
-  Sidebar: (props: Record<string, unknown>) => {
-    return (
-      <>
-        <button type="button" data-testid="sidebar-select-channel" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(1)} />
-        <button type="button" data-testid="sidebar-select-server" onClick={() => (props.onSelectServer as (() => void) | undefined)?.()} />
-      </>
-    );
-  },
-}));
-vi.mock('./components/ChatPanel/ChatPanel', () => ({
-  ChatPanel: (props: Record<string, unknown>) => {
-    if (props.isDM) mockValues.setDmChatPanelProps(props);
-    else mockValues.setChannelChatPanelProps(props);
-    return (
-      <section
-        data-testid={
-          props.isDM ? 'dm-chat-panel' : 'channel-chat-panel'
-        }
-      />
-    );
-  },
-}));
-vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => <section /> }));
-vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => <section /> }));
-vi.mock('./components/DMContactList/DMContactList', () => ({
-  DMContactList: (props: Record<string, unknown>) => {
-    mockValues.setDmContactListProps(props);
-    return null;
-  },
-}));
-vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
-vi.mock('./components/SettingsModal/SettingsModal', () => ({
-  DEFAULT_SCREEN_SHARE: { captureAudio: false, resolution: '1080p', fps: 30, systemAudio: false, viewerMode: 'in-app' },
-  SettingsModal: () => null,
-}));
-vi.mock('./hooks/useMatrixClient', () => ({ useMatrixClient: () => mockValues.matrixClient }));
-vi.mock('./hooks/useChatStore', () => ({ useChatStore: () => ({ messages: [], addMessage: vi.fn() }), addMessageToStore: vi.fn(), clearChatStorage: vi.fn(), purgeEphemeralMessages: vi.fn() }));
-vi.mock('./hooks/useDMStore', () => ({ useDMStore: (options: Record<string, unknown>) => { mockValues.setDmStoreOptions(options); return mockValues.dmStore; } }));
-vi.mock('./hooks/useUnreadTracker', () => ({ resetMarkersCache: vi.fn(), useUnreadTracker: () => mockValues.unreadTracker }));
-vi.mock('./hooks/useBrmbleIdle', () => ({ useBrmbleIdle: () => 0 }));
-vi.mock('./hooks/useIdleStatus', () => ({ useIdleStatus: () => ({ voiceIdle: {}, systemIdle: 0, isLocked: false }) }));
-vi.mock('./hooks/useIdleActions', () => ({ AFK_THRESHOLD_SEC: 600, useIdleActions: () => mockValues.idleActions }));
-vi.mock('./hooks/useServerHealth', () => ({ useServerHealth: () => undefined }));
-vi.mock('./hooks/useCompanionOverlayPublisher', () => ({ useCompanionOverlayPublisher: () => undefined }));
-vi.mock('./hooks/useLeaveVoiceCooldown', () => ({ useLeaveVoiceCooldown: () => ({ isOnCooldown: false, trigger: vi.fn() }) }));
-vi.mock('./hooks/useNotificationQueue', () => ({ useNotificationQueue: () => mockValues.notificationQueue }));
-vi.mock('./hooks/useScreenShare', () => ({ useScreenShare: () => mockValues.screenShare }));
+function installStubs() {
+  overrideComponent('Header', () => <header />);
+  overrideComponent('Sidebar', (props: HarnessProps) => (
+    <>
+      <button type="button" data-testid="sidebar-select-channel" onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(1)} />
+      {/* Per-channel buttons: browsing a channel opens a conversation TAB in the tab
+          model, so these drive the "paint survives browsing" cases. */}
+      {((props.channels as { id: number }[] | undefined) ?? []).map(channel => (
+        <button
+          key={channel.id}
+          type="button"
+          data-testid={`sidebar-select-channel-${channel.id}`}
+          onClick={() => (props.onSelectChannel as ((channelId: number) => void) | undefined)?.(channel.id)}
+        />
+      ))}
+      <button type="button" data-testid="sidebar-select-server" onClick={() => (props.onSelectServer as (() => void) | undefined)?.()} />
+    </>
+  ));
+  overrideComponent('ChatPanel', (props: HarnessProps) => (
+    <section data-testid={props.isDM ? 'dm-chat-panel' : 'channel-chat-panel'} />
+  ));
+  overrideComponent('DMContactList', () => null);
+}
 
 function renderConnectedApp() {
-  const view = render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-  act(() => {
-    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('server.credentials', {
-      matrix: { homeserverUrl: 'https://example.com', accessToken: 'token', userId: '@me:example.com', roomMap: { '1': '!general:example.com' }, messageDeletion: { canModerate: true, maxAgeMs: 86_400_000 } },
-    });
-    (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', {
-      username: 'Me', channelId: 1, channels: [{ id: 1, name: 'General' }], users: [],
-    });
+  return renderApp({
+    joinedChannelId: '1',
+    channels: [{ id: 1, name: 'General' }],
+    users: [],
+    matrixRoomMap: {},
   });
-  return view;
 }
 
 function renderPaintReadyApp() {
-  const view = render(
-    <ServiceStatusProvider>
-      <App />
-    </ServiceStatusProvider>,
-  );
+  return renderApp({
+    joinedChannelId: '1',
+    channels: [{ id: 1, name: 'General' }, { id: 2, name: 'Gaming' }],
+    users: [{ session: 7, name: 'Me', self: true, channelId: 1 }],
+    matrixRoomMap: { '1': '!general:example.com' },
+  });
+}
+
+async function renderAppWithActivePaint() {
+  const view = renderPaintReadyApp();
+  await waitFor(() => {
+    expect(mockValues.channelChatPanelProps?.onOpenPaint).toEqual(expect.any(Function));
+  });
   act(() => {
-    (bridge as unknown as {
-      __emit: (event: string, data?: unknown) => void;
-    }).__emit('server.credentials', {
-      matrix: {
-        homeserverUrl: 'https://example.com',
-        accessToken: 'token',
-        userId: '@me:example.com',
-        roomMap: { '1': '!general:example.com' },
-        messageDeletion: { canModerate: true, maxAgeMs: 86_400_000 },
-      },
-    });
-    (bridge as unknown as {
-      __emit: (event: string, data?: unknown) => void;
-    }).__emit('voice.connected', {
-      username: 'Me',
-      channelId: 1,
-      channels: [{ id: 1, name: 'General' }],
-      users: [{
-        session: 7,
-        name: 'Me',
-        self: true,
-        channelId: 1,
-      }],
-    });
+    (mockValues.channelChatPanelProps?.onOpenPaint as (sessionId: string) => void)(
+      'active-paint-session',
+    );
+  });
+  await waitFor(() => {
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
   });
   return view;
 }
@@ -227,6 +106,18 @@ const sharedImage: MediaAttachment = {
   filename: 'shared.png',
   mimetype: 'image/png',
 };
+
+/**
+ * The label of the currently selected CONVERSATION tab. Scoped to the conversation
+ * tablist on purpose: the main panel's activity selector (screen share / paint) is
+ * also a `role="tab"` list, so an unscoped query picks up the activity chip instead.
+ */
+function activeTabLabel(): string {
+  const strip = screen.getByRole('tablist', { name: 'Conversations' });
+  const tab = within(strip).getAllByRole('tab').find(candidate => candidate.getAttribute('aria-selected') === 'true');
+  if (!tab) throw new Error('no active conversation tab');
+  return within(tab).getByTestId('conversation-tab-label').textContent ?? '';
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -249,12 +140,8 @@ describe('DM route Matrix isolation', () => {
       revokeObjectURL: vi.fn(),
     });
     localStorage.clear();
-    (bridge as unknown as { __reset: () => void }).__reset();
-    mockValues.setDmChatPanelProps(undefined);
-    mockValues.setChannelChatPanelProps(undefined);
-    mockValues.setDmContactListProps(undefined);
-    mockValues.setHeaderProps(undefined);
-    mockValues.setDmStoreOptions(undefined);
+    resetAppHarness();
+    installStubs();
     mockValues.matrixClient.dmRoomMap.clear();
     mockValues.dmStore.selectedContact = null;
     mockValues.dmStore.messages = [];
@@ -283,6 +170,12 @@ describe('DM route Matrix isolation', () => {
       expect(mockValues.channelChatPanelProps
         ?.onUseAsPaintBackground).toEqual(expect.any(Function));
     });
+
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
+    });
+
+    await waitFor(() => expect(mockValues.dmChatPanelProps).toBeDefined());
     expect(mockValues.dmChatPanelProps)
       .not.toHaveProperty('onUseAsPaintBackground');
   });
@@ -318,6 +211,94 @@ describe('DM route Matrix isolation', () => {
     expect(screen.queryByRole('dialog', {
       name: 'Start collaborative paint',
     })).not.toBeInTheDocument();
+  });
+
+  // Browsing in the tab model opens/activates a conversation TAB. Each of these first
+  // asserts the browse actually happened (the active tab moved off the joined channel),
+  // so the paint assertion cannot pass vacuously.
+  it('keeps active paint open when browsing another channel chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-channel-2').click());
+    await waitFor(() => expect(activeTabLabel()).toBe('Gaming'));
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing server chat', async () => {
+    const view = await renderAppWithActivePaint();
+    act(() => view.getByTestId('sidebar-select-server').click());
+    await waitFor(() => expect(activeTabLabel()).not.toBe('General'));
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('keeps active paint open when browsing a direct message', async () => {
+    mockValues.dmStore.selectedContact = {
+      id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0,
+    };
+    await renderAppWithActivePaint();
+    act(() => {
+      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)(
+        '@val:example.com',
+      );
+    });
+    await waitFor(() => expect(mockValues.dmChatPanelProps).toBeDefined());
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
+  });
+
+  it('closes active paint after an actual voice-channel move', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 2, name: 'Gaming',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after moving to the root voice channel', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      const emitter = bridge as unknown as { __emit: (event: string, data?: unknown) => void };
+      emitter.__emit('voice.channelChanged', {
+        previousChannelId: 1, channelId: 0, name: 'Root',
+      });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after Leave Voice is confirmed', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.leftVoiceChanged', { leftVoice: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('closes active paint after voice disconnects', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.disconnected', { reconnectAvailable: true });
+    });
+    await waitFor(() => expect(mockValues.headerProps?.activePaintSessionId).toBeNull());
+  });
+
+  it('keeps active paint open while connected self voice membership is temporarily unknown', async () => {
+    await renderAppWithActivePaint();
+    act(() => {
+      (bridge as unknown as { __emit: (event: string, data?: unknown) => void })
+        .__emit('voice.connected', {
+          username: 'Me',
+          channelId: 1,
+          channels: [
+            { id: 1, name: 'General' },
+            { id: 2, name: 'Gaming' },
+          ],
+          users: [],
+        });
+    });
+    expect(mockValues.headerProps?.activePaintSessionId).toBe('active-paint-session');
   });
 
   it('does nothing when the user chooses No', async () => {
@@ -545,54 +526,6 @@ describe('DM route Matrix isolation', () => {
     }));
   });
 
-  it('passes deletion capability and operation to Matrix channel chat', async () => {
-    renderPaintReadyApp();
-    act(() => {
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('brmble.serviceStatus', {
-        service: 'server', state: 'connected',
-      });
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('chat.channelAccess', {
-        channels: { '1': { canRead: true, canSend: true } },
-      });
-    });
-
-    await waitFor(() => expect(mockValues.channelChatPanelProps).toEqual(expect.objectContaining({
-      onDeleteMessage: mockValues.matrixClient.deleteMessage,
-      canModerateRecentMessages: true,
-      messageDeletionWindowMs: 86_400_000,
-    })));
-
-    await (mockValues.channelChatPanelProps?.onDeleteMessage as (
-      roomId: string, eventId: string,
-    ) => Promise<void>)('!general:example.com', '$message:test');
-    expect(mockValues.matrixClient.deleteMessage).toHaveBeenCalledWith(
-      '!general:example.com', '$message:test',
-    );
-  });
-
-  it('passes deletion to a Matrix-backed DM', () => {
-    mockValues.dmStore.selectedContact = {
-      id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0,
-    };
-    mockValues.matrixClient.dmRoomMap.set('@val:example.com', '!val:example.com');
-    renderConnectedApp();
-
-    act(() => {
-      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
-    });
-    expect(mockValues.dmChatPanelProps?.onDeleteMessage)
-      .toBe(mockValues.matrixClient.deleteMessage);
-  });
-
-  it('omits deletion from a Mumble-only DM', () => {
-    mockValues.dmStore.selectedContact = {
-      id: 'cert-val', displayName: 'Vanilla Val', unreadCount: 0,
-      isEphemeral: true, mumbleSessionId: 42,
-    };
-    renderConnectedApp();
-    expect(mockValues.dmChatPanelProps?.onDeleteMessage).toBeUndefined();
-  });
-
   it('reports an unread foreground only when the workspace and selected contact match', () => {
     mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
 
@@ -613,23 +546,14 @@ describe('DM route Matrix isolation', () => {
 
     renderConnectedApp();
 
-    expect(mockValues.dmChatPanelProps?.messages).toEqual([]);
-  });
-
-  it('uses the Messages panel state for the Header DM control', () => {
-    renderConnectedApp();
-
-    expect(mockValues.headerProps?.dmActive).toBe(true);
-
-    act(() => {
-      (mockValues.headerProps?.onToggleDM as () => void)();
-    });
-
-    expect(mockValues.headerProps?.dmActive).toBe(false);
+    // With one tab-driven ChatPanel there is no DM panel at all while a channel is
+    // active, so stale DM messages have nowhere to leak to.
+    expect(mockValues.dmChatPanelProps).toBeUndefined();
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('requests channel chat access when the active non-root channel is missing from roomMap', async () => {
-    render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    renderDisconnectedApp();
 
     act(() => {
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('brmble.serviceStatus', {
@@ -655,33 +579,6 @@ describe('DM route Matrix isolation', () => {
     });
   });
 
-  it('routes DMContactList visibility through the shared Messages panel toggle', () => {
-    renderConnectedApp();
-
-    expect(mockValues.dmContactListProps?.onToggleVisibility).toBe(mockValues.headerProps?.onToggleDM);
-
-    act(() => {
-      (mockValues.dmContactListProps?.onToggleVisibility as () => void)();
-    });
-
-    expect(mockValues.headerProps?.dmActive).toBe(false);
-  });
-
-  it('resets the Messages panel when reconnecting', async () => {
-    renderConnectedApp();
-    act(() => {
-      (mockValues.headerProps?.onToggleDM as () => void)();
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
-    });
-
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
-
-    act(() => {
-      (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
-    });
-
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
-  });
 
   it('returns to channel chat and clears Matrix DM routing after reconnecting with a retained selection', async () => {
     mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
@@ -696,20 +593,21 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('channel-chat-panel')).not.toBeInTheDocument());
 
     act(() => {
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.connected', { username: 'Me', channelId: 0, users: [] });
     });
 
     await waitFor(() => expect(mockValues.matrixClient.setActiveDmContact).toHaveBeenLastCalledWith(null));
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('lands on channel chat after connecting', async () => {
     renderConnectedApp();
 
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.getByTestId('channel-chat-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
     await waitFor(() => expect(mockValues.matrixClient.setActiveChannel).toHaveBeenCalledWith(null));
   });
 
@@ -721,81 +619,19 @@ describe('DM route Matrix isolation', () => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
 
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
 
     mockValues.screenShare.remoteWatchCount = 1;
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    view.rerenderApp();
     await waitFor(() => {
-      expect(mockValues.headerProps?.dmActive).toBe(false);
-      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+      expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument();
     });
 
     mockValues.screenShare.remoteWatchCount = 0;
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    view.rerenderApp();
     await waitFor(() => {
-      expect(mockValues.headerProps?.dmActive).toBe(true);
-      expect(document.querySelector('.content-slider')).toHaveClass('dm-active');
+      expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument();
     });
-  });
-
-  it('supplies the remote viewer to the foreground DM panel without duplicating it in the inactive channel panel', async () => {
-    const share = { roomName: 'channel-1', userId: 10, userName: 'Vanilla Val' };
-    const remoteVideoEls = new Map([[10, document.createElement('video')]]);
-    const shareQualities = new Map([[10, 'high']]);
-    const viewerQualities = new Map([[10, 'low']]);
-    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
-    mockValues.screenShare.watchingShares = [share];
-    mockValues.screenShare.focusedShare = share;
-    mockValues.screenShare.remoteVideoEls = remoteVideoEls;
-    mockValues.screenShare.roomQuality = 'good';
-    mockValues.screenShare.shareQualities = shareQualities;
-    mockValues.screenShare.viewerQualities = viewerQualities;
-    const view = renderConnectedApp();
-
-    act(() => {
-      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
-    });
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-
-    await waitFor(() => {
-      expect(mockValues.dmChatPanelProps).toEqual(expect.objectContaining({
-        watchingShares: [share],
-        focusedShare: share,
-        remoteVideoEls,
-        roomQuality: 'good',
-        shareQualities,
-        viewerQualities,
-        onFocusShare: mockValues.screenShare.setFocusedShare,
-        onCloseShare: expect.any(Function),
-        onViewerQualityChange: mockValues.screenShare.setViewerQuality,
-        screenShareViewerMode: 'in-app',
-      }));
-    });
-    expect(mockValues.channelChatPanelProps).not.toHaveProperty('watchingShares');
-  });
-
-  it('marks inactive conversation slides inert as well as aria-hidden', async () => {
-    mockValues.dmStore.selectedContact = { id: '@val:example.com', displayName: 'Vanilla Val', unreadCount: 0 };
-    const view = renderConnectedApp();
-
-    act(() => {
-      (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
-    });
-
-    await waitFor(() => {
-      const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
-      expect(channelSlide).toHaveAttribute('aria-hidden', 'true');
-      expect(channelSlide).toHaveAttribute('inert');
-      expect(dmSlide).toHaveAttribute('aria-hidden', 'false');
-      expect(dmSlide).not.toHaveAttribute('inert');
-    });
-
-    act(() => view.getByTestId('sidebar-select-channel').click());
-    const [channelSlide, dmSlide] = Array.from(document.querySelectorAll('.content-slide'));
-    expect(channelSlide).toHaveAttribute('aria-hidden', 'false');
-    expect(channelSlide).not.toHaveAttribute('inert');
-    expect(dmSlide).toHaveAttribute('aria-hidden', 'true');
-    expect(dmSlide).toHaveAttribute('inert');
   });
 
   it('falls back to the channel foreground when a selected conversation closes during a remote watch', async () => {
@@ -805,30 +641,35 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
 
     mockValues.screenShare.remoteWatchCount = 1;
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
+    view.rerenderApp();
 
     act(() => {
       (mockValues.dmContactListProps?.onCloseConversation as (id: string) => void)('@val:example.com');
     });
 
     expect(mockValues.dmStore.closeDM).toHaveBeenCalledWith('@val:example.com');
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
-  it('updates the unread DM badge without leaving the foreground channel', async () => {
+  // The Header no longer carries an aggregate DM badge — the permanently visible
+  // Messages panel shows per-contact unread counts. The surviving aggregate consumer is
+  // the native taskbar badge, so that is what this asserts.
+  it('updates the taskbar DM badge without leaving the foreground channel', async () => {
     const view = renderConnectedApp();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument());
     mockValues.unreadTracker.totalDmUnreadCount = 3;
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    view.rerenderApp();
 
-    await waitFor(() => expect(mockValues.headerProps?.unreadDMCount).toBe(3));
-    expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active');
+    await waitFor(() => expect(bridge.send).toHaveBeenCalledWith(
+      'notification.badge',
+      expect.objectContaining({ unreadDMs: true }),
+    ));
+    expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument();
   });
 
   it('does not mark a selected Matrix DM as read when a channel is in the foreground', async () => {
@@ -844,26 +685,25 @@ describe('DM route Matrix isolation', () => {
     act(() => {
       (mockValues.dmContactListProps?.onSelectContact as (id: string) => void)('@val:example.com');
     });
-    await waitFor(() => expect(document.querySelector('.content-slider')).toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.getByTestId('dm-chat-panel')).toBeInTheDocument());
     mockValues.unreadTracker.markRoomRead.mockClear();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
-    await waitFor(() => expect(document.querySelector('.content-slider')).not.toHaveClass('dm-active'));
+    await waitFor(() => expect(screen.queryByTestId('dm-chat-panel')).not.toBeInTheDocument());
 
     mockValues.unreadTracker.roomUnreads = new Map([['!val:example.com', { notificationCount: 1 }]]);
     mockValues.unreadTracker.getRoomUnread.mockReturnValue({ notificationCount: 1, highlightCount: 0, fullyReadEventId: null });
     mockValues.unreadTracker.getMarkerTimestamp.mockReturnValue(1234);
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+    view.rerenderApp();
 
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(true));
+    await waitFor(() => expect(mockValues.unreadTracker.getRoomUnread).toHaveBeenCalledWith('!val:example.com'));
     expect(mockValues.unreadTracker.markRoomRead).not.toHaveBeenCalledWith('!val:example.com', '$latest-dm-event');
   });
 
   it('keeps active remote watches connected when selecting channel chat or server chat', async () => {
     const view = renderConnectedApp();
     mockValues.screenShare.remoteWatchCount = 1;
-    view.rerender(<ServiceStatusProvider><App /></ServiceStatusProvider>);
-    await waitFor(() => expect(mockValues.headerProps?.dmActive).toBe(false));
+    view.rerenderApp();
     mockValues.screenShare.disconnectViewer.mockClear();
 
     act(() => view.getByTestId('sidebar-select-channel').click());
@@ -885,13 +725,13 @@ describe('DM route Matrix isolation', () => {
       });
       (bridge as unknown as { __emit: (event: string, data?: unknown) => void }).__emit('voice.disconnected', { reconnectAvailable: true });
     }],
-  ])('does not reserve Messages panel space on the %s screen', async (_label, enterScreen) => {
-    render(<ServiceStatusProvider><App /></ServiceStatusProvider>);
+  ])('does not render the Messages panel on the %s screen', async (_label, enterScreen) => {
+    renderDisconnectedApp();
 
     act(() => enterScreen());
 
     await waitFor(() => {
-      expect(document.querySelector('.workspace-conversation')).not.toHaveClass('workspace-conversation--with-panel');
+      expect(document.querySelector('.app-body')).toBeInTheDocument();
     });
     expect(mockValues.dmContactListProps).toBeUndefined();
   });

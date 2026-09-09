@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import { confirm } from '../../hooks/usePrompt';
 import { MessageDeletionError } from '../../api/messages';
@@ -9,6 +10,31 @@ vi.mock('../../hooks/usePrompt', async () => {
   const actual = await vi.importActual<typeof import('../../hooks/usePrompt')>('../../hooks/usePrompt');
   return { ...actual, confirm: vi.fn() };
 });
+
+afterEach(cleanup);
+
+// A DM only reaches ChatPanel through a tab the user already opened, so the old
+// "right-click a user to start a private conversation" prompt was both unreachable
+// and wrong. Tabs for contacts that no longer resolve are dropped instead.
+describe('ChatPanel empty state', () => {
+  it('shows the generic welcome state and no direct-message prompt without a channel', () => {
+    render(
+      <ChatPanel
+        channelId={undefined}
+        channelName=""
+        messages={[]}
+        currentUsername="Alice"
+        onSendMessage={() => {}}
+        isDM
+      />,
+    );
+
+    expect(screen.getByText('Welcome to Brmble')).toBeInTheDocument();
+    expect(screen.queryByText('Direct Messages')).not.toBeInTheDocument();
+    expect(screen.queryByText('Right-click a user to start a private conversation')).not.toBeInTheDocument();
+  });
+});
+
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -506,3 +532,4 @@ describe('ChatPanel edit flow', () => {
     });
   });
 });
+

@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text.Json;
+using Brmble.Server.Games.Spectators;
 
 namespace Brmble.Server.Games.Engines;
 
@@ -145,6 +146,27 @@ public sealed class DeathrollEngine : IGameEngine
             finished = s.LoserId is not null,
             loserId = s.LoserId,
         };
+    }
+
+    public object SpectatorView(object state)
+    {
+        var s = (State)state;
+        return new DeathrollSpectatorView(
+            Kind: "deathroll",
+            // Copied, not aliased: the spectator frame is captured under the match
+            // lock but published after the lock is released, so the view must not
+            // reference mutable engine state.
+            Players: s.Players.ToArray(),
+            CurrentPlayer: s.LoserId is null ? s.Players[s.CurrentIndex] : null,
+            Ceiling: s.Ceiling,
+            LastRoll: s.LastRoll,
+            Finished: s.LoserId is not null,
+            LoserId: s.LoserId,
+            // Derived, not stored. DoRoll flips CurrentIndex only on a NON-fatal roll,
+            // and a non-fatal timeout penalty touches neither LastRoll nor CurrentIndex —
+            // so the owner of LastRoll is LoserId once set, and otherwise the player
+            // CurrentIndex has just flipped away from. Deathroll is always 2 players.
+            LastRollBy: s.LastRoll is null ? null : s.LoserId ?? s.Players[s.CurrentIndex ^ 1]);
     }
 
     public int? CurrentCeiling(object state) => ((State)state).Ceiling;

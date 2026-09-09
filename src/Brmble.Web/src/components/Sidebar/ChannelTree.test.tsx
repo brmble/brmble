@@ -864,6 +864,93 @@ describe('ChannelTree duel activity badge', () => {
   });
 });
 
+// The joined channel (where your voice is) and the current channel (the conversation you
+// are reading) are independent. The sidebar has to mark both, and the server gates duels
+// on the joined one.
+describe('ChannelTree joined channel presence', () => {
+  const presenceChannels = [
+    { id: 7, name: 'General' },
+    { id: 9, name: 'Random' },
+  ];
+
+  it('marks the joined channel separately from the active conversation', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[]}
+        currentChannelId={9}
+        joinedChannelId={7}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    const generalRow = screen.getByText('General').closest('.channel-row')!;
+    const randomRow = screen.getByText('Random').closest('.channel-row')!;
+
+    expect(generalRow).toHaveClass('channel-row--joined');
+    expect(generalRow).not.toHaveClass('current');
+    expect(randomRow).toHaveClass('current');
+    expect(randomRow).not.toHaveClass('channel-row--joined');
+  });
+
+  it('names the joined channel row for screen readers, not by colour alone', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[]}
+        currentChannelId={9}
+        joinedChannelId={7}
+        onJoinChannel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /General \(you are here\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Random \(you are here\)/ })).not.toBeInTheDocument();
+  });
+
+  it('offers Challenge only for users in the joined channel', () => {
+    const users = [
+      { session: 1, name: 'Me', channelId: 7, self: true, isBrmbleClient: true },
+      { session: 2, name: 'Alice', channelId: 7, isBrmbleClient: true },
+    ];
+    const treeProps = {
+      channels: presenceChannels,
+      users,
+      currentChannelId: 9,
+      onJoinChannel: vi.fn(),
+      onChallengeDeathroll: vi.fn(),
+      onChallengeRps: vi.fn(),
+    };
+
+    const { rerender } = render(<ChannelTree {...treeProps} joinedChannelId={7} />);
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.getByRole('button', { name: 'Challenge to a duel' })).toBeInTheDocument();
+
+    rerender(<ChannelTree {...treeProps} joinedChannelId={9} />);
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.queryByText('Challenge to a duel')).not.toBeInTheDocument();
+  });
+
+  it('offers no Challenge while unjoined even when viewing the target channel', () => {
+    render(
+      <ChannelTree
+        channels={presenceChannels}
+        users={[
+          { session: 1, name: 'Me', channelId: 7, self: true, isBrmbleClient: true },
+          { session: 2, name: 'Alice', channelId: 7, isBrmbleClient: true },
+        ]}
+        currentChannelId={7}
+        onJoinChannel={vi.fn()}
+        onChallengeDeathroll={vi.fn()}
+        onChallengeRps={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.user-row')!);
+    expect(screen.queryByText('Challenge to a duel')).not.toBeInTheDocument();
+  });
+});
+
 // The server refuses a challenge when either side already holds a duel commitment, so
 // the entry is disabled rather than offered. These drive the real right-click path to
 // prove ChannelTree's own wiring — its `users.find(u => u.self)` lookup and the
@@ -881,6 +968,7 @@ describe('ChannelTree challenge entry', () => {
         channels={channels}
         users={duelUsers}
         currentChannelId={1}
+        joinedChannelId={1}
         onJoinChannel={vi.fn()}
         onChallengeDeathroll={vi.fn()}
         onChallengeRps={vi.fn()}
@@ -914,5 +1002,91 @@ describe('ChannelTree challenge entry', () => {
     const entry = screen.getByRole('button', { name: "You're in a duel" });
     expect(entry).toBeDisabled();
     expect(screen.queryByText('Alice is in a duel')).not.toBeInTheDocument();
+  });
+});
+
+// Spectating used to be reachable only from a button inside the duel queue modal, behind
+// a badge whose tooltip says "Open duel activity". The row toggle is the direct
+// affordance, and mirrors how watching a screen share works.
+describe('ChannelTree spectate toggle', () => {
+  function renderTree(props: Partial<React.ComponentProps<typeof ChannelTree>> = {}) {
+    render(
+      <ChannelTree
+        channels={channels}
+        users={[]}
+        onJoinChannel={vi.fn()}
+        {...props}
+      />,
+    );
+  }
+
+  it('offers a watch toggle on a channel with duel activity', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i })).toBeEnabled();
+  });
+
+  it('offers no watch toggle on a channel with no duel activity', () => {
+    renderTree({ duelChannelIds: new Set<number>(), joinedChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.queryByRole('button', { name: /watch games in/i })).not.toBeInTheDocument();
+  });
+
+  it('disables the toggle for a channel you have not joined', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 2, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i })).toBeDisabled();
+  });
+
+  it('disables the toggle while unjoined', () => {
+    renderTree({ duelChannelIds: new Set([1]), onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i })).toBeDisabled();
+  });
+
+  it('reflects the watched channel with aria-pressed', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, spectatingChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /stop watching/i })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('dispatches the toggle with the channel id', () => {
+    const onToggleSpectate = vi.fn();
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate });
+    fireEvent.click(screen.getByRole('button', { name: /watch games in/i }));
+    expect(onToggleSpectate).toHaveBeenCalledWith(1);
+  });
+
+  it('does not select or join the channel when toggled', () => {
+    const onSelectChannel = vi.fn();
+    const onJoinChannel = vi.fn();
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn(), onSelectChannel, onJoinChannel });
+    fireEvent.click(screen.getByRole('button', { name: /watch games in/i }));
+    expect(onSelectChannel).not.toHaveBeenCalled();
+    expect(onJoinChannel).not.toHaveBeenCalled();
+  });
+
+  // A disabled button fires no mouse events, so the explanation has to hang off a wrapper.
+  it('wraps the toggle so the disabled explanation is still hoverable', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 2, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i }).parentElement)
+      .toHaveClass('tooltip-wrapper');
+  });
+
+  // A disabled button takes no focus, so keyboard users would never see the
+  // explanation unless the wrapper itself is a tab stop.
+  it('makes the wrapper focusable so the disabled explanation reaches the keyboard', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 2, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i }).parentElement)
+      .toHaveAttribute('tabindex', '0');
+  });
+
+  // ...but only then. When the button is enabled it is its own tab stop and the
+  // tooltip opens from its focus, so a focusable wrapper would be a second stop for
+  // one control — an unnamed, roleless one at that.
+  it('leaves the wrapper out of the tab order when the toggle is enabled', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: /watch games in/i }).parentElement)
+      .not.toHaveAttribute('tabindex');
+  });
+
+  it('leaves the duel badge in place beside the toggle', () => {
+    renderTree({ duelChannelIds: new Set([1]), joinedChannelId: 1, onToggleSpectate: vi.fn() });
+    expect(screen.getByRole('button', { name: 'Open duel activity for General' })).toBeInTheDocument();
   });
 });

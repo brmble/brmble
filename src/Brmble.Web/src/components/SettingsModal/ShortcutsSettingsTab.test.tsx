@@ -24,7 +24,6 @@ const baseSettings: ShortcutsSettings = {
   toggleMuteKey: null,
   toggleMuteDeafenKey: null,
   toggleLeaveVoiceKey: null,
-  toggleDMScreenKey: null,
   toggleScreenShareKey: null,
   toggleGameKey: null,
 };
@@ -33,6 +32,20 @@ describe('ShortcutsSettingsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     confirmMock.mockResolvedValue(false);
+  });
+
+  it('does not render a toggle direct messages screen binding', () => {
+    render(
+      <ShortcutsSettingsTab
+        settings={baseSettings}
+        onChange={vi.fn()}
+        allBindings={{}}
+        onClearBinding={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Toggle Direct Messages Screen')).toBeNull();
+    expect(screen.queryByText('Navigation')).toBeNull();
   });
 
   it('allows clearing an existing shortcut binding', () => {

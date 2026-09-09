@@ -1,3 +1,7 @@
+import type { CompanionSelection } from '../components/SettingsModal/InterfaceSettingsTypes';
+
+export type { CompanionSelection };
+
 export interface Server {
   id: string;
   name: string;
@@ -27,13 +31,21 @@ export interface User {
   muted?: boolean;
   deafened?: boolean;
   self?: boolean;
-  matrixUserId?: string;
+  /** The wire delivers explicit nulls for absent identity fields; only local UI state is truly optional. */
+  matrixUserId?: string | null;
   speaking?: boolean;
-  comment?: string;
+  comment?: string | null;
   prioritySpeaker?: boolean;
+  /**
+   * Resolved at read time by `useUserDirectory`, never stored in the user list. The projection
+   * carries identifiers, not assets: the avatar map is keyed by `matrixUserId` so it survives
+   * reconnects and cannot be clobbered by a snapshot.
+   */
   avatarUrl?: string;
-  certHash?: string;
-  isBrmbleClient?: boolean;
+  certHash?: string | null;
+  isBrmbleClient?: boolean | null;
+  /** Built-in id or `custom:$eventId`. `null` means unknown — render a fallback, do not store one. */
+  companionId?: CompanionSelection | null;
 }
 
 export interface IdleUpdate {

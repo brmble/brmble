@@ -42,7 +42,8 @@ function deepMerge<T extends object>(target: T, source: Partial<T>): T {
 
 export function usePersistedGameState<T extends object>(
   key: string,
-  initialState: T | (() => T)
+  initialState: T | (() => T),
+  normalizeStoredState?: (stored: unknown) => unknown,
 ): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {
 
   const [state, setReactState] = useState<T>(() => {
@@ -51,7 +52,8 @@ export function usePersistedGameState<T extends object>(
       const item = localStorage.getItem(key);
       if (item) {
         const parsed = JSON.parse(item);
-        return deepMerge(initial, parsed);
+        const normalized = normalizeStoredState ? normalizeStoredState(parsed) : parsed;
+        return deepMerge(initial, normalized as Partial<T>);
       }
     } catch (error) {
       console.warn(`Error reading localStorage key "${key}":`, error);

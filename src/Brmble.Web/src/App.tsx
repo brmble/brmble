@@ -1,8 +1,9 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useReducer, type ComponentProps } from 'react';
 import bridge from './bridge';
-import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap } from './types';
+import type { ConnectionStatus, ChatMessage, MediaAttachment, NativeBrmbleServiceStatus, ServiceStatus, ServiceStatusMap, User } from './types';
 import { prepareImageForMumble, type PreparedMumbleImage } from './utils/imageUpload';
 import { useMatrixClient } from './hooks/useMatrixClient';
+import { useUserDirectory } from './hooks/useUserDirectory';
 import type { MatrixCredentials } from './hooks/useMatrixClient';
 import { useScreenShare } from './hooks/useScreenShare';
 import type { LocalShareStopReason, ShareInfo, WatchedShareEndReason } from './hooks/useScreenShare';
@@ -22,7 +23,6 @@ import { Header } from './components/Header/Header';
 import { BrmbleLogo } from './components/Header/BrmbleLogo';
 import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModal';
 import { PaintSessionView } from './components/Paint/PaintSessionView';
-import { VerticalSplitPane } from './components/VerticalSplitPane/VerticalSplitPane';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
 import { DEFAULT_MESSAGE_DELETION_WINDOW_MS } from './utils/messageDeletion';
@@ -43,12 +43,22 @@ import { useDMStore } from './hooks/useDMStore';
 import { DMContactList } from './components/DMContactList/DMContactList';
 import { usePrompt, confirm, prompt } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
-import { DeathrollModal } from './components/Games/DeathrollModal';
-import { RpsModal } from './components/Games/RpsModal';
+import { DeathrollBoard } from './components/Games/DeathrollBoard';
+import { RpsBoard } from './components/Games/RpsBoard';
+import { GameSurface } from './components/Games/GameSurface';
+import { MainPanel } from './components/MainPanel/MainPanel';
+import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
+import { ScreenShareGrid } from './components/ScreenShareGrid';
+import { selectStage, type ChannelActivityKind } from './workspace/channelActivity';
+import { assertNever } from './utils/assertNever';
+import { selectMainPanelMode } from './workspace/mainPanelMode';
 import { useGameState } from './components/Games/useGameState';
 import { useDuelQueueState } from './components/Games/useDuelQueueState';
 import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
+import { useSpectatorState } from './components/Games/useSpectatorState';
+import { SpectatorActivity } from './components/Games/SpectatorActivity';
+import { GameApiError } from './api/games';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
 import { WindowResizeHandles } from './components/WindowResizeHandles/WindowResizeHandles';
@@ -60,7 +70,6 @@ import {
   BUILT_IN_COMPANIONS,
   DEFAULT_OVERLAY,
   companionForServer,
-  normalizeCompanionBridgeSelection,
   normalizeCompanionId,
   normalizeOverlaySettings,
   resolveCompanionDisplay,
@@ -92,7 +101,19 @@ import { gameDisplayName } from './utils/games';
 import { useQueuedDuelConfirmation } from './components/Games/useQueuedDuelConfirmation';
 import { useMissedReadyCheck } from './components/Games/useMissedReadyCheck';
 import { estimateText, pairLabel } from './components/Games/duelFormatting';
-import { createWorkspaceState, workspaceReducer } from './workspace/workspaceState';
+import {
+  createWorkspaceState,
+  isHomeKey,
+  selectActiveConversation,
+  selectHomeKey,
+  workspaceReducer,
+} from './workspace/workspaceState';
+import { conversationKey } from './workspace/conversation';
+import { suppressOpenConversations } from './workspace/unreadOwnership';
+import { ConversationTabStrip, type ConversationTabItem } from './components/ConversationTabStrip/ConversationTabStrip';
+import { SERVER_ROOT_CHANNEL_ID, selectJoinedChannelId } from './workspace/presence';
+import { activityChannelMatchesPresence, channelActivityRoomName, parseChannelActivityRoomName } from './workspace/activityPresence';
+import { loadConversationTabs, saveConversationTabs } from './workspace/conversationStorage';
 import { paintApi } from './api/paint';
 import type { PaintSessionStatus } from './types/paint';
 import { prepareChatImagePaintSource } from './utils/chatImagePaintSource';
@@ -475,9 +496,13 @@ export function shouldClearLocalShareStartPending({
   return isLocalShareStartPending && (selfLeftVoice || voiceChannelId == null || voiceChannelId === 0);
 }
 
-export function canWatchShareFromChannel(currentChannelId: string | undefined, shareRoomName: string): boolean {
-  if (!currentChannelId || currentChannelId === 'server-root') return false;
-  return shareRoomName === `channel-${currentChannelId}`;
+/**
+ * You may watch a share only while standing in the channel that owns it. The channel
+ * you are *browsing* is irrelevant — this mirrors the publish gate, which is also
+ * bound to presence.
+ */
+export function canWatchShareFromChannel(joinedChannelId: string | null, shareRoomName: string): boolean {
+  return activityChannelMatchesPresence(joinedChannelId, parseChannelActivityRoomName(shareRoomName));
 }
 
 export async function toggleLocalScreenShare({
@@ -506,7 +531,7 @@ export async function toggleLocalScreenShare({
   }
 
   try {
-    const started = await startSharing(`channel-${voiceChannelId}`);
+    const started = await startSharing(channelActivityRoomName(String(voiceChannelId)));
     if (!started) {
       return;
     }
@@ -649,20 +674,6 @@ interface Channel {
   canSendChat?: boolean;
 }
 
-interface User {
-  session: number;
-  name: string;
-  channelId?: number;
-  muted?: boolean;
-  deafened?: boolean;
-  self?: boolean;
-  comment?: string;
-  matrixUserId?: string;
-  avatarUrl?: string;
-  certHash?: string;
-  companionId?: CompanionId;
-  isBrmbleClient?: boolean;
-}
 
 interface BrmbleDMUser {
   matrixUserId: string;
@@ -782,7 +793,14 @@ export function isMatrixChannelChatActive(
   if (!channelId || channelId === 'server-root') return false;
   if (!getPermittedMatrixChannelId(channelId, channels)) return false;
   if (statuses.server.state !== 'connected' || statuses.chat.state !== 'connected') return false;
-  if (!selfUser?.isBrmbleClient) return false;
+  // Older Brmble servers do not send the projection's Brmble-client marker, and
+  // the projection itself sends null while the identity is unresolved. Successful
+  // Matrix credentials already prove this client is Brmble-capable, so only an
+  // explicit false marker — a confirmed plain Mumble user — keeps it on the legacy
+  // path. An absent selfUser is treated the same way: the row has not arrived yet,
+  // which is not evidence against the credentials we already hold, and refusing it
+  // would flip the panel Matrix -> Mumble -> Matrix during connect.
+  if (selfUser?.isBrmbleClient === false) return false;
   return credentials?.roomMap[channelId] !== undefined;
 }
 
@@ -931,6 +949,15 @@ function duelCommandErrorDetail(error: { reason?: string; message?: string }): s
     ?? 'The server rejected the request. Try again.';
 }
 
+// A total Record, not a ternary. Adding a ChannelActivityKind without a label is
+// now a compile error rather than a chip silently rendering as "Paint".
+const ACTIVITY_LABELS: Record<ChannelActivityKind, string> = {
+  'screen-share': 'Screen share',
+  paint: 'Paint',
+  // Game-neutral: does not presume two players.
+  spectate: 'Game',
+};
+
 function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, undefined, createWorkspaceState);
   // --- Notification queue (max 3 visible, priority-based) ---
@@ -1030,7 +1057,13 @@ function App() {
   const [serverLabel, setServerLabel] = useState('');
   
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  // Hoisted above useUserDirectory, which needs our own Matrix id to resolve the self avatar
+  // without depending on the server having stated our mapping.
+  const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
+  // The user list, its avatar map, and the ref consumers read from. Declared here rather than
+  // beside the other refs because resolveGamePlayerName below reads usersRef.
+  const { users, usersRef, reset: resetUsers, apply: applyUsers, setAvatar } =
+    useUserDirectory(matrixCredentials?.userId);
   const [currentChannelId, setCurrentChannelIdRaw] = useState<string | undefined>();
   const [currentChannelName, setCurrentChannelName] = useState<string>('');
   // Snapshot of the read-marker timestamp at the moment a channel/DM is opened,
@@ -1055,6 +1088,10 @@ function App() {
   const [selfSession, setSelfSession] = useState<number>(0);
   const gameState = useGameState(selfSession);
   const duelQueue = useDuelQueueState();
+  // Spectating is a CHANNEL mode the user opts into from DuelQueueModal. It is
+  // deliberately independent of `duelQueue`: the queue is broadcast to everyone,
+  // a spectator subscription is held per session by the server.
+  const spectator = useSpectatorState();
   // Ref so long-lived bridge handlers (e.g. voice.disconnected) can reach the
   // latest game actions without being in their dependency arrays.
   const gameStateRef = useRef(gameState);
@@ -1331,9 +1368,17 @@ function App() {
   // Idle / AFK tracking — see docs/research/2026-05-03-idle-status-research.md
   const brmbleIdleSec = useBrmbleIdle();
   const { voiceIdle, systemIdle, isLocked } = useIdleStatus();
-  const selfVoiceChannelIdForIdle = users.find(u => u.self)?.channelId;
+  // Single presence derivation, hoisted so paint/idle/share all read the same value.
+  // `null` means self voice membership is not known yet; SERVER_ROOT_CHANNEL_ID means
+  // the user is standing in the root channel. Those two are NOT the same thing.
+  const joinedChannelId = selectJoinedChannelId(users);
+  // Thin numeric alias over the presence derivation. 'server-root' collapses to
+  // undefined, which every consumer already treats the same as the numeric root (0).
+  const selfVoiceChannelId = joinedChannelId === null || joinedChannelId === SERVER_ROOT_CHANNEL_ID
+    ? undefined
+    : Number(joinedChannelId);
   const inVoiceChannelForIdle =
-    !selfLeftVoice && selfVoiceChannelIdForIdle != null && selfVoiceChannelIdForIdle !== 0;
+    !selfLeftVoice && selfVoiceChannelId != null && selfVoiceChannelId !== 0;
   const [hotkeyPressedBtn, setHotkeyPressedBtn] = useState<string | null>(null);
   const pendingChannelActionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1355,26 +1400,53 @@ function App() {
   const invalidatePaintPreparation = useCallback(() => {
     paintPreparationGenerationRef.current += 1;
   }, []);
-  const activePaintChannelIdRef = useRef<string | undefined>(undefined);
+  const activePaintChannelIdRef = useRef<number | null>(null);
+  // The voice channel that owns any active paint session.
+  //   number    -> standing in that voice channel
+  //   null      -> definitively not in a paintable voice channel (disconnected, left
+  //                voice, or standing in the root channel) => close the session
+  //   undefined -> self voice membership not known yet => leave the session alone
+  // Derived from the presence layer's STRING ids, then narrowed to a number, so no
+  // string/number comparison ever reaches `activePaintChannelIdRef`.
+  const paintVoiceChannelId: number | null | undefined =
+    connectionStatus !== 'connected' || selfLeftVoice
+      ? null
+      : joinedChannelId === null
+        ? undefined
+        : joinedChannelId === SERVER_ROOT_CHANNEL_ID
+          ? null
+          : Number(joinedChannelId);
   const [paintSessionStatuses, setPaintSessionStatuses] = useState<Record<string, PaintSessionStatus>>({});
   const [showAvatarEditor, setShowAvatarEditor] = useState(false);
   const brmbleServicesConnectedOnceRef = useRef(false);
   const [brmbleServiceBootstrapTimedOut, setBrmbleServiceBootstrapTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!connected) setShowGame(false);
+  }, [connected]);
 
   // Close avatar editor modal when disconnected — profile is not editable while disconnected
   useEffect(() => {
     if (!connected) setShowAvatarEditor(false);
   }, [connected]);
 
+  // Switching the viewed channel invalidates any in-flight paint preparation, but it
+  // deliberately does NOT end an active session — sessions belong to the joined channel.
   useEffect(() => {
     invalidatePaintPreparation();
-    if (!activePaintSessionId) return;
-    if (connectionStatus !== 'connected' || activePaintChannelIdRef.current !== currentChannelId) {
+  }, [currentChannelId, invalidatePaintPreparation]);
+
+  // Survival guard: an active paint session ends only when the voice channel that owns
+  // it changes (real move, root move, leave-voice, disconnect). Browsing another
+  // channel, a DM, or server chat opens a tab and must not tear the canvas down.
+  useEffect(() => {
+    if (!activePaintSessionId || paintVoiceChannelId === undefined) return;
+    if (activePaintChannelIdRef.current !== paintVoiceChannelId) {
       activePaintSessionIdRef.current = null;
       setActivePaintSessionId(null);
-      activePaintChannelIdRef.current = undefined;
+      activePaintChannelIdRef.current = null;
     }
-  }, [activePaintSessionId, connectionStatus, currentChannelId, invalidatePaintPreparation]);
+  }, [activePaintSessionId, paintVoiceChannelId]);
 
   useEffect(() => {
     const handleWindowState = (data: unknown) => {
@@ -1388,8 +1460,12 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingInvite] = useState(false);
 
-  const [matrixCredentials, setMatrixCredentials] = useState<MatrixCredentials | null>(null);
   const [brmbleDMUsers, setBrmbleDMUsers] = useState<BrmbleDMUser[]>([]);
+  // True once `server.credentials` has been delivered for this session. Both the
+  // server directory (`userMappings`) and the server-owned DM room map arrive in that
+  // one payload, so this is the single point after which a DM contact id can be judged
+  // resolvable. Nothing may validate a DM tab before it flips.
+  const [serverDirectoryLoaded, setServerDirectoryLoaded] = useState(false);
   const matrixOverlayCallbacks = useMemo(() => ({
     onChannelMessage: (channelId: string, message: ChatMessage) => {
       const settings = overlaySettingsRef.current;
@@ -1432,9 +1508,7 @@ function App() {
     },
     onUserAvatarChanged: (matrixUserId: string, avatarUrl: string | null) => {
       fetchedAvatarIdsRef.current.delete(matrixUserId);
-      setUsers(prev => prev.map(u =>
-        u.matrixUserId === matrixUserId ? { ...u, avatarUrl: avatarUrl ?? undefined } : u
-      ));
+      setAvatar(matrixUserId, avatarUrl ?? undefined);
     },
   }), []);
   const matrixClient = useMatrixClient(matrixCredentials, matrixOverlayCallbacks);
@@ -1557,15 +1631,14 @@ function App() {
     });
   }, [matrixCredentials?.userId, matrixClient.client, matrixClient.fetchAvatarUrl]);
 
-  // Keep the self user's avatarUrl in the users array in sync with currentUserAvatarUrl
+  // Keep the self user's avatar in the avatar map in sync with currentUserAvatarUrl.
+  // Keyed by matrix id like every other avatar, so it survives a reconnect.
   useEffect(() => {
     if (currentUserAvatarUrl === undefined) return;
-    setUsers(prev => {
-      const self = prev.find(u => u.self);
-      if (!self || self.avatarUrl === currentUserAvatarUrl) return prev;
-      return prev.map(u => u.self ? { ...u, avatarUrl: currentUserAvatarUrl } : u);
-    });
-  }, [currentUserAvatarUrl]);
+    const selfMatrixUserId = matrixCredentials?.userId;
+    if (!selfMatrixUserId) return;
+    setAvatar(selfMatrixUserId, currentUserAvatarUrl);
+  }, [currentUserAvatarUrl, matrixCredentials?.userId, setAvatar]);
 
   // Track which matrixUserIds we've already fetched avatars for to avoid re-fetching.
   // Maps matrixUserId -> what is known about the fetch already made for them.
@@ -1611,30 +1684,30 @@ function App() {
       await matrixClient.client.setAvatarUrl(mxcUrl);
       const httpUrl = matrixClient.client.mxcUrlToHttp(mxcUrl, 128, 128, 'crop');
       setCurrentUserAvatarUrl(httpUrl ?? undefined);
-      // Also update the self user in the users list so channel tree / chat show the new avatar
-      if (httpUrl) {
-        setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: httpUrl } : u));
+      // Also update the self user in the avatar map so channel tree / chat show the new avatar
+      if (httpUrl && matrixCredentials?.userId) {
+        setAvatar(matrixCredentials.userId, httpUrl);
       }
       // Notify backend so Mumble texture sync won't overwrite this avatar
       bridge.send('avatar.setSource', { source: 'brmble' });
     } catch (e) {
       console.error('Failed to upload avatar:', e);
     }
-  }, [matrixClient.client]);
+  }, [matrixClient.client, matrixCredentials?.userId, setAvatar]);
 
   const onRemoveAvatar = useCallback(async () => {
     if (!matrixClient.client) return;
     try {
       await matrixClient.client.setAvatarUrl('');
       setCurrentUserAvatarUrl(undefined);
-      // Also clear the self user's avatar in the users list
-      setUsers(prev => prev.map(u => u.self ? { ...u, avatarUrl: undefined } : u));
+      // Also clear the self user's avatar in the avatar map
+      if (matrixCredentials?.userId) setAvatar(matrixCredentials.userId, undefined);
       // Clear avatar source so Mumble textures can take over again
       bridge.send('avatar.setSource', { source: null });
     } catch (e) {
       console.error('Failed to remove avatar:', e);
     }
-  }, [matrixClient.client]);
+  }, [matrixClient.client, matrixCredentials?.userId, setAvatar]);
 
   // Build set of DM room IDs from matrixClient.dmRoomMap
   const dmRoomIds = useMemo(() => {
@@ -1647,21 +1720,36 @@ function App() {
     return set;
   }, [matrixClient?.dmRoomMap]);
 
+  // The conversation region renders the ACTIVE TAB, so every chat-scoped derivation below
+  // is keyed off the tab model rather than `currentChannelId`. `currentChannelId` tracks
+  // presence-driven navigation for the voice/companion/bridge consumers and can legitimately
+  // disagree with the tab the user is reading; driving the chat from it rendered another
+  // conversation's name, history and permissions.
+  const activeConversation = selectActiveConversation(workspace);
+  const activeChatChannelId = activeConversation?.kind === 'channel'
+    ? activeConversation.channelId
+    : undefined;
+
   // Per-panel Matrix room IDs for scoping mention suggestions
   const channelMatrixRoomId = useMemo(() => {
-    const matrixChannelId = getPermittedMatrixChannelId(currentChannelId, channels);
+    const matrixChannelId = getPermittedMatrixChannelId(activeChatChannelId, channels);
     if (matrixChannelId && matrixCredentials?.roomMap?.[matrixChannelId]) {
       return matrixCredentials.roomMap[matrixChannelId];
     }
     return null;
-  }, [channels, currentChannelId, matrixCredentials?.roomMap]);
+  }, [channels, activeChatChannelId, matrixCredentials?.roomMap]);
 
-  const channelKey = currentChannelId === 'server-root' ? 'server-root' : currentChannelId ? `channel-${currentChannelId}` : 'no-channel';
+  const channelKey = activeChatChannelId === 'server-root'
+    ? 'server-root'
+    : activeChatChannelId ? `channel-${activeChatChannelId}` : 'no-channel';
   const { messages, addMessage } = useChatStore(channelKey);
   const [optimisticImages, setOptimisticImages] = useState<ChatMessage[]>([]);
 
-  const activeChannelId = currentChannelId && currentChannelId !== 'server-root'
-    ? currentChannelId
+  // Matrix-scoped view of the same id: the root chat is local-only, so it collapses to
+  // undefined for everything that talks to Matrix. Chat permissions must NOT use this —
+  // they need to see 'server-root', which is readable and writable by everyone.
+  const activeChannelId = activeChatChannelId && activeChatChannelId !== 'server-root'
+    ? activeChatChannelId
     : undefined;
   const permittedActiveMatrixChannelId = getPermittedMatrixChannelId(activeChannelId, channels);
   const selectedDmContactIdRef = useRef<string | null>(null);
@@ -1676,8 +1764,8 @@ function App() {
     fetchDMHistory: matrixClient.fetchDMHistory,
     brmbleUsers: brmbleDMUsers,
     isSelectedConversationForeground: () =>
-      workspace.foreground.kind === 'dm' &&
-      workspace.foreground.contactId === selectedDmContactIdRef.current,
+      activeConversation?.kind === 'dm' &&
+      activeConversation.contactId === selectedDmContactIdRef.current,
     users,
     username,
     sendMumbleDM: (targetSession: number, text: string) => {
@@ -1686,41 +1774,48 @@ function App() {
   });
   selectedDmContactIdRef.current = dmStore.selectedContact?.id ?? null;
 
-  const showDmConversation = workspace.foreground.kind === 'dm';
-  const showChannelConversation = !showDmConversation;
-  const isDmMode = showDmConversation;
-  const messagesPanelExpanded = connected && workspace.messagesPanelExpanded;
-  const foregroundDmContactId = workspace.foreground.kind === 'dm'
-    ? workspace.foreground.contactId
+  // The single ChatPanel renders whatever the active tab points at, so this is a
+  // semantic "the open conversation is a DM" flag, not a slide-visibility flag.
+  const activeConversationIsDm = activeConversation?.kind === 'dm';
+  const activeDmContactId = activeConversation?.kind === 'dm'
+    ? activeConversation.contactId
     : null;
-  const foregroundDmContact = foregroundDmContactId
-    ? dmStore.contacts.find(contact => contact.id === foregroundDmContactId)
-      ?? (dmStore.selectedContact?.id === foregroundDmContactId ? dmStore.selectedContact : null)
+  const activeDmContact = activeDmContactId
+    ? dmStore.contacts.find(contact => contact.id === activeDmContactId)
+      ?? (dmStore.selectedContact?.id === activeDmContactId ? dmStore.selectedContact : null)
     : null;
-  const foregroundDmMessages = foregroundDmContact != null && foregroundDmContact.id === dmStore.selectedContact?.id
+  const activeDmMessages = activeDmContact != null && activeDmContact.id === dmStore.selectedContact?.id
     ? dmStore.messages
     : [];
-  const selectedDmIsMumble = foregroundDmContact?.isEphemeral === true;
-  const activeDmMatrixContactId = foregroundDmContactId && !selectedDmIsMumble
-    ? foregroundDmContactId
+  const selectedDmIsMumble = activeDmContact?.isEphemeral === true;
+  const activeDmMatrixContactId = activeDmContactId && !selectedDmIsMumble
+    ? activeDmContactId
     : null;
 
+  // The TAB owns which conversation is open; the DM store owns that conversation's
+  // history, unread/foreground bookkeeping and history fetching. `activeConversation` is
+  // derived from the workspace reducer, so syncing the store here covers EVERY activation
+  // path at once — tab click, OPEN_CONVERSATION, the close and invalidation neighbour
+  // fallbacks, the home retarget and restore — instead of asking each of them to remember.
+  // Without this, activating an already-open DM tab moved only `workspace.activeKey` and
+  // left the store pointing at the previously selected contact.
   useLayoutEffect(() => {
-    matrixClient.setActiveChannel(isDmMode ? null : permittedActiveMatrixChannelId);
-  }, [isDmMode, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
+    if (activeDmContactId === null) return;
+    if (dmStore.selectedContactIdRef.current === activeDmContactId) return;
+    dmStore.selectContact(activeDmContactId);
+  }, [activeDmContactId, dmStore.selectContact, dmStore.selectedContactIdRef]);
+
+  useLayoutEffect(() => {
+    matrixClient.setActiveChannel(activeConversationIsDm ? null : permittedActiveMatrixChannelId);
+  }, [activeConversationIsDm, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
 
   useLayoutEffect(() => {
     matrixClient.setActiveDmContact(activeDmMatrixContactId);
   }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
 
-  const toggleMessagesPanel = useCallback(() => {
-    setShowGame(false);
-    dispatchWorkspace({ type: 'TOGGLE_MESSAGES_PANEL' });
-  }, []);
-
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
-    if (isDmMode) {
+    if (activeConversationIsDm) {
       return activeDmMatrixContactId && matrixClient?.dmRoomMap
         ? matrixClient.dmRoomMap.get(activeDmMatrixContactId) ?? null
         : null;
@@ -1730,7 +1825,7 @@ function App() {
       return matrixCredentials.roomMap[permittedActiveMatrixChannelId];
     }
     return null;
-  }, [isDmMode, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
+  }, [activeConversationIsDm, activeDmMatrixContactId, matrixClient?.dmRoomMap, matrixCredentials?.roomMap, permittedActiveMatrixChannelId]);
 
   const dmMatrixRoomId = useMemo(() => {
     if (!activeDmMatrixContactId || !matrixClient?.dmRoomMap) return null;
@@ -1770,14 +1865,50 @@ function App() {
     });
   }, [dmStore.contacts, matrixClient?.dmRoomMap, unreadTracker]);
 
+  // Every DM contact id that can currently be resolved to a real conversation.
+  //
+  // This is the union of the three sources a DM contact can come from, and it is what
+  // decides whether a persisted DM tab is still valid. `dmStore.contacts` alone is not
+  // enough: it derives its Matrix half from `matrixClient.dmRoomMap`, which is only
+  // republished at Matrix sync `PREPARED` and therefore lags. The server sends the same
+  // map inside the credentials payload (`matrixCredentials.dmRoomMap`) together with the
+  // directory (`brmbleDMUsers`), so folding those two in makes the set complete the
+  // instant `serverDirectoryLoaded` flips, with no window where a valid tab looks dead.
+  const resolvableDmContactIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const contact of dmContactsWithUnreads) ids.add(contact.id);
+    for (const user of brmbleDMUsers) ids.add(user.matrixUserId);
+    for (const matrixUserId of Object.keys(matrixCredentials?.dmRoomMap ?? {})) ids.add(matrixUserId);
+    return ids;
+  }, [dmContactsWithUnreads, brmbleDMUsers, matrixCredentials]);
+
+  // Every conversation that currently owns a tab. A tab owns its own unread badge, so
+  // these conversations are suppressed from the sidebar and the DM contact list.
+  const openConversationKeys = useMemo(
+    () => new Set(workspace.tabs.map(conversationKey)),
+    [workspace.tabs],
+  );
+
+  // The contact list copy goes quiet for contacts that are already open as a tab.
+  // `dmContactsWithUnreads` stays unsuppressed: it feeds the tabs and the aggregates.
+  const sidebarDmContacts = useMemo(() => {
+    const visible = suppressOpenConversations(
+      new Map(dmContactsWithUnreads.map(contact => [contact.id, contact.unreadCount])),
+      openConversationKeys,
+      id => `dm:${id}`,
+    );
+    return dmContactsWithUnreads.map(contact => {
+      const unreadCount = visible.get(contact.id) ?? 0;
+      return unreadCount === contact.unreadCount ? contact : { ...contact, unreadCount };
+    });
+  }, [dmContactsWithUnreads, openConversationKeys]);
+
   const updateBadge = useCallback((unread: number, invite: boolean) => {
     const effectiveUnreadDMs = unread > 0;
     bridge.send('notification.badge', { unreadDMs: effectiveUnreadDMs, pendingInvite: invite });
   }, [bridge]);
 
   // Refs to avoid re-registering bridge handlers on every state change
-  const usersRef = useRef(users);
-  usersRef.current = users;
   const isSharingRef = useRef(false);
   const stopSharingRef = useRef<(() => Promise<void>) | null>(null);
   const previousChannelIdRef = useRef<Map<number, number | undefined>>(new Map());
@@ -1787,6 +1918,10 @@ function App() {
   addMessageRef.current = addMessage;
   const currentChannelIdRef = useRef(currentChannelId);
   currentChannelIdRef.current = currentChannelId;
+  // Ref mirror of the single presence derivation so ref-reading callbacks can use it
+  // without gaining a reactive dependency.
+  const joinedVoiceChannelIdRef = useRef(selfVoiceChannelId);
+  joinedVoiceChannelIdRef.current = selfVoiceChannelId;
   const currentChannelNameRef = useRef(currentChannelName);
   currentChannelNameRef.current = currentChannelName;
   const previousConnectionStatusRef = useRef(connectionStatus);
@@ -1905,12 +2040,10 @@ function App() {
     const maxAttempts = 3;
 
     const attemptFetch = (attempt: number) => {
-      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1, session });
+      fetchedAvatarIdsRef.current.set(matrixUserId, { attempts: attempt + 1 });
       fetchAvatarUrlRef.current(matrixUserId).then((url) => {
         if (url) {
-          setUsers(prev => prev.map(u =>
-            u.session === session ? { ...u, avatarUrl: url } : u
-          ));
+          setAvatar(matrixUserId, url);
           return;
         }
         // Avatar not available yet — schedule retry (e.g. Mumble texture still uploading)
@@ -2159,7 +2292,6 @@ function App() {
       // Registered Mumble users may be placed in their last channel.
       const initialChannelId = d?.channelId ?? 0;
       if (initialChannelId === 0) {
-        setCurrentChannelId('server-root');
         setCurrentChannelName('');
       } else {
         setCurrentChannelId(String(initialChannelId));
@@ -2173,35 +2305,8 @@ function App() {
       if (d?.channels) {
         setChannels(getOrderedChannels(d.channels));
       }
-      if (d?.users) {
-        setUsers(d.users);
-        const selfUser = d.users.find(u => u.self);
-        if (selfUser) {
-          setSelfMuted(selfUser.muted || false);
-          setSelfDeafened(selfUser.deafened || false);
-          setSelfSession(selfUser.session);
-          const capability = matrixCredentialsRef.current?.customCompanions;
-          const storedSelection = capability
-            ? companionForServer(overlaySettingsRef.current, capability.galleryRoomId)
-            : normalizeCompanionId(overlaySettingsRef.current.myCompanion);
-          const desiredSelection = !capability && storedSelection.startsWith('custom:')
-            ? 'floppy'
-            : storedSelection;
-          if (selfUser.companionId && selfUser.companionId !== desiredSelection) {
-            const requestId = ++companionRequestIdRef.current;
-            pendingCompanionRef.current = {
-              requestId,
-            };
-            bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
-          }
-        }
-        // Fetch avatars for users already present at connect time
-        for (const u of d.users) {
-          if (u.matrixUserId && !u.self && !u.avatarUrl) {
-            fetchAvatarForUser(u.session, u.matrixUserId);
-          }
-        }
-      }
+      // Membership no longer rides on voice.connected; it arrives as voice.usersReset,
+      // which fires immediately after this and owns the self-state derivation.
 
       // Persist Mumble registration status to the saved server entry.
       // Password is intentionally omitted here (not stored in localStorage);
@@ -2271,7 +2376,7 @@ function App() {
         updateStatus('voice', { state: 'disconnected', label: undefined });
       }
       setChannels([]);
-      setUsers([]);
+      resetUsers([]);
       setCurrentChannelId(undefined);
       setCurrentChannelName('');
       setSelfMuted(false);
@@ -2294,6 +2399,7 @@ function App() {
       hasMatrixCredentialsForSessionRef.current = false;
       setMatrixCredentials(null);
       setBrmbleDMUsers([]);
+      setServerDirectoryLoaded(false);
       setCurrentUserAvatarUrl(undefined);
       fetchedAvatarIdsRef.current.clear();
       disconnectViewerRef.current?.();
@@ -2311,6 +2417,7 @@ function App() {
 
     const onServerCredentials = (data: unknown) => {
       setConnectionError(null);
+      setServerDirectoryLoaded(true);
       const wrapped = data as { matrix?: MatrixCredentials; userMappings?: Record<string, string> } | undefined;
       const d = wrapped?.matrix;
       if (d?.homeserverUrl && d.accessToken && d.userId && d.roomMap) {
@@ -2537,93 +2644,134 @@ function App() {
       }
     });
 
-    const onVoiceUserJoined = ((data: unknown) => {
-      const d = data as { session: number; name: string; channelId?: number; muted?: boolean; deafened?: boolean; self?: boolean; comment?: string; matrixUserId?: string; certHash?: string; companionId?: CompanionId; isBrmbleClient?: boolean } | undefined;
-      if (d?.session && d.channelId !== undefined) {
-        const previousChannelId = previousChannelIdRef.current.get(d.session);
-        const knownUser = usersRef.current.find(u => u.session === d.session);
-        const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
-        const selfUser = usersRef.current.find(u => u.self);
-        const selfChannelId = selfUser?.channelId;
-        const enteredSelfChannel = !d.self
-          && selfChannelId !== undefined
-          && d.channelId === selfChannelId
-          && lastKnownChannelId !== selfChannelId;
-        
-        setUsers(prev => {
-          const existing = prev.find(u => u.session === d.session);
-          if (existing) {
-            const updatedChannelId = d.channelId !== undefined ? d.channelId : existing.channelId;
-            // Preserve certHash and matrixUserId — don't let falsy updates overwrite valid values
-            const certHash = d.certHash || existing.certHash;
-            const matrixUserId = d.matrixUserId || existing.matrixUserId;
-            // A user state carries no companion for a session the client has no mapping for,
-            // which is not the same as the user having no companion.
-            const companionId = d.companionId ?? existing.companionId;
-            const isBrmbleClient = d.isBrmbleClient !== undefined ? d.isBrmbleClient : existing.isBrmbleClient;
-            return prev.map(u => u.session === d.session ? { ...u, ...d, channelId: updatedChannelId, certHash, matrixUserId, companionId, isBrmbleClient } : u);
-          }
-          return [...prev, d];
-        });
+    /**
+     * Presentation side effects for one changed row: join/mute announcements, avatar fetch and
+     * DM presence. The row itself is applied by the caller; this only reacts to it.
+     *
+     * Must be called BEFORE the row is applied, because it compares against usersRef to decide
+     * what actually changed.
+     */
+    const announceRowChange = (d: User) => {
+      if (!d?.session || d.channelId === undefined) return;
 
-        // Fetch avatar for newly joined user if they have a matrixUserId
-        if (d.matrixUserId && !d.self) {
-          fetchAvatarForUser(d.session, d.matrixUserId);
-        }
+      const previousChannelId = previousChannelIdRef.current.get(d.session);
+      const knownUser = usersRef.current.find(u => u.session === d.session);
+      const lastKnownChannelId = previousChannelId ?? knownUser?.channelId;
+      const selfUser = usersRef.current.find(u => u.self);
+      const selfChannelId = selfUser?.channelId;
+      const enteredSelfChannel = !d.self
+        && selfChannelId !== undefined
+        && d.channelId === selfChannelId
+        && lastKnownChannelId !== selfChannelId;
 
+      // Fetch avatar for newly joined user if they have a matrixUserId
+      if (d.matrixUserId && !d.self) {
+        fetchAvatarForUser(d.session, d.matrixUserId);
+      }
+
+      if (enteredSelfChannel) {
+        speakText(`${d.name} joined`);
+      }
+
+      previousChannelIdRef.current.set(d.session, d.channelId);
+
+      const overlaySettings = overlaySettingsRef.current;
+      if (overlaySettings.overlayEnabled) {
         if (enteredSelfChannel) {
-          speakText(`${d.name} joined`);
-        }
-        
-        previousChannelIdRef.current.set(d.session, d.channelId);
-
-        const overlaySettings = overlaySettingsRef.current;
-        if (overlaySettings.overlayEnabled) {
-          if (enteredSelfChannel) {
+          setOverlaySnapshot((prev) => {
+            const now = Date.now();
+            const next = appendOverlayEvent(
+              prev,
+              createMembershipOverlayEvent({
+                kind: 'user-joined',
+                actorName: d.name,
+                currentChannelId: prev.currentChannelId,
+                eventChannelId: String(d.channelId),
+                timestamp: now,
+              }),
+              overlaySettings,
+            );
+            return resolveFullCompanionDisplay(next, now, overlaySettings);
+          });
+        } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
+          const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
+          if (inSameChannel) {
             setOverlaySnapshot((prev) => {
               const now = Date.now();
               const next = appendOverlayEvent(
                 prev,
                 createMembershipOverlayEvent({
-                  kind: 'user-joined',
+                  kind: d.muted ? 'user-muted' : 'user-unmuted',
                   actorName: d.name,
                   currentChannelId: prev.currentChannelId,
-                  eventChannelId: String(d.channelId),
+                  eventChannelId: String(d.channelId ?? knownUser.channelId),
                   timestamp: now,
                 }),
                 overlaySettings,
               );
               return resolveFullCompanionDisplay(next, now, overlaySettings);
             });
-          } else if (knownUser && knownUser.muted !== undefined && d.muted !== undefined && knownUser.muted !== d.muted) {
-            const inSameChannel = !d.self && selfChannelId !== undefined && (d.channelId ?? knownUser.channelId) === selfChannelId;
-            if (inSameChannel) {
-              setOverlaySnapshot((prev) => {
-                const now = Date.now();
-                const next = appendOverlayEvent(
-                  prev,
-                  createMembershipOverlayEvent({
-                    kind: d.muted ? 'user-muted' : 'user-unmuted',
-                    actorName: d.name,
-                    currentChannelId: prev.currentChannelId,
-                    eventChannelId: String(d.channelId ?? knownUser.channelId),
-                    timestamp: now,
-                  }),
-                  overlaySettings,
-                );
-                return resolveFullCompanionDisplay(next, now, overlaySettings);
-              });
-            }
           }
         }
+      }
 
-        // Update Mumble DM contact session on reconnect
-        if (d.certHash && !d.self) {
-          dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
+      // Update Mumble DM contact session on reconnect
+      if (d.certHash && !d.self) {
+        dmStoreRef.current.updateMumbleSession(d.certHash, d.session, d.name);
+      }
+    };
+
+    /**
+     * Membership replaced wholesale. Owns the self-state derivation that used to hang off
+     * voice.connected, so there is one path by which the list is populated.
+     */
+    const onVoiceUsersReset = ((data: unknown) => {
+      const d = data as { users: User[] } | undefined;
+      if (!d?.users) return;
+
+      resetUsers(d.users);
+
+      const selfUser = d.users.find(u => u.self);
+      if (selfUser) {
+        setSelfMuted(selfUser.muted || false);
+        setSelfDeafened(selfUser.deafened || false);
+        setSelfSession(selfUser.session);
+        const capability = matrixCredentialsRef.current?.customCompanions;
+        const storedSelection = capability
+          ? companionForServer(overlaySettingsRef.current, capability.galleryRoomId)
+          : normalizeCompanionId(overlaySettingsRef.current.myCompanion);
+        const desiredSelection = !capability && storedSelection.startsWith('custom:')
+          ? 'floppy'
+          : storedSelection;
+        if (selfUser.companionId && selfUser.companionId !== desiredSelection) {
+          const requestId = ++companionRequestIdRef.current;
+          pendingCompanionRef.current = { requestId };
+          bridge.send('voice.setCompanion', { companionId: desiredSelection, requestId });
         }
+      }
 
+      for (const u of d.users) {
+        if (u.matrixUserId && !u.self) {
+          fetchAvatarForUser(u.session, u.matrixUserId);
+        }
+        if (u.channelId !== undefined) previousChannelIdRef.current.set(u.session, u.channelId);
       }
     });
+
+    /**
+     * The only incremental user-state event. Rows are complete, so they replace by session id;
+     * announcements run first, while usersRef still holds the previous state.
+     */
+    const onVoiceUsersChanged = ((data: unknown) => {
+      const d = data as { changed: User[]; removed: number[] } | undefined;
+      if (!d) return;
+
+      for (const row of d.changed ?? []) announceRowChange(row);
+      for (const session of d.removed ?? []) previousChannelIdRef.current.delete(session);
+
+      applyUsers({ changed: d.changed ?? [], removed: d.removed ?? [] });
+    });
+
 
     const onVoiceChannelJoined = ((data: unknown) => {
       const d = data as Channel | undefined;
@@ -2650,6 +2798,15 @@ function App() {
       clearPendingJoinAttempt();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
+        if (
+          activePaintSessionIdRef.current !== null
+          && activePaintChannelIdRef.current !== d.channelId
+        ) {
+          activePaintSessionIdRef.current = null;
+          activePaintChannelIdRef.current = null;
+          setActivePaintSessionId(null);
+        }
+
         const computedWasSharing = shouldTreatMoveAsSharingRelated({
           isSharing: isSharingRef.current || wasLocalShareRecentlyActiveRef.current,
           isLocalShareStartPending: isLocalShareStartPendingRef.current,
@@ -2705,7 +2862,6 @@ function App() {
         }
 
         if (d.channelId === 0) {
-          setCurrentChannelId('server-root');
           setCurrentChannelName('');
         } else {
           setCurrentChannelId(String(d.channelId));
@@ -2763,7 +2919,8 @@ function App() {
           });
         }
 
-        setUsers(prev => prev.filter(u => u.session !== d.session));
+        // No list mutation: voice.userLeft is presentation only. The row is removed by the
+        // removed[] entry in voice.usersChanged, which is the sole owner of membership.
       }
     });
 
@@ -2887,21 +3044,11 @@ function App() {
       }
     });
 
-    const onVoiceUserCommentChanged = ((data: unknown) => {
-      const d = data as { session: number; comment?: string } | undefined;
-      if (d?.session !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.session ? { ...u, comment: d.comment } : u
-        ));
-      }
-    });
-
     // Map shortcut action names to UserPanel button names
     const ACTION_TO_BTN: Record<string, string> = {
       toggleMute: 'mute',
       toggleMuteDeafen: 'deaf',
       toggleLeaveVoice: 'leave',
-      toggleDmScreen: 'dm',
       toggleScreenShare: 'screen',
     };
 
@@ -2918,12 +3065,6 @@ function App() {
       if (d?.action) {
         const btn = ACTION_TO_BTN[d.action];
         if (btn) setHotkeyPressedBtn(prev => prev === btn ? null : prev);
-      }
-    };
-
-    const onToggleDmScreen = () => {
-      if (connectionStatusRef.current === 'connected') {
-        toggleMessagesPanel();
       }
     };
 
@@ -3041,7 +3182,7 @@ function App() {
       setServerAddress('');
       setServerLabel('');
       setChannels([]);
-      setUsers([]);
+      resetUsers([]);
       setCurrentChannelId(undefined);
       setCurrentChannelName('');
       setSelfMuted(false);
@@ -3051,58 +3192,6 @@ function App() {
       setSelfSession(0);
       setSpeakingUsers(new Map());
       setCurrentUserAvatarUrl(undefined);
-    };
-
-    const onUserMappingUpdated = (data: unknown) => {
-      const d = data as { sessionId: number; matrixUserId?: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean; action: string } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId
-            ? {
-              ...u,
-              matrixUserId: d.action === 'added' ? d.matrixUserId : undefined,
-              companionId: d.action === 'added' ? (d.companionId ?? u.companionId) : u.companionId,
-              certHash: d.action === 'added' ? (d.certHash ?? u.certHash) : u.certHash,
-              isBrmbleClient: d.action === 'added' ? d.isBrmbleClient : undefined,
-            }
-            : u
-        ));
-        // Fetch avatar for the newly mapped user if they don't have one yet
-        if (d.action === 'added' && d.matrixUserId) {
-          fetchAvatarForUser(d.sessionId, d.matrixUserId);
-        }
-      }
-    };
-
-    const onSessionMappingSnapshot = (data: unknown) => {
-      const d = data as { mappings: Record<string, { matrixUserId: string; mumbleName: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }> } | undefined;
-      if (d?.mappings && typeof d.mappings === 'object') {
-        setUsers(prev => {
-          const mappingMap = new Map<number, { matrixUserId: string; companionId?: CompanionId; certHash?: string; isBrmbleClient?: boolean }>();
-          for (const [sid, entry] of Object.entries(d.mappings)) {
-            mappingMap.set(Number(sid), { matrixUserId: entry.matrixUserId, companionId: entry.companionId, certHash: entry.certHash, isBrmbleClient: entry.isBrmbleClient });
-          }
-          return prev.map(u => {
-            const m = mappingMap.get(u.session);
-            return m ? { ...u, matrixUserId: m.matrixUserId, companionId: m.companionId ?? u.companionId, certHash: m.certHash ?? u.certHash, isBrmbleClient: m.isBrmbleClient } : u;
-          });
-        });
-        // Fetch avatars for users that gained a matrixUserId
-        for (const [sid, entry] of Object.entries(d.mappings)) {
-          fetchAvatarForUser(Number(sid), entry.matrixUserId);
-        }
-      }
-    };
-
-    const onVoiceCompanionChanged = (data: unknown) => {
-      const d = data as {
-        session?: number;
-        companionId?: unknown;
-        customCompanionId?: unknown;
-      } | undefined;
-      if (d?.session === undefined) return;
-      const companionId = normalizeCompanionBridgeSelection(d);
-      setUsers(prev => prev.map(u => u.session === d.session ? { ...u, companionId } : u));
     };
 
     const onVoiceSetCompanionResponse = (data: unknown) => {
@@ -3128,24 +3217,6 @@ function App() {
       }
       setConnectionError(d?.error ?? 'Failed to sync companion');
       notifQueue.register('companion-sync-error', 'error');
-    };
-
-    const onBrmbleClientActivated = (data: unknown) => {
-      const d = data as { sessionId: number } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId ? { ...u, isBrmbleClient: true } : u
-        ));
-      }
-    };
-
-    const onBrmbleClientDeactivated = (data: unknown) => {
-      const d = data as { sessionId: number } | undefined;
-      if (d?.sessionId !== undefined) {
-        setUsers(prev => prev.map(u =>
-          u.session === d.sessionId ? { ...u, isBrmbleClient: false } : u
-        ));
-      }
     };
 
     const onRegistrationStatus = (data: unknown) => {
@@ -3209,7 +3280,8 @@ function App() {
     bridge.on('voice.message', onVoiceMessage);
     bridge.on('voice.system', onVoiceSystem);
     bridge.on('game.feed', onGameFeed);
-    bridge.on('voice.userJoined', onVoiceUserJoined);
+    bridge.on('voice.usersReset', onVoiceUsersReset);
+    bridge.on('voice.usersChanged', onVoiceUsersChanged);
     bridge.on('voice.channelJoined', onVoiceChannelJoined);
     bridge.on('voice.channelRemoved', onVoiceChannelRemoved);
     bridge.on('voice.userLeft', onVoiceUserLeft);
@@ -3221,10 +3293,8 @@ function App() {
     bridge.on('voice.userSpeaking', onVoiceUserSpeaking);
     bridge.on('voice.userSilent', onVoiceUserSilent);
     bridge.on('voice.moderation', onVoiceModeration);
-    bridge.on('voice.userCommentChanged', onVoiceUserCommentChanged);
     bridge.on('voice.shortcutPressed', onShortcutPressed);
     bridge.on('voice.shortcutReleased', onShortcutReleased);
-    bridge.on('voice.toggleDmScreen', onToggleDmScreen);
     bridge.on('voice.toggleScreenShare', onToggleScreenShare);
     bridge.on('game.toggle', onToggleGame);
     bridge.on('window.showCloseDialog', onShowCloseDialog);
@@ -3264,12 +3334,7 @@ function App() {
     bridge.on('voice.reconnectFailed', onVoiceReconnectFailed);
     bridge.on('server.credentials', onServerCredentials);
     bridge.on('voice.authError', onVoiceAuthError);
-    bridge.on('voice.userMappingUpdated', onUserMappingUpdated);
-    bridge.on('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
-    bridge.on('voice.companionChanged', onVoiceCompanionChanged);
     bridge.on('voice.setCompanionResponse', onVoiceSetCompanionResponse);
-    bridge.on('voice.brmbleClientActivated', onBrmbleClientActivated);
-    bridge.on('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
     bridge.on('voice.registrationStatus', onRegistrationStatus);
     bridge.on('chat.channelAccess', onChatChannelAccess);
     bridge.on('chat.channelAccessError', onChatChannelAccessError);
@@ -3299,7 +3364,8 @@ function App() {
       bridge.off('voice.message', onVoiceMessage);
       bridge.off('voice.system', onVoiceSystem);
       bridge.off('game.feed', onGameFeed);
-      bridge.off('voice.userJoined', onVoiceUserJoined);
+      bridge.off('voice.usersReset', onVoiceUsersReset);
+      bridge.off('voice.usersChanged', onVoiceUsersChanged);
       bridge.off('voice.channelJoined', onVoiceChannelJoined);
       bridge.off('voice.channelRemoved', onVoiceChannelRemoved);
       bridge.off('voice.userLeft', onVoiceUserLeft);
@@ -3311,11 +3377,9 @@ function App() {
       bridge.off('voice.userSpeaking', onVoiceUserSpeaking);
       bridge.off('voice.userSilent', onVoiceUserSilent);
       bridge.off('voice.moderation', onVoiceModeration);
-      bridge.off('voice.userCommentChanged', onVoiceUserCommentChanged);
       bridge.off('voice.loss', onVoiceLoss);
       bridge.off('voice.shortcutPressed', onShortcutPressed);
       bridge.off('voice.shortcutReleased', onShortcutReleased);
-      bridge.off('voice.toggleDmScreen', onToggleDmScreen);
       bridge.off('voice.toggleScreenShare', onToggleScreenShare);
       bridge.off('game.toggle', onToggleGame);
       bridge.off('window.showCloseDialog', onShowCloseDialog);
@@ -3331,12 +3395,7 @@ function App() {
       bridge.off('voice.reconnectFailed', onVoiceReconnectFailed);
       bridge.off('server.credentials', onServerCredentials);
       bridge.off('voice.authError', onVoiceAuthError);
-      bridge.off('voice.userMappingUpdated', onUserMappingUpdated);
-      bridge.off('voice.sessionMappingSnapshot', onSessionMappingSnapshot);
-      bridge.off('voice.companionChanged', onVoiceCompanionChanged);
       bridge.off('voice.setCompanionResponse', onVoiceSetCompanionResponse);
-      bridge.off('voice.brmbleClientActivated', onBrmbleClientActivated);
-      bridge.off('voice.brmbleClientDeactivated', onBrmbleClientDeactivated);
       bridge.off('voice.registrationStatus', onRegistrationStatus);
       bridge.off('chat.channelAccess', onChatChannelAccess);
       bridge.off('chat.channelAccessError', onChatChannelAccessError);
@@ -3447,8 +3506,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleJoinChannel = async (channelId: number) => {
-    const selfVoiceChannelId = users.find(u => u.self)?.channelId;
-    if (selfVoiceChannelId === channelId) {
+    if (joinedChannelId === String(channelId)) {
       return;
     }
     const channel = channels.find(c => c.id === channelId);
@@ -3506,14 +3564,16 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleSelectChannel = (channelId: number) => {
-    const selection = getChannelSelectionOutcome(channelId, channels, isDmMode ? 'dm' : 'channels');
+    const selection = getChannelSelectionOutcome(channelId, channels, activeConversationIsDm ? 'dm' : 'channels');
     if (selection) {
       setCurrentChannelId(selection.channelId);
       setCurrentChannelName(selection.channelName);
       setUnreadCount(0);
-      setShowGame(false);
 
-      dispatchWorkspace({ type: 'SELECT_CHANNEL' });
+      dispatchWorkspace({
+        type: 'OPEN_CONVERSATION',
+        conversation: { kind: 'channel', channelId: selection.channelId },
+      });
 
       if (!selection.canOpenChat) return;
     }
@@ -3522,13 +3582,18 @@ const handleConnect = (serverData: SavedServer) => {
   const handleSelectServer = () => {
     setCurrentChannelId('server-root');
     setCurrentChannelName(serverLabel || 'Server');
-    dispatchWorkspace({ type: 'SELECT_CHANNEL' });
+    dispatchWorkspace({
+      type: 'OPEN_CONVERSATION',
+      conversation: { kind: 'channel', channelId: 'server-root' },
+    });
   };
 
   const handleSendMessage = async (content: string, image?: File) => {
     if (!username || (!content && !image)) return;
 
-    const channelId = currentChannelId;
+    // Send to the conversation on screen, which is the active tab — the same id the
+    // composer's enabled state and the rendered history were derived from.
+    const channelId = activeChatChannelId;
     if (!channelId) return;
     if (!shouldAllowChannelChatSend(channelId, channelsRef.current, statusesRef.current, brmbleServiceBootstrapPhase)) {
       return;
@@ -3659,20 +3724,22 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [matrixClient]);
 
+  // Defence in depth alongside the selection sync above: the reaction target is read from
+  // the ACTIVE TAB, so it cannot land on another conversation even for the one render
+  // before the sync effect has flushed.
   const handleToggleDmReaction = useCallback(async (
     _chatPanelChannelId: string,
     messageId: string,
     emoji: string,
     isCurrentlyReacted: boolean,
   ) => {
-    const selectedContactId = dmStore.selectedContact?.id;
-    if (!selectedContactId) return;
+    if (!activeDmContactId) return;
     if (isCurrentlyReacted) {
-      await matrixClient.removeReaction(selectedContactId, messageId, emoji);
+      await matrixClient.removeReaction(activeDmContactId, messageId, emoji);
     } else {
-      await matrixClient.sendReaction(selectedContactId, messageId, emoji);
+      await matrixClient.sendReaction(activeDmContactId, messageId, emoji);
     }
-  }, [dmStore.selectedContact?.id, matrixClient]);
+  }, [activeDmContactId, matrixClient]);
 
   const handleDisconnect = async () => {
     await runIntentionalDisconnect({
@@ -3716,7 +3783,7 @@ const handleConnect = (serverData: SavedServer) => {
         setServerAddress('');
         setUsername('');
         setChannels([]);
-        setUsers([]);
+        resetUsers([]);
         setCurrentChannelId(undefined);
         setCurrentChannelName('');
         setSelfMuted(false);
@@ -3739,6 +3806,7 @@ const handleConnect = (serverData: SavedServer) => {
         hasMatrixCredentialsForSessionRef.current = false;
         setMatrixCredentials(null);
         setBrmbleDMUsers([]);
+        setServerDirectoryLoaded(false);
         setSharingChannelId(undefined);
       },
     });
@@ -3832,17 +3900,17 @@ const handleConnect = (serverData: SavedServer) => {
     if (user?.isBrmbleClient && user.matrixUserId) {
       // Brmble client → Matrix DM (persistent)
       dmStore.startDM(user.matrixUserId, userName, user.avatarUrl);
-      dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
+      dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.matrixUserId } });
     } else if (user?.certHash) {
       // Mumble client (even if Brmble-registered) → Mumble DM (ephemeral)
       // Check for existing ephemeral contact first
       const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user.certHash);
       if (existingMumbleContact) {
         dmStore.selectContact(existingMumbleContact.id);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: existingMumbleContact.id } });
       } else {
         dmStore.startMumbleDM(user.certHash, user.session, userName);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.certHash } });
       }
     } else {
       console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3859,15 +3927,15 @@ const handleConnect = (serverData: SavedServer) => {
     if (user) {
       if (user.isBrmbleClient && user.matrixUserId) {
         dmStore.startDM(user.matrixUserId, sender, user.avatarUrl);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: user.matrixUserId });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.matrixUserId } });
       } else if (user.certHash) {
         const existingMumbleContact = dmStore.contacts.find(c => c.isEphemeral && c.mumbleCertHash === user!.certHash);
         if (existingMumbleContact) {
           dmStore.selectContact(existingMumbleContact.id);
-          dispatchWorkspace({ type: 'SELECT_DM', contactId: existingMumbleContact.id });
+          dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: existingMumbleContact.id } });
         } else {
           dmStore.startMumbleDM(user.certHash, user.session, sender);
-          dispatchWorkspace({ type: 'SELECT_DM', contactId: user.certHash });
+          dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: user.certHash } });
         }
       } else {
         console.warn('[DM] Cannot start DM: user has no certHash');
@@ -3876,7 +3944,7 @@ const handleConnect = (serverData: SavedServer) => {
       // Fallback: try starting DM by matrixUserId directly for users not in the users list
       if (senderMatrixUserId) {
         dmStore.startDM(senderMatrixUserId, sender, undefined);
-        dispatchWorkspace({ type: 'SELECT_DM', contactId: senderMatrixUserId });
+        dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: senderMatrixUserId } });
       } else {
         console.warn('[DM] Cannot start DM: user not found');
       }
@@ -3906,12 +3974,16 @@ const handleConnect = (serverData: SavedServer) => {
     brmbleServicesConnectedOnceRef.current,
   );
   const brmbleServiceChatNotice = getBrmbleServiceChatNotice(activeChannelId, statuses, brmbleServiceBootstrapPhase);
-  const canOpenActiveChannelChat = canOpenChannelChat(activeChannelId, channels);
-  const canSendActiveChannelChat = canSendToChannelChat(activeChannelId, channels)
-    || isTemporaryChannelChatActive(activeChannelId, statuses, brmbleServiceBootstrapPhase);
-  const channelChatAccessNotice = activeChannelId && activeChannelId !== 'server-root' && !canOpenActiveChannelChat
+  // Permissions read the FULL chat id, including 'server-root': the root chat is
+  // local-only but every user may read and write it. Collapsing root to undefined here
+  // made canOpen/canSend both false, which emptied the root history and disabled the
+  // composer (it falls back to the "User is offline" placeholder when disabled).
+  const canOpenActiveChannelChat = canOpenChannelChat(activeChatChannelId, channels);
+  const canSendActiveChannelChat = canSendToChannelChat(activeChatChannelId, channels)
+    || isTemporaryChannelChatActive(activeChatChannelId, statuses, brmbleServiceBootstrapPhase);
+  const channelChatAccessNotice = activeChatChannelId && activeChatChannelId !== 'server-root' && !canOpenActiveChannelChat
     ? 'You do not have access to this channel chat.'
-    : activeChannelId && activeChannelId !== 'server-root' && !canSendActiveChannelChat
+    : activeChatChannelId && activeChatChannelId !== 'server-root' && !canSendActiveChannelChat
       ? 'You can read this channel chat, but cannot send messages.'
       : undefined;
   const matrixMessages = activeChannelId
@@ -3934,10 +4006,10 @@ const handleConnect = (serverData: SavedServer) => {
         : messages;
       return [
         ...base,
-        ...optimisticImages.filter(m => m.channelId === currentChannelId),
+        ...optimisticImages.filter(m => m.channelId === activeChatChannelId),
       ];
     },
-    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, currentChannelId],
+    [canOpenActiveChannelChat, isMatrixActive, matrixMessages, messages, optimisticImages, activeChatChannelId],
   );
 
   const { Prompt, PromptWithInput } = usePrompt();
@@ -4081,7 +4153,7 @@ const handleConnect = (serverData: SavedServer) => {
     setWatchedShareEndedNotifications(prev => [...prev, notification]);
   }, []);
 
-  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, remoteWatchCount, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, handleScreenShareServiceUnavailable } = useScreenShare(() => {
+  const { isSharing, startSharing, stopSharing, markLocalShareTeardownIntent, error: screenShareError, activeShare, activeShares, watchingShares, pendingViewerShares, focusedShare, setFocusedShare, setDiscoveryTarget, remoteVideoEls, roomQuality, shareQualities, viewerQualities, setViewerQuality, disconnectViewer, connectAsViewer, isViewerConnectPending, setRemoteScreenSharesHidden, handleScreenShareServiceUnavailable } = useScreenShare(() => {
     setSharingChannelId(undefined);
     sharingChannelIdRef.current = undefined;
   }, screenShareSettings, handleLocalScreenShareEnded, handleWatchedShareEnded);
@@ -4091,22 +4163,18 @@ const handleConnect = (serverData: SavedServer) => {
   handleScreenShareServiceUnavailableRef.current = handleScreenShareServiceUnavailable;
 
   const hasPendingViewerShares = pendingViewerShares.length > 0;
+  const handleCloseWatchedShare = useCallback(
+    (share: ShareInfo) => disconnectViewer(share.userId),
+    [disconnectViewer],
+  );
+  // ChatPanel keeps only what the detached `'new-window'` overlay needs; the in-app
+  // viewer lives in the channel activity region.
   const screenShareViewerProps = {
     watchingShares,
-    focusedShare,
     remoteVideoEls,
-    roomQuality,
-    shareQualities,
-    viewerQualities,
-    onFocusShare: setFocusedShare,
-    onCloseShare: (share: ShareInfo) => disconnectViewer(share.userId),
-    onViewerQualityChange: setViewerQuality,
+    onCloseShare: handleCloseWatchedShare,
     screenShareViewerMode: screenShareSettings.viewerMode,
   };
-
-  useEffect(() => {
-    dispatchWorkspace({ type: 'REMOTE_WATCH_COUNT_CHANGED', count: remoteWatchCount });
-  }, [remoteWatchCount]);
 
   const handleLiveCompanionChange = useCallback((
     nextCompanion: CompanionSelection,
@@ -4395,6 +4463,13 @@ const handleConnect = (serverData: SavedServer) => {
     return map;
   }, [channels, matrixCredentials?.roomMap, unreadTracker.roomUnreads]);
 
+  // The sidebar copy goes quiet for channels that are already open as a tab.
+  // `channelUnreads` stays unsuppressed: it feeds the tabs and the aggregates.
+  const sidebarChannelUnreads = useMemo(
+    () => suppressOpenConversations(channelUnreads, openConversationKeys, id => `channel:${id}`),
+    [channelUnreads, openConversationKeys],
+  );
+
   useEffect(() => {
     if (screenShareError) {
       console.error('Screen share error:', screenShareError);
@@ -4417,7 +4492,6 @@ const handleConnect = (serverData: SavedServer) => {
     }
   }, [isSharing, watchingShares.length, screenShareError, isLocalShareStartPending, isViewerConnectPending, hasPendingViewerShares, updateStatus]);
 
-  const selfVoiceChannelId = users.find(u => u.self)?.channelId;
   const canScreenShare = connected && !selfLeftVoice && (selfVoiceChannelId ?? 0) !== 0;
 
   useEffect(() => {
@@ -4449,7 +4523,8 @@ const handleConnect = (serverData: SavedServer) => {
     const onRemoteShareStarted = (data: unknown) => {
       const d = data as { roomName: string; userName: string; userId?: number; matrixUserId?: string; sessionId?: number };
       const selfUser = usersRef.current.find(u => u.self);
-      const voiceChannelId = selfUser?.channelId;
+      // Keyed to presence, exactly like the watch gate and the publish gate.
+      const joinedChannelId = selectJoinedChannelId(usersRef.current);
       // Only show notification for other users' shares in our channel.
       // Prefer the session id to identify self; when the server payload omits
       // it, fall back to matching the Matrix identity so the broadcaster does
@@ -4460,8 +4535,7 @@ const handleConnect = (serverData: SavedServer) => {
         ? d.sessionId === selfUser.session
         : (selfMatrixUserId != null && d.matrixUserId != null && d.matrixUserId === selfMatrixUserId);
       if (
-        voiceChannelId != null &&
-        d.roomName === `channel-${voiceChannelId}` &&
+        activityChannelMatchesPresence(joinedChannelId, parseChannelActivityRoomName(d.roomName)) &&
         !isSelfShare &&
         shouldShowOptionalNotification(optionalNotificationSettingsRef.current, 'notificationRemoteScreenShare')
       ) {
@@ -4497,14 +4571,17 @@ const handleConnect = (serverData: SavedServer) => {
       return;
     }
 
-    setDiscoveryTarget({ roomName: `channel-${channelId}`, requestId });
-    bridge.send('livekit.checkActiveShare', { roomName: `channel-${channelId}`, requestId });
+    const roomName = channelActivityRoomName(channelId);
+    setDiscoveryTarget({ roomName, requestId });
+    bridge.send('livekit.checkActiveShare', { roomName, requestId });
   }, [setDiscoveryTarget]);
 
   requestActiveShareDiscoveryRef.current = requestActiveShareDiscovery;
 
-  // Check for active screen shares when switching channels.
-  // Depends ONLY on currentChannelId: the other collaborators (notifQueue and
+  // Check for active screen shares when the user's presence moves.
+  // Discovery follows the JOINED channel, not the browsed one, so that browsing
+  // elsewhere never tears down or hides your own channel's share.
+  // Depends ONLY on joinedChannelId: the other collaborators (notifQueue and
   // requestActiveShareDiscovery) are accessed via refs so their
   // identity churn — notably notifQueue changing on every register/unregister —
   // does not re-run this effect and wipe a freshly shown screen-share
@@ -4512,18 +4589,92 @@ const handleConnect = (serverData: SavedServer) => {
   useEffect(() => {
     setScreenShareNotification(null);
     notifQueueRef.current.unregister('screen-share');
-    requestActiveShareDiscoveryRef.current?.(currentChannelId);
+    requestActiveShareDiscoveryRef.current?.(joinedChannelId ?? undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentChannelId]);
+  }, [joinedChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousWorkspaceConnectionStatusRef.current;
     previousWorkspaceConnectionStatusRef.current = connectionStatus;
 
     if (connectionStatus === 'connected' && previousConnectionStatus !== 'connected') {
-      dispatchWorkspace({ type: 'CONNECTION_WORKSPACE_READY' });
+      dispatchWorkspace({ type: 'WORKSPACE_RESET' });
     }
   }, [connectionStatus]);
+
+  // Presence is the single source of truth for the home tab.
+  useEffect(() => {
+    dispatchWorkspace({ type: 'JOINED_CHANNEL_CHANGED', channelId: joinedChannelId });
+  }, [joinedChannelId]);
+
+  // Restore persisted tabs exactly once per connection, and only once the channel
+  // roster, our own presence and the server directory have all arrived — restoring
+  // earlier would reject every channel tab as unknown and leave a restored tab active
+  // instead of the joined channel, and would reject every DM tab as unresolvable
+  // because DM identity data arrives on `server.credentials`, independently of voice.
+  const restoredForServerRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!connected || !serverAddress) {
+      restoredForServerRef.current = null;
+      return;
+    }
+    if (channels.length === 0 || joinedChannelId === null) return;
+    if (!serverDirectoryLoaded) return;
+    if (restoredForServerRef.current === serverAddress) return;
+    restoredForServerRef.current = serverAddress;
+    const restored = loadConversationTabs(serverAddress, conversation => {
+      // A persisted tab for a contact this server can no longer resolve is invalid:
+      // it would render with a raw Matrix id for a label and no conversation behind it.
+      if (conversation.kind === 'dm') return resolvableDmContactIds.has(conversation.contactId);
+      // A persisted tab for a channel this server no longer has is invalid. This is
+      // stricter than `canOpenChannelChat`, which deliberately treats an unknown
+      // channel as permitted for legacy servers that omit the flag.
+      if (conversation.channelId !== 'server-root'
+        && !channels.some(channel => String(channel.id) === conversation.channelId)) return false;
+      return canOpenChannelChat(conversation.channelId, channels);
+    });
+    dispatchWorkspace({ type: 'RESTORE_CONVERSATIONS', conversations: restored });
+  }, [connected, serverAddress, channels, joinedChannelId, serverDirectoryLoaded, resolvableDmContactIds]);
+
+  // Safety net for DM tabs that stop resolving after the restore — a contact removed
+  // from the directory mid-session, or a tab persisted by an older build that never
+  // validated DM tabs at all. Gated on the same `serverDirectoryLoaded` signal as the
+  // restore, so it can never fire while DM identity data is still in flight.
+  useEffect(() => {
+    if (!connected || !serverAddress) return;
+    if (!serverDirectoryLoaded) return;
+    if (restoredForServerRef.current !== serverAddress) return;
+    for (const tab of workspace.tabs) {
+      if (tab.kind !== 'dm') continue;
+      if (resolvableDmContactIds.has(tab.contactId)) continue;
+      dispatchWorkspace({ type: 'CONVERSATION_INVALIDATED', key: conversationKey(tab) });
+    }
+  }, [connected, serverAddress, serverDirectoryLoaded, resolvableDmContactIds, workspace.tabs]);
+
+
+  // The home tab follows presence, so it is never persisted.
+  useEffect(() => {
+    if (!connected || !serverAddress) return;
+    if (restoredForServerRef.current !== serverAddress) return;
+    const homeKey = selectHomeKey(workspace);
+    saveConversationTabs(serverAddress, workspace.tabs.filter(tab => conversationKey(tab) !== homeKey));
+  }, [connected, serverAddress, workspace.tabs, workspace.joinedChannelId]);
+
+  // The conversation region no longer reads `currentChannelId` — it is driven by
+  // `activeChatChannelId` directly. This mirror survives for the remaining consumers that
+  // still track "which channel chat is on screen" through the legacy state: the sidebar
+  // highlight, the server-chat flag and screen-share discovery.
+  // Only *transitions* of the active channel tab are mirrored: the voice handlers still
+  // write `currentChannelId` directly, and re-asserting the tab value on every render
+  // would fight them and fire the channel-change effects twice.
+  const mirroredChannelChatIdRef = useRef(activeChatChannelId);
+  useEffect(() => {
+    const previous = mirroredChannelChatIdRef.current;
+    mirroredChannelChatIdRef.current = activeChatChannelId;
+    if (activeChatChannelId === undefined || activeChatChannelId === previous) return;
+    if (activeChatChannelId === currentChannelIdRef.current) return;
+    setCurrentChannelId(activeChatChannelId);
+  }, [activeChatChannelId, setCurrentChannelId]);
 
   useEffect(() => {
     const previousConnectionStatus = previousConnectionStatusRef.current;
@@ -4545,12 +4696,12 @@ const handleConnect = (serverData: SavedServer) => {
   }, [currentChannelId]);
 
   const handleToggleScreenShare = useCallback(async () => {
-    const selfUser = usersRef.current.find(u => u.self);
+    const joinedVoiceChannelId = joinedVoiceChannelIdRef.current;
     const canUseScreenshare = effectiveLiveKitStateRef.current === 'connected';
-    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && selfUser?.channelId != null && selfUser.channelId !== 0;
+    const shouldStartSharing = !isSharing && canUseScreenshare && !selfLeftVoice && joinedVoiceChannelId != null && joinedVoiceChannelId !== 0;
     const sharingState = isSharing ? 'sharing' : 'notSharing';
     const leftVoiceState = selfLeftVoice ? 'leftVoice' : 'inVoice';
-    const channelState = selfUser?.channelId == null ? 'noSelfChannel' : `channel-${selfUser.channelId}`;
+    const channelState = joinedVoiceChannelId == null ? 'noSelfChannel' : `channel-${joinedVoiceChannelId}`;
     const actionState = shouldStartSharing ? 'canStart' : 'blocked';
 
     try {
@@ -4572,7 +4723,7 @@ const handleConnect = (serverData: SavedServer) => {
     await toggleLocalScreenShare({
       isSharing,
       selfLeftVoice,
-      voiceChannelId: selfUser?.channelId,
+      voiceChannelId: joinedVoiceChannelId,
       liveKitState: liveKitStateRef.current,
       startSharing,
       stopSharing,
@@ -4603,7 +4754,7 @@ const handleConnect = (serverData: SavedServer) => {
       ?? null;
     const actualRoomName = share?.roomName ?? roomName;
 
-    if (!canWatchShareFromChannel(currentChannelId, actualRoomName)) {
+    if (!canWatchShareFromChannel(joinedChannelId, actualRoomName)) {
       return;
     }
 
@@ -4611,7 +4762,7 @@ const handleConnect = (serverData: SavedServer) => {
     void Promise.resolve(connectAsViewer(actualRoomName, userId, matrixUserId ?? share?.matrixUserId)).catch(err => {
       updateStatus('livekit', { state: 'disconnected', error: err instanceof Error ? err.message : 'Failed to connect as viewer' });
     });
-  }, [activeShares, connectAsViewer, currentChannelId, updateStatus]);
+  }, [activeShares, connectAsViewer, joinedChannelId, updateStatus]);
 
   // Track which channel/DM was last opened so we only snapshot + mark-read on actual switches.
   const prevChannelIdRef = useRef<string | undefined>(undefined);
@@ -4681,7 +4832,7 @@ const handleConnect = (serverData: SavedServer) => {
       prevDMUserIdRef.current = selectedId;
     }
 
-    if (!selectedId || !foregroundDmContact) {
+    if (!selectedId || !activeDmContact) {
       if (dmChanged) setDmDividerTs(null);
       return;
     }
@@ -4725,9 +4876,11 @@ const handleConnect = (serverData: SavedServer) => {
         return markerTs;
       });
     }
-  }, [activeDmMatrixContactId, foregroundDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
+  }, [activeDmMatrixContactId, activeDmContact, unreadTracker.roomUnreads, matrixClient.client, unreadTracker, matrixClient?.dmRoomMap]);
 
-  const paintChannelId = selfVoiceChannelId && selfVoiceChannelId !== 0 ? selfVoiceChannelId : null;
+  const paintChannelId = typeof paintVoiceChannelId === 'number'
+    ? paintVoiceChannelId
+    : null;
   const paintChannelRoomId = paintChannelId === null ? null : matrixCredentials?.roomMap?.[String(paintChannelId)] ?? null;
   const canStartPaint = connected && paintChannelId !== null && paintChannelRoomId !== null && matrixClient.client !== null;
   const canStartPaintRef = useRef(false);
@@ -4807,26 +4960,375 @@ const handleConnect = (serverData: SavedServer) => {
     },
     [isCurrentPaintPreparation, notifQueue],
   );
-  const paintCandidates = paintChannelId === null
-    ? []
-    : users
-      .filter(user => user.channelId === paintChannelId && !user.self)
-      .map(user => ({ userId: user.session, name: user.name }));
   const handleJoinPaint = useCallback(async (sessionId: string) => {
     await paintApi.join(sessionId);
   }, []);
   const handleOpenPaint = useCallback((sessionId: string) => {
+    if (paintVoiceChannelId == null) return;
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = currentChannelId;
+    activePaintChannelIdRef.current = paintVoiceChannelId;
     activePaintSessionIdRef.current = sessionId;
     setActivePaintSessionId(sessionId);
-  }, [currentChannelId, invalidatePaintPreparation]);
+  }, [invalidatePaintPreparation, paintVoiceChannelId]);
   const handleClosePaint = useCallback(() => {
     invalidatePaintPreparation();
-    activePaintChannelIdRef.current = undefined;
+    activePaintChannelIdRef.current = null;
     activePaintSessionIdRef.current = null;
     setActivePaintSessionId(null);
   }, [invalidatePaintPreparation]);
+
+  // A game the local player is participating in — or the result of the one that just
+  // finished — owns the whole main panel; it is not a dialog. The idle NeonD game does
+  // the same. `activeMatch` becomes null on `game.ended`, and `ended` is cleared by
+  // dismissing the result, so the panel returns to `split` on its own with no exit effect.
+  const participatingMatchId = gameState.activeMatch
+    ? String(gameState.activeMatch.matchId)
+    : gameState.ended
+      ? String(gameState.ended.matchId)
+      : null;
+  const mainPanelMode = selectMainPanelMode({ idleGameOpen: showGame, participatingMatchId });
+
+  // The activity region is scoped to the channel the user is *in*, not the one being
+  // browsed, so its label follows presence.
+  const joinedChannelName = useMemo(
+    () => channels.find(channel => String(channel.id) === joinedChannelId)?.name ?? '',
+    [channels, joinedChannelId],
+  );
+  // Availability is a LOGICAL question, so it reads the watched list only. It must not
+  // depend on `remoteVideoEls`: hiding a share past the grace period deliberately empties
+  // that map (useScreenShare.ts), and deriving the chip from it made hiding erase the
+  // only route back to the share. ScreenShareGrid already renders nothing for a share
+  // with no element yet, so the stage stays blank rather than disappearing.
+  const hasWatchableShare = screenShareSettings.viewerMode === 'in-app'
+    && watchingShares.length > 0;
+  const availableActivities = useMemo<ChannelActivityKind[]>(() => {
+    const kinds: ChannelActivityKind[] = [];
+    if (hasWatchableShare) kinds.push('screen-share');
+    if (activePaintSessionId) kinds.push('paint');
+    // Appended LAST so the existing chip order is untouched, and present only while
+    // actually spectating: the queue itself stays in the sidebar badge and
+    // DuelQueueModal. `spectatingChannelId`, not `match`, is the condition — a
+    // subscription to an idle channel is a real subscription.
+    if (spectator.spectatingChannelId !== null) kinds.push('spectate');
+    return kinds;
+  }, [hasWatchableShare, activePaintSessionId, spectator.spectatingChannelId]);
+
+  const [explicitActivity, setExplicitActivity] = useState<ChannelActivityKind | null>(null);
+  const previousStageRef = useRef<ChannelActivityKind | null>(null);
+  const stage = selectStage({
+    available: availableActivities,
+    explicit: explicitActivity,
+    previous: previousStageRef.current,
+  });
+  useEffect(() => { previousStageRef.current = stage; }, [stage]);
+
+  // Copy for a refused subscribe. Written here from the server's `reason` code
+  // rather than echoing the server's own sentence, so the wording is ours and does
+  // not change under us when the server's does.
+  const [spectateError, setSpectateError] = useState<string | null>(null);
+  /**
+   * Opting in is a click, exactly as watching a share is. Setting the explicit
+   * activity makes the stage take focus under the region's "explicit click always
+   * wins" rule, and the modal closes because the activity it launched now owns the
+   * surface.
+   *
+   * Spectating is same-channel only. DuelQueueModal disables Watch when the
+   * snapshot's channel is not the joined one, but its snapshot can be a moment
+   * stale, so the server re-validates and may still refuse. That refusal is
+   * surfaced rather than swallowed: the user clicked, and a click that silently
+   * does nothing is indistinguishable from a broken button. On rejection
+   * `useSpectatorState` writes no state at all, so the only thing to unwind is the
+   * explicit activity this handler set.
+   */
+  const handleWatchDuel = useCallback((channelId: number) => {
+    setSelectedDuelChannelId(null);
+    setSpectateError(null);
+    notifQueue.unregister('spectate-error');
+    setExplicitActivity('spectate');
+    void spectator.startSpectating(channelId).catch((reason: unknown) => {
+      setExplicitActivity(null);
+      const code = reason instanceof GameApiError ? reason.reason : undefined;
+      setSpectateError(
+        code === 'notSameChannel'
+          ? 'You can only watch a game in the channel you have joined.'
+          : code === 'notPresent'
+            ? 'You are no longer connected to this channel.'
+            : 'The server refused the request. Try again in a moment.',
+      );
+      notifQueue.register('spectate-error', 'error');
+    });
+  }, [spectator.startSpectating, notifQueue]);
+
+  /**
+   * The channel row's watch toggle. Starting reuses handleWatchDuel so the modal path
+   * and the row path behave identically — same explicit-activity focus, same error
+   * surfacing. Stopping is the hook's own teardown, which unsubscribes and clears the
+   * spectate state that drops the chip and the activity region.
+   */
+  const handleToggleSpectate = useCallback((channelId: number) => {
+    if (spectator.spectatingChannelId === channelId) {
+      spectator.stopSpectating();
+      return;
+    }
+    handleWatchDuel(channelId);
+  }, [spectator.spectatingChannelId, spectator.stopSpectating, handleWatchDuel]);
+
+  /**
+   * The refusal copy names a condition ("you are not in that channel") that the user
+   * can fix by moving, and errors never auto-dismiss — so without this the notice
+   * outlives the condition it describes and sits there being false. `useSpectatorState`
+   * already resets itself on `voice.channelChanged`; this is the App-side half of that.
+   * Uses the queue ref, not `notifQueue`, so the effect fires on channel change only
+   * and not on every register/unregister elsewhere in the app.
+   */
+  useEffect(() => {
+    setSpectateError(null);
+    notifQueueRef.current.unregister('spectate-error');
+  }, [joinedChannelId]);
+
+  useEffect(() => {
+    setRemoteScreenSharesHidden(stage !== 'screen-share');
+  }, [stage, setRemoteScreenSharesHidden]);
+
+  // Both of the old per-surface splits are gone; the main panel owns the only one left.
+  useEffect(() => {
+    localStorage.removeItem('brmble-paint-split');
+    localStorage.removeItem('brmble-screenshare-split');
+  }, []);
+
+  // One resolver for the name of a channel conversation, shared by the tab label and the
+  // chat header so the two can never disagree. Never returns an empty string: an
+  // unresolvable channel falls back to its id.
+  const resolveChannelChatLabel = useCallback((channelId: string): string => (
+    channelId === 'server-root'
+      ? (serverLabel || 'Server')
+      : channels.find(channel => String(channel.id) === channelId)?.name ?? channelId
+  ), [channels, serverLabel]);
+
+  // One tab per open conversation. Labels resolve from the channel list or the DM
+  // contact list; an unresolvable channel falls back to its id so a tab is never blank.
+  const conversationTabItems = useMemo<ConversationTabItem[]>(() => (
+    workspace.tabs.map(conversation => {
+      const key = conversationKey(conversation);
+      const isHome = isHomeKey(workspace, key);
+      if (conversation.kind === 'channel') {
+        // Root chat is not Matrix-backed, so it has no unread source and shows no badge.
+        const unread = channelUnreads.get(conversation.channelId);
+        return {
+          conversation,
+          key,
+          label: resolveChannelChatLabel(conversation.channelId),
+          isHome,
+          unreadCount: unread?.notificationCount ?? 0,
+          mentionCount: unread?.highlightCount ?? 0,
+        };
+      }
+      const contact = dmContactsWithUnreads.find(candidate => candidate.id === conversation.contactId);
+      return {
+        conversation,
+        key,
+        label: contact?.displayName ?? conversation.contactId,
+        isHome,
+        unreadCount: contact?.unreadCount ?? 0,
+        mentionCount: 0,
+      };
+    })
+  ), [workspace, resolveChannelChatLabel, channelUnreads, dmContactsWithUnreads]);
+
+  // Named explicitly rather than relying on the store's ambient selection, so a send can
+  // never land on a contact other than the one whose tab is open.
+  const handleSendDmMessage = useCallback((content: string) => {
+    if (!activeDmContactId) return;
+    dmStore.sendMessage(content, activeDmContactId);
+  }, [activeDmContactId, dmStore.sendMessage]);
+
+  // One ChatPanel renders the active tab. This picks which prop set feeds it; the
+  // channel and DM shapes are otherwise unchanged.
+  const chatPanelPropsForActiveConversation: ComponentProps<typeof ChatPanel> = activeConversationIsDm
+    ? {
+      channelId: activeDmContact ? `dm-${activeDmContact.id}` : undefined,
+      channelName: activeDmContact?.displayName ?? '',
+      messages: activeDmMessages,
+      currentUsername: username,
+      onSendMessage: handleSendDmMessage,
+      isDM: true,
+      matrixClient: activeDmContact && !selectedDmIsMumble ? matrixClient.client : null,
+      matrixRoomId: activeDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null,
+      readMarkerTs: activeDmContact && !selectedDmIsMumble ? dmDividerTs : null,
+      ...screenShareViewerProps,
+      users,
+      disabled: activeDmContact?.isEphemeral === true && activeDmContact.mumbleSessionId == null,
+      topNotice: selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined,
+      onMessageContextMenu: handleChatMessageContextMenu,
+      onCopyToClipboard: handleCopyToClipboard,
+      currentUserMatrixId: activeDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined,
+      onDeleteMessage: activeDmContact && !selectedDmIsMumble && dmMatrixRoomId ? matrixClient.deleteMessage : undefined,
+      canModerateRecentMessages: activeDmContact && !selectedDmIsMumble ? (matrixCredentials?.messageDeletion?.canModerate ?? false) : false,
+      messageDeletionWindowMs: matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS,
+      onToggleReaction: activeDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined,
+      typingIndicatorText: activeDmContact && !selectedDmIsMumble ? matrixClient.activeTypingText : undefined,
+      typingTargetId: activeDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined,
+      onTypingStart: activeDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined,
+      onTypingStop: activeDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined,
+      paintSessionStatuses,
+    }
+    : {
+      channelId: activeChatChannelId || undefined,
+      channelName: activeChatChannelId ? resolveChannelChatLabel(activeChatChannelId) : '',
+      messages: channelChatMessages,
+      currentUsername: username,
+      onSendMessage: handleSendMessage,
+      onDismissMessage: handleDismissMessage,
+      matrixClient: matrixClient.client,
+      matrixRoomId: channelMatrixRoomId,
+      readMarkerTs: channelDividerTs,
+      ...screenShareViewerProps,
+      users,
+      disabled: !canSendActiveChannelChat,
+      topNotice: channelChatAccessNotice ?? brmbleServiceChatNotice,
+      onMessageContextMenu: handleChatMessageContextMenu,
+      onCopyToClipboard: handleCopyToClipboard,
+      currentUserMatrixId: matrixCredentials?.userId,
+      onDeleteMessage: channelMatrixRoomId ? matrixClient.deleteMessage : undefined,
+      canModerateRecentMessages: matrixCredentials?.messageDeletion?.canModerate ?? false,
+      messageDeletionWindowMs: matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS,
+      onToggleReaction: handleToggleChannelReaction,
+      typingIndicatorText: matrixClient.activeTypingText,
+      typingTargetId: activeChannelId ?? undefined,
+      onTypingStart: matrixClient.startTyping,
+      onTypingStop: matrixClient.stopTyping,
+      currentUserId: selfSession,
+      paintSessionStatuses,
+      onJoinPaint: handleJoinPaint,
+      onOpenPaint: handleOpenPaint,
+      ...(canStartPaint && !activePaintSessionId
+        ? { onUseAsPaintBackground: handleUseAsPaintBackground }
+        : {}),
+    };
+
+  // Input to the spectate stage's Idle card. Null while not spectating, and null
+  // while the duel queue still reports a live match we have no frame for (see the
+  // note at the 'spectate' case below).
+  const spectateQueueSnapshot = spectator.spectatingChannelId == null
+    ? null
+    : (() => {
+      const snapshot = duelQueue.byChannel.get(spectator.spectatingChannelId) ?? null;
+      return snapshot?.active && spectator.match == null ? null : snapshot;
+    })();
+
+  const renderStage = (staged: ChannelActivityKind | null) => {
+    // A switch with assertNever, not a ternary chain: a new activity kind must not
+    // be able to fall through to `null` and render an empty stage.
+    switch (staged) {
+      case null:
+        return null;
+      case 'screen-share':
+        return (
+          <ScreenShareGrid
+            watchingShares={watchingShares}
+            focusedShare={focusedShare}
+            videoElements={remoteVideoEls}
+            roomQuality={roomQuality}
+            shareQualities={shareQualities}
+            viewerQualities={viewerQualities}
+            onFocus={setFocusedShare}
+            onClose={handleCloseWatchedShare}
+            onViewerQualityChange={setViewerQuality}
+          />
+        );
+      case 'paint':
+        return activePaintSessionId ? (
+          <PaintSessionView
+            key={activePaintSessionId}
+            sessionId={activePaintSessionId}
+            matrixClient={matrixClient.client}
+            channelRoomMap={matrixCredentials?.roomMap}
+            currentVoiceChannelId={paintVoiceChannelId}
+            onClose={handleClosePaint}
+          />
+        ) : null;
+      case 'spectate':
+        return (
+          <SpectatorActivity
+            match={spectator.match}
+            ended={spectator.ended}
+            /*
+             * The Idle card reads `readyCheck ?? queue[0]` and never the queue's
+             * `active`, so handing it a snapshot that claims a live match while we
+             * hold no spectator frame would advertise the pair AFTER the live one as
+             * "Next up" — a wrong pair, not merely a late one. The two feeds are
+             * independent broadcasts and can disagree for a beat, so during that
+             * disagreement the snapshot is withheld and the card says it is waiting.
+             */
+            queueSnapshot={spectateQueueSnapshot}
+            resolveName={resolveGamePlayerName}
+            onStopWatching={spectator.stopSpectating}
+          />
+        );
+      default:
+        return assertNever(staged);
+    }
+  };
+
+  const activityRegion = joinedChannelId !== null
+    && joinedChannelId !== SERVER_ROOT_CHANNEL_ID
+    && availableActivities.length > 0
+    ? (
+      <ErrorBoundary label="ChannelActivityRegion">
+        <ChannelActivityRegion
+          channelName={joinedChannelName}
+          activities={availableActivities.map(kind => ({
+            kind,
+            label: ACTIVITY_LABELS[kind],
+          }))}
+          stage={stage}
+          onSelect={setExplicitActivity}
+        >
+          {renderStage(stage)}
+        </ChannelActivityRegion>
+      </ErrorBoundary>
+    )
+    : null;
+
+
+  const gameSurface = participatingMatchId !== null ? (
+    <GameSurface>
+      {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
+        <RpsBoard
+          key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
+          resolveName={resolveGamePlayerName}
+          onPick={(pick) => gameState.sendAction({ pick })}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+          rematchPending={rematchPending}
+        />
+      ) : (
+        <DeathrollBoard
+          view={gameState.view}
+          ended={gameState.ended}
+          myUserId={selfSession}
+          turnDeadline={gameState.turnDeadline}
+          turnWindowMs={gameState.turnWindowMs}
+          penalty={gameState.penalty}
+          resolveName={resolveGamePlayerName}
+          onRoll={gameState.roll}
+          onForfeit={confirmForfeit}
+          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+          rematchPending={rematchPending}
+        />
+      )}
+    </GameSurface>
+  ) : showGame ? (
+    <NeonDGame onClose={() => setShowGame(false)} />
+  ) : null;
 
   return (
     <div className={`app${showOnboarding ? ' app--onboarding' : ''}`}>
@@ -4835,9 +5337,6 @@ const handleConnect = (serverData: SavedServer) => {
       <ErrorBoundary label="Header">
       <Header
         username={username}
-        onToggleDM={connected ? toggleMessagesPanel : undefined}
-        dmActive={messagesPanelExpanded}
-        unreadDMCount={totalDmUnreadCount}
         onOpenSettings={() => { setSettingsTab('profile'); setShowSettings(true); }}
         onOpenAudioSettings={() => { setSettingsTab('audio'); setShowSettings(true); }}
         onAvatarClick={connected ? () => setShowAvatarEditor(true) : undefined}
@@ -4871,15 +5370,12 @@ const handleConnect = (serverData: SavedServer) => {
         <PaintSessionSetupModal
           channelId={paintChannelId}
           channelRoomId={paintChannelRoomId}
-          candidates={paintCandidates}
-          hostUserId={selfSession}
           paintApi={paintApi}
           matrixClient={matrixClient.client}
-          onAttachSource={paintApi.attachSource}
           initialSourceFile={paintSetupInitialSource}
           onComplete={(sessionId) => {
             invalidatePaintPreparation();
-            activePaintChannelIdRef.current = currentChannelId;
+            activePaintChannelIdRef.current = paintChannelId;
             activePaintSessionIdRef.current = sessionId;
             setActivePaintSessionId(sessionId);
             closePaintSetup();
@@ -4888,12 +5384,13 @@ const handleConnect = (serverData: SavedServer) => {
         />
       )}
       
-      <div className={`app-body ${messagesPanelExpanded ? '' : 'app-body--messages-collapsed'}`}>
+      <div className="app-body">
         <ErrorBoundary label="Sidebar">
         <Sidebar
           channels={channels}
           users={users}
           currentChannelId={currentChannelId && currentChannelId !== 'server-root' ? Number(currentChannelId) : undefined}
+          joinedChannelId={selfVoiceChannelId}
           onJoinChannel={handleJoinChannel}
           onSelectChannel={handleSelectChannel}
           onSelectServer={handleSelectServer}
@@ -4909,12 +5406,14 @@ const handleConnect = (serverData: SavedServer) => {
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}
           onOpenDuelQueue={setSelectedDuelChannelId}
+          spectatingChannelId={spectator.spectatingChannelId}
+          onToggleSpectate={handleToggleSpectate}
           speakingUsers={speakingUsers}
           voiceIdle={voiceIdle}
           connectionStatus={connectionStatus}
           onCancelReconnect={handleCancelReconnect}
           pendingChannelAction={pendingChannelAction}
-          channelUnreads={channelUnreads}
+          channelUnreads={sidebarChannelUnreads}
           sharingChannelId={sharingChannelId ? Number(sharingChannelId) : (activeShares.length > 0 ? Number(activeShares[0].roomName.replace('channel-', '')) : undefined)}
           sharingUserSession={isSharing ? selfSession : activeShare?.sessionId}
           activeShares={activeShares}
@@ -4932,7 +5431,7 @@ const handleConnect = (serverData: SavedServer) => {
         />
         </ErrorBoundary>
         
-        <main className={`main-content workspace-conversation ${messagesPanelExpanded ? 'workspace-conversation--with-panel' : ''}`}>
+        <main className="main-content workspace-conversation">
           {connectionStatus === 'idle' ? (
             certExists === true ? (
               <ServerList onConnect={handleServerConnect} connectDisabled={brokenCertInfo != null && !brokenCertInfo.hasHealthyFallback} connectionError={connectionError} onClearError={() => setConnectionError(null)} activeProfileName={activeProfileName} />
@@ -4947,94 +5446,24 @@ const handleConnect = (serverData: SavedServer) => {
               </div>
             )
           ) : connectionStatus === 'connected' ? (
-            showGame && !activePaintSessionId ? (
-              <NeonDGame onClose={() => setShowGame(false)} />
-            ) : (
-              <div className={`content-slider ${showDmConversation ? 'dm-active' : ''}`}>
-                <div className="content-slide" aria-hidden={!showChannelConversation} inert={!showChannelConversation}>
-                  <ErrorBoundary label="ChatPanel:Channel">
-                    <VerticalSplitPane
-                      top={activePaintSessionId ? (
-                        <PaintSessionView
-                          key={activePaintSessionId}
-                          sessionId={activePaintSessionId}
-                          matrixClient={matrixClient.client}
-                          channelRoomMap={matrixCredentials?.roomMap}
-                          onClose={handleClosePaint}
-                        />
-                      ) : null}
-                      storageKey="brmble-paint-split"
-                      label="Resize paint and channel chat"
-                    >
-                      <ChatPanel
-                        channelId={currentChannelId || undefined}
-                        channelName={currentChannelId === 'server-root' ? (serverLabel || 'Server') : currentChannelName}
-                        messages={channelChatMessages}
-                        currentUsername={username}
-                        onSendMessage={handleSendMessage}
-                        onDismissMessage={handleDismissMessage}
-                        matrixClient={matrixClient.client}
-                        matrixRoomId={channelMatrixRoomId}
-                        readMarkerTs={channelDividerTs}
-                        {...(showChannelConversation ? screenShareViewerProps : {})}
-                        users={users}
-                        disabled={!canSendActiveChannelChat}
-                        topNotice={channelChatAccessNotice ?? brmbleServiceChatNotice}
-                        onMessageContextMenu={handleChatMessageContextMenu}
-                        onCopyToClipboard={handleCopyToClipboard}
-                        currentUserMatrixId={matrixCredentials?.userId}
-                        onDeleteMessage={channelMatrixRoomId ? matrixClient.deleteMessage : undefined}
-                        canModerateRecentMessages={matrixCredentials?.messageDeletion?.canModerate ?? false}
-                        messageDeletionWindowMs={matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS}
-                        onToggleReaction={handleToggleChannelReaction}
-                        typingIndicatorText={isDmMode ? undefined : matrixClient.activeTypingText}
-                        typingTargetId={activeChannelId ?? undefined}
-                        onTypingStart={matrixClient.startTyping}
-                        onTypingStop={matrixClient.stopTyping}
-                        currentUserId={selfSession}
-                        paintSessionStatuses={paintSessionStatuses}
-                        onJoinPaint={handleJoinPaint}
-                        onOpenPaint={handleOpenPaint}
-                        {...(canStartPaint && !activePaintSessionId
-                          ? { onUseAsPaintBackground: handleUseAsPaintBackground }
-                          : {})}
-                      />
-                    </VerticalSplitPane>
-                  </ErrorBoundary>
-                </div>
-                <div className="content-slide" aria-hidden={!showDmConversation} inert={!showDmConversation}>
-                  <ErrorBoundary label="ChatPanel:DM">
-                   <ChatPanel
-                    channelId={foregroundDmContact ? `dm-${foregroundDmContact.id}` : undefined}
-                    channelName={foregroundDmContact?.displayName ?? ''}
-                    messages={foregroundDmMessages}
-                    currentUsername={username}
-                    onSendMessage={dmStore.sendMessage}
-                    isDM={true}
-                    matrixClient={foregroundDmContact && !selectedDmIsMumble ? matrixClient.client : null}
-                    matrixRoomId={foregroundDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null}
-                    readMarkerTs={foregroundDmContact && !selectedDmIsMumble ? dmDividerTs : null}
-                    {...(showDmConversation ? screenShareViewerProps : {})}
-                    users={users}
-                    disabled={foregroundDmContact?.isEphemeral === true && foregroundDmContact.mumbleSessionId == null}
-                    topNotice={selectedDmIsMumble ? 'This is a Mumble direct message. Chat history will be lost when you disconnect.' : undefined}
-                    onMessageContextMenu={handleChatMessageContextMenu}
-                    onCopyToClipboard={handleCopyToClipboard}
-                    currentUserMatrixId={foregroundDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined}
-                    onDeleteMessage={foregroundDmContact && !selectedDmIsMumble && dmMatrixRoomId ? matrixClient.deleteMessage : undefined}
-                    canModerateRecentMessages={foregroundDmContact && !selectedDmIsMumble ? (matrixCredentials?.messageDeletion?.canModerate ?? false) : false}
-                    messageDeletionWindowMs={matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS}
-                    onToggleReaction={foregroundDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined}
-                    typingIndicatorText={foregroundDmContact && !selectedDmIsMumble && isDmMode ? matrixClient.activeTypingText : undefined}
-                    typingTargetId={foregroundDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined}
-                    onTypingStart={foregroundDmContact && !selectedDmIsMumble ? matrixClient.startTyping : undefined}
-                    onTypingStop={foregroundDmContact && !selectedDmIsMumble ? matrixClient.stopTyping : undefined}
-                    paintSessionStatuses={paintSessionStatuses}
-                  />
-                  </ErrorBoundary>
-                </div>
+            <MainPanel
+              mode={mainPanelMode}
+              activityRegion={activityRegion}
+              gameSurface={gameSurface}
+              conversationRegion={(
+              <div className="conversation-region">
+                <ConversationTabStrip
+                  tabs={conversationTabItems}
+                  activeKey={workspace.activeKey}
+                  onActivate={key => dispatchWorkspace({ type: 'ACTIVATE_CONVERSATION', key })}
+                  onClose={key => dispatchWorkspace({ type: 'CLOSE_CONVERSATION', key })}
+                />
+                <ErrorBoundary label="ChatPanel">
+                  <ChatPanel {...chatPanelPropsForActiveConversation} />
+                </ErrorBoundary>
               </div>
-            )
+              )}
+            />
           ) : (
             <ConnectionState
               connectionStatus={connectionStatus}
@@ -5049,20 +5478,21 @@ const handleConnect = (serverData: SavedServer) => {
 
         {connected && (
           <DMContactList
-            contacts={dmContactsWithUnreads}
+            contacts={sidebarDmContacts}
             selectedUserId={dmStore.selectedContact?.id ?? null}
             onSelectContact={(id: string) => {
               dmStore.selectContact(id);
-              dispatchWorkspace({ type: 'SELECT_DM', contactId: id });
+              dispatchWorkspace({ type: 'OPEN_CONVERSATION', conversation: { kind: 'dm', contactId: id } });
             }}
             onCloseConversation={(id: string) => {
               dmStore.closeDM(id);
-              if (dmStore.selectedContact?.id === id) {
-                dispatchWorkspace({ type: 'SELECTED_DM_INVALIDATED' });
-              }
+              // The tab owns the conversation, not the selection: a contact closed
+              // while its tab sits in the background must still lose that tab.
+              dispatchWorkspace({
+                type: 'CONVERSATION_INVALIDATED',
+                key: conversationKey({ kind: 'dm', contactId: id }),
+              });
             }}
-            onToggleVisibility={toggleMessagesPanel}
-            visible={messagesPanelExpanded}
           />
         )}
       </div>
@@ -5141,45 +5571,12 @@ const handleConnect = (serverData: SavedServer) => {
         onQuit={handleCloseQuit}
       />
 
-      {(gameState.activeMatch || gameState.ended) && (
-        (gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-          <RpsModal
-            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
-            view={gameState.view}
-            ended={gameState.ended}
-            myUserId={selfSession}
-            turnDeadline={gameState.turnDeadline}
-            turnWindowMs={gameState.turnWindowMs}
-            penalty={gameState.penalty}
-            resolveName={resolveGamePlayerName}
-            onPick={(pick) => gameState.sendAction({ pick })}
-            onForfeit={confirmForfeit}
-            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={rematchPending}
-          />
-        ) : (
-          <DeathrollModal
-            view={gameState.view}
-            ended={gameState.ended}
-            myUserId={selfSession}
-            turnDeadline={gameState.turnDeadline}
-            turnWindowMs={gameState.turnWindowMs}
-            penalty={gameState.penalty}
-            resolveName={resolveGamePlayerName}
-            onRoll={gameState.roll}
-            onForfeit={confirmForfeit}
-            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-            rematchPending={rematchPending}
-          />
-        )
-      )}
-
       {selectedDuelSnapshot && (
         <DuelQueueModal
           snapshot={selectedDuelSnapshot}
           resolveName={resolveGamePlayerName}
+          joinedChannelId={joinedChannelId}
+          onWatch={() => handleWatchDuel(selectedDuelSnapshot.channelId)}
           onClose={() => setSelectedDuelChannelId(null)}
         />
       )}
@@ -5308,6 +5705,22 @@ const handleConnect = (serverData: SavedServer) => {
               }}
             />
           )}
+        {spectateError && notifQueue.isVisible('spectate-error') && (
+          <Notification
+            status="error"
+            position="top-right"
+            visible={true}
+            title="Cannot watch this channel"
+            detail={spectateError}
+            onDismiss={() => {
+              notifQueue.unregister('spectate-error');
+              setSpectateError(null);
+            }}
+            onExited={() => {
+              notifQueue.unregister('spectate-error');
+            }}
+          />
+        )}
         {gameState.incomingInvite && notifQueue.isVisible('game-invite') && (
           <Notification
             status="info"

@@ -120,6 +120,111 @@ export interface DuelQueueSnapshot {
   queue: QueuedDuel[];
 }
 
+/**
+ * What a non-participant may see of a live Deathroll match. Player ids here are
+ * Mumble SESSION ids (the engine's own state keys), NOT db user ids — resolve
+ * them against `SpectatorSnapshot.players[].sessionId`.
+ */
+export interface DeathrollSpectatorView {
+  kind: 'deathroll';
+  players: number[];
+  currentPlayer: number | null;
+  ceiling: number;
+  lastRoll: number | null;
+  /**
+   * Who made `lastRoll`, as a Mumble SESSION id — resolve against
+   * `SpectatorSnapshot.players[].sessionId`. Null before the first roll.
+   */
+  lastRollBy: number | null;
+  finished: boolean;
+  loserId: number | null;
+}
+
+/** A resolved RPS round. Throws are public only once the round is over. */
+export interface RpsResolvedRound {
+  roundNumber: number;
+  sequence: number;
+  pick0: string;
+  pick1: string;
+  winnerId: number | null;
+  tie: boolean;
+}
+
+/**
+ * What a non-participant may see of a live RPS match. `committed` carries WHETHER
+ * each player has thrown, never WHAT. There is deliberately no `picks`, `myPick`
+ * or `opponentPicked`: resolved throws exist only inside `lastRound`.
+ * Player ids are Mumble SESSION ids.
+ */
+export interface RpsSpectatorView {
+  kind: 'rps';
+  players: number[];
+  bestOf: number;
+  targetWins: number;
+  roundNumber: number;
+  roundWins: number[];
+  committed: boolean[];
+  finished: boolean;
+  winnerId: number | null;
+  lastRound: RpsResolvedRound | null;
+}
+
+export type SpectatorView = DeathrollSpectatorView | RpsSpectatorView;
+
+export function isRpsSpectatorView(view: SpectatorView): view is RpsSpectatorView {
+  return view.kind === 'rps';
+}
+
+export interface SpectatorSnapshot {
+  schemaVersion: 1;
+  matchId: number;
+  channelId: number;
+  gameType: string;
+  format: string;
+  rulesetVersion: number;
+  players: DuelPlayer[];
+  sequence: number;
+  generatedAt: string;
+  view: SpectatorView;
+}
+
+/** `match` is null when the channel is idle. That is a SUCCESSFUL subscription. */
+export interface SpectatorSubscribeResponse {
+  channelId: number;
+  match: SpectatorSnapshot | null;
+}
+
+export interface SpectatorMatchEndedEvent {
+  schemaVersion: 1;
+  matchId: number;
+  channelId: number;
+  reason: 'completed' | 'forfeited';
+  finalSequence: number;
+  outcome: { winnerId: number | null; loserId: number | null; draw: boolean };
+}
+
+/**
+ * The terminal outcome shape, derived from the wire event rather than restated.
+ * Spectator boards take this so a server-side field addition that lands in
+ * `SpectatorMatchEndedEvent` cannot silently stop there.
+ */
+export type SpectatorMatchOutcome = SpectatorMatchEndedEvent['outcome'];
+
+export type SpectatorCloseReason =
+  | 'unsubscribed' | 'authorizationLost' | 'disconnected' | 'channelRemoved';
+
+/**
+ * NOTE: unlike `SpectatorSnapshot` and `SpectatorMatchEndedEvent`, the close event
+ * carries NO `schemaVersion` — that is deliberate in the server contract, not an
+ * oversight. Consequence for consumers: `game.spectatorClosed` cannot be
+ * version-gated the way the other two inbound events can. Guard it on the shape of
+ * `channelId`/`reason` instead, and never assume a `schemaVersion` field is present.
+ */
+export interface SpectatorClosedEvent {
+  channelId: number;
+  reason: SpectatorCloseReason;
+}
+
 function isWebViewBridgeAvailable(): boolean {
   return !!(window as Window & { chrome?: { webview?: unknown } }).chrome?.webview;
 }
@@ -283,6 +388,43 @@ interface BridgeResponse {
 const BRIDGE_REQUEST_TIMEOUT_MS = 15000;
 
 /**
+ * Builds the rejection for a failed `games.response`.
+ *
+ * The client's `ParseHttpResponse` sets `error` to `"Server returned {status}: {body}"`
+ * for any non-2xx, so rejecting on `error` alone surfaces a raw JSON blob to the user
+ * in the WebView2 build. It also leaves `body` intact, which is the only place the
+ * clean human sentence and the machine-readable `reason` survive. So prefer the body:
+ * when it parses to an object with a string `error`, produce a {@link GameApiError}
+ * identical to what the `fetch` path would have thrown for the same response — same
+ * class, same `message`, same `reason`.
+ *
+ * Falls back to the previous behaviour for everything else: non-JSON bodies, absent
+ * bodies, and the transport-level failures (`"Not connected"`, `"No client
+ * certificate"`) that never reach HTTP and so carry no body at all.
+ */
+function toBridgeError(response: BridgeResponse): Error {
+  const fallback =
+    response.error ||
+    (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.');
+
+  if (response.body) {
+    try {
+      const parsed = JSON.parse(response.body) as { error?: unknown; reason?: unknown };
+      if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string' && parsed.error) {
+        return new GameApiError(
+          parsed.error,
+          typeof parsed.reason === 'string' ? parsed.reason : undefined,
+        );
+      }
+    } catch {
+      // Non-JSON error body — fall through to the transport error.
+    }
+  }
+
+  return new Error(fallback);
+}
+
+/**
  * Sends a `games.request` over the bridge and resolves the parsed `games.response`
  * body correlated by `requestId`. Guards against the two ways this pattern can hang
  * forever: a client that never replies (timeout) and a malformed body that throws
@@ -315,12 +457,7 @@ function bridgeRequest<T>(
         return;
       }
 
-      reject(
-        new Error(
-          response.error ||
-            (response.statusCode ? `Request failed (${response.statusCode}).` : 'Request failed.'),
-        ),
-      );
+      reject(toBridgeError(response));
     };
 
     bridge.on('games.response', handleResponse);
@@ -410,4 +547,45 @@ export async function getHeadToHead(opponentSession: number): Promise<HeadToHead
     throw await toGameApiError(response);
   }
   return response.json() as Promise<HeadToHeadStats>;
+}
+
+/**
+ * Subscribes to a CHANNEL, not a match: frames keep arriving match after match
+ * until you unsubscribe, move channel, or disconnect. Uses the games.request
+ * tunnel rather than the fire-and-forget POST path because it returns a body.
+ *
+ * Rejects with a {@link GameApiError} carrying the server's `reason`
+ * (`notPresent` | `notSameChannel`) on BOTH transports: the fetch path via
+ * `toGameApiError`, the bridge path via `toBridgeError`. Same class, same
+ * `message`, same `reason` either way.
+ */
+export async function subscribeSpectator(channelId: number): Promise<SpectatorSubscribeResponse> {
+  if (isWebViewBridgeAvailable()) {
+    return bridgeRequest<SpectatorSubscribeResponse>({ action: 'spectate-subscribe', channelId });
+  }
+
+  const response = await fetch('/games/spectators/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelId }),
+  });
+  if (!response.ok) {
+    throw await toGameApiError(response);
+  }
+  return response.json() as Promise<SpectatorSubscribeResponse>;
+}
+
+/** Stops the caller's spectator subscription. Idempotent server-side. */
+export async function unsubscribeSpectator(): Promise<void> {
+  if (isWebViewBridgeAvailable()) {
+    await bridgeRequest<{ unsubscribed: boolean }>({ action: 'spectate-unsubscribe' });
+    return;
+  }
+
+  const response = await fetch('/games/spectators/unsubscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  return unwrap(response);
 }

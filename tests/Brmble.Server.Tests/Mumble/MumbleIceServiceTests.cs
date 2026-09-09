@@ -37,6 +37,7 @@ public class MumbleIceServiceTests
             new LiveKitParticipantTracker(),
             new Mock<Brmble.Server.Games.Duels.IDuelOrchestrator>().Object,
             new Mock<IPaintParticipationLifecycle>().Object,
+            Mock.Of<Brmble.Server.Games.Spectators.ISpectatorLifecycle>(),
             NullLogger<MumbleServerCallback>.Instance);
 
         var iceSettings = Options.Create(new IceSettings { Host = host, Port = port, Secret = "test-secret" });

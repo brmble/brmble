@@ -1,5 +1,8 @@
 import { renderHook, act } from '@testing-library/react';
 import { usePersistedGameState } from '../usePersistedGameState';
+import { createBaseGameState } from '../../constants';
+import { migrateNeonDState } from '../../saveFormat';
+import type { GameState } from '../../types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 beforeEach(() => {
@@ -15,6 +18,16 @@ afterEach(() => {
 describe('usePersistedGameState', () => {
   const initial = { a: 1, nested: { b: 2, c: 3 } };
 
+  it('removes the retired recruitment fund from migrated saves', () => {
+    const previousState = {
+      ...createBaseGameState(0),
+      captainRecruitmentFund: 1_250_000,
+    } as GameState & { captainRecruitmentFund: number };
+
+    const migrated = migrateNeonDState(previousState) as GameState;
+    expect(migrated).not.toHaveProperty('captainRecruitmentFund');
+  });
+
   it('loads initial state when local storage is empty', () => {
     const { result } = renderHook(() => usePersistedGameState('test_key', initial));
     expect(result.current[0]).toEqual(initial);
@@ -24,6 +37,40 @@ describe('usePersistedGameState', () => {
     localStorage.setItem('test_key', JSON.stringify({ a: 10, nested: { b: 20 } })); // 'c' is missing
     const { result } = renderHook(() => usePersistedGameState('test_key', initial));
     expect(result.current[0]).toEqual({ a: 10, nested: { b: 20, c: 3 } });
+  });
+
+  it('migrates an actual v2 Neon-D state before merging it into the initial state', () => {
+    const v2State = {
+      ...createBaseGameState(0),
+      schemaVersion: 2,
+      bulkUnlocked: true,
+      autoBulkEnabled: true,
+    } as unknown as GameState & {
+      bulkUnlocked: boolean;
+      autoBulkEnabled: boolean;
+    };
+    delete (v2State as Partial<GameState>).bulkUnlockedProductIds;
+    delete (v2State as Partial<GameState>).lastBulkSellAt;
+    localStorage.setItem('neon_d_key', JSON.stringify(v2State));
+
+    const initial = createBaseGameState(1);
+    const { result, unmount } = renderHook(() => usePersistedGameState<GameState>(
+      'neon_d_key',
+      initial,
+      migrateNeonDState,
+    ));
+
+    expect(result.current[0].schemaVersion).toBe(5);
+    expect(result.current[0].bulkUnlockedProductIds).toEqual([]);
+    expect(result.current[0]).not.toHaveProperty('bulkUnlocked');
+    expect(result.current[0]).not.toHaveProperty('autoBulkEnabled');
+
+    unmount();
+    const persisted = JSON.parse(localStorage.getItem('neon_d_key') ?? '{}');
+    expect(persisted.schemaVersion).toBe(5);
+    expect(persisted.bulkUnlockedProductIds).toEqual([]);
+    expect(persisted).not.toHaveProperty('bulkUnlocked');
+    expect(persisted).not.toHaveProperty('autoBulkEnabled');
   });
 
   it('falls back to initial state if JSON parsing fails', () => {

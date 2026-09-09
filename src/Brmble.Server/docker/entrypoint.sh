@@ -14,7 +14,9 @@ set -e
 
 mkdir -p /data/continuwuity
 mkdir -p /data/dataprotection-keys
+mkdir -p /data/paint-sessions
 mkdir -p /etc/continuwuity
+chmod 700 /data/paint-sessions
 
 # On first run, enable token-gated registration so register-appservice.sh can
 # create the admin user. Both allow_registration=true and registration_token are

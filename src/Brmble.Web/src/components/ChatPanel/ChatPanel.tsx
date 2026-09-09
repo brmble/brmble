@@ -6,9 +6,7 @@ import { BrmbleLogo } from '../Header/BrmbleLogo';
 import { groupMessages } from '../../utils/groupMessages';
 import { formatDateSeparator, formatFullDate } from '../../utils/formatDateSeparator';
 import type { ChatMessage, MediaAttachment, MentionableUser } from '../../types';
-import { ScreenShareGrid } from '../ScreenShareGrid';
-import type { ShareInfo, ViewerQuality } from '../../hooks/useScreenShare';
-import type { ScreenShareQuality } from '../../utils/screenShareQuality';
+import type { ShareInfo } from '../../hooks/useScreenShare';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { Tooltip } from '../Tooltip/Tooltip';
@@ -34,18 +32,15 @@ interface ChatPanelProps {
   matrixClient?: MatrixClient | null;
   matrixRoomId?: string | null;
   readMarkerTs?: number | null;
+  // Screen share is staged by the channel activity region, not by ChatPanel. These three
+  // remain only to drive the detached `'new-window'` overlay, which ChatPanel still owns.
   watchingShares?: ShareInfo[];
-  focusedShare?: ShareInfo | null;
   remoteVideoEls?: Map<number, HTMLVideoElement>;
-  roomQuality?: ScreenShareQuality;
-  shareQualities?: Map<number, ScreenShareQuality>;
-  viewerQualities?: Map<number, ViewerQuality>;
-  onFocusShare?: (share: ShareInfo | null) => void;
   onCloseShare?: (share: ShareInfo) => void;
-  onViewerQualityChange?: (userId: number, quality: ViewerQuality) => void;
   screenShareViewerMode?: 'in-app' | 'new-window';
   /** Connected users for avatar lookup by sender name */
-  users?: { session: number; name: string; channelId?: number; matrixUserId?: string; avatarUrl?: string }[];
+  /** `matrixUserId` is tri-state on the projection: null means the server has not said yet. */
+  users?: { session: number; name: string; channelId?: number; matrixUserId?: string | null; avatarUrl?: string }[];
   disabled?: boolean;
   /** Optional notice shown at the top of the message area (e.g. ephemeral chat warning). */
   topNotice?: string;
@@ -68,11 +63,9 @@ interface ChatPanelProps {
 }
 
 const SCROLL_THRESHOLD = 150;
-const SPLIT_STORAGE_KEY = 'brmble-screenshare-split';
-const DEFAULT_SPLIT = 50;
 const REPLY_TARGET_HIGHLIGHT_MS = 1600;
 
-export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, focusedShare, remoteVideoEls, roomQuality, shareQualities, viewerQualities, onFocusShare, onCloseShare, onViewerQualityChange, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint, onUseAsPaintBackground, canModerateRecentMessages = false, messageDeletionWindowMs = DEFAULT_MESSAGE_DELETION_WINDOW_MS, onDeleteMessage }: ChatPanelProps) {
+export function ChatPanel({ channelId, channelName, messages, currentUsername, onSendMessage, onDismissMessage, isDM, matrixClient, matrixRoomId, readMarkerTs, watchingShares, remoteVideoEls, onCloseShare, screenShareViewerMode, users, disabled, topNotice, onMessageContextMenu, onCopyToClipboard, currentUserMatrixId, onToggleReaction, typingIndicatorText, typingTargetId, onTypingStart, onTypingStop, currentUserId, paintSessionStatuses, onJoinPaint, onOpenPaint, onUseAsPaintBackground, canModerateRecentMessages = false, messageDeletionWindowMs = DEFAULT_MESSAGE_DELETION_WINDOW_MS, onDeleteMessage }: ChatPanelProps) {
   // Build lookup maps from sender name and matrixUserId → avatar data for MessageBubble.
   // Name-based lookup works when Mumble name matches message sender.
   // MatrixUserId-based lookup handles cases where the user connected with a different
@@ -101,7 +94,8 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
     // Then, overwrite with live Mumble users (higher priority — online with fresh data)
     if (users) {
       for (const u of users) {
-        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId };
+        // An unresolved identity is simply no identity to look up by.
+        const entry = { avatarUrl: u.avatarUrl, matrixUserId: u.matrixUserId ?? undefined };
         byName.set(u.name, entry);
         if (u.matrixUserId) {
           byMatrixId.set(u.matrixUserId, entry);
@@ -134,7 +128,7 @@ export function ChatPanel({ channelId, channelName, messages, currentUsername, o
       for (const u of users) {
         result.push({
           displayName: u.name,
-          matrixUserId: u.matrixUserId,
+          matrixUserId: u.matrixUserId ?? undefined,
           avatarUrl: u.avatarUrl,
           isOnline: true,
         });
@@ -205,11 +199,6 @@ const [replyState, setReplyState] = useState<{
     eventId: string;
     originalContent: string;
   } | null>(null);
-  const [splitPercent, setSplitPercent] = useState(() => {
-    const stored = localStorage.getItem(SPLIT_STORAGE_KEY);
-    return stored ? Number(stored) : DEFAULT_SPLIT;
-  });
-  const isDraggingRef = useRef(false);
 
   const editingMessage = useMemo(() => {
     if (!editState) return null;
@@ -227,37 +216,6 @@ const [replyState, setReplyState] = useState<{
     }
   }, [matrixClient, matrixRoomId]);
 
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isDraggingRef.current = true;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const panel = panelRef.current;
-      if (!panel) return;
-      const rect = panel.getBoundingClientRect();
-      const headerEl = panel.querySelector('.chat-header') as HTMLElement;
-      const headerHeight = headerEl ? headerEl.offsetHeight : 0;
-      const availableHeight = rect.height - headerHeight;
-      const y = moveEvent.clientY - rect.top - headerHeight;
-      const pct = Math.min(80, Math.max(20, (y / availableHeight) * 100));
-      setSplitPercent(pct);
-    };
-
-    const onMouseUp = () => {
-      isDraggingRef.current = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      setSplitPercent(prev => {
-        localStorage.setItem(SPLIT_STORAGE_KEY, String(prev));
-        return prev;
-      });
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, []);
-
-  const hasScreenShare = screenShareViewerMode === 'in-app' && (watchingShares?.length ?? 0) > 0 && remoteVideoEls && remoteVideoEls.size > 0 && onCloseShare;
   const hasNewWindowScreenShare = screenShareViewerMode === 'new-window' && (watchingShares?.length ?? 0) > 0 && remoteVideoEls && remoteVideoEls.size > 0 && onCloseShare;
 
   useEffect(() => {
@@ -779,17 +737,11 @@ const [replyState, setReplyState] = useState<{
     return (
       <div className="chat-panel chat-panel--empty">
         <div className="chat-empty-state">
-          {isDM ? (
-            <div className="empty-icon">
-              <Icon name="message-circle" size={48} strokeWidth={1.5} />
-            </div>
-          ) : (
-            <div className="empty-logo">
-              <BrmbleLogo size={192} heartbeat />
-            </div>
-          )}
-          <h2 className="heading-title">{isDM ? 'Direct Messages' : 'Welcome to Brmble'}</h2>
-          <p>{isDM ? 'Right-click a user to start a private conversation' : 'Select a channel to start talking and chatting'}</p>
+          <div className="empty-logo">
+            <BrmbleLogo size={192} heartbeat />
+          </div>
+          <h2 className="heading-title">Welcome to Brmble</h2>
+          <p>Select a channel to start talking and chatting</p>
         </div>
       </div>
     );
@@ -890,45 +842,6 @@ const [replyState, setReplyState] = useState<{
           </Tooltip>
         </div>
       </div>
-
-      {hasScreenShare && (
-        <>
-          <div className="chat-split-video" style={{ flex: `0 0 ${splitPercent}%` }}>
-            <ScreenShareGrid
-              watchingShares={watchingShares!}
-              focusedShare={focusedShare ?? null}
-              videoElements={remoteVideoEls!}
-              roomQuality={roomQuality}
-              shareQualities={shareQualities}
-              viewerQualities={viewerQualities}
-              onFocus={onFocusShare ?? (() => {})}
-              onClose={onCloseShare!}
-              onViewerQualityChange={onViewerQualityChange}
-            />
-          </div>
-          <div
-            className="chat-split-divider"
-            role="separator"
-            aria-orientation="horizontal"
-            aria-valuenow={splitPercent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            tabIndex={0}
-            onMouseDown={handleDividerMouseDown}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                event.preventDefault();
-                const delta = event.key === 'ArrowUp' ? -5 : 5;
-                const next = Math.min(80, Math.max(20, splitPercent + delta));
-                if (next !== splitPercent) {
-                  setSplitPercent(next);
-                  localStorage.setItem(SPLIT_STORAGE_KEY, String(next));
-                }
-              }
-            }}
-          />
-        </>
-      )}
 
       <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
         {topNotice && (

@@ -1,58 +1,22 @@
 .dm-contact-list {
   position: relative;
-  width: var(--messages-rail-width, 48px);
-  min-width: var(--messages-rail-width, 48px);
+  width: var(--dm-panel-width);
+  min-width: var(--dm-panel-width);
   height: calc(100vh - var(--header-height));
   background: var(--bg-primary);
   border-left: var(--glass-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--transition-slow), min-width var(--transition-slow);
-}
-
-.dm-contact-list.visible {
-  width: 260px;
-  min-width: 260px;
-}
-
-.dm-contact-list-toggle {
-  align-items: center;
-  background: none;
-  border-radius: var(--radius-sm);
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
   flex-shrink: 0;
-  height: 24px;
-  justify-content: center;
-  margin: 0;
-  padding: 0;
-  width: 24px;
-}
-
-.dm-contact-list-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.dm-contact-list-toggle:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: -2px;
 }
 
 .dm-contact-list-content {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-width: 260px;
+  min-width: 0;
   overflow: hidden;
-  transition: opacity var(--transition-slow);
-}
-
-.dm-contact-list:not(.visible) .dm-contact-list-content {
-  opacity: 0;
 }
 
 .dm-contact-list-header {
@@ -60,19 +24,7 @@
   display: flex;
   flex-shrink: 0;
   gap: var(--space-2xs);
-  min-width: 260px;
   padding: var(--space-md) var(--space-md) var(--space-xs);
-}
-
-.dm-contact-list-header.collapsed {
-  gap: 0;
-  justify-content: center;
-  min-width: var(--messages-rail-width, 48px);
-  padding: var(--space-xs) 0;
-}
-
-.dm-contact-list-header.collapsed .heading-section {
-  display: none;
 }
 
 .dm-contact-search {
@@ -182,6 +134,7 @@
   transition: background var(--transition-fast);
   border: none;
   background: none;
+  position: relative;
 }
 
 .dm-contact-entry:hover {
@@ -264,9 +217,67 @@
   color: var(--text-muted);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .dm-contact-list,
-  .dm-contact-list-content {
-    transition: none;
+/* Presentation-only rail. Driven by viewport width alone — no state, no toggle, no
+   JavaScript. Unread badges stay visible; the accessible name survives via `.sr-only`. */
+@media (max-width: 60rem) {
+  .dm-contact-list {
+    width: var(--dm-rail-width);
+    min-width: var(--dm-rail-width);
+  }
+
+  .dm-contact-list .dm-contact-preview,
+  .dm-contact-list .dm-contact-time,
+  .dm-contact-list .dm-contact-ephemeral-tag,
+  .dm-contact-list .dm-contact-list-header .heading-section,
+  .dm-contact-list .dm-contact-section-title,
+  .dm-contact-list .dm-contact-section-toggle span,
+  .dm-contact-list .dm-contact-empty,
+  .dm-contact-list .dm-contact-search {
+    display: none;
+  }
+
+  /* The contact name is the entry's accessible name, so it is visually hidden rather
+     than removed — `display: none` would drop it from the accessibility tree and leave
+     the rail's buttons unnamed. Same technique as the global `.sr-only` utility, which
+     cannot be composed from a media query. */
+  .dm-contact-list .dm-contact-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .dm-contact-list .dm-contact-list-header {
+    justify-content: center;
+    padding: var(--space-xs) 0;
+  }
+
+  .dm-contact-list .dm-contact-entries {
+    padding: 0 var(--space-2xs);
+  }
+
+  .dm-contact-list .dm-contact-entry {
+    justify-content: center;
+    padding: var(--space-xs) var(--space-2xs);
+  }
+
+  .dm-contact-list .dm-contact-info {
+    flex: 0 0 auto;
+  }
+
+  .dm-contact-list .dm-contact-unread {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+  }
+
+  .dm-contact-list .dm-contact-section-toggle {
+    justify-content: center;
+    padding: var(--space-xs) 0 var(--space-2xs);
   }
 }

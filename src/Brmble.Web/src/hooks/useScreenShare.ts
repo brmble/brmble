@@ -40,6 +40,13 @@ export interface ScreenShareSettings {
 /** Debounce window before applying edited settings to an already-active share. */
 const APPLY_SETTINGS_DEBOUNCE_MS = 400;
 
+/**
+ * How long a remote screen share stays subscribed after it leaves the stage. Quick
+ * switching inside this window is instant; past it we unsubscribe so we stop decoding
+ * and downloading a stream nobody is watching.
+ */
+export const REMOTE_HIDE_GRACE_MS = 10_000;
+
 const SCREEN_SHARE_RESOLUTION_MAP: Record<string, { width: number; height: number }> = {
   '720p': { width: 1280, height: 720 },
   '1080p': { width: 1920, height: 1080 },
@@ -360,6 +367,19 @@ export function useScreenShare(
   const pendingViewerAttemptsRef = useRef(new Map<number, PendingViewerAttempt>());
   const endedWatchedShareKeysRef = useRef(new Set<string>());
   const pendingUnsubscribedWatchedSharesRef = useRef(new Map<string, ShareInfo>());
+  // --- Grace-period hide state -------------------------------------------------------
+  // hiddenRef is the caller's intent; hideElapsedRef records that the grace period for
+  // the current hide already expired (so newly published tracks are dropped on arrival
+  // rather than attached). hideGenerationRef supersedes in-flight hides.
+  const hiddenRef = useRef(false);
+  const hideElapsedRef = useRef(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideGenerationRef = useRef(0);
+  // Late-bound so `resetHideLifecycle` (declared first) can re-arm a hide.
+  const applyHiddenRef = useRef<((hidden: boolean) => void) | null>(null);
+  // Set during teardown: after unmount there is no replacement room to background, so
+  // the hide must not be re-armed (that would leave a timer running past the hook).
+  const hookUnmountedRef = useRef(false);
   onDisconnectedRef.current = onDisconnected;
   onLocalShareEndedRef.current = onLocalShareEnded;
   onWatchedShareEndedRef.current = onWatchedShareEnded;
@@ -367,6 +387,50 @@ export function useScreenShare(
   const clearLocalShareEndListener = useCallback(() => {
     localShareEndCleanupRef.current?.();
     localShareEndCleanupRef.current = null;
+  }, []);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Reset the hide machinery because the room lifecycle restarted. Bumping the
+   * generation orphans any in-flight hide timer, and clearing the elapsed flag drops
+   * the "we intend watched publications to be unsubscribed" state along with the room
+   * whose publications it described.
+   *
+   * `hiddenRef` is deliberately NOT cleared: it is the caller's intent (the stage that
+   * is on screen), which outlives any single room. Clearing it would silently diverge
+   * from that intent. But leaving it set with nothing scheduled is just as wrong —
+   * `setRemoteScreenSharesHidden` early-returns on an unchanged intent, so a stage
+   * effect re-running with the same `true` cannot self-correct and the replacement
+   * room would stay subscribed indefinitely. So re-arm the grace period instead: the
+   * replacement room's publications get the same background treatment the old one had.
+   */
+  const resetHideLifecycle = useCallback(() => {
+    hideGenerationRef.current += 1;
+    hideElapsedRef.current = false;
+    clearHideTimer();
+    if (hiddenRef.current && !hookUnmountedRef.current) applyHiddenRef.current?.(true);
+  }, [clearHideTimer]);
+
+  /**
+   * Unsubscribe a publication because we are backgrounding it. While `hiddenRef` and
+   * `hideElapsedRef` are both set we intend every watched screen publication to stay
+   * unsubscribed, which is what the TrackUnsubscribed handler uses to recognise the
+   * resulting events as our own.
+   */
+  const unsubscribeIntentionally = useCallback((
+    pub: { setSubscribed?: (subscribed: boolean) => void },
+  ) => {
+    try {
+      pub.setSubscribed?.(false);
+    } catch {
+      // Subscription steering is best-effort; never break the viewer.
+    }
   }, []);
 
   const beginViewerConnectAttempt = useCallback(() => {
@@ -654,6 +718,90 @@ export function useScreenShare(
     }
   }, []);
 
+  /**
+   * Visit every screen-share publication (video and audio) of every share we are
+   * currently watching. Shares already known to have ended are skipped so we never
+   * touch a dead publication.
+   */
+  const forEachWatchedScreenPublication = useCallback((
+    visit: (pub: RemoteTrackPublication, share: ShareInfo) => void,
+  ) => {
+    const room = roomRef.current;
+    if (!room) return;
+
+    for (const share of watchingSharesRef.current) {
+      if (endedWatchedShareKeysRef.current.has(watchedShareKey(share.roomName, share.userId))) {
+        continue;
+      }
+      const identity = share.matrixUserId ?? String(share.userId);
+      const participant = room.remoteParticipants.get(identity);
+      participant?.trackPublications?.forEach((pub: RemoteTrackPublication) => {
+        if (pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio) {
+          visit(pub, share);
+        }
+      });
+    }
+  }, []);
+
+  /**
+   * Drop watched shares that ended while we were hidden. Only shares already recorded
+   * as ended are removed, so this can never evict a live share.
+   */
+  const reconcileEndedShares = useCallback(() => {
+    for (const share of [...watchingSharesRef.current]) {
+      if (endedWatchedShareKeysRef.current.has(watchedShareKey(share.roomName, share.userId))) {
+        removeWatchingShare(share.userId);
+      }
+    }
+  }, [removeWatchingShare]);
+
+  /**
+   * Hide/restore remote screen shares. This is purely a SUBSCRIPTION concern: the
+   * watched list, its order, focus, receive quality, room membership and local
+   * publishing are never touched here.
+   */
+  const applyHidden = useCallback((hidden: boolean) => {
+    hiddenRef.current = hidden;
+    const generation = ++hideGenerationRef.current;
+    clearHideTimer();
+
+    if (!hidden) {
+      hideElapsedRef.current = false;
+      // Reconcile first so we never resubscribe to a share that died while hidden.
+      reconcileEndedShares();
+      forEachWatchedScreenPublication((pub) => {
+        try {
+          pub.setSubscribed?.(true);
+        } catch {
+          // Subscription steering is best-effort; never break the viewer.
+        }
+      });
+      return;
+    }
+
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      // A newer hide/restore, or a room lifecycle reset, superseded this one.
+      if (generation !== hideGenerationRef.current || !hiddenRef.current) {
+        return;
+      }
+      hideElapsedRef.current = true;
+      forEachWatchedScreenPublication((pub, share) => {
+        unsubscribeIntentionally(pub);
+        if (pub.source === Track.Source.ScreenShareAudio) {
+          detachRemoteAudio(share.userId);
+        }
+      });
+      setRemoteVideoEls(new Map());
+    }, REMOTE_HIDE_GRACE_MS);
+  }, [clearHideTimer, detachRemoteAudio, forEachWatchedScreenPublication, reconcileEndedShares, unsubscribeIntentionally]);
+  applyHiddenRef.current = applyHidden;
+
+  const setRemoteScreenSharesHidden = useCallback((hidden: boolean) => {
+    if (hiddenRef.current === hidden) return;
+    applyHidden(hidden);
+  }, [applyHidden]);
+
   const notifyUnexpectedWatchedShareEnds = useCallback(() => {
     for (const share of [...watchingSharesRef.current]) {
       endWatchedShare(share, 'unexpected');
@@ -728,8 +876,9 @@ export function useScreenShare(
   const invalidateRoomLifecycle = useCallback((reason = 'unknown') => {
     sendScreenShareDebugEvent(`invalidateRoomLifecycle.${reason}`);
     roomLifecycleGenerationRef.current += 1;
+    resetHideLifecycle();
     cancelPendingRoomRequest();
-  }, [cancelPendingRoomRequest]);
+  }, [cancelPendingRoomRequest, resetHideLifecycle]);
 
   const maybeCancelPendingRoomForViewerRoom = useCallback((roomName: string) => {
     const hasRemainingPendingViewersForRoom = Array.from(pendingViewerAttemptsRef.current.values()).some(attempt => attempt.roomName === roomName);
@@ -925,6 +1074,14 @@ export function useScreenShare(
         }
       }
       if (!matchedShare) return;
+
+      // Grace already elapsed: we are hidden and this track arrived anyway. Drop it
+      // instead of attaching, so a share published while hidden costs nothing.
+      if (hiddenRef.current && hideElapsedRef.current) {
+        unsubscribeIntentionally(pub);
+        return;
+      }
+
       if (
         track.kind === Track.Kind.Video &&
         track.source === Track.Source.ScreenShare
@@ -953,6 +1110,25 @@ export function useScreenShare(
         return identity === participant.identity;
       });
       if (!matchedShare) return;
+
+      // While we are hidden past the grace period we have deliberately unsubscribed
+      // every watched screen publication, so this event is our own action echoing back —
+      // possibly late, and possibly caused by a hide generation that has since been
+      // superseded. Detach the media, but NEVER remove logical state: the watched list,
+      // focus and receive quality survive untouched, and no room-teardown path is
+      // entered. The suppression is scoped to that intent rather than remembered per
+      // SID, so it ends the instant we restore: a genuine publisher stop or network
+      // unsubscribe arriving after that is handled normally below.
+      const isScreenSharePublication =
+        pub.source === Track.Source.ScreenShare ||
+        pub.source === Track.Source.ScreenShareAudio ||
+        track.source === Track.Source.ScreenShare ||
+        track.source === Track.Source.ScreenShareAudio;
+      if (hiddenRef.current && hideElapsedRef.current && isScreenSharePublication) {
+        try { track.detach(); } catch { /* ignore */ }
+        return;
+      }
+
       if (
         track.kind === Track.Kind.Video &&
         track.source === Track.Source.ScreenShare
@@ -968,6 +1144,25 @@ export function useScreenShare(
         track.detach();
         detachRemoteAudio(matchedShare.userId);
       }
+    });
+
+    // A watched publisher (re)published while we are hidden past the grace period:
+    // unsubscribe on arrival instead of letting it start streaming.
+    room.on(RoomEvent.TrackPublished, (pub, participant) => {
+      if (roomRef.current !== room) {
+        return;
+      }
+      if (!hiddenRef.current || !hideElapsedRef.current) {
+        return;
+      }
+      if (pub.source !== Track.Source.ScreenShare && pub.source !== Track.Source.ScreenShareAudio) {
+        return;
+      }
+
+      const isWatched = watchingSharesRef.current.some(s => (s.matrixUserId ?? String(s.userId)) === participant.identity);
+      if (!isWatched) return;
+
+      unsubscribeIntentionally(pub);
     });
 
     room.on(RoomEvent.Reconnecting, () => {
@@ -1655,12 +1850,14 @@ export function useScreenShare(
 
   useEffect(() => {
     return () => {
+      hookUnmountedRef.current = true;
       clearLocalShareEndListener();
       cancelPendingViewerAttempts();
       clearTokenLease();
+      clearHideTimer();
       invalidateRoomLifecycle('unmount');
     };
-  }, [clearLocalShareEndListener, cancelPendingViewerAttempts, clearTokenLease, invalidateRoomLifecycle]);
+  }, [clearLocalShareEndListener, cancelPendingViewerAttempts, clearTokenLease, clearHideTimer, invalidateRoomLifecycle]);
 
   // Backward compat: expose first active share as activeShare
   const activeShare: ActiveShare | null = activeShares.length > 0
@@ -1713,6 +1910,7 @@ export function useScreenShare(
     setViewerQuality,     // new
     addWatchingShare,      // new
     removeWatchingShare,   // new
+    setRemoteScreenSharesHidden, // new: grace-period hide for backgrounded shares
     disconnectViewer,
     connectAsViewer,
     handleScreenShareServiceUnavailable,

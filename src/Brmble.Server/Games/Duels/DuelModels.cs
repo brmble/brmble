@@ -31,7 +31,7 @@ public sealed record DuelReservation(
 public enum DuelCommitmentKind { Challenge, RematchOffer, Queued, ReadyCheck, Active }
 public enum DuelCancelReason { Declined, Expired, Disconnected, LeftChannel, ChannelRemoved, StartFailed }
 public enum ReadyResponse { Accept, Decline }
-public enum DuelRejectReason { None, Blocked, AlreadyCommitted, NotPresent, StaleOffer, NotParticipant, InvalidConfiguration }
+public enum DuelRejectReason { None, Blocked, AlreadyCommitted, NotPresent, StaleOffer, NotParticipant, InvalidConfiguration, InvalidAction }
 public enum EstimateStatus { Known, Unknown }
 public enum EstimateMethod { FullMedian, ConditionalRemaining, FullMedianFallback, ReadyWindow, Insufficient }
 
