@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Brmble.Client;
@@ -117,8 +118,6 @@ internal sealed class StartupSplashWindow : IDisposable
         _error = true;
         KillTimer(_windowHandle, TimerId);
         RefreshSurface();
-        InvalidateRect(_windowHandle, IntPtr.Zero, false);
-        UpdateWindow(_windowHandle);
     }
 
     public void Dispose() => Close();
@@ -197,7 +196,10 @@ internal sealed class StartupSplashWindow : IDisposable
         if (_surface == null || _windowHandle == IntPtr.Zero)
             return;
 
-        var bitmapHandle = _surface.GetHbitmap(Color.Transparent);
+        var bitmapHandle = CreateSurfaceBitmap();
+        if (bitmapHandle == IntPtr.Zero)
+            return;
+
         var memoryDc = CreateCompatibleDC(IntPtr.Zero);
         var previousBitmap = IntPtr.Zero;
         try
@@ -222,7 +224,8 @@ internal sealed class StartupSplashWindow : IDisposable
                 SourceConstantAlpha = 255,
                 AlphaFormat = AcSrcAlpha,
             };
-            UpdateLayeredWindow(_windowHandle, IntPtr.Zero, ref destination, ref size, memoryDc, ref source, 0, ref blend, UlwAlpha);
+            if (!UpdateLayeredWindow(_windowHandle, IntPtr.Zero, ref destination, ref size, memoryDc, ref source, 0, ref blend, UlwAlpha))
+                Debug.WriteLine($"[StartupSplash] UpdateLayeredWindow failed (win32={Marshal.GetLastWin32Error()})");
         }
         finally
         {
@@ -234,6 +237,58 @@ internal sealed class StartupSplashWindow : IDisposable
             }
             if (bitmapHandle != IntPtr.Zero)
                 DeleteObject(bitmapHandle);
+        }
+    }
+
+    private IntPtr CreateSurfaceBitmap()
+    {
+        var surface = _surface;
+        if (surface == null)
+            return IntPtr.Zero;
+
+        var bitmapInfo = new BITMAPINFOHEADER
+        {
+            Size = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+            Width = Width,
+            Height = -Height,
+            Planes = 1,
+            BitCount = 32,
+            Compression = 0,
+        };
+        var bitmapHandle = CreateDIBSection(IntPtr.Zero, ref bitmapInfo, 0, out var bits, IntPtr.Zero, 0);
+        if (bitmapHandle == IntPtr.Zero || bits == IntPtr.Zero)
+        {
+            Debug.WriteLine("[StartupSplash] Failed to create alpha DIB section");
+            if (bitmapHandle != IntPtr.Zero)
+                DeleteObject(bitmapHandle);
+            return IntPtr.Zero;
+        }
+
+        BitmapData? sourceData = null;
+        try
+        {
+            sourceData = surface.LockBits(
+                new Rectangle(0, 0, Width, Height),
+                ImageLockMode.ReadOnly,
+                PixelFormat.Format32bppPArgb);
+            var row = new byte[Width * 4];
+            for (var y = 0; y < Height; y++)
+            {
+                Marshal.Copy(IntPtr.Add(sourceData.Scan0, y * sourceData.Stride), row, 0, row.Length);
+                Marshal.Copy(row, 0, IntPtr.Add(bits, y * row.Length), row.Length);
+            }
+            return bitmapHandle;
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"[StartupSplash] Failed to copy alpha surface: {exception.Message}");
+            DeleteObject(bitmapHandle);
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            if (sourceData != null)
+                surface.UnlockBits(sourceData);
         }
     }
 
@@ -311,6 +366,22 @@ internal sealed class StartupSplashWindow : IDisposable
     private struct RECT { public int Left, Top, Right, Bottom; }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public uint Size;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public uint ClrUsed;
+        public uint ClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -347,9 +418,8 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern bool UpdateWindow(IntPtr hwnd);
-    [DllImport("user32.dll")] private static extern bool InvalidateRect(IntPtr hwnd, IntPtr rect, bool erase);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
-    [DllImport("user32.dll")] private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr destinationDc, ref POINT destination, ref SIZE size, IntPtr sourceDc, ref POINT source, uint colorKey, ref BLENDFUNCTION blend, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr destinationDc, ref POINT destination, ref SIZE size, IntPtr sourceDc, ref POINT source, uint colorKey, ref BLENDFUNCTION blend, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr SetTimer(IntPtr hwnd, uint id, uint interval, IntPtr callback);
     [DllImport("user32.dll")] private static extern bool KillTimer(IntPtr hwnd, uint id);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int cursor);
@@ -360,6 +430,7 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern IntPtr BeginPaint(IntPtr hwnd, out PAINTSTRUCT paintStruct);
     [DllImport("user32.dll")] private static extern bool EndPaint(IntPtr hwnd, ref PAINTSTRUCT paintStruct);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bitmapInfo, uint usage, out IntPtr bits, IntPtr section, uint offset);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
     [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
     [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr hdc, IntPtr objectHandle);
