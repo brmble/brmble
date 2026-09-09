@@ -32,6 +32,23 @@ public interface ISessionMappingService
     bool TryGetSessionByUserId(long userId, out int sessionId);
     bool TryGetMappingByUserId(long userId, out int sessionId, out SessionMapping? mapping);
     bool TryUpdateCompanionId(int sessionId, string companionId);
+
+    /// <summary>
+    /// Compare-and-swap on the companion field.
+    /// </summary>
+    /// <remarks>
+    /// Retained deliberately (spec §4.4 proposed retiring it). Revision rejection guards a client
+    /// submitting a mutation against a table it has since fallen behind. This guards a different
+    /// race entirely: a moderator deleting a custom companion resets every affected session to
+    /// <c>"floppy"</c> while an affected user may concurrently be selecting something else.
+    /// Neither party carries a client revision — <c>CustomCompanionEndpoints</c> computes its
+    /// target inside <c>PublishAsync</c>'s own gate — so there is no stale revision for the
+    /// revision path to reject. The two do not overlap.
+    ///
+    /// The CAS also gates the announcement: <c>PublishAsync</c> publishes only when the mutation
+    /// returns true, so a refused reset emits no <c>companionChanged</c> and therefore cannot
+    /// overwrite the user's newer choice on every other client.
+    /// </remarks>
     bool TryUpdateCompanionIdIfCurrent(int sessionId, string expectedCompanionId, string companionId);
     bool TryUpdateCompanionIdIfOwnedBy(int sessionId, long userId, string companionId);
     bool TryUpdateBrmbleStatus(int sessionId, bool? isBrmbleClient);

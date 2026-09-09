@@ -1,6 +1,7 @@
 using Brmble.Server.Events;
 using Brmble.Server.Auth;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.WebSockets;
 using Brmble.Server.Companions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -431,6 +432,76 @@ public class BrmbleWebSocketHandlerTests
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":42}", out _));
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":null}", out _));
         Assert.IsFalse(BrmbleWebSocketHandler.TryParseClientMessage("{\"type\":\"\"}", out _));
+    }
+
+    // --- Spectator teardown on socket close ---
+
+    /// <summary>
+    /// Drives the handler's close path the way production does: <c>RemoveClient</c> first,
+    /// then <c>HasConnectedClient(userId)</c>. There is no per-user refcount in this
+    /// codebase, so "sockets remaining after the close" is expressed as the value that
+    /// signal returns afterwards — the same signal the production code reads.
+    /// </summary>
+    private static async Task<(Mock<IBrmbleEventBus> Bus, Mock<IActiveBrmbleSessions> Sessions)> RunHandlerUntilCloseAsync(
+        ISpectatorLifecycle spectators, int remainingSocketsAfterClose, long userId = 42)
+    {
+        var removed = false;
+        var bus = new Mock<IBrmbleEventBus>();
+        var sessions = new Mock<IActiveBrmbleSessions>();
+        var socket = new Mock<WebSocket>();
+        bus.Setup(x => x.RemoveClient(socket.Object)).Callback(() => removed = true);
+        bus.Setup(x => x.HasConnectedClient(userId)).Returns(() => removed && remainingSocketsAfterClose > 0);
+
+        await BrmbleWebSocketHandler.FinalizeClosedClientAsync(
+            socket.Object, userId, "cert", bus.Object, sessions.Object,
+            spectators, NullLogger.Instance);
+
+        bus.Verify(x => x.RemoveClient(socket.Object), Times.Once);
+        return (bus, sessions);
+    }
+
+    [TestMethod]
+    public async Task FinalSocketClose_DropsTheSpectatorSubscription()
+    {
+        var spectators = new Mock<ISpectatorLifecycle>();
+
+        var (_, sessions) = await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 0);
+
+        spectators.Verify(x => x.HandleTransportDisconnectedAsync(42), Times.Once);
+        sessions.Verify(x => x.Deactivate("cert"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task NonFinalSocketClose_KeepsTheSpectatorSubscription()
+    {
+        var spectators = new Mock<ISpectatorLifecycle>();
+
+        var (_, sessions) = await RunHandlerUntilCloseAsync(spectators.Object, remainingSocketsAfterClose: 1);
+
+        spectators.Verify(x => x.HandleTransportDisconnectedAsync(It.IsAny<long>()), Times.Never);
+        // The whole correctness argument for rule 4 is that the lifecycle call and Deactivate
+        // sit on the same branch and cannot drift. Asserting only the lifecycle half would let
+        // a future edit move one of them past the early return unnoticed.
+        sessions.Verify(x => x.Deactivate(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task FinalSocketClose_SpectatorTeardownFailureStillDeactivatesTheSession()
+    {
+        // The close path runs in a finally. A throwing lifecycle must not escape it and
+        // replace whatever exception was already unwinding the socket.
+        var spectators = new Mock<ISpectatorLifecycle>();
+        spectators.Setup(x => x.HandleTransportDisconnectedAsync(It.IsAny<long>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var activeSessions = new Mock<IActiveBrmbleSessions>();
+        var bus = new Mock<IBrmbleEventBus>();
+        bus.Setup(x => x.HasConnectedClient(42)).Returns(false);
+
+        await BrmbleWebSocketHandler.FinalizeClosedClientAsync(
+            new Mock<WebSocket>().Object, 42, "cert", bus.Object, activeSessions.Object,
+            spectators.Object, NullLogger.Instance);
+
+        activeSessions.Verify(x => x.Deactivate("cert"), Times.Once);
     }
 }
 

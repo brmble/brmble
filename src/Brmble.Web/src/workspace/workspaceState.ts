@@ -1,114 +1,121 @@
-export type ForegroundConversation =
-  | { kind: 'channel' }
-  | { kind: 'dm'; contactId: string };
+import { conversationKey, type Conversation } from './conversation';
 
 export interface WorkspaceState {
-  messagesPanelExpanded: boolean;
-  foreground: ForegroundConversation;
-  previousContent: { messagesPanelExpanded: boolean };
-  remoteWatchCount: number;
+  joinedChannelId: string | null;
+  tabs: Conversation[];
+  activeKey: string | null;
 }
 
 export type WorkspaceEvent =
-  | { type: 'REMOTE_WATCH_COUNT_CHANGED'; count: number }
-  | { type: 'CONNECTION_WORKSPACE_READY' }
-  | { type: 'TOGGLE_MESSAGES_PANEL' }
-  | { type: 'OPEN_MESSAGES_PANEL' }
-  | { type: 'SELECT_CHANNEL' }
-  | { type: 'SELECT_DM'; contactId: string }
-  | { type: 'SELECTED_DM_INVALIDATED' };
+  | { type: 'JOINED_CHANNEL_CHANGED'; channelId: string | null }
+  | { type: 'OPEN_CONVERSATION'; conversation: Conversation }
+  | { type: 'CLOSE_CONVERSATION'; key: string }
+  | { type: 'ACTIVATE_CONVERSATION'; key: string }
+  | { type: 'CONVERSATION_INVALIDATED'; key: string }
+  | { type: 'RESTORE_CONVERSATIONS'; conversations: Conversation[] }
+  | { type: 'WORKSPACE_RESET' };
 
 export const createWorkspaceState = (): WorkspaceState => ({
-  messagesPanelExpanded: true,
-  foreground: { kind: 'channel' },
-  previousContent: { messagesPanelExpanded: true },
-  remoteWatchCount: 0,
+  joinedChannelId: null,
+  tabs: [],
+  activeKey: null,
 });
 
-export const isMessagesPanelExpanded = (state: WorkspaceState): boolean =>
-  state.messagesPanelExpanded;
+export const selectHomeKey = (state: WorkspaceState): string | null =>
+  state.joinedChannelId === null ? null : `channel:${state.joinedChannelId}`;
 
-export const getForegroundConversation = (
-  state: WorkspaceState,
-): ForegroundConversation => state.foreground;
+export const isHomeKey = (state: WorkspaceState, key: string): boolean =>
+  selectHomeKey(state) === key;
+
+export const selectActiveConversation = (state: WorkspaceState): Conversation | null =>
+  state.tabs.find(tab => conversationKey(tab) === state.activeKey) ?? null;
+
+function withoutKey(tabs: Conversation[], key: string | null): Conversation[] {
+  if (key === null) return tabs;
+  return tabs.filter(tab => conversationKey(tab) !== key);
+}
+
+function closeTab(state: WorkspaceState, key: string): WorkspaceState {
+  if (isHomeKey(state, key)) return state;
+  const index = state.tabs.findIndex(tab => conversationKey(tab) === key);
+  if (index === -1) return state;
+
+  const tabs = state.tabs.filter((_, position) => position !== index);
+  if (state.activeKey !== key) return { ...state, tabs };
+
+  const neighbour = tabs[index] ?? tabs[index - 1] ?? null;
+  const fallback = neighbour ? conversationKey(neighbour) : selectHomeKey(state);
+  return { ...state, tabs, activeKey: fallback };
+}
 
 export const workspaceReducer = (
   state: WorkspaceState,
   event: WorkspaceEvent,
 ): WorkspaceState => {
   switch (event.type) {
-    case 'REMOTE_WATCH_COUNT_CHANGED': {
-      const count = Math.max(0, event.count);
-      const wasWatching = state.remoteWatchCount > 0;
-      const isWatching = count > 0;
-      const previousContent = !wasWatching && isWatching
-        ? { messagesPanelExpanded: state.messagesPanelExpanded }
-        : state.previousContent;
-      const messagesPanelExpanded =
-        wasWatching === isWatching
-          ? state.messagesPanelExpanded
-          : isWatching
-            ? false
-            : state.previousContent.messagesPanelExpanded;
+    case 'JOINED_CHANNEL_CHANGED': {
+      if (event.channelId === state.joinedChannelId) return state;
 
-      if (
-        count === state.remoteWatchCount &&
-        messagesPanelExpanded === state.messagesPanelExpanded &&
-        previousContent === state.previousContent
-      ) {
-        return state;
+      const previousHomeKey = selectHomeKey(state);
+      const rest = withoutKey(state.tabs, previousHomeKey);
+
+      if (event.channelId === null) {
+        const activeKey = state.activeKey === previousHomeKey
+          ? (rest[0] ? conversationKey(rest[0]) : null)
+          : state.activeKey;
+        return { joinedChannelId: null, tabs: rest, activeKey };
       }
 
-      return { ...state, remoteWatchCount: count, messagesPanelExpanded, previousContent };
+      const home: Conversation = { kind: 'channel', channelId: event.channelId };
+      const homeKey = conversationKey(home);
+      const absorbed = rest.some(tab => conversationKey(tab) === homeKey);
+      const tabs = [home, ...withoutKey(rest, homeKey)];
+      const activeKey = state.activeKey === previousHomeKey || state.activeKey === null || absorbed && state.activeKey === homeKey
+        ? homeKey
+        : tabs.some(tab => conversationKey(tab) === state.activeKey)
+          ? state.activeKey
+          : homeKey;
+
+      return { joinedChannelId: event.channelId, tabs, activeKey };
     }
-    case 'CONNECTION_WORKSPACE_READY':
-      if (
-        state.messagesPanelExpanded &&
-        state.remoteWatchCount === 0 &&
-        state.foreground.kind === 'channel'
-      ) {
-        return state;
+
+    case 'OPEN_CONVERSATION': {
+      const key = conversationKey(event.conversation);
+      if (state.tabs.some(tab => conversationKey(tab) === key)) {
+        return state.activeKey === key ? state : { ...state, activeKey: key };
       }
-      return {
-        ...state,
-        messagesPanelExpanded: true,
-        foreground: { kind: 'channel' },
-        remoteWatchCount: 0,
-      };
-    case 'TOGGLE_MESSAGES_PANEL':
-      return { ...state, messagesPanelExpanded: !state.messagesPanelExpanded };
-    case 'OPEN_MESSAGES_PANEL':
-      return state.messagesPanelExpanded
-        ? state
-        : { ...state, messagesPanelExpanded: true };
-    case 'SELECT_CHANNEL':
-      return state.foreground.kind === 'channel'
-        ? state
-        : { ...state, foreground: { kind: 'channel' } };
-    case 'SELECT_DM': {
-      if (
-        state.foreground.kind === 'dm' &&
-        state.foreground.contactId === event.contactId
-      ) {
-        return state;
-      }
-      const foreground = { kind: 'dm' as const, contactId: event.contactId };
-      return { ...state, foreground };
+      return { ...state, tabs: [...state.tabs, event.conversation], activeKey: key };
     }
-    case 'SELECTED_DM_INVALIDATED': {
-      if (state.foreground.kind !== 'dm') {
-        return state;
-      }
 
-      if (state.remoteWatchCount > 0) {
-        return { ...state, foreground: { kind: 'channel' } };
-      }
+    case 'ACTIVATE_CONVERSATION': {
+      if (state.activeKey === event.key) return state;
+      if (!state.tabs.some(tab => conversationKey(tab) === event.key)) return state;
+      return { ...state, activeKey: event.key };
+    }
 
-      if (state.foreground.contactId === '') {
-        return state;
-      }
+    case 'CLOSE_CONVERSATION':
+    case 'CONVERSATION_INVALIDATED':
+      return closeTab(state, event.key);
 
-      return { ...state, foreground: { kind: 'dm', contactId: '' } };
+    case 'RESTORE_CONVERSATIONS': {
+      const homeKey = selectHomeKey(state);
+      const home = state.tabs.find(tab => conversationKey(tab) === homeKey);
+      const seen = new Set<string>(homeKey ? [homeKey] : []);
+      const restored: Conversation[] = [];
+      for (const conversation of event.conversations) {
+        const key = conversationKey(conversation);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        restored.push(conversation);
+      }
+      const tabs = home ? [home, ...restored] : restored;
+      return { ...state, tabs, activeKey: homeKey ?? (tabs[0] ? conversationKey(tabs[0]) : null) };
+    }
+
+    case 'WORKSPACE_RESET': {
+      const homeKey = selectHomeKey(state);
+      const home = state.tabs.find(tab => conversationKey(tab) === homeKey);
+      return { ...state, tabs: home ? [home] : [], activeKey: home ? homeKey : null };
     }
   }
 };

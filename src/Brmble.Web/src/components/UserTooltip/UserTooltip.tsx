@@ -12,9 +12,10 @@ type AnyProps = Record<string, any>;
 
 interface UserTooltipUser {
   name: string;
-  matrixUserId?: string;
+  /** The projection delivers explicit nulls for identity fields the server has not resolved. */
+  matrixUserId?: string | null;
   avatarUrl?: string;
-  comment?: string;
+  comment?: string | null;
   self?: boolean;
   muted?: boolean;
   deafened?: boolean;

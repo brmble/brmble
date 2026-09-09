@@ -32,6 +32,7 @@ public static class DuelWire
         DuelRejectReason.StaleOffer => "staleOffer",
         DuelRejectReason.NotParticipant => "notParticipant",
         DuelRejectReason.InvalidConfiguration => "invalidConfiguration",
+        DuelRejectReason.InvalidAction => "invalidAction",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
     };
 

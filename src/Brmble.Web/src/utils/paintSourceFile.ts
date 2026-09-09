@@ -69,7 +69,6 @@ async function decodedDimensions(file: File): Promise<{
 export async function preparePaintSourceFile(
   file: File,
   origin: PaintSourceOrigin,
-  matrixUploadLimit?: number,
 ): Promise<File> {
   const extension = paintSourceExtension(file.type);
   if (!extension) {
@@ -79,10 +78,7 @@ export async function preparePaintSourceFile(
     throw new Error(unusableMessage(origin));
   }
 
-  const effectiveLimit = matrixUploadLimit && matrixUploadLimit > 0
-    ? Math.min(MAX_PAINT_SOURCE_BYTES, matrixUploadLimit)
-    : MAX_PAINT_SOURCE_BYTES;
-  if (file.size > effectiveLimit) {
+  if (file.size > MAX_PAINT_SOURCE_BYTES) {
     throw new Error(sizeMessage(origin));
   }
 

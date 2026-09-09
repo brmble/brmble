@@ -6,8 +6,8 @@ public sealed class PaintAuthorizationException(string message) : Exception(mess
 public sealed class PaintConflictException(string message) : Exception(message);
 public sealed class PaintNotFoundException(string message) : Exception(message);
 
-public sealed record CreatePaintSessionResult(Guid SessionId, string MatrixRoomId);
-public sealed record PaintSourceAttachedResult(PaintSource Source, long Revision, long Generation);
+public sealed record CreatePaintSessionResult(Guid SessionId, int ChannelId);
+public sealed record PaintSourceDownloadResult(PaintSource Source, byte[] Bytes);
 public sealed record PaintParticipantChangeResult(PaintParticipant Participant, long Revision, long Generation);
 public sealed record PaintStrokeCommittedResult(PaintStroke Stroke, long Revision, long Generation);
 public sealed record PaintPreviewResult(bool Published, long Generation);
@@ -18,12 +18,12 @@ public sealed record PaintSessionEndedResult(PaintSessionStatus Status, long Rev
 public sealed class PaintSessionManager(
     IPaintPresence presence,
     IPaintEventPublisher publisher,
-    IMatrixPaintService matrixPaintService,
-    MatrixPaintSourceResolver sourceResolver,
-    PaintRoomCleanupRepository cleanupRepository,
+    PaintSourceValidator sourceValidator,
+    IPaintTemporarySourceStore sourceStore,
+    PaintTemporaryCleanupRepository cleanupRepository,
     PaintRateLimiter rateLimiter,
     Func<DateTimeOffset>? utcNow = null,
-    ILogger<PaintSessionManager>? logger = null) : IPaintParticipationLifecycle
+    ILogger<PaintSessionManager>? logger = null) : IPaintParticipationLifecycle, IPaintTemporaryDataLifetime
 {
     private static readonly TimeSpan SessionTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan TerminalSessionRetention = TimeSpan.FromMinutes(5);
@@ -39,8 +39,6 @@ public sealed class PaintSessionManager(
         public required Guid SessionId;
         public required int ChannelId;
         public required long HostUserId;
-        public required string MatrixRoomId;
-        public required Dictionary<long, PaintInvitee> Invitees;
         public required Dictionary<long, PaintParticipant> Participants;
         public PaintSource? Source;
         public PaintSessionStatus Status = PaintSessionStatus.PendingSource;
@@ -58,95 +56,60 @@ public sealed class PaintSessionManager(
         public readonly object Lock = new();
     }
 
-    public async Task<CreatePaintSessionResult> CreateAsync(long hostUserId, IReadOnlyList<int> selectedMumbleSessionIds, CancellationToken cancellationToken = default)
+    public async Task<CreatePaintSessionResult> CreateAsync(long hostUserId, string sourceMimeType, ReadOnlyMemory<byte> sourceBytes, CancellationToken cancellationToken = default)
     {
         if (!presence.TryGetParticipant(hostUserId, out var host)) throw new PaintAuthorizationException("Host is not connected.");
-        var invitees = new Dictionary<long, PaintInvitee>
-        {
-            [host.UserId] = new PaintInvitee(host.UserId, host.MatrixUserId),
-        };
-
-        foreach (var mumbleSessionId in selectedMumbleSessionIds.Distinct())
-        {
-            if (!presence.TryGetParticipantByMumbleSessionId(mumbleSessionId, out var selected) || selected.ChannelId != host.ChannelId)
-                throw new PaintAuthorizationException("Selected users must be connected to the host channel.");
-            invitees[selected.UserId] = new PaintInvitee(selected.UserId, selected.MatrixUserId);
-        }
-
-        var participants = new Dictionary<long, PaintParticipant>
-        {
-            [host.UserId] = new PaintParticipant(host.UserId, host.MumbleSessionId, host.MatrixUserId),
-        };
+        var sourceMetadata = sourceValidator.Validate(sourceMimeType, sourceBytes.Span);
 
         ReserveOpenSessionSlot(hostUserId);
+        var sessionId = Guid.NewGuid();
+        var session = new LivePaintSession
+        {
+            SessionId = sessionId,
+            ChannelId = host.ChannelId,
+            HostUserId = hostUserId,
+            Participants = new() { [hostUserId] = new PaintParticipant(hostUserId, host.MumbleSessionId, host.MatrixUserId) },
+            LastActivity = _utcNow(),
+        };
+        _sessions[sessionId] = session;
         try
         {
-            var roomId = await matrixPaintService.CreatePaintRoomAsync($"Paint {host.ChannelId}", invitees.Values.Select(p => p.MatrixUserId).ToArray(), cancellationToken);
-            var sessionId = Guid.NewGuid();
-            _sessions[sessionId] = new LivePaintSession { SessionId = sessionId, ChannelId = host.ChannelId, HostUserId = hostUserId, MatrixRoomId = roomId, Invitees = invitees, Participants = participants, LastActivity = _utcNow() };
-            return new CreatePaintSessionResult(sessionId, roomId);
+            await sourceStore.WriteAsync(sessionId, sourceBytes, cancellationToken);
+            lock (session.Lock)
+            {
+                RequireCurrentHost(session, hostUserId);
+                session.Source = new PaintSource(sourceMetadata.MimeType, sourceMetadata.Width, sourceMetadata.Height, sourceMetadata.SizeBytes);
+                session.Status = PaintSessionStatus.Active;
+                session.Revision++;
+                Touch(session);
+            }
+            return new CreatePaintSessionResult(sessionId, host.ChannelId);
         }
         catch
         {
+            _sessions.TryRemove(sessionId, out _);
             ReleaseOpenSessionSlot(hostUserId);
+            await ScheduleCleanupBestEffortAsync(sessionId);
             throw;
         }
-    }
-
-    public async Task<PaintSourceAttachedResult> AttachSourceAsync(Guid sessionId, long userId, string sourceEventId, CancellationToken cancellationToken = default)
-    {
-        var session = GetSession(sessionId);
-        string roomId;
-        string hostMatrixUserId;
-        lock (session.Lock)
-        {
-            RequireCurrentHost(session, userId); RequirePendingSource(session);
-            roomId = session.MatrixRoomId;
-            hostMatrixUserId = RequireCurrentParticipant(session, userId).MatrixUserId;
-        }
-        var source = await sourceResolver.ResolveAsync(roomId, hostMatrixUserId, sourceEventId, cancellationToken);
-        long revision, generation;
-        Task publish;
-        lock (session.Lock)
-        {
-            RequireCurrentHost(session, userId); RequirePendingSource(session);
-            session.Source = source; session.Status = PaintSessionStatus.Active; session.Revision++; Touch(session);
-            revision = session.Revision; generation = session.Generation;
-            var participants = CurrentParticipantUserIds(session);
-            var invitees = session.Invitees.Keys.ToHashSet();
-            publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(participants,
-                new { type = PaintEventNames.SourceAttached, sessionId, source, revision, generation }));
-            publish = EnqueuePermanentPublish(session, () => publisher.PublishToUsersAsync(invitees,
-                new { type = PaintEventNames.Invited, sessionId, channelId = session.ChannelId, hostUserId = session.HostUserId, status = session.Status }));
-        }
-        await publish;
-        return new PaintSourceAttachedResult(source, revision, generation);
     }
 
     public async Task<PaintParticipantChangeResult> JoinAsync(Guid sessionId, long userId, CancellationToken cancellationToken = default)
     {
         var session = GetSession(sessionId);
         if (!presence.TryGetParticipant(userId, out var current) || current.ChannelId != session.ChannelId) throw new PaintAuthorizationException("You must be in the paint channel.");
-        PaintInvitee invitee;
         lock (session.Lock)
         {
-            RequireOpen(session);
-            invitee = GetInvitee(session, userId);
+            RequireActive(session);
             if (IsCurrentParticipant(session, userId, out var existing))
                 return new PaintParticipantChangeResult(existing, session.Revision, session.Generation);
-        }
-        var membership = await matrixPaintService.GetMembershipAsync(session.MatrixRoomId, invitee.MatrixUserId, cancellationToken);
-        if (!string.Equals(membership, "join", StringComparison.OrdinalIgnoreCase))
-        {
-            await matrixPaintService.InvitePaintUserAsync(session.MatrixRoomId, invitee.MatrixUserId, cancellationToken);
-            throw new PaintAuthorizationException("Join the Matrix paint room before joining the canvas.");
         }
         long revision, generation;
         Task publish;
         PaintParticipant participant;
         lock (session.Lock)
         {
-            RequireOpen(session);
+            RequireActive(session);
             if (!presence.TryGetParticipant(userId, out var confirmed)
                 || confirmed.ChannelId != session.ChannelId
                 || confirmed.MumbleSessionId != current.MumbleSessionId)
@@ -159,7 +122,7 @@ public sealed class PaintSessionManager(
                 session.Previews.Remove(userId);
             }
             ReserveOpenSessionSlot(userId);
-            participant = new PaintParticipant(userId, confirmed.MumbleSessionId, invitee.MatrixUserId);
+            participant = new PaintParticipant(userId, confirmed.MumbleSessionId, confirmed.MatrixUserId);
             session.Participants[userId] = participant; session.Previews.Remove(userId); session.Revision++; Touch(session);
             revision = session.Revision; generation = session.Generation;
             var recipients = CurrentParticipantUserIds(session);
@@ -266,13 +229,10 @@ public sealed class PaintSessionManager(
         await session.TerminalTransitionGate.WaitAsync(cancellationToken);
         try
         {
-            string roomId;
             lock (session.Lock)
             {
-                RequireCurrentHost(session, userId); RequireOpen(session); roomId = session.MatrixRoomId;
+                RequireCurrentHost(session, userId); RequireActive(session);
             }
-
-            await cleanupRepository.RecordPendingAsync(sessionId, roomId, cancellationToken);
 
             long revision, generation;
             Task publish;
@@ -280,17 +240,14 @@ public sealed class PaintSessionManager(
             {
                 lock (session.Lock)
                 {
-                    RequireCurrentHost(session, userId); RequireOpen(session); session.Status = PaintSessionStatus.Ended; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
+                    RequireCurrentHost(session, userId); RequireActive(session); session.Status = PaintSessionStatus.Ended; session.TerminalAt = _utcNow(); ReleaseOpenSessionSlots(session); session.Revision++; Touch(session); revision = session.Revision; generation = session.Generation;
                     publish = EnqueuePermanentPublish(session, () => publisher.PublishToChannelAsync(session.ChannelId,
                         new { type = PaintEventNames.SessionEnded, sessionId, status = session.Status, revision, generation }));
                 }
             }
-            catch
-            {
-                await CompensateCleanupRecordAsync(sessionId, roomId);
-                throw;
-            }
-            await publish;
+            catch { throw; }
+            try { await publish; }
+            finally { await ScheduleCleanupBestEffortAsync(sessionId); }
             return new PaintSessionEndedResult(PaintSessionStatus.Ended, revision, generation);
         }
         finally
@@ -308,7 +265,7 @@ public sealed class PaintSessionManager(
 
         lock (session.Lock)
         {
-            var canJoin = session.Invitees.ContainsKey(userId);
+            var canJoin = session.Status == PaintSessionStatus.Active;
             var isParticipant = canJoin && IsCurrentParticipant(session, userId, out _);
             return Task.FromResult(new PaintSessionSummary(
                 session.SessionId,
@@ -337,7 +294,7 @@ public sealed class PaintSessionManager(
         lock (session.Lock)
         {
             _ = RequireCurrentParticipant(session, userId);
-            return new PaintSessionSnapshot(session.SessionId, session.ChannelId, session.MatrixRoomId, session.Source?.SourceEventId, session.HostUserId,
+            return new PaintSessionSnapshot(session.SessionId, session.ChannelId, session.HostUserId,
                 userId, session.HostUserId == userId, session.Status, session.Generation, session.Revision, session.LastActivity + SessionTimeout, session.Source,
                 session.Participants.Values.Where(participant => IsCurrentParticipant(session, participant.UserId, out _)).ToArray(),
                 session.Strokes.Where(s => s.Generation == session.Generation && s.Active).ToArray());
@@ -353,7 +310,6 @@ public sealed class PaintSessionManager(
             await session.TerminalTransitionGate.WaitAsync(cancellationToken);
             try
             {
-                string roomId;
                 long activityVersion;
                 lock (session.Lock)
                 {
@@ -367,10 +323,8 @@ public sealed class PaintSessionManager(
                         continue;
                     }
                     if (session.LastActivity + SessionTimeout > _utcNow()) continue;
-                    roomId = session.MatrixRoomId; activityVersion = session.ActivityVersion;
+                    activityVersion = session.ActivityVersion;
                 }
-
-                await cleanupRepository.RecordPendingAsync(session.SessionId, roomId, cancellationToken);
 
                 long revision, generation;
                 var publish = Task.CompletedTask;
@@ -388,10 +342,10 @@ public sealed class PaintSessionManager(
                 }
                 if (expiryCancelled)
                 {
-                    await CompensateCleanupRecordAsync(session.SessionId, roomId);
                     continue;
                 }
-                await publish;
+                try { await publish; }
+                finally { await ScheduleCleanupBestEffortAsync(session.SessionId); }
             }
             finally
             {
@@ -400,22 +354,52 @@ public sealed class PaintSessionManager(
         }
     }
 
-    /// <summary>
-    /// Removes a cleanup record written ahead of a terminal transition that did not happen.
-    /// Deliberately does not take the caller's cancellation token: the common reason for the
-    /// transition to fail is the request being aborted, and compensation must still run in that
-    /// case. Failures are logged rather than thrown so they cannot mask the original exception —
-    /// a surviving row only delays the room's deletion until the grace period elapses.
-    /// </summary>
-    private async Task CompensateCleanupRecordAsync(Guid sessionId, string roomId)
+    public async Task<PaintSourceDownloadResult> ReadSourceAsync(Guid sessionId, long userId, CancellationToken cancellationToken = default)
+    {
+        var session = GetSession(sessionId);
+        await session.TerminalTransitionGate.WaitAsync(cancellationToken);
+        try
+        {
+            PaintSource source;
+            lock (session.Lock)
+            {
+                RequireActive(session);
+                _ = RequireCurrentParticipant(session, userId);
+                source = session.Source ?? throw new PaintNotFoundException("Paint source was not found.");
+            }
+
+            var bytes = await sourceStore.ReadAsync(sessionId, cancellationToken);
+            lock (session.Lock)
+            {
+                RequireActive(session);
+                _ = RequireCurrentParticipant(session, userId);
+            }
+            return new PaintSourceDownloadResult(source, bytes);
+        }
+        finally
+        {
+            session.TerminalTransitionGate.Release();
+        }
+    }
+
+    public bool ShouldRetainTemporaryData(Guid sessionId)
+        => _sessions.TryGetValue(sessionId, out var session) && IsRetained(session);
+
+    private static bool IsRetained(LivePaintSession session)
+    {
+        lock (session.Lock)
+            return session.Status is PaintSessionStatus.PendingSource or PaintSessionStatus.Active;
+    }
+
+    private async Task ScheduleCleanupBestEffortAsync(Guid sessionId)
     {
         try
         {
-            await cleanupRepository.DeletePendingAsync(sessionId, roomId, CancellationToken.None);
+            await cleanupRepository.RecordPendingAsync(sessionId, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            logger?.LogError(ex, "Failed to remove pending paint room cleanup record for session {SessionId} room {RoomId}; the room may be deleted despite the session remaining active.", sessionId, roomId);
+            logger?.LogWarning("Failed to schedule paint temporary cleanup: {SessionId} {FailureType}", sessionId, ex.GetType().Name);
         }
     }
 
@@ -500,7 +484,6 @@ public sealed class PaintSessionManager(
             else _openSessionCounts[userId] = count - 1;
         }
     }
-    private static PaintInvitee GetInvitee(LivePaintSession session, long userId) => session.Invitees.TryGetValue(userId, out var invitee) ? invitee : throw new PaintAuthorizationException("You are not selected for this paint session.");
     private bool IsCurrentParticipant(LivePaintSession session, long userId, out PaintParticipant participant)
     {
         participant = null!;
@@ -529,7 +512,6 @@ public sealed class PaintSessionManager(
     }
 
     private static void RequireOpen(LivePaintSession session) { if (session.Status is PaintSessionStatus.Ended or PaintSessionStatus.Expired) throw new PaintConflictException("Paint session is no longer open."); }
-    private static void RequirePendingSource(LivePaintSession session) { if (session.Status != PaintSessionStatus.PendingSource) throw new PaintConflictException("Paint source is already attached."); }
     private static void RequireActive(LivePaintSession session) { if (session.Status != PaintSessionStatus.Active) throw new PaintConflictException("Paint session is not active."); }
     private void Touch(LivePaintSession session) { session.LastActivity = _utcNow(); session.ActivityVersion++; }
 }

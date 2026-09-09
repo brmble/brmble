@@ -30,10 +30,20 @@ public sealed class NativeBridge
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly CoreWebView2 _webView;
+    private readonly CoreWebView2? _webView;
     private readonly Dictionary<string, List<Func<JsonElement, Task>>> _handlers = new();
     private IntPtr _hwnd;
     private readonly ConcurrentQueue<string> _pendingMessages = new();
+    private Func<IntPtr, uint, IntPtr, IntPtr, bool> _postMessage = PostMessage;
+    private int _notifyPending;
+    private int _postFailureReported;
+
+    // Test seam: runs once per drain iteration so tests can act from inside the drain
+    // window and pin the release-before-drain ordering in ProcessUiMessage. Always null
+    // in production — the cost is one null check per message. Assigned only by
+    // NativeBridgeTestHarness via reflection; the explicit initialiser is what keeps
+    // the compiler from flagging it as never assigned (CS0649).
+    private Action? _onDrainStep = null;
 
     /// <summary>
     /// Occurs when a message is received from the frontend.
@@ -49,7 +59,7 @@ public sealed class NativeBridge
     {
         _webView = webView;
         _hwnd = hwnd;
-        _webView.WebMessageReceived += OnWebMessageReceived;
+        webView.WebMessageReceived += OnWebMessageReceived;
     }
 
     /// <summary>
@@ -87,14 +97,32 @@ public sealed class NativeBridge
     /// </remarks>
     public void ProcessUiMessage()
     {
+        // Released before the drain, not after. Releasing afterwards leaves a window
+        // where a Send enqueues a payload, sees the claim still held, skips its post,
+        // and leaves that payload queued with nothing scheduled to flush it. Releasing
+        // first means anything enqueued after the drain triggers a fresh post, and
+        // anything enqueued during the drain is drained anyway — at worst costing one
+        // redundant WM_USER that finds an empty queue.
+        // Pinned by ProcessUiMessage_NotifyDuringDrain_PostsAgain.
+        Interlocked.Exchange(ref _notifyPending, 0);
+
         // Drain all pending messages
         var batch = new List<string>();
         while (_pendingMessages.TryDequeue(out var json))
         {
             batch.Add(json);
+            _onDrainStep?.Invoke();
         }
 
         if (batch.Count == 0)
+            return;
+
+        // Unreachable in production: the constructor parameter is non-nullable, so a
+        // real bridge always has a WebView2. Only a reflection-constructed test bridge
+        // reaches here — NativeBridgeTestHarness uses RuntimeHelpers.GetUninitializedObject,
+        // which leaves _webView null. Discarding the drained batch is acceptable there,
+        // since those tests exercise the notify/claim path rather than delivery.
+        if (_webView is null)
             return;
 
         if (batch.Count == 1)
@@ -123,9 +151,44 @@ public sealed class NativeBridge
     /// Posts a WM_USER message to trigger ProcessUiMessage on the UI thread.
     /// Safe to call from any thread.
     /// </summary>
+    /// <remarks>
+    /// Coalescing: the claim below collapses a burst of events down to a single
+    /// outstanding WM_USER instead of one per event. Without it every forwarded
+    /// event posted its own message, and a stalled UI thread could push past the
+    /// 10,000 per-thread posted-message cap, past which PostMessage fails and the
+    /// flush trigger is lost entirely. ProcessUiMessage always drains the whole
+    /// queue, so one pending post is sufficient to deliver any number of payloads.
+    /// This bounds the queue to a small number of outstanding posts rather than
+    /// strictly one: Flush() also runs ProcessUiMessage and so releases the claim,
+    /// meaning a Flush racing a genuinely queued WM_USER lets the next notify post
+    /// a second message on top of the pending one. That is harmless — a surplus
+    /// WM_USER just finds an empty queue — and it stays far below the cap.
+    /// </remarks>
     public void NotifyUiThread()
     {
-        PostMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero);
+        // A post is already outstanding; it will drain whatever we just enqueued.
+        if (Interlocked.CompareExchange(ref _notifyPending, 1, 0) != 0)
+            return;
+
+        if (_postMessage(_hwnd, WM_USER, IntPtr.Zero, IntPtr.Zero))
+        {
+            Interlocked.Exchange(ref _postFailureReported, 0);
+            return;
+        }
+
+        // The post failed, so nothing will drain the queue. Release the claim so the
+        // next event reposts — this is the only retry, and it is enough because
+        // NotifyUiThread is called on essentially every forwarded event.
+        Interlocked.Exchange(ref _notifyPending, 0);
+
+        // Reported once per failure episode. A wedged message queue fails for every
+        // subsequent event too, and one line per event would bury the log.
+        if (Interlocked.Exchange(ref _postFailureReported, 1) == 0)
+        {
+            Console.WriteLine(
+                $"[NativeBridge] PostMessage(WM_USER) failed, win32={Marshal.GetLastWin32Error()}; " +
+                "UI flush deferred to the next event.");
+        }
     }
 
     /// <summary>

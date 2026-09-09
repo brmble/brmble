@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PaintPreview, PaintSessionSnapshot, PaintStrokeInput, PaintTool } from '../../types/paint';
-import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint, type MatrixMediaClient } from '../../utils/paintCanvas';
+import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint } from '../../utils/paintCanvas';
 import { DEFAULT_PAINT_COLOR } from '../../utils/paintPalette';
 import { PaintToolbar } from './PaintToolbar';
 import './PaintEditor.css';
 
 type Api = {
+  getSource(id: string): Promise<Blob>;
   commitStroke(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   sendPreview(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   undo(id: string): Promise<unknown> | void;
@@ -16,7 +17,9 @@ type Api = {
 export const PAINT_PREVIEW_THROTTLE_MS = 50;
 export const PAINT_MAX_POINTS_PER_STROKE = 2000;
 
-export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], currentUserId, matrixClient, onSave }: { sessionId: string; paintApi: Api; snapshot: PaintSessionSnapshot; previews?: PaintPreview[]; currentUserId: number; matrixClient?: MatrixMediaClient; onSave?: (png: Blob) => Promise<void> }) {
+type SourceLoader = (sessionId: string) => Promise<Blob>;
+
+export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], currentUserId, loadSource = paintApi.getSource, onSave }: { sessionId: string; paintApi: Api; snapshot: PaintSessionSnapshot; previews?: PaintPreview[]; currentUserId: number; loadSource?: SourceLoader; onSave?: (png: Blob) => Promise<void> }) {
   const sourceRef = useRef<HTMLCanvasElement>(null);
   const annotationRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -37,6 +40,8 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedSourceFingerprintRef = useRef<string | null>(null);
+  const sourceLoadGenerationRef = useRef(0);
   const host = snapshot.isHost ?? snapshot.hostUserId === currentUserId;
 
   drawingRef.current = { strokes: snapshot.strokes, previews };
@@ -64,16 +69,29 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     }
   };
 
+  const sourceFingerprint = snapshot.source
+    ? `${sessionId}:${snapshot.source.mimeType}:${snapshot.source.width}:${snapshot.source.height}:${snapshot.source.sizeBytes}`
+    : null;
+
   useEffect(() => {
-    if (!snapshot.source || !matrixClient || !sourceRef.current || !annotationRef.current) return;
-    void loadPaintSourceImage(matrixClient, snapshot.source)
+    if (!sourceFingerprint || !sourceRef.current || !annotationRef.current) return;
+    if (loadedSourceFingerprintRef.current === sourceFingerprint) return;
+    const generation = ++sourceLoadGenerationRef.current;
+    let cancelled = false;
+    void loadSource(sessionId)
+      .then(loadPaintSourceImage)
       .then(image => {
+        if (cancelled || generation !== sourceLoadGenerationRef.current) return;
+        loadedSourceFingerprintRef.current = sourceFingerprint;
         imageRef.current = image;
         initializePaintCanvases(sourceRef.current!, annotationRef.current!, image);
         redraw();
       })
-      .catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load source image.'));
-  }, [matrixClient, snapshot.source]);
+      .catch(reason => {
+        if (!cancelled && generation === sourceLoadGenerationRef.current) setError(reason instanceof Error ? reason.message : 'Unable to load source image.');
+      });
+    return () => { cancelled = true; };
+  }, [loadSource, sessionId, sourceFingerprint]);
 
   useEffect(() => {
     for (const stroke of snapshot.strokes) {

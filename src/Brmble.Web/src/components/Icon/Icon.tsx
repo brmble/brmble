@@ -262,6 +262,14 @@ const iconPaths: Record<string, IconDef> = {
   'arrow-right': {
     paths: <path d="M5 12h14M12 5l7 7-7 7" />,
   },
+  'pencil': {
+    paths: (
+      <>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </>
+    ),
+  },
 
   /* ── eye / eye-off (password visibility) ─────────────── */
 

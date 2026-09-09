@@ -804,6 +804,82 @@ describe('useMatrixClient', () => {
     expect(result.current.activeMessages[0].content).toBe('sync-delivered');
   });
 
+  /** The outer `sync` listener the hook registers on mount. */
+  function firstSyncHandler() {
+    return mockClient.on.mock.calls.find((c: unknown[]) => c[0] === 'sync')?.[1] as
+      (state: string) => void;
+  }
+
+  /**
+   * waitForRoom registers its own `sync` listener while it waits, so the newest
+   * one is the pending wait. Calling it is how a room "arrives" in these tests.
+   */
+  function latestSyncHandler() {
+    const calls = mockClient.on.mock.calls.filter((c: unknown[]) => c[0] === 'sync');
+    return calls[calls.length - 1][1] as () => void;
+  }
+
+  function fakeRoom(roomId: string) {
+    return withNoTypingMembers({
+      roomId,
+      getMember: () => ({ rawDisplayName: 'Alice', name: 'Alice', getAvatarUrl: () => null }),
+      getLiveTimeline: () => ({ getEvents: () => [] }),
+    });
+  }
+
+  it('backfills channel history after PREPARED when the room is already synced', async () => {
+    const room = fakeRoom('!room:example.com');
+    mockClient.getRoom.mockReturnValue(room);
+    mockClient.getRooms.mockReturnValue([room]);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    await act(async () => firstSyncHandler()('PREPARED'));
+
+    expect(mockClient.scrollback).toHaveBeenCalledWith(room, 50);
+    expect(mockClient.scrollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the room before backfilling when it is not synced yet at PREPARED', async () => {
+    mockClient.getRoom.mockReturnValue(null);
+
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+
+    await act(async () => firstSyncHandler()('PREPARED'));
+
+    // The room is still absent, so the wait is pending and nothing was fetched.
+    expect(mockClient.scrollback).not.toHaveBeenCalled();
+
+    const room = fakeRoom('!room:example.com');
+    mockClient.getRoom.mockReturnValue(room);
+    mockClient.getRooms.mockReturnValue([room]);
+    await act(async () => { latestSyncHandler()(); });
+
+    expect(mockClient.scrollback).toHaveBeenCalledWith(room, 50);
+    expect(mockClient.scrollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('backfills DM history after PREPARED', async () => {
+    const dmRoom = fakeRoom('!dm-bob:example.com');
+    mockClient.getRoom.mockReturnValue(dmRoom);
+    mockClient.getRooms.mockReturnValue([dmRoom]);
+
+    const credsWithDm: MatrixCredentials = {
+      ...creds,
+      roomMap: {},
+      dmRoomMap: { '@bob:example.com': '!dm-bob:example.com' },
+    };
+    const { result } = renderHook(() => useMatrixClient(credsWithDm), { wrapper });
+    act(() => result.current.setActiveDmContact('@bob:example.com'));
+
+    await act(async () => firstSyncHandler()('PREPARED'));
+
+    expect(mockClient.scrollback).toHaveBeenCalledWith(dmRoom, 50);
+    expect(mockClient.scrollback).toHaveBeenCalledTimes(1);
+  });
+
   // ── DM activeDmMessages + setActiveDmContact ──
 
   it('setActiveDmContact rebuilds activeDmMessages from SDK timeline', () => {

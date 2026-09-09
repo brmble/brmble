@@ -1,6 +1,27 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PaintSessionView } from './PaintSessionView';
+import { paintApi } from '../../api/paint';
+
+const { endMock, getSnapshotMock } = vi.hoisted(() => ({
+  endMock: vi.fn(),
+  getSnapshotMock: vi.fn(),
+}));
+
+vi.mock('../../api/paint', () => ({
+  paintApi: {
+    end: endMock,
+    getSnapshot: getSnapshotMock,
+  },
+}));
+
+vi.mock('./PaintEditor', () => ({
+  PaintEditor: ({ onSave }: { onSave?: (png: Blob) => Promise<void> }) => (
+    <button type="button" onClick={() => void onSave?.(new Blob([Uint8Array.from([1, 2, 3])], { type: 'image/png' }))}>
+      Save from editor
+    </button>
+  ),
+}));
 
 const refresh = vi.fn();
 let sessionState: { snapshot: unknown; previews: unknown[]; error: Error | null } = {
@@ -16,7 +37,6 @@ vi.mock('../../hooks/usePaintSession', () => ({
 const terminalSnapshot = (status: string) => ({
   sessionId: 'session-1',
   channelId: status === 'unavailable' ? 0 : 5,
-  matrixRoomId: '!paint:test',
   hostUserId: 7,
   currentUserId: 8,
   isHost: false,
@@ -28,9 +48,19 @@ const terminalSnapshot = (status: string) => ({
   strokes: [],
 });
 
+const activeSnapshot = (sessionId = 'session-1') => ({
+  ...terminalSnapshot('active'),
+  sessionId,
+  status: 'active',
+  source: { mimeType: 'image/png', width: 1, height: 1, sizeBytes: 1 },
+  expiresAt: '',
+});
+
 describe('PaintSessionView', () => {
   beforeEach(() => {
     refresh.mockReset().mockResolvedValue(undefined);
+    endMock.mockReset().mockResolvedValue(undefined);
+    getSnapshotMock.mockReset();
     sessionState = { snapshot: null, previews: [], error: new Error('Snapshot unavailable') };
   });
 
@@ -79,5 +109,67 @@ describe('PaintSessionView', () => {
 
     expect(screen.queryByText(/chat channel is unavailable/)).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('You no longer have access');
+  });
+
+  it('closes paint when the local user leaves the session voice channel', async () => {
+    sessionState = { snapshot: { ...activeSnapshot(), channelId: 5 }, previews: [], error: null };
+    const onClose = vi.fn();
+    const { rerender } = render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={5} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+
+    rerender(<PaintSessionView sessionId="session-1" currentVoiceChannelId={12} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it('closes paint when the local user has confirmed absence from voice', async () => {
+    sessionState = { snapshot: { ...activeSnapshot(), channelId: 5 }, previews: [], error: null };
+    const onClose = vi.fn();
+    render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={null} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it('does not close paint while local voice membership is unknown', async () => {
+    sessionState = { snapshot: { ...activeSnapshot(), channelId: 5 }, previews: [], error: null };
+    const onClose = vi.fn();
+    render(<PaintSessionView sessionId="session-1" currentVoiceChannelId={undefined} matrixClient={null} channelRoomMap={{ '5': '!chat:test' }} onClose={onClose} />);
+    await Promise.resolve();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('uploads only the composed finished image to the normal channel before ending the session', async () => {
+    sessionState = { snapshot: activeSnapshot('s1'), previews: [], error: null };
+    const uploadContent = vi.fn().mockResolvedValue({ content_uri: 'mxc://test/final' });
+    const sendMessage = vi.fn().mockResolvedValue({ event_id: '$final' });
+    const getRoom = vi.fn().mockReturnValue({ timeline: [] });
+    const onClose = vi.fn();
+
+    render(
+      <PaintSessionView
+        sessionId="s1"
+        matrixClient={{ uploadContent, sendMessage, getRoom } as never}
+        channelRoomMap={{ '5': '!channel:test' }}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save from editor' }));
+
+    await waitFor(() => {
+      expect(uploadContent).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith(
+        '!channel:test',
+        expect.objectContaining({
+          msgtype: 'm.image',
+          url: 'mxc://test/final',
+          info: expect.objectContaining({ mimetype: 'image/png', size: 3 }),
+        }),
+        expect.any(String),
+      );
+      expect(paintApi.end).toHaveBeenCalledWith('s1');
+    });
+
+    expect(getRoom).toHaveBeenCalledWith('!channel:test');
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

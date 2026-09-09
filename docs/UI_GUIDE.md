@@ -49,7 +49,7 @@ All visual properties must come from CSS custom properties. Two layers exist:
 |---|---|---|
 | Spacing | `--space-2xs` through `--space-3xl` | 4px - 64px (8 tokens) |
 | Font sizes | `--text-2xs` through `--text-4xl` | 10px - 40px (9 tokens) |
-| Layout | `--sidebar-width`, `--header-height` | 280px, 60px (2 tokens) |
+| Layout | `--sidebar-width`, `--header-height`, component layout tokens | Shared layout dimensions and component-specific widths |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
 | Continuous animations | `--animation-blink` through `--animation-heartbeat` | 0.5s - 4s (9 tokens) |
@@ -101,6 +101,29 @@ All visual properties must come from CSS custom properties. Two layers exist:
 | `transition: 150ms ease` | `transition: var(--transition-fast)` |
 | `padding: 1rem` | `padding: var(--space-md)` |
 | `box-shadow: 0 8px 32px rgba(0,0,0,0.4)` | `box-shadow: var(--shadow-elevated)` |
+
+### Text On An Accent Fill
+
+When text or an icon sits on a filled accent background (`--accent-primary`,
+`--accent-success`, unread/mention badges, the active conversation tab), its colour is
+**`var(--bg-deep)`**. This is the established convention across `ChatPanel.css`,
+`ChannelTree.css`, `ConversationTabStrip.module.css` and `NeonD.module.css`. There is no
+`--text-on-accent` token — do not invent one, and do not hardcode white.
+
+### Phantom Tokens (do not copy)
+
+These names appear in older code and in AI-generated CSS but are **defined nowhere**. A
+`var()` on them resolves to nothing, so the declaration silently does nothing:
+
+| Phantom (not real) | Use instead |
+|---|---|
+| `--radius-pill` | `--radius-lg` (or `--radius-full` for a true circle) |
+| `--bg-subtle` | `--bg-surface` |
+| `--text-on-accent` | `--bg-deep` (see above) |
+| `--font-size-xs` | `--text-xs` |
+
+Before using any token, confirm it exists in `index.css` (`:root`) or
+`themes/_template.css`. Font-size tokens are `--text-*`, never `--font-size-*`.
 
 ---
 
@@ -204,23 +227,139 @@ The divider supports ArrowUp / ArrowDown keyboard resizing in 5% steps. Pointer 
 their document listeners on pointerup, pointercancel, window blur, and component unmount; do not
 duplicate this listener lifecycle in a consumer.
 
-### Minigame Modal Pattern
+The main panel has **exactly one** split, keyed `brmble-main-split` (channel activity above,
+conversation below). No component may introduce a second splitter inside the main panel. See the
+Main Panel Region Pattern.
 
-Reference: `components/Games/DeathrollModal.tsx`, `DeathrollModal.module.css`,
-`components/Games/RpsModal.tsx`, `RpsModal.module.css`
+### Main Panel Region Pattern
 
-Real-time minigame modals (e.g. Deathroll, Rock Paper Scissors) reuse the shared modal shell —
-global `div.modal-overlay`, `.glass-panel.animate-slide-up`, `.modal-close`, `.modal-header`,
-`h2.heading-title.modal-title` — and add game-specific content styling via a colocated
-CSS module (`*.module.css`). Do not build a bespoke overlay/positioning system.
-
-Each game gets its **own** modal component (Deathroll and RPS do not share a body). The
-`view` prop is the generic `GameView` union from `useGameState`; each modal narrows it to its
-own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
-modal to render from `activeMatch?.gameType ?? ended?.gameType`.
+Reference: `src/Brmble.Web/src/components/MainPanel/MainPanel.tsx`,
+`workspace/mainPanelMode.ts`, `components/ChannelActivityRegion/ChannelActivityRegion.tsx`,
+`App.tsx`
 
 Rules:
-1. Reuse the shared modal shell classes above; only game-board content (player rows,
+1. The main panel has exactly two modes. In `game` mode a single game surface fills it
+   entirely — no activity chips, no tab strip, no chat. In `split` mode the channel
+   activity region sits above the conversation region, separated by one
+   `VerticalSplitPane` keyed `brmble-main-split`.
+2. Game mode is entered by **participating** in a game, never by spectating one. Opening
+   the solo idle game is participation. Spectating is the opposite direction of the same
+   rule: it is a chip in the split layer (`ChannelActivityKind = 'spectate'`, label
+   `Game`) and must never set `MainPanelMode = 'game'`. The kind is `'spectate'` rather
+   than `'game'` precisely so the two cannot be confused.
+3. The channel activity region is bound to the joined voice channel and to nothing else.
+   It never renders at server root, and never renders when the channel has no activity —
+   in that case the panel has no upper pane and no divider.
+4. The activity region stages exactly one activity. Chips list everything live — there
+   are exactly three kinds, `'screen-share'` (label `Screen share`), `'paint'` (label
+   `Paint`) and `'spectate'` (label `Game`), mapped by a total `ACTIVITY_LABELS` record
+   in `App.tsx` so a new kind without a label is a compile error. The first activity to
+   appear takes the stage, later arrivals never steal it, and an explicit chip click
+   always wins.
+5. A backgrounded screen share stays subscribed for a 10-second grace period, then
+   unsubscribes. Watched list, order, focus, receive quality, room membership and local
+   publishing are never changed by staging.
+6. No component may introduce a second splitter inside the main panel.
+7. The region has no collapse, minimise or maximise affordance, for any activity kind.
+   It is not dismissible: the gate is purely derived, and clicking the active chip
+   re-selects the same value. Every activity ends by terminating itself. A collapse
+   toggle would create a subscribed-but-invisible state — the ambiguity that already
+   costs the most in this region.
+
+### Conversation Tab Strip Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`ConversationTabStrip.module.css`, `workspace/` conversation tab state
+
+Rules:
+1. The strip is a single `role="tablist"`. The home tab is first, is derived from the
+   joined voice channel, has no close control, and is pinned outside the scroll container.
+2. Moving voice channel **replaces** the home tab. A browsed tab for the new channel is
+   absorbed rather than duplicated. Presence never creates history.
+3. Only an explicit click to read a channel or a user creates a tab, and every such click
+   creates a permanent tab. There are no preview tabs.
+4. Overflow shrinks labels to `--conversation-tab-min-width` with ellipsis, then scrolls
+   horizontally.
+5. An open conversation's unread badge lives on its tab; its sidebar row or contact entry
+   shows nothing. Aggregate counts are computed **before** suppression.
+6. Tabs persist per server and are validated on restore. The home tab is never restored
+   from storage.
+
+### Conversation Region Pattern
+
+Reference: `src/Brmble.Web/src/components/ConversationTabStrip/ConversationTabStrip.tsx`,
+`App.tsx` (`.conversation-region`), `App.css`
+
+The main panel's conversation slot is a single `.conversation-region` column: a
+`ConversationTabStrip` above **one** `ChatPanel`. There is no second, hidden chat panel and
+no sliding transform — the active tab decides which conversation the one panel renders.
+
+Rules:
+1. Never render more than one `ChatPanel`. Channel and DM prop sets are selected by the
+   active conversation's kind, not rendered side by side.
+2. Do not reintroduce `aria-hidden` / `inert` conversation slides or a transform-based
+   route transition. Nothing *inside* the conversation region is mounted-but-hidden, so
+   there is nothing there to mark inert. (This is about the region's own contents. The
+   whole region *is* hidden as one layer when a game owns the main panel — see the
+   Minigame Panel Pattern — which is a different concern.)
+3. Every tab must have a visible label. A channel whose name cannot be resolved falls back
+   to its channel id.
+4. The "you are here" (home) tab is the joined voice channel and follows presence; it is
+   not closeable and is never persisted. Use the `.sr-only` pattern for its suffix.
+5. Root chat (`'server-root'`) is not Matrix-backed and therefore has no unread source. It
+   must render **no** badge, not a zero.
+6. Presence and unread signals live on the tab, not in the `.chat-header`.
+
+### Minigame Panel Pattern
+
+Reference: `components/Games/DeathrollBoard.tsx`, `DeathrollBoard.module.css`,
+`components/Games/RpsBoard.tsx`, `RpsBoard.module.css`, `components/Games/GameSurface.tsx`
+
+These are boards, not modals, and are named accordingly. They keep the shared
+`.modal-close` / `.modal-header` / `.modal-title` classes because those are a
+cross-app card convention, not a claim about being a dialog.
+
+This section governs a minigame the local player is **participating** in, and nothing
+else. It does not govern spectator boards: spectating never owns the main panel and
+never enters game mode, so the shell a spectator surface wears is a design choice for
+that surface rather than a requirement inherited from here. See the Game Spectator
+Pattern.
+
+A minigame the local player is participating in — and the result of the one that just
+finished — **owns the whole main panel**. It is not a dialog: there is no
+`div.modal-overlay`, no click-outside dismissal, no focus trap and no `role="dialog"`.
+App composes the panel with `<MainPanel>` (`components/MainPanel/MainPanel.tsx`), whose
+mode comes from `selectMainPanelMode` (`workspace/mainPanelMode.ts`); the board is
+centered in the panel by the `<GameSurface>` wrapper. The idle Neon-D game uses the same
+main-panel slot and is closed by its own close control. Chat, paint and screen share stay
+mounted underneath and simply reappear when the panel returns to `split`.
+
+`MainPanel` renders the two surfaces as persistent **layers**
+(`components/MainPanel/MainPanel.css`), never as an either/or route. The split layer is
+always mounted; when a game owns the panel it is hidden with `visibility` — which keeps
+scroll offsets and canvas backing stores alive — and marked `inert` + `aria-hidden` so it
+is neither focusable nor announced. The game layer is taken out of flow (`position:
+absolute; inset: 0`) so it fills the panel rather than sharing space with the
+hidden-but-still-laid-out split. Do **not** return the game surface early in place of the
+split: that unmounts `ChatPanel` (message draft, search state, scroll position) and
+`PaintSessionView` (canvas contents, in-flight strokes, the session snapshot, which then
+refetches and flashes).
+
+The board itself still reuses the shared card shell — `.glass-panel.animate-slide-up`,
+`.modal-close`, `.modal-header`, `h2.heading-title.modal-title` — and adds game-specific
+content styling via a colocated CSS module (`*.module.css`). Do not build a bespoke
+positioning system, and do not put a live match back behind an overlay. Note that the
+shell has **two different owners** across the two surfaces: for a participant the
+*board* wears it, while for a spectator the *stage host* wears it and the boards are
+bare bodies (see the Game Spectator Pattern).
+
+Each game gets its **own** board component (Deathroll and RPS do not share a body). The
+`view` prop is the generic `GameView` union from `useGameState`; each one narrows it to its
+own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
+board to render from `activeMatch?.gameType ?? ended?.gameType`.
+
+Rules:
+1. Reuse the shared card shell classes above; only game-board content (player rows,
    stat tiles, countdown bar, pick buttons, result banner) lives in the CSS module.
 2. All module CSS uses tokens (`--bg-surface`, `--glass-border`, `--accent-primary`,
    `--radius-*`, `--space-*`, `--text-*`, `--font-*`) — no hardcoded visual values.
@@ -246,11 +385,17 @@ Rules:
    from the server (and, on the deciding round, `game.ended` immediately after — which
    nulls the view). Don't reveal the result raw. Freeze the pre-resolution board, run a
    short token-styled `3…2…1` countdown in the status area, then reveal the updated
-   score, `lastRound`, and — only after the countdown — the end result banner. Gate this
-   with local state (the raw `view` prop is the source of truth; a `display` copy lags
-   during the reveal). Key the modal on the match id in App so this reveal state resets
-   between matches.
-7. A modal may show a **Head-to-head** panel (see the Head-to-head pattern) below the
+   score and `lastRound`. Gate this with local state (the raw `view` prop is the source
+   of truth; a `display` copy lags during the reveal). **Hold the end result banner
+   until the reveal has finished** — the deciding round and `game.ended` arrive
+   together, so releasing the banner early reveals the outcome while the board still
+   shows the previous round's throws. The beat's length is `REVEAL_SECONDS` from
+   `components/Games/rpsShared.ts`, shared with the spectator board (see the Game
+   Spectator Pattern) and never redeclared. Key the board on the match id in App so
+   this reveal state resets between matches — and keep the live match and its result in
+   the **same** mount site, or the reveal state is destroyed by a remount the moment
+   `game.ended` nulls the view.
+7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
 
 ### Minigame Invite Pattern
@@ -307,12 +452,26 @@ The server allows only one live duel per channel. During project 1, a channel wi
 complete `game.queueSnapshot` replacements and clears them on voice disconnect; do not use the old
 `game.duelState` event or `channelBusy` UI state. Keep the button next to the access-lock icon and do
 not invent a new row-status container. Activating it opens that channel's duel activity without
-selecting or joining the channel.
+selecting or joining the channel. A watch toggle (`<Icon name="eye">`) sits beside it under the same
+activity condition — see the Game Spectator Pattern.
 
 Project 1's duel activity surface is a temporary shared modal using the standard token-styled modal
-shell. It contains metadata only: active/starting pair, ready-check state, accepted pairs in server
-order, game display name, format, and the server-provided static ETA (`About …` or exactly
-`Unknown`). It does not locally decrement or derive ETAs.
+shell. Apart from a single action (see below) it contains metadata only: active/starting pair,
+ready-check state, accepted pairs in server order, game display name, format, and the
+server-provided static ETA (`About …` or exactly `Unknown`). It does not locally decrement or
+derive ETAs.
+
+The active-duel card carries a single action, **Watch**, which starts spectating — the modal is no
+longer metadata-only. It is enabled only when
+`activityChannelMatchesPresence(joinedChannelId, String(snapshot.channelId))`
+(`workspace/activityPresence.ts`) is true: the modal can peek at other channels' queues, but
+spectating is same-channel only. Always go through that helper rather than writing the comparison
+by hand — it also rejects a null presence **and server root**, and string-coerces the numeric
+snapshot `channelId`, all three of which a hand-rolled `===` silently loses. A `Tooltip` wraps the
+button in both states and explains the disabled one. Everything else in the modal stays read-only.
+This is one of **two** entry points into spectating; the other, and the primary one, is the watch
+toggle (`eye`) on the channel row, which unlike this button also appears for ready-checks and
+queues. Both run the same handler. See the Game Spectator Pattern.
 
 Duel activity cards show two distinct server-owned values. `Estimated duration: ~25s` is that duel's
 own expected length (server full-duration median; `Unknown` when the server has too few samples).
@@ -352,9 +511,9 @@ Rematch **requests** from the result modal are locked client-side on `sourceMatc
 Ready/Accept are locked, because `outgoingRematch` only arrives after the server answers. The lock
 releases on a correlated `requestRematch` error or when the completed match changes.
 
-Completed Deathroll and Rock Paper Scissors participant result modals place a secondary
-**Rematch** action beside **Close**. A pending request disables that action and leaves the result
-modal open.
+Completed Deathroll and Rock Paper Scissors participant result panels place a secondary
+**Rematch** action beside **Close**. A pending request disables that action and leaves the
+result panel open.
 
 #### Duel queue confirmation
 
@@ -430,7 +589,9 @@ player to their old position. Getting back in means a fresh challenge, which joi
 That is by design, not a gap to paper over in the UI.
 
 Project 1 adds no spectator board, screen-share pause or restore behavior, `ChatPanel` foreground
-game state, or new toast system. Those belong to project 2.
+game state, or new toast system. Those belong to project 2. (The spectator board has since
+landed — see the Game Spectator Pattern. Screen-share pause/restore, `ChatPanel` foreground game
+state and a toast system remain out of scope.)
 
 #### Head-to-head record
 
@@ -492,6 +653,113 @@ The **Games** settings tab (`GamesSettingsTab.tsx`) holds the server-backed "Blo
 challenges" toggle and the (relocated) Deathroll stats. Deathroll stats are no longer shown in
 the Profile tab. The toggle uses the standard `settings-item settings-toggle` + `brmble-toggle`
 markup and persists via `getGameSettings`/`setGameSettings` (server-authoritative).
+
+
+### Game Spectator Pattern
+
+Reference: `components/Games/SpectatorActivity.tsx`, `SpectatorActivity.module.css`,
+`components/Games/DeathrollSpectatorBoard.tsx`, `components/Games/RpsSpectatorBoard.tsx`,
+`components/Games/useSpectatorState.ts`, `components/Games/rpsShared.ts`,
+`components/Sidebar/ChannelTree.tsx`, `workspace/channelActivity.ts`
+
+Watching a minigame you are not playing is the third chip in the channel activity
+region (`'spectate'`, label `Game`). It is never game mode: game mode is
+participation, and spectating must never set `MainPanelMode = 'game'`.
+
+The Minigame Panel Pattern does **not** govern this surface. That section scopes itself,
+in its own scoping paragraph, to a minigame the local player is participating in, one
+that owns the whole main panel — spectating is neither. So the shell described below is
+a design choice for this surface, not a rule inherited from there. (An implementer has
+already read it the other way round; it is written out here so nobody has to guess
+again.)
+
+The shared card shell (`.glass-panel.animate-slide-up`, `.modal-header`,
+`h2.heading-title.modal-title`) therefore has **two owners**. For a participant the
+*board* wears it. For a spectator the *stage host*, `SpectatorActivity`, wears it and
+the spectator boards are bare bodies. The reason is concrete: `SpectatorActivity` is the
+only component in the spectate path that knows `match.gameType`, because each board is
+narrowed to a single `view` shape and cannot name the game it is rendering. Without the
+host's header, nothing on screen would say what is being watched.
+
+`SpectatorActivity` deliberately renders **no** `.modal-close`, even though the shell
+list includes one. The region is not dismissible: **Stop watching** is its only exit
+(the channel-row watch toggle is the same exit reached from the sidebar — see the rules
+below).
+
+Rules:
+1. **Opt-in is always a local click**, and there are two entry points. The primary one
+   is the channel row's **watch toggle** (`<Icon name="eye">`, beside the swords
+   badge), shown whenever the channel has duel activity — a live match, a ready-check
+   or a queue — and enabled only for the channel you have joined; a `Tooltip` wraps it
+   in both states and explains the disabled one. It is a true toggle: clicking it on
+   the channel you are already watching **stops** watching, which is what its
+   `aria-pressed` and its flipped `Stop watching` tooltip express. The second entry
+   point is the **Watch** button on `DuelQueueModal`'s active-duel card, which also
+   closes the modal. Both run the same handler (`handleWatchDuel`), so both start
+   spectating, both set the explicit activity so the stage takes focus, and both gate
+   on the joined voice channel via `activityChannelMatchesPresence` — spectating is
+   same-channel only. No activity may appear without a click.
+2. **Spectating is a channel mode that outlives any single match.** You keep watching
+   match after match until you stop, leave the channel, or disconnect. A match ending
+   does not stop it and never requires a resubscribe.
+3. The stage has exactly three states, and **Stop watching** is present in all of
+   them: **Live** (the spectator board), **Ended** (the same board showing its
+   result, held until the next match starts) and **Idle** (the next-up card). Stop
+   watching uses the shared `.btn.btn-secondary.btn-sm` — `.btn-sm`, not the default
+   `.btn`, because the whole panel's chrome has to fit inside
+   `--activity-stage-min-height` (8rem) and a full-size `.btn` line box overflows it.
+   Do not "tidy" it back to `.btn`; no test catches that overflow.
+4. The Idle card shows only the upcoming pair, game and format, or the ready-check
+   waiting line, read from the already-broadcast queue snapshot. **No queue list and
+   no ETAs** — the queue lives in the sidebar badge and `DuelQueueModal`. It is
+   reachable directly: the channel-row toggle appears on any duel activity, so you can
+   start watching a queued channel and see the next-up card before the match begins.
+   (This supersedes an earlier rule calling Idle a continuation state with no entry —
+   that was true only while the modal's Watch button was the sole way in.)
+5. **There is no collapse affordance.** **Stop watching** is the only exit *from the
+   stage*; clicking the channel row's watch toggle again is the same exit reached from
+   the sidebar, and there is no third. The region collapses on its own when nothing else is live.
+   Switching the stage to another chip leaves you subscribed with the chip lit; there
+   is no grace period and no pause machinery, because spectator frames are
+   low-frequency.
+6. Spectator boards are **read-only**: no action buttons, no forfeit, no Head-to-head
+   panel, and **no turn countdown** — a spectator has no turn, so a timer measuring
+   their time running out would be meaningless. They reuse the participant boards'
+   visual language and tokens.
+7. A **reveal beat is not a turn countdown.** RPS holds a newly resolved round for
+   `REVEAL_SECONDS` before showing it, on the spectator board as well as the
+   participant board, so a watcher gets the same moment of tension. The constant is
+   shared (`components/Games/rpsShared.ts`) and imported by both boards, never copied:
+   its whole purpose is keeping the two surfaces synchronised, and a second
+   declaration could drift with no test noticing. Both boards also **hold the
+   end-of-match banner until the reveal completes** — the server sends the deciding
+   round and the match-ended signal back to back, so without the hold the result
+   paints while the board still shows the previous round's throws, telling the watcher
+   the outcome three seconds early and looking broken. As on the participant board,
+   **the board is keyed on the match id** — `key={match.matchId}` in
+   `SpectatorActivity` — so the reveal state resets between matches structurally
+   rather than by inference. That key is safe precisely because `useSpectatorState`
+   does **not** null `match` on `game.spectatorMatchEnded`: the match id is stable
+   across the end of a match, so the in-flight reveal survives to release the end
+   banner, and every path that does clear `match` also clears `spectatingChannelId`
+   and unmounts the whole activity anyway. `RpsSpectatorBoard` keeps a null-`lastRound`
+   reset as a backstop, but the key is the primary mechanism.
+8. **A spectator board must never render hidden state.** RPS renders commitment as a
+   per-player state ("Thrown" / "Choosing…"), never a throw, and reveals throws only
+   from `lastRound`. The server enforces this by giving `IGameEngine` a
+   `SpectatorView` with no default implementation: a new engine cannot compile until
+   its author decides what a spectator may see. Never infer a spectator view from a
+   participant view.
+9. Player cards carry each player's **latest** action — the number they just rolled
+   (Deathroll) or the throw they just made (RPS). This is deliberately **not history**:
+   there is no strip, log or scrollback on a spectator board. Deathroll attributes the
+   roll from the **server-derived** `lastRollBy` on the spectator view (computed in
+   `DeathrollEngine` and sent on the wire; the board only reads it), never by inferring
+   the roller from `currentPlayer`: that inference breaks at match end, when
+   `currentPlayer` goes null. Beyond that latest action, spectator views carry no
+   history at all — `game.feed` remains the running record, is broadcast channel-wide
+   and renders in the conversation region directly below the stage, so duplicating it
+   on the board would create a second source of truth that can disagree with it.
 
 
 ### Settings Tab Pattern
@@ -748,6 +1016,53 @@ Rules:
 6. Do not use native `title` attributes on prompt controls; use accessible labels and the shared Tooltip pattern when hover help is needed
 7. Password input prompts must use the same icon-only reveal pattern as `ServerList`: `Icon name="eye"` for hidden, `Icon name="eye-off"` for visible, shown only while the input or reveal button has focus
 8. Rich preview confirmations still use the single App-owned prompt host; never mount a second host for feature-specific content
+
+### Permanently Visible User Panel Pattern
+
+Reference: `src/Brmble.Web/src/components/DMContactList/DMContactList.tsx`,
+`DMContactList.css`, `App.tsx` (`.app-body`), `App.css`
+
+`.app-body` is a static three-column workspace: sidebar | main content | user panel
+(`DMContactList`). The user panel is **permanently visible** whenever the client is
+connected. It is not a reading surface — clicking a contact opens a conversation tab.
+
+Rules:
+1. There is no visibility state, no toggle control, and no `visible` prop. Do not
+   reintroduce `messagesPanelExpanded`, a Header/UserPanel DM toggle button, or any
+   activity-driven auto-collapse (screen share, game, remote watching).
+2. Below `60rem` the panel narrows to a compact rail. That collapse is **presentation
+   only**: driven by a CSS media query on viewport width alone. No reducer state, no
+   JavaScript, not user-toggleable.
+3. Widths come from `--dm-panel-width` and `--dm-rail-width` in `:root` (`index.css`).
+4. Unread counts render unconditionally and stay visible in the rail (absolutely
+   positioned on the contact entry). Never gate a badge on panel width.
+5. Text that is the accessible name of a control must be visually hidden with the
+   `.sr-only` technique in the rail, never `display: none`. Do not use `aria-label`
+   on a contact entry — it would replace the accessible name and silence the unread
+   badge (see the `.sr-only` section).
+6. The panel is rendered only while connected, so it never appears on the
+   server-list, onboarding, connecting, or disconnected screens.
+
+### Screen-Reader-Only Text (`.sr-only`)
+
+Reference: `src/Brmble.Web/src/index.css`
+
+Use the global `.sr-only` utility for text that must reach assistive technology but not the
+screen — for example marking which item is the current one. Prefer it over `aria-label` on any
+element that also carries visible dynamic content (unread counts, mention badges, status
+chips): `aria-label` **replaces** the whole accessible name and silences those badges.
+
+Because the accessible name is the concatenation of inline children **without separators**, do
+not rely on a leading space inside the `.sr-only` span (it is trimmed). Instead repeat the label
+inside the `.sr-only` span and mark the visible copy `aria-hidden="true"`:
+
+```tsx
+<span className={styles.text} aria-hidden="true">{label}</span>
+<span className="sr-only">{`${label} (you are here)`}</span>
+```
+
+Do not add per-component visually-hidden helpers, and never use `display: none` or
+`visibility: hidden` for this — both remove the text from the accessibility tree.
 
 ### Form Inputs
 
@@ -1132,7 +1447,7 @@ The component sets `aria-hidden="true"` automatically. Color inherits from `curr
 | **Media** | `monitor`, `monitor-off`, `minimize-2`, `maximize-2` | Screen share & fullscreen |
 | **Chat** | `message-square`, `message-circle` | Message bubble variants |
 | **Server** | `server`, `globe`, `folder`, `lock`, `unlock`, `key-round`, `shield`, `star`, `ban`, `triangle-right` | Infrastructure, moderation, and restricted channel access states (`lock` denied, `unlock` allowed, `key-round` password-protected) |
-| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `refresh-cw`, `arrow-right`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `chevron-left`, `chevron-right`, `info`, `info-filled` | Generic interactive icons |
+| **UI — Actions** | `x`, `search`, `plus`, `check`, `send`, `upload`, `refresh-cw`, `arrow-right`, `pencil`, `eye`, `eye-off`, `chevron-up`, `chevron-down`, `chevron-left`, `chevron-right`, `info`, `info-filled` | Generic interactive icons |
 | **UI — Objects** | `user`, `settings`, `save`, `palette`, `moon` | Profiles, preferences, idle indicator |
 | **Window** | `window-minimize`, `window-maximize`, `window-close` | Title bar controls (custom viewBox) |
 | **Brmblegotchi — Actions** | `gotchi-food`, `gotchi-play`, `gotchi-clean` | Pet interaction buttons |
@@ -1394,3 +1709,4 @@ See `src/Brmble.Web/src/themes/_template.css` for guidance values per token.
 | `UpdateNotification` | `info` | `top-right` | No | `Update available` | `Press Update to install v{version}.` |
 | `BrokenCertNotification` | `warning` | `top-right` | No | `Certificate missing` | Profile name, switched-to info, recovery instructions |
 | `game-command-error` (App) | `error` | `top-right` | No | `Ready check failed` / `Rematch response failed` / `Rematch request failed` | Server `reason` for the rejected duel command |
+| `spectate-error` (App) | `error` | `top-right` | No | `Cannot watch this channel` | Why the server refused the spectator subscription |

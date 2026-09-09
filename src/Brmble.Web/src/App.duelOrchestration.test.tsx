@@ -2,8 +2,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import bridge from './bridge';
-import { DeathrollModal } from './components/Games/DeathrollModal';
-import { RpsModal } from './components/Games/RpsModal';
+import { DeathrollBoard } from './components/Games/DeathrollBoard';
+import { RpsBoard } from './components/Games/RpsBoard';
 import type { EndedMatch, IncomingInvite } from './components/Games/useGameState';
 import type { DuelQueueSnapshot, RematchOffer } from './components/Games/useDuelQueueState';
 import type { DuelPlayer, QueuedDuel, ReadyCheck } from './api/games';
@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     isVisible: vi.fn((id: string) => ids.has(id)), visibleCount: 0, totalCount: 0,
   };
   const sidebarProps = { current: null as null | Record<string, unknown> };
+  const headerProps = { current: null as null | Record<string, unknown> };
   const matrixClient = {
     lastMessages: new Map(), activeMessages: [], setActiveChannel: vi.fn(), sendMessage: vi.fn(), sendImageMessage: vi.fn(),
     uploadContent: vi.fn(), fetchHistory: vi.fn(), sendReaction: vi.fn(), removeReaction: vi.fn(), dmLastMessages: new Map(),
@@ -48,9 +49,9 @@ const mocks = vi.hoisted(() => {
     activeShare: null, activeShares: [], watchingShare: null, watchingShares: [], pendingViewerShares: [], remoteWatchCount: 0,
     isViewerConnectPending: false, focusedShare: null, setFocusedShare: vi.fn(), setDiscoveryTarget: vi.fn(), remoteVideoEl: null,
     remoteVideoEls: new Map(), roomQuality: undefined, shareQualities: new Map(), addWatchingShare: vi.fn(), removeWatchingShare: vi.fn(),
-    disconnectViewer: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
+    disconnectViewer: vi.fn(), setRemoteScreenSharesHidden: vi.fn(), connectAsViewer: vi.fn(), handleScreenShareServiceUnavailable: vi.fn(),
   };
-  return { ids, gameState, duelQueue, notificationQueue, sidebarProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
+  return { ids, gameState, duelQueue, notificationQueue, sidebarProps, headerProps, matrixClient, dmStore, unreadTracker, idleActions, screenShare };
 });
 
 vi.mock('./bridge', () => {
@@ -62,7 +63,14 @@ vi.mock('./bridge', () => {
       handlers.get(event)!.add(handler);
     }),
     off: vi.fn((event: string, handler: (data: unknown) => void) => handlers.get(event)?.delete(handler)),
-    __emit: (event: string, data?: unknown) => handlers.get(event)?.forEach(handler => handler(data)),
+    __emit: (event: string, data?: unknown) => {
+      handlers.get(event)?.forEach(handler => handler(data));
+      // The client emits membership as voice.usersReset immediately after voice.connected.
+      const users = (data as { users?: unknown[] } | undefined)?.users;
+      if (event === 'voice.connected' && users) {
+        handlers.get('voice.usersReset')?.forEach(handler => handler({ users }));
+      }
+    },
     __reset: () => handlers.clear(),
   } };
 });
@@ -73,7 +81,10 @@ vi.mock('./components/Games/useGameState', async (importOriginal) => {
 });
 vi.mock('./components/Games/useDuelQueueState', () => ({ useDuelQueueState: () => mocks.duelQueue }));
 vi.mock('./hooks/useNotificationQueue', () => ({ useNotificationQueue: () => mocks.notificationQueue }));
-vi.mock('./components/Header/Header', () => ({ Header: () => null }));
+vi.mock('./components/Header/Header', () => ({ Header: (props: Record<string, unknown>) => {
+  mocks.headerProps.current = props;
+  return null;
+} }));
 vi.mock('./components/Sidebar/Sidebar', () => ({ Sidebar: (props: Record<string, unknown>) => {
   mocks.sidebarProps.current = props;
   const open = props.onOpenDuelQueue as ((id: number) => void) | undefined;
@@ -83,7 +94,7 @@ vi.mock('./components/ChatPanel/ChatPanel', () => ({ ChatPanel: () => <section d
 vi.mock('./components/ServerList/ServerList', () => ({ ServerList: () => null }));
 vi.mock('./components/ConnectionState/ConnectionState', () => ({ ConnectionState: () => null }));
 vi.mock('./components/DMContactList/DMContactList', () => ({ DMContactList: () => null }));
-vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => null }));
+vi.mock('./components/NeonD/NeonDGame', () => ({ NeonDGame: () => <div data-testid="neon-d-game" /> }));
 vi.mock('./components/SettingsModal/SettingsModal', () => ({
   DEFAULT_SCREEN_SHARE: { captureAudio: false, resolution: '1080p', fps: 30, systemAudio: false, viewerMode: 'in-app' },
   SettingsModal: () => null,
@@ -125,14 +136,14 @@ const common = {
 
 describe('participant result rematches', () => {
   it.each([
-    ['Deathroll', DeathrollModal],
-    ['Rock Paper Scissors', RpsModal],
+    ['Deathroll', DeathrollBoard],
+    ['Rock Paper Scissors', RpsBoard],
   ])('keeps the %s result open and requests a rematch', (_name, Modal) => {
     const onRematch = vi.fn();
-    if (Modal === DeathrollModal) {
-      render(<DeathrollModal {...common} ended={{ ...ended, gameType: 'deathroll' }} onRematch={onRematch} onRoll={vi.fn()} />);
+    if (Modal === DeathrollBoard) {
+      render(<DeathrollBoard {...common} ended={{ ...ended, gameType: 'deathroll' }} onRematch={onRematch} onRoll={vi.fn()} />);
     } else {
-      render(<RpsModal {...common} onRematch={onRematch} onPick={vi.fn()} />);
+      render(<RpsBoard {...common} onRematch={onRematch} onPick={vi.fn()} />);
     }
     fireEvent.click(screen.getByRole('button', { name: 'Rematch' }));
 
@@ -142,7 +153,7 @@ describe('participant result rematches', () => {
   });
 
   it('disables the pending rematch action', () => {
-    render(<RpsModal {...common} onPick={vi.fn()} rematchPending />);
+    render(<RpsBoard {...common} onPick={vi.fn()} rematchPending />);
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
   });
 });
@@ -205,8 +216,30 @@ describe('App duel orchestration', () => {
     mocks.duelQueue.incomingRematch = null;
     mocks.duelQueue.outgoingRematch = null;
     mocks.duelQueue.commandError = null;
+    mocks.headerProps.current = null;
     localStorage.clear();
     (bridge as unknown as { __reset: () => void }).__reset();
+  });
+
+  it('keeps Neon-D closed across disconnect and reconnect until it is opened again', () => {
+    const toggleGame = () => {
+      (mocks.headerProps.current?.onToggleGame as (() => void) | undefined)?.();
+    };
+
+    renderApp();
+    emitBridge('voice.connected', { channelId: 0, users: [] });
+
+    act(toggleGame);
+    expect(screen.getByTestId('neon-d-game')).toBeInTheDocument();
+
+    emitBridge('voice.disconnected');
+    expect(screen.queryByTestId('neon-d-game')).not.toBeInTheDocument();
+
+    emitBridge('voice.connected', { channelId: 0, users: [] });
+    expect(screen.queryByTestId('neon-d-game')).not.toBeInTheDocument();
+
+    act(toggleGame);
+    expect(screen.getByTestId('neon-d-game')).toBeInTheDocument();
   });
 
   it('derives the badge, opens the selected snapshot, and leaves screen share UI untouched', () => {
@@ -405,6 +438,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.outgoingRematch = { offerId: 8, sourceMatchId: 91, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
     mocks.duelQueue.outgoingRematch = null;
@@ -418,6 +452,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 91, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch pending' })).toBeDisabled();
     mocks.gameState.ended = null;
@@ -427,6 +462,7 @@ describe('App duel orchestration', () => {
     mocks.gameState.ended = ended;
     mocks.duelQueue.incomingRematch = { offerId: 73, sourceMatchId: 92, gameType: 'rps' };
     renderApp();
+    connectSelf(0);
 
     expect(screen.getByRole('button', { name: 'Rematch' })).toBeEnabled();
     mocks.gameState.ended = null;
@@ -435,6 +471,7 @@ describe('App duel orchestration', () => {
   it('locks a rematch request against double click and unlocks on a correlated error', () => {
     mocks.gameState.ended = ended;
     const { rerender } = renderApp();
+    connectSelf(0);
 
     const rematch = screen.getByRole('button', { name: 'Rematch' });
     fireEvent.click(rematch);

@@ -87,3 +87,8 @@
   margin-bottom: 0;
   text-align: center;
 }
+
+.watch {
+  align-self: flex-start;
+  margin-top: var(--space-xs);
+}

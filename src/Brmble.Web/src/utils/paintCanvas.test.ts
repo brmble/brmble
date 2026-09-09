@@ -93,38 +93,22 @@ describe('paintCanvas', () => {
     expect(compositionContext.drawImage).toHaveBeenNthCalledWith(2, annotations, 0, 0, 100, 50);
   });
 
-  it('downloads source media through the authenticated Matrix media route', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(new Blob(['image'])) });
+  it('loads a paint source from a Blob object URL without Matrix credentials', async () => {
+    const source = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
     const createObjectUrl = vi.fn().mockReturnValue('blob:paint-source');
     const revokeObjectUrl = vi.fn();
     const decode = vi.fn().mockResolvedValue(undefined);
-    const mxcUrlToHttp = vi.fn().mockReturnValue('https://matrix.example/media');
     const OriginalImage = globalThis.Image;
 
-    vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('Image', class {
       set src(_value: string) {}
       decode = decode;
     });
     vi.stubGlobal('URL', { ...URL, createObjectURL: createObjectUrl, revokeObjectURL: revokeObjectUrl });
 
-    await loadPaintSourceImage({
-      getAccessToken: () => 'matrix-token',
-      mxcUrlToHttp,
-    }, {
-      matrixRoomId: '!paint:example',
-      sourceEventId: '$source',
-      mxcUrl: 'mxc://example/source',
-      mimeType: 'image/png',
-      width: 640,
-      height: 480,
-      sizeBytes: 123,
-    });
+    await loadPaintSourceImage(source);
 
-    expect(fetchMock).toHaveBeenCalledWith('https://matrix.example/media', {
-      headers: { Authorization: 'Bearer matrix-token' },
-    });
-    expect(mxcUrlToHttp).toHaveBeenCalledWith('mxc://example/source', undefined, undefined, undefined, false, true, true);
+    expect(createObjectUrl).toHaveBeenCalledWith(source);
     expect(decode).toHaveBeenCalledOnce();
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:paint-source');
     vi.stubGlobal('Image', OriginalImage);

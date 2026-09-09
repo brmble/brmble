@@ -9,15 +9,14 @@
 
 export interface AvatarFetchCandidate {
   session: number;
-  matrixUserId?: string;
+  /** The projection delivers an explicit null for an identity the server has not resolved. */
+  matrixUserId?: string | null;
   avatarUrl?: string;
 }
 
 /** What is known about a fetch already made for a Matrix user. */
 export interface AvatarFetchRecord {
   attempts: number;
-  /** Voice session the fetch was made for. */
-  session: number;
 }
 
 /**
@@ -34,17 +33,18 @@ export function pruneFetchedAvatars(
   }
 }
 
-/** Whether this user still needs their avatar fetched. */
+/**
+ * Whether this user still needs their avatar fetched.
+ *
+ * The avatar map is keyed by matrixUserId, not by session: an avatar belongs to a person
+ * rather than to a connection. So a reconnect onto a new session is no longer a reason to
+ * fetch again — the avatar already resolved for that identity is still correct. The session
+ * comparison this used to make became wrong when avatars moved out of the user rows.
+ */
 export function shouldFetchAvatar(
   user: AvatarFetchCandidate | undefined,
   fetched: ReadonlyMap<string, AvatarFetchRecord>,
 ): boolean {
   if (!user?.matrixUserId || user.avatarUrl) return false;
-  const record = fetched.get(user.matrixUserId);
-  if (!record) return true;
-  // The fetch on record was made for a different voice session, so its result was applied
-  // to a user this one has since replaced. A reconnect that swaps the session in a single
-  // update never leaves the user absent for the prune to notice, so this is the only thing
-  // standing between the new session and an avatar it does not have.
-  return record.session !== user.session;
+  return !fetched.has(user.matrixUserId);
 }

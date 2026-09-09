@@ -52,6 +52,22 @@ internal sealed class UserProjectionStore
         lock (_gate) return new Dictionary<uint, UserProjection>(_rows);
     }
 
+    /// <summary>
+    /// Forgets everything: rows, holds and the revision cursor. For disconnect — the
+    /// within-connection invariants (session-id continuity, one revision line per instance)
+    /// do not survive into the next connection, so nothing derived from them may either.
+    /// </summary>
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _rows.Clear();
+            _pending.Clear();
+            _instanceId = null;
+            _revision = 0;
+        }
+    }
+
     public ChangeSet ApplyMumbleUserState(MumbleUserInput input)
     {
         lock (_gate)

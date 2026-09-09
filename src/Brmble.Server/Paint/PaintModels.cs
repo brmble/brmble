@@ -30,17 +30,10 @@ public enum PaintSessionStatus
 public sealed record PaintPoint(double X, double Y, double? Pressure);
 
 public sealed record PaintSource(
-    string MatrixRoomId,
-    string SourceEventId,
-    string MxcUrl,
     string MimeType,
     int Width,
     int Height,
     long SizeBytes);
-
-public sealed record PaintInvitee(
-    long UserId,
-    string MatrixUserId);
 
 public sealed record PaintParticipant(
     long UserId,
@@ -71,8 +64,6 @@ public sealed record PaintStrokeInput(
 public sealed record PaintSessionSnapshot(
     Guid SessionId,
     int ChannelId,
-    string MatrixRoomId,
-    string? SourceEventId,
     long HostUserId,
     long CurrentUserId,
     bool IsHost,
@@ -94,8 +85,6 @@ public sealed record PaintSessionSummary(
 
 public static class PaintEventNames
 {
-    public const string SourceAttached = "paint.sourceAttached";
-    public const string Invited = "paint.invited";
     public const string ParticipantJoined = "paint.participantJoined";
     public const string ParticipantLeft = "paint.participantLeft";
     public const string PreviewUpdated = "paint.previewUpdated";
@@ -108,8 +97,6 @@ public static class PaintEventNames
 
     public static readonly IReadOnlyList<string> BroadcastEvents =
     [
-        SourceAttached,
-        Invited,
         ParticipantJoined,
         ParticipantLeft,
         PreviewUpdated,

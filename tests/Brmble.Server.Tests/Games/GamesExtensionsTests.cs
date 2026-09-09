@@ -3,6 +3,7 @@ using Brmble.Server.Data;
 using Brmble.Server.Events;
 using Brmble.Server.Games;
 using Brmble.Server.Games.Duels;
+using Brmble.Server.Games.Spectators;
 using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Extensions.DependencyInjection;
@@ -79,5 +80,50 @@ public class GamesExtensionsTests
         else host.Dispose();
 
         Assert.AreEqual(0, MatchCompletedSubscriberCount(router));
+    }
+
+    [TestMethod]
+    public void AddGames_RegistersTheSpectatorServiceAsBothInterfaces()
+    {
+        using var host = BuildHost();
+
+        var service = host.Services.GetRequiredService<SpectatorService>();
+        var coordinator = host.Services.GetRequiredService<ISpectatorCoordinator>();
+        var lifecycle = host.Services.GetRequiredService<ISpectatorLifecycle>();
+        Assert.AreSame<object>(coordinator, lifecycle, "One SpectatorService instance owns both roles.");
+        Assert.AreSame<object>(service, coordinator,
+            "Both interfaces must resolve to the registered SpectatorService, not some other shared implementation.");
+    }
+
+    [TestMethod]
+    public void AddGames_InjectsTheSpectatorCoordinatorIntoGameSessionManager()
+    {
+        using var host = BuildHost();
+
+        var manager = host.Services.GetRequiredService<GameSessionManager>();
+
+        var field = typeof(GameSessionManager).GetField(
+            "_spectators",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.IsNotNull(field, "Expected GameSessionManager to hold its coordinator in a _spectators field.");
+        var injected = field.GetValue(manager);
+
+        // GameSessionManager's ISpectatorCoordinator parameter has a DEFAULT VALUE, and
+        // Microsoft.Extensions.DependencyInjection honours parameter defaults for
+        // unregistered services. So dropping the registration does NOT throw when the
+        // manager is resolved - it silently injects null, every publish site
+        // short-circuits on `_spectators is null`, and spectating dies in production
+        // with the whole suite still green. Assert non-null BEFORE resolving the
+        // coordinator, so removing the registration fails here, naming the real
+        // consequence, rather than as a generic "no service registered" from the
+        // resolve below.
+        Assert.IsNotNull(injected,
+            "GameSessionManager received a null ISpectatorCoordinator. Every spectator frame is " +
+            "silently dropped in production and no other test notices.");
+
+        var coordinator = host.Services.GetRequiredService<ISpectatorCoordinator>();
+        Assert.AreSame<object>(coordinator, injected,
+            "GameSessionManager must receive the registered ISpectatorCoordinator instance, " +
+            "not a second one - a split instance publishes frames no subscriber can see.");
     }
 }

@@ -1,0 +1,111 @@
+.strip {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-2xs) 0;
+  background: var(--bg-elevated);
+  flex: none;
+  min-width: 0;
+}
+
+.scroller {
+  display: flex;
+  gap: var(--space-2xs);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  min-width: 0;
+  flex: 1;
+}
+
+.scroller:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: calc(-1 * var(--border-width-strong));
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--bg-surface);
+  min-width: var(--conversation-tab-min-width);
+  max-width: var(--conversation-tab-max-width);
+  flex: 0 1 auto;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+}
+
+.active {
+  background: var(--bg-deep);
+  font-weight: 600;
+}
+
+.home {
+  background: var(--bg-surface);
+}
+
+.active,
+.home {
+  flex-shrink: 0.5;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-xs);
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.label:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: calc(-1 * var(--border-width-strong));
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread,
+.mention {
+  border-radius: var(--radius-lg);
+  padding: 0 var(--space-2xs);
+  font-size: var(--text-xs);
+}
+
+.unread {
+  background: var(--accent-danger);
+  color: var(--bg-deep);
+}
+
+.mention {
+  background: var(--accent-warning);
+  color: var(--bg-deep);
+}
+
+.close {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 var(--space-2xs);
+}
+
+.close:hover {
+  color: var(--text-primary);
+}
+
+.close:focus-visible {
+  outline: var(--border-width-strong) solid var(--accent-primary);
+  outline-offset: calc(-1 * var(--border-width-strong));
+}

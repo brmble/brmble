@@ -12,8 +12,9 @@ export interface UserInfoDialogProps {
   userName: string;
   session: number;
   isSelf: boolean;
-  comment?: string;
-  matrixUserId?: string;
+  /** Tri-state on the projection: null means the server has not said yet. */
+  comment?: string | null;
+  matrixUserId?: string | null;
   avatarUrl?: string;
   onStartDM?: (userId: string, userName: string) => void;
 }
