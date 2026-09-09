@@ -265,6 +265,7 @@ internal sealed class StartupSplashWindow : IDisposable
         }
 
         BitmapData? sourceData = null;
+        var surfaceReady = false;
         try
         {
             sourceData = surface.LockBits(
@@ -277,19 +278,35 @@ internal sealed class StartupSplashWindow : IDisposable
                 Marshal.Copy(IntPtr.Add(sourceData.Scan0, y * sourceData.Stride), row, 0, row.Length);
                 Marshal.Copy(row, 0, IntPtr.Add(bits, y * row.Length), row.Length);
             }
-            return bitmapHandle;
+            surfaceReady = true;
         }
         catch (Exception exception)
         {
             Debug.WriteLine($"[StartupSplash] Failed to copy alpha surface: {exception.Message}");
-            DeleteObject(bitmapHandle);
-            return IntPtr.Zero;
         }
         finally
         {
             if (sourceData != null)
-                surface.UnlockBits(sourceData);
+            {
+                try
+                {
+                    surface.UnlockBits(sourceData);
+                }
+                catch (Exception exception)
+                {
+                    surfaceReady = false;
+                    Debug.WriteLine($"[StartupSplash] Failed to unlock alpha surface: {exception.Message}");
+                }
+            }
         }
+
+        if (!surfaceReady)
+        {
+            DeleteObject(bitmapHandle);
+            return IntPtr.Zero;
+        }
+
+        return bitmapHandle;
     }
 
     private static bool GetClientAreaAnimationSetting()
