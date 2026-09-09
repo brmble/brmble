@@ -347,6 +347,8 @@ static class Program
                     DevServerUrl,
                     StartupPageState.Loading));
 
+            await ApplyStartupTestDelayAsync();
+
             _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
             _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
@@ -505,6 +507,15 @@ static class Program
             Win32Window.ShowStartupError(hwnd);
             Win32Window.DestroyWindow(hwnd);
         }
+    }
+
+    private static async Task ApplyStartupTestDelayAsync()
+    {
+        var raw = Environment.GetEnvironmentVariable("BRMBLE_STARTUP_DELAY_SECONDS");
+        if (!int.TryParse(raw, out var seconds) || seconds <= 0)
+            return;
+
+        await Task.Delay(TimeSpan.FromSeconds(Math.Min(seconds, 30)));
     }
 
     private static void SetupBridgeHandlers()
