@@ -40,6 +40,8 @@ static class Program
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
     private static volatile bool _mainUiReady;
+    private static volatile bool _startupCancelled;
+    private static StartupSplashWindow? _startupSplash;
     private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
     /// <summary>
@@ -174,11 +176,28 @@ static class Program
             }
 
             var startupTheme = _appConfigService.GetSettings().Appearance.Theme;
+
+            try
+            {
+                _startupSplash = new StartupSplashWindow();
+                _startupSplash.Show(startupTheme);
+                if (!_startupSplash.IsVisible)
+                {
+                    _startupSplash.Dispose();
+                    _startupSplash = null;
+                }
+            }
+            catch (Exception splashException)
+            {
+                Debug.WriteLine($"[WARN] Native startup splash could not be created: {splashException}");
+                _startupSplash?.Dispose();
+                _startupSplash = null;
+            }
+
             var (br0, bg0, bb0) = ThemeColors.GetBgPrimary(startupTheme);
             uint startupBgColorRef = Win32Window.ToColorRef(br0, bg0, bb0);
-            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef);
-            if (restoreMaximized)
-                Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
+            _hwnd = Win32Window.Create(
+                "BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef, visible: false);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
 
@@ -189,7 +208,7 @@ static class Program
             Win32Window.SetBorderColor(_hwnd, Win32Window.ToColorRef(sbr, sbg, sbb));
             TrayIcon.Create(_hwnd);
             TaskbarBadge.Initialize(_hwnd);
-            _ = InitWebView2Async(_hwnd, useDevServer, startupTheme);
+            _ = InitWebView2Async(_hwnd, useDevServer, startupTheme, restoreMaximized);
             Win32Window.RunMessageLoop();
         }
         catch (Exception ex)
@@ -201,7 +220,8 @@ static class Program
     private static async Task InitWebView2Async(
         IntPtr hwnd,
         bool useDevServer,
-        string startupTheme)
+        string startupTheme,
+        bool restoreMaximized)
     {
         try
         {
@@ -224,7 +244,12 @@ static class Program
             var env = await CoreWebView2Environment.CreateAsync(
                 browserExecutableFolder: null,
                 userDataFolder: webViewUserDataPath);
+            if (_startupCancelled)
+                return;
+
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            if (_startupCancelled)
+                return;
 
             var (startupR, startupG, startupB) = ThemeColors.GetBgDeep(startupTheme);
             _controller.DefaultBackgroundColor = Color.FromArgb(
@@ -450,6 +475,14 @@ static class Program
 
                 if (!e.IsSuccess)
                 {
+                    if (_startupSplash is null)
+                    {
+                        Win32Window.ShowStartupError(hwnd);
+                        Win32Window.DestroyWindow(hwnd);
+                        return;
+                    }
+
+                    _startupSplash?.ShowError(GetStartupLogPath());
                     _controller.CoreWebView2.Navigate(
                         StartupPageUri.Build(
                             useDevServer,
@@ -459,6 +492,11 @@ static class Program
                 }
 
                 _mainUiReady = true;
+                Win32Window.ShowWindow(
+                    _hwnd,
+                    restoreMaximized ? Win32Window.SW_SHOWMAXIMIZED : Win32Window.SW_SHOW);
+                _startupSplash?.Close();
+                _startupSplash = null;
 
                 // Send initial window state — WM_SIZE fires before the bridge
                 // exists when starting maximized, so without this the React
@@ -475,6 +513,9 @@ static class Program
         }
         catch (Exception ex)
         {
+            if (_startupCancelled)
+                return;
+
             Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
             try
             {
@@ -491,6 +532,7 @@ static class Program
             {
                 try
                 {
+                    _startupSplash?.ShowError(GetStartupLogPath());
                     webView.Navigate(
                         StartupPageUri.Build(
                             useDevServer,
@@ -504,10 +546,15 @@ static class Program
                 }
             }
 
+            _startupSplash?.Close();
+            _startupSplash = null;
             Win32Window.ShowStartupError(hwnd);
             Win32Window.DestroyWindow(hwnd);
         }
     }
+
+    private static string GetStartupLogPath() =>
+        Path.Combine(Path.GetTempPath(), "brmble-tls.log");
 
     private static async Task ApplyStartupTestDelayAsync()
     {
@@ -747,6 +794,9 @@ static class Program
                 {
                     // Startup/loading/error pages have no close-dialog listener;
                     // always exit, even when the saved preference is minimize.
+                    _startupCancelled = true;
+                    _startupSplash?.Close();
+                    _startupSplash = null;
                     Win32Window.DestroyWindow(hwnd);
                 }
                 else if (_closeAction == "quit")
@@ -829,6 +879,8 @@ static class Program
             }
 
             case Win32Window.WM_DESTROY:
+                _startupSplash?.Close();
+                _startupSplash = null;
                 _zoomSaveTimer?.Dispose();
                 _zoomSaveTimer = null;
                 if (_appConfigService != null)

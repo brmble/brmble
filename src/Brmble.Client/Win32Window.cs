@@ -445,7 +445,16 @@ internal static class Win32Window
         }
     }
 
-    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc, uint backgroundColorRef)
+    public static IntPtr Create(
+        string className,
+        string title,
+        int x,
+        int y,
+        int width,
+        int height,
+        WndProc wndProc,
+        uint backgroundColorRef,
+        bool visible = true)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRefs.Add(wndProc);
@@ -467,8 +476,9 @@ internal static class Win32Window
         };
         RegisterClassEx(ref wc);
 
+        var windowStyle = WS_OVERLAPPEDWINDOW | (visible ? WS_VISIBLE : 0u);
         return CreateWindowEx(0, className, title,
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            windowStyle,
             x, y, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
     }

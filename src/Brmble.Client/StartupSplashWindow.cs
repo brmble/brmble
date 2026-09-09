@@ -41,6 +41,8 @@ internal sealed class StartupSplashWindow : IDisposable
     private bool _animationEnabled;
     private int _pulse;
 
+    internal bool IsVisible => _windowHandle != IntPtr.Zero;
+
     internal void Show(string theme)
     {
         Close();
