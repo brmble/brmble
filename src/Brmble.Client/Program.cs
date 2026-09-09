@@ -376,7 +376,7 @@ static class Program
                     DevServerUrl,
                     StartupPageState.Loading));
 
-            await ApplyStartupTestDelayAsync();
+            ApplyStartupTestDelay();
             if (_startupCancelled)
                 return;
 
@@ -606,13 +606,13 @@ static class Program
     private static string GetStartupLogPath() =>
         Path.Combine(Path.GetTempPath(), "brmble-tls.log");
 
-    private static async Task ApplyStartupTestDelayAsync()
+    private static void ApplyStartupTestDelay()
     {
         var raw = Environment.GetEnvironmentVariable("BRMBLE_STARTUP_DELAY_SECONDS");
         if (!int.TryParse(raw, out var seconds) || seconds <= 0)
             return;
 
-        await Task.Delay(TimeSpan.FromSeconds(Math.Min(seconds, 30)));
+        Thread.Sleep(TimeSpan.FromSeconds(Math.Min(seconds, 30)));
     }
 
     private static void SetupBridgeHandlers()
