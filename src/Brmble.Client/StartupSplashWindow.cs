@@ -17,6 +17,7 @@ internal sealed class StartupSplashWindow : IDisposable
     private const int Height = 240;
     private const uint WsPopup = 0x80000000;
     private const uint WsExToolWindow = 0x00000080;
+    private const uint WsExTopmost = 0x00000008;
     private const uint WsExNoActivate = 0x08000000;
     private const uint ClassHRedraw = 0x0002;
     private const uint ClassVRedraw = 0x0001;
@@ -44,6 +45,8 @@ internal sealed class StartupSplashWindow : IDisposable
 
     internal bool IsVisible => _windowHandle != IntPtr.Zero;
 
+    internal static uint GetExtendedWindowStyle() => WsExToolWindow | WsExTopmost | WsExNoActivate;
+
     internal void Show(string theme)
     {
         Close();
@@ -62,7 +65,7 @@ internal sealed class StartupSplashWindow : IDisposable
         var x = workArea.Left + Math.Max(0, (workArea.Right - workArea.Left - Width) / 2);
         var y = workArea.Top + Math.Max(0, (workArea.Bottom - workArea.Top - Height) / 2);
         _windowHandle = CreateWindowEx(
-            WsExToolWindow | WsExNoActivate, _className, "Brmble", WsPopup,
+            GetExtendedWindowStyle(), _className, "Brmble", WsPopup,
             x, y, Width, Height, IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
 
         if (_windowHandle == IntPtr.Zero)
@@ -271,7 +274,7 @@ internal sealed class StartupSplashWindow : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr SetTimer(IntPtr hwnd, uint id, uint interval, IntPtr callback);
     [DllImport("user32.dll")] private static extern bool KillTimer(IntPtr hwnd, uint id);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, int cursor);
-    [DllImport("user32.dll")] private static extern IntPtr GetModuleHandle(string? moduleName);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? moduleName);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint parameter, out bool result, uint update);
     [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint parameter, out RECT result, uint update);
