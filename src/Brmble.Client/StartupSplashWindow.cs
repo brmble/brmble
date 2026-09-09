@@ -19,6 +19,7 @@ internal sealed class StartupSplashWindow : IDisposable
     private const int LogoSize = 112;
     private const int LogoTop = 16;
     private const int LabelTop = 136;
+    private static readonly Rectangle CloseButtonBounds = new(168, 8, 24, 24);
     private const uint WsPopup = 0x80000000;
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExTopmost = 0x00000008;
@@ -29,6 +30,7 @@ internal sealed class StartupSplashWindow : IDisposable
     private const uint WmPaint = 0x000F;
     private const uint WmEraseBkgnd = 0x0014;
     private const uint WmClose = 0x0010;
+    private const uint WmLButtonUp = 0x0202;
     private const uint WmDestroy = 0x0002;
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
@@ -52,6 +54,9 @@ internal sealed class StartupSplashWindow : IDisposable
     internal static uint GetExtendedWindowStyle() => WsExToolWindow | WsExTopmost | WsExNoActivate | WsExLayered;
 
     internal static float GetLogoAlpha() => 1f;
+
+    internal static bool IsCloseButtonHit(bool error, int x, int y) =>
+        error && CloseButtonBounds.Contains(x, y);
 
     internal void Show(string theme)
     {
@@ -169,6 +174,16 @@ internal sealed class StartupSplashWindow : IDisposable
         {
             using var brush = new SolidBrush(_accent);
             graphics.FillEllipse(brush, (Width - 72) / 2, 56, 72, 72);
+        }
+
+        if (_error)
+        {
+            using var buttonBrush = new SolidBrush(Color.FromArgb(180, _background));
+            using var buttonPen = new Pen(Color.FromArgb(220, _accent), 2f);
+            graphics.FillRectangle(buttonBrush, CloseButtonBounds);
+            graphics.DrawRectangle(buttonPen, CloseButtonBounds);
+            graphics.DrawLine(buttonPen, 175, 15, 185, 25);
+            graphics.DrawLine(buttonPen, 185, 15, 175, 25);
         }
 
         using var textBrush = new SolidBrush(_error ? Color.FromArgb(235, 225, 235) : Color.FromArgb(190, 180, 195));
@@ -322,6 +337,18 @@ internal sealed class StartupSplashWindow : IDisposable
                 return IntPtr.Zero;
             case WmEraseBkgnd:
                 return new IntPtr(1);
+            case WmLButtonUp:
+            {
+                var coordinates = lParam.ToInt64();
+                var x = unchecked((short)(coordinates & 0xFFFF));
+                var y = unchecked((short)((coordinates >> 16) & 0xFFFF));
+                if (IsCloseButtonHit(splash._error, x, y))
+                {
+                    splash.Dismissed?.Invoke();
+                    splash.Close();
+                }
+                return IntPtr.Zero;
+            }
             case WmClose:
                 splash.Dismissed?.Invoke();
                 splash.Close();

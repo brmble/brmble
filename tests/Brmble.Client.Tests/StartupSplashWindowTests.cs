@@ -33,6 +33,14 @@ public sealed class StartupSplashWindowTests
     }
 
     [TestMethod]
+    public void ErrorSplashCloseButtonIsOnlyHitInsideItsBounds()
+    {
+        Assert.IsFalse(StartupSplashWindow.IsCloseButtonHit(false, 180, 20));
+        Assert.IsTrue(StartupSplashWindow.IsCloseButtonHit(true, 180, 20));
+        Assert.IsFalse(StartupSplashWindow.IsCloseButtonHit(true, 165, 20));
+    }
+
+    [TestMethod]
     public void StartupSplashCanResolveItsModuleHandle()
     {
         var method = typeof(StartupSplashWindow).GetMethod(
