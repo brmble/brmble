@@ -933,7 +933,7 @@ static class Program
                 _startupSplash = null;
                 _zoomSaveTimer?.Dispose();
                 _zoomSaveTimer = null;
-                if (_appConfigService != null)
+                if (_appConfigService != null && !_startupCancelled)
                 {
                     var placement = new Win32Window.WINDOWPLACEMENT
                     {
