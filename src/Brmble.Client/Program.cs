@@ -250,7 +250,10 @@ static class Program
 
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
             if (_startupCancelled)
+            {
+                CloseWebViewController();
                 return;
+            }
 
             var (startupR, startupG, startupB) = ThemeColors.GetBgDeep(startupTheme);
             _controller.DefaultBackgroundColor = Color.FromArgb(
@@ -493,7 +496,10 @@ static class Program
         catch (Exception ex)
         {
             if (_startupCancelled)
+            {
+                CloseWebViewController();
                 return;
+            }
 
             Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
             try
@@ -507,37 +513,33 @@ static class Program
                 // Logging is best-effort.
             }
 
-            if (_startupSplash is not null && _controller?.CoreWebView2 is { } webView)
-            {
-                try
-                {
-                    if (_startupCancelled)
-                        return;
+            ShowStartupFailure(hwnd);
+        }
+    }
 
-                    _startupSplash.ShowError(GetStartupLogPath());
-                    if (_startupCancelled)
-                        return;
+    private static void CloseWebViewController()
+    {
+        var controller = Interlocked.Exchange(ref _controller, null);
+        if (controller is null)
+            return;
 
-                    webView.Navigate(
-                        StartupPageUri.Build(
-                            useDevServer,
-                            DevServerUrl,
-                            StartupPageState.Error));
-                    return;
-                }
-                catch
-                {
-                    // Fall through to the native dialog if WebView2 cannot navigate.
-                }
-            }
-
-            ShowNativeStartupError(hwnd);
+        try
+        {
+            controller.Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[WARN] Failed to close WebView2 controller: {exception}");
         }
     }
 
     private static void CancelStartup()
     {
         _startupCancelled = true;
+
+        CloseWebViewController();
+
         _startupSplash?.Close();
         _startupSplash = null;
         if (_hwnd != IntPtr.Zero && !_mainUiReady)
@@ -560,16 +562,15 @@ static class Program
         if (_startupCancelled)
             return;
 
+        CloseWebViewController();
+
         if (_startupSplash is null)
         {
             ShowNativeStartupError(hwnd);
             return;
         }
 
-        if (_startupCancelled)
-            return;
-
-        _startupSplash.ShowError(GetStartupLogPath());
+        _startupSplash.ShowError();
     }
 
     private static void CompleteStartup(bool restoreMaximized)
@@ -927,6 +928,7 @@ static class Program
             case Win32Window.WM_DESTROY:
                 _startupSplash?.Close();
                 _startupSplash = null;
+                CloseWebViewController();
                 _zoomSaveTimer?.Dispose();
                 _zoomSaveTimer = null;
                 if (_appConfigService != null && !_startupCancelled)

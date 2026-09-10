@@ -107,7 +107,7 @@ internal sealed class StartupSplashWindow : IDisposable
             _active = null;
     }
 
-    internal void ShowError(string logPath)
+    internal void ShowError()
     {
         if (_windowHandle == IntPtr.Zero)
             return;

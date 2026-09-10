@@ -41,6 +41,17 @@ public sealed class StartupSplashWindowTests
     }
 
     [TestMethod]
+    public void ErrorSplashDoesNotRequireAnUnusedLogPathArgument()
+    {
+        var method = typeof(StartupSplashWindow).GetMethod(
+            "ShowError",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.IsNotNull(method);
+        Assert.AreEqual(0, method.GetParameters().Length);
+    }
+
+    [TestMethod]
     public void StartupSplashCanResolveItsModuleHandle()
     {
         var method = typeof(StartupSplashWindow).GetMethod(
