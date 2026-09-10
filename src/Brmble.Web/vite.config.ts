@@ -15,7 +15,6 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         overlay: resolve(__dirname, 'overlay.html'),
-        startup: resolve(__dirname, 'startup.html'),
       },
       output: {
         manualChunks(id) {
