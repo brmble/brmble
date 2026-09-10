@@ -110,6 +110,8 @@ services:
       # Required
       MATRIX_SERVER_NAME: chat.example.com
       MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
+      Games__RealtimePublicWebSocketUrl: wss://chat.example.com:8080/games/realtime
+      Games__RealtimeAllowedOrigins__0: https://brmble.local
 
       # Optional — connect to your Mumble server's ICE endpoint
       Ice__Host: mumble
@@ -136,6 +138,8 @@ Required environment:
 | `MATRIX_SERVER_NAME` | Public Matrix domain. Should match the host clients reach (e.g. `chat.example.com`). Matrix user IDs become `@<id>:<MATRIX_SERVER_NAME>`. Cannot be changed after first start without resetting `/data`. |
 | `MATRIX_APPSERVICE_TOKEN` | Shared secret between the bundled Matrix homeserver and the Brmble backend. Generate with `openssl rand -hex 32`. Keep stable across restarts. |
 | `Matrix__AdminAccessToken` | Required to permanently delete Matrix paint rooms after sessions end. Supply a Synapse admin access token; without it cleanup is recorded as terminal and the server logs an operator warning. |
+| `Games__RealtimePublicWebSocketUrl` | Public `wss://` URL for the realtime games endpoint (arena), e.g. `wss://chat.example.com:8080/games/realtime`. Host and port must match what clients reach this server on. **The server refuses to start without it.** |
+| `Games__RealtimeAllowedOrigins__0` | Origin allowed to open the realtime WebSocket. The Brmble client runs on `https://brmble.local`; realtime games are rejected without a matching entry. |
 
 Optional environment:
 

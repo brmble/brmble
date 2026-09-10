@@ -15,6 +15,15 @@ services:
       # Generate with: openssl rand -hex 32
       MATRIX_APPSERVICE_TOKEN: ${MATRIX_APPSERVICE_TOKEN}
 
+      # Public wss:// URL clients use to reach the realtime games endpoint.
+      # Host and port must be what clients actually reach this server on, i.e.
+      # the host port that 8080 is published on above (1912 by default).
+      # The server refuses to start without an absolute wss:// URL here.
+      Games__RealtimePublicWebSocketUrl: ${GAMES_REALTIME_WSS_URL}
+      # Origin allowed to open that WebSocket. The Brmble client runs on
+      # https://brmble.local; only change this if you serve the web UI yourself.
+      Games__RealtimeAllowedOrigins__0: ${GAMES_REALTIME_ORIGIN:-https://brmble.local}
+
       # ── Matrix admin account (first-run only) ─────────────────────────────────
       # Created automatically on first start. Override to set known credentials.
       # MATRIX_ADMIN_USER: brmble-admin
