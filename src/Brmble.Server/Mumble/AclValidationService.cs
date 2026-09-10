@@ -2,6 +2,15 @@ namespace Brmble.Server.Mumble;
 
 public sealed class AclValidationService
 {
+    private static readonly HashSet<string> ReservedMumbleGroupNames = new(StringComparer.Ordinal)
+    {
+        "all",
+        "auth",
+        "in",
+        "out",
+        "sub",
+    };
+
     // Mumble's Listen ACL bit is not exposed by the generated MumbleServer constants.
     private const int PermissionListen = 0x800;
 
@@ -42,6 +51,11 @@ public sealed class AclValidationService
             {
                 return (false, "Group name cannot be empty.");
             }
+
+            if (IsReservedMumbleGroupName(group.Name))
+            {
+                return (false, $"Group name '{group.Name}' is reserved by Mumble's ACL selector syntax.");
+            }
         }
 
         foreach (var rule in request.Acls)
@@ -69,4 +83,7 @@ public sealed class AclValidationService
 
         return (true, null);
     }
+
+    private static bool IsReservedMumbleGroupName(string name) =>
+        ReservedMumbleGroupNames.Contains(name) || name[0] is '#' or '$' or '!' or '~';
 }

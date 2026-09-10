@@ -16,7 +16,7 @@ const { bridgeMock } = vi.hoisted(() => ({
   },
 }));
 
-const hasPermissionMock = vi.fn(() => false);
+const hasPermissionMock = vi.fn<(channelId: number, permission: number) => boolean>().mockReturnValue(false);
 
 const emptyCustomCompanionGallery: CustomCompanionGalleryController = {
   status: 'empty',
@@ -40,7 +40,7 @@ vi.mock('../../hooks/useServerlist', () => ({
 }));
 
 vi.mock('../../hooks/usePermissions', () => ({
-  Permission: { Ban: 4, Kick: 2 },
+  Permission: { Ban: 4, Kick: 2, Write: 1 },
   usePermissions: () => ({ hasPermission: hasPermissionMock }),
 }));
 vi.mock('./AdminSettingsTab', () => ({
@@ -51,10 +51,15 @@ vi.mock('./AdminSettingsTab', () => ({
     liveUsers: Array<{ session: number; name: string }>;
     customCompanions?: { canModerate: boolean };
   }) => (
-    <div>
+    <div data-testid="full-admin-workspace">
       <div data-testid="admin-users-prop">{liveUsers.map(user => user.name).join(',')}</div>
       <div data-testid="admin-custom-companion-prop">{customCompanions?.canModerate ? 'can-moderate' : 'absent'}</div>
     </div>
+  ),
+}));
+vi.mock('./admin/ChannelAccessPanel', () => ({
+  ChannelAccessPanel: ({ channel, scoped }: { channel: { name: string }; scoped?: boolean }) => (
+    <div data-testid="scoped-channel-access" data-scoped={scoped ? 'true' : 'false'}>{channel.name}</div>
   ),
 }));
 vi.mock('../ChannelRequests/MyChannelRequests', () => ({
@@ -101,6 +106,30 @@ describe('SettingsModal tabs', () => {
     hasPermissionMock.mockReturnValue(true);
     render(<SettingsModal isOpen onClose={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+  });
+
+  it('opens only the requested channel access panel for a channel-scoped ACL manager', () => {
+    hasPermissionMock.mockImplementation((channelId: number, permission: number) => (
+      channelId === 7 && permission === 1
+    ));
+
+    render(
+      <SettingsModal
+        isOpen
+        onClose={vi.fn()}
+        initialTab="admin"
+        initialAdminChannelId={7}
+        channels={[
+          { id: 2, name: 'Classes', parent: 0 },
+          { id: 7, name: 'Class A', parent: 2 },
+        ] as never}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Admin' })).toBeInTheDocument();
+    expect(screen.getByTestId('scoped-channel-access')).toHaveTextContent('Class A');
+    expect(screen.getByTestId('scoped-channel-access')).toHaveAttribute('data-scoped', 'true');
+    expect(screen.queryByTestId('full-admin-workspace')).not.toBeInTheDocument();
   });
 
   it('passes live voice users into AdminSettingsTab', () => {

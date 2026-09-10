@@ -48,6 +48,7 @@ export const Permission = {
   Whisper: 0x100,
   TextMessage: 0x200,
   MakeTempChannel: 0x400,
+  Listen: 0x800,
   Kick: 0x10000,
   Ban: 0x20000,
   Register: 0x40000,
