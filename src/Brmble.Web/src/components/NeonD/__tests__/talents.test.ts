@@ -6,8 +6,12 @@ import {
   getSpentTalentPoints,
   getTalentBonus,
   getTalentDefinition,
+  getZoneLeadershipBonuses,
+  hasProtectionCoverage,
+  hasZoneBulkSaleTalent,
   isTalentStateValid,
 } from '../talents';
+import { makeReferenceCaptain } from './testFixtures';
 
 const emptyRanks = (): TalentRanks => ({
   red: [0, 0, 0],
@@ -26,6 +30,7 @@ const makeCaptain = (overrides: Partial<Captain> = {}): Captain => ({
   talentRanks: emptyRanks(),
   ledgerUnlocked: true,
   kingpinAvailable: false,
+  zoneBulkSellAvailableAt: 0,
   ...overrides,
   lastLevelUpEarnings: overrides.lastLevelUpEarnings ?? 0,
 });
@@ -99,6 +104,66 @@ describe('Captain talent rules', () => {
     }))).toBe(false);
     expect(isTalentStateValid(makeCaptain({
       talentRanks: { ...emptyRanks(), rogue: [0, 0, 0] } as unknown as TalentRanks,
+    }))).toBe(false);
+  });
+
+  it('mirrors purchased talent ranks into small capped zone leadership bonuses', () => {
+    const captain = makeReferenceCaptain({
+      level: 10,
+      talentPoints: 0,
+      talentRanks: {
+        red: [2, 3, 4],
+        yellow: [1, 0, 0],
+        blue: [0, 0, 0],
+      },
+      ledgerUnlocked: true,
+      kingpinAvailable: true,
+    });
+
+    const bonuses = getZoneLeadershipBonuses(captain);
+
+    expect(bonuses).toEqual({
+      marginBonus: 0.04,
+      volumeBonus: 0.06,
+      secondarySalesBonus: 0.05,
+    });
+    expect(bonuses.marginBonus).toBeLessThanOrEqual(0.08);
+    expect(bonuses.volumeBonus).toBeLessThanOrEqual(0.08);
+    expect(bonuses.secondarySalesBonus).toBeLessThanOrEqual(0.05);
+
+    const cappedCaptain = makeReferenceCaptain({
+      level: 27,
+      talentPoints: 0,
+      talentRanks: {
+        red: [2, 3, 4],
+        yellow: [2, 3, 4],
+        blue: [2, 3, 4],
+      },
+      ledgerUnlocked: true,
+      kingpinAvailable: true,
+    });
+    expect(getZoneLeadershipBonuses(cappedCaptain)).toEqual({
+      marginBonus: 0.08,
+      volumeBonus: 0.08,
+      secondarySalesBonus: 0.05,
+    });
+  });
+
+  it('unlocks protection coverage at the final deep red rank', () => {
+    expect(hasProtectionCoverage(makeReferenceCaptain({
+      talentRanks: { red: [2, 3, 4], yellow: [0, 0, 0], blue: [0, 0, 0] },
+    }))).toBe(true);
+    expect(hasProtectionCoverage(makeReferenceCaptain({
+      talentRanks: { red: [2, 3, 3], yellow: [0, 0, 0], blue: [0, 0, 0] },
+    }))).toBe(false);
+  });
+
+  it('unlocks Zone bulk sale at the final deep yellow rank', () => {
+    expect(hasZoneBulkSaleTalent(makeReferenceCaptain({
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 4], blue: [0, 0, 0] },
+    }))).toBe(true);
+    expect(hasZoneBulkSaleTalent(makeReferenceCaptain({
+      talentRanks: { red: [0, 0, 0], yellow: [2, 3, 3], blue: [0, 0, 0] },
     }))).toBe(false);
   });
 });

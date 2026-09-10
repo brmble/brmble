@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSecondaryDemands,
   createCaptain,
+  getDealerMarginMultiplier,
   getCaptainDefaultName,
   getCaptainBonuses,
   getCaptainMainSaleRate,
@@ -10,7 +11,7 @@ import {
   getNormalDealerMainSaleRate,
   getSellerEquipmentBonuses,
 } from '../dealers';
-import { makeReferenceCaptain } from './testFixtures';
+import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
 
 describe('reference dealer behavior', () => {
   it('uses a supplied Captain name while retaining the generated default', () => {
@@ -87,6 +88,23 @@ describe('reference dealer behavior', () => {
       isArrested: false,
       earningsPerSecondAtArrest: 0,
     })).toBeCloseTo(3.6);
+  });
+
+  it('adds local leadership to normal dealer volume and margin', () => {
+    const dealer = makeReferenceDealer({
+      volumeMultiplier: 1.2,
+      marginMultiplier: 1.1,
+    });
+    const leadership = {
+      marginBonus: 0.08,
+      volumeBonus: 0.06,
+      secondarySalesBonus: 0.05,
+    };
+
+    expect(getNormalDealerMainSaleRate(dealer, leadership))
+      .toBeCloseTo(1.2 * 1.06 * 3);
+    expect(getDealerMarginMultiplier(dealer, leadership))
+      .toBeCloseTo(1.1 * 1.08);
   });
 
   it('aggregates fixed equipment effects', () => {

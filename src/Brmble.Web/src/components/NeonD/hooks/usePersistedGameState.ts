@@ -9,17 +9,7 @@ const DANGEROUS_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype']);
 
 function mergeValue(target: unknown, source: unknown): unknown {
   if (Array.isArray(target) && Array.isArray(source)) {
-    const maxLength = Math.max(target.length, source.length);
-    return Array.from({ length: maxLength }, (_, i) => {
-      const targetVal = target[i];
-      const sourceVal = source[i];
-      if (sourceVal === undefined) return targetVal;
-      if (targetVal === undefined) return sourceVal;
-      if (isObject(targetVal) && isObject(sourceVal)) {
-        return deepMerge(targetVal, sourceVal);
-      }
-      return sourceVal;
-    });
+    return source;
   }
   if (isObject(target) && isObject(source)) {
     return deepMerge(target, source);

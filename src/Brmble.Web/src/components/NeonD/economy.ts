@@ -1,5 +1,6 @@
 import {
   BAIL_EARNINGS_SECONDS,
+  AUTO_BULK_RETAIN_STOCK,
   BULK_VISIBLE_EARNINGS,
   CAPTAIN_COST_INCREMENT,
   CAPTAIN_COSTS,
@@ -18,8 +19,12 @@ import {
   RESEARCH_REVEAL_RATIO,
   TERRITORY_BASE_COST,
   TERRITORY_GROWTH,
+  ZONE_CONCENTRATION_COST_MULTIPLIER,
+  ZONE_NORMAL_DEALER_SLOT_LIMIT,
 } from './constants';
-import type { EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId } from './types';
+import type { Captain, EquipmentId, GameState, MuscleWorkerId, ProductDefinition, ProductId, Zone } from './types';
+import { getActiveCaptainEntries, getAssignedCaptainIds } from './zones';
+import { hasZoneBulkSaleTalent } from './talents';
 
 export const getProductDefinition = (productId: ProductId): ProductDefinition => {
   const definition = PRODUCT_CATALOG.find((product) => product.id === productId);
@@ -27,7 +32,7 @@ export const getProductDefinition = (productId: ProductId): ProductDefinition =>
   return definition;
 };
 
-const getEquipmentDefinition = (equipmentId: EquipmentId) => {
+export const getEquipmentDefinition = (equipmentId: EquipmentId) => {
   const definition = EQUIPMENT_CATALOG.find((item) => item.id === equipmentId);
   if (!definition) throw new Error(`Unknown Neon-D equipment: ${equipmentId}`);
   return definition;
@@ -79,6 +84,59 @@ export const getVisibleProductIds = (state: GameState): ProductId[] => {
 };
 
 export const getTerritoryCost = (level: number) => TERRITORY_BASE_COST * Math.pow(TERRITORY_GROWTH, level);
+export const getDealerCapacityCost = (purchases: number) => getTerritoryCost(purchases);
+export type ZoneDealerCapacityQuote = {
+  baseCost: number;
+  concentrationMultiplier: number;
+  finalCost: number;
+  zoneDealerSlotCount: number;
+};
+
+export const getZoneDealerCapacityQuote = (
+  state: Pick<GameState, 'territoryLevel' | 'captains'>,
+  zone: Pick<Zone, 'dealerSlots'>,
+): ZoneDealerCapacityQuote => {
+  const baseCost = getDealerCapacityCost(state.territoryLevel);
+  const zoneDealerSlotCount = zone.dealerSlots.length;
+  const surchargeExponent =
+    zoneDealerSlotCount - ZONE_NORMAL_DEALER_SLOT_LIMIT + 1;
+
+  const concentrationMultiplier =
+    state.captains.length < 2 ||
+    zoneDealerSlotCount < ZONE_NORMAL_DEALER_SLOT_LIMIT
+      ? 1
+      : Math.pow(
+          ZONE_CONCENTRATION_COST_MULTIPLIER,
+          surchargeExponent,
+        );
+
+  return {
+    baseCost,
+    concentrationMultiplier,
+    finalCost: baseCost * concentrationMultiplier,
+    zoneDealerSlotCount,
+  };
+};
+export const getZoneUnlockCost = (state: Pick<GameState, 'zones'>) => {
+  const additionalZonesAlreadyOpen = Math.max(0, state.zones.length - 1);
+  return getDealerCapacityCost(additionalZonesAlreadyOpen) * 3;
+};
+export const getCaptainZoneBulkRemainingMs = (
+  captain: Pick<Captain, 'zoneBulkSellAvailableAt'>,
+  now: number,
+) => Math.max(0, captain.zoneBulkSellAvailableAt - now);
+
+export const canCaptainZoneBulkSell = (
+  state: GameState,
+  captainId: string,
+  now: number,
+) => {
+  if (!getAssignedCaptainIds(state).has(captainId)) return false;
+  const captain = state.captains.find((candidate) => candidate.id === captainId);
+  if (!captain || !hasZoneBulkSaleTalent(captain)) return false;
+  if (getCaptainZoneBulkRemainingMs(captain, now) > 0) return false;
+  return state.production[captain.selling].stock > AUTO_BULK_RETAIN_STOCK;
+};
 export const getDiscountCost = (level: number) => DISCOUNT_BASE_COST * Math.pow(DISCOUNT_GROWTH, level);
 
 export const getMuscleWorkerCost = (workerId: MuscleWorkerId, owned: number, discountLevel: number) => {
@@ -134,7 +192,12 @@ export const getCaptainRemainingThreshold = (
 export const getCaptainLevel = getCaptainEligibleLevel;
 
 export const getRespectMultiplier = (state: GameState) => {
-  const captainBonus = state.captains.reduce(
+  const assigned = state.zones.length === 0
+    ? new Set(getActiveCaptainEntries(state).map(({ captain }) => captain.id))
+    : getAssignedCaptainIds(state);
+  const captainBonus = state.captains
+    .filter((captain) => assigned.has(captain.id))
+    .reduce(
     (sum, captain) => sum + 1 + captain.level * 0.5,
     0,
   );
@@ -154,13 +217,13 @@ export const getEquipmentCost = (equipmentId: EquipmentId, sellerKind: 'dealer' 
   return getEquipmentDefinition(equipmentId).baseCost * sellerMultiplier * getDiscountMultiplier(discountLevel);
 };
 
-export const getCaptainCost = (state: Pick<GameState, 'captains' | 'discountLevel'>) => {
+export const getCaptainCost = (state: Pick<GameState, 'captains'>) => {
   const captainCount = state.captains.length;
   const baseCost = captainCount < CAPTAIN_COSTS.length
     ? CAPTAIN_COSTS[captainCount]
     : CAPTAIN_COSTS[CAPTAIN_COSTS.length - 1]
       + (captainCount - CAPTAIN_COSTS.length + 1) * CAPTAIN_COST_INCREMENT;
-  return baseCost * getDiscountMultiplier(state.discountLevel);
+  return baseCost;
 };
 
 export const getRecruitmentRefreshMs = (kingpins: number) => Math.max(

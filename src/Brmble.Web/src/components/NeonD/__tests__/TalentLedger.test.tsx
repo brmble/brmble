@@ -11,7 +11,7 @@ describe('TalentLedger', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/components/NeonD/NeonD.module.css'), 'utf8');
 
     expect(css).toMatch(/\.talentLedgerModal\s*\{[^}]*background:[^}]*var\(--bg-deep\)/);
-    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*grid-template-columns:\s*minmax\(0, 12rem\)/);
+    expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*grid-template-columns:\s*minmax\(0, var\(--neond-talent-lane-max-width\)\)/);
     expect(css).toMatch(/\.talentNodeSlot\s*\{[^}]*justify-content:\s*center/);
   });
 
@@ -203,5 +203,35 @@ describe('TalentLedger', () => {
     expect(screen.queryByRole('button', { name: 'Level Up' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Volume, 0\/2/ })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Promote to Kingpin' })).not.toBeInTheDocument();
+  });
+
+  it('shows deep-rank special effects only on the final rank, including in read-only ledgers', () => {
+    const props = {
+      onClose: vi.fn(),
+      onClaimLevel: vi.fn(),
+      onPurchaseTalent: vi.fn(),
+      onPromote: vi.fn(),
+    };
+    const captain = makeReferenceCaptain({
+      level: 10,
+      talentPoints: 1,
+      talentRanks: { red: [2, 3, 4], yellow: [2, 3, 4], blue: [0, 0, 0] },
+      ledgerUnlocked: true,
+      kingpinAvailable: true,
+    });
+
+    const { rerender } = render(<TalentLedger captain={captain} {...props} />);
+
+    const redPath = screen.getByRole('group', { name: 'Red path' });
+    const yellowPath = screen.getByRole('group', { name: 'Yellow path' });
+    expect(within(redPath).getByText(/Protection coverage/)).toBeInTheDocument();
+    expect(within(yellowPath).getByText(/Unlock Zone bulk sale/)).toBeInTheDocument();
+    expect(within(redPath).getByRole('button', { name: /Margin, 2\/2/i })).not.toHaveTextContent('Protection coverage');
+    expect(within(yellowPath).getByRole('button', { name: /Margin, 3\/3/i })).not.toHaveTextContent('Unlock Zone bulk sale');
+
+    rerender(<TalentLedger captain={captain} readOnly {...props} />);
+
+    expect(within(screen.getByRole('group', { name: 'Red path' })).getByText(/Protection coverage/)).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Yellow path' })).getByText(/Unlock Zone bulk sale/)).toBeInTheDocument();
   });
 });

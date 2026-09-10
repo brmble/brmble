@@ -1,5 +1,6 @@
 import styles from './DealerRating.module.css';
 import { getDealerStarRating } from './DealerRating.utils';
+import { Tooltip } from '../Tooltip/Tooltip';
 
 export const DealerRating = ({
   label,
@@ -16,13 +17,8 @@ export const DealerRating = ({
   return (
     <div className={styles.row}>
       <span>{label}</span>
-      <span
-        className={styles.rating}
-        role="img"
-        tabIndex={0}
-        aria-label={exactValue}
-        title={exactValue}
-      >
+      <Tooltip content={exactValue}>
+        <span className={styles.rating} role="img" tabIndex={0} aria-label={exactValue}>
         {Array.from({ length: maxStars }, (_, index) => {
           const starValue = index + 1;
           const state = rating >= starValue ? 'full' : 'empty';
@@ -31,7 +27,8 @@ export const DealerRating = ({
             </span>
           );
         })}
-      </span>
+        </span>
+      </Tooltip>
     </div>
   );
 };

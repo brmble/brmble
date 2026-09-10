@@ -1,10 +1,8 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { useGameEngine } from './hooks/useGameEngine';
 import {
-  getCaptainCost,
   getProductDefinition,
   getRespectPerSecond,
-  isCaptainVisible,
 } from './economy';
 import { getCaptainDefaultName } from './dealers';
 import { MARKET_DURATION_MAX_MS } from './constants';
@@ -14,6 +12,7 @@ import { parseNeonDSave, serializeNeonDSave } from './saveFormat';
 import { ProductionPanel } from './ProductionPanel';
 import { DistributionPanel } from './DistributionPanel';
 import { MusclePanel } from './MusclePanel';
+import { AmsterdamCaptainSelectionModal } from './AmsterdamCaptainSelectionModal';
 import styles from './NeonD.module.css';
 
 const formatMoney = (value: number) =>
@@ -47,6 +46,9 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     buyProductUpgrade,
     buyMuscleWorker,
     buyTerritory,
+    buyDealerCapacity,
+    unlockZone,
+    hireDealer,
     buyDiscount,
     hireSeller,
     refreshDealers,
@@ -60,27 +62,28 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
     bulkSellProduct,
     dismissOfflineEarningsSummary,
     buyCaptain,
+    assignAmsterdamCaptain,
     claimCaptainLevel,
     purchaseCaptainTalent,
     promoteCaptain,
+    captainZoneBulkSell,
+    transferDealer,
     resetGame,
     importGame,
   } = useGameEngine();
   const [importError, setImportError] = useState<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] = useState<LeftPanel>('production');
+  const [isCaptainManagementOpen, setCaptainManagementOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const sellerIncomePerSecond = Object.values(state.lastEarningsPerSeller)
     .reduce((sum, value) => sum + value, 0);
   const respectPerSecond = getRespectPerSecond(state);
-  const captainVisible = isCaptainVisible(state);
-  const captainCost = getCaptainCost(state);
   const captainDefaultName = getCaptainDefaultName(state.captains.length + state.kingpins + 1);
-  const captainProgressValue = Math.min(
-    captainCost,
-    Math.max(0, Math.floor(state.cash)),
-  );
-  const captainProgress = captainCost > 0 ? captainProgressValue / captainCost : 0;
+  const amsterdamZone = state.zones.find((zone) => zone.id === 'amsterdam');
+  const amsterdamCaptain = amsterdamZone?.captainId
+    ? state.captains.find((captain) => captain.id === amsterdamZone.captainId) ?? null
+    : null;
   const renderNow = state.lastTickAt;
   const activeMarketEvent = state.activeMarketEvent;
   const activeMarketProduct = activeMarketEvent
@@ -289,58 +292,45 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
             <MusclePanel
               state={state}
               buyMuscleWorker={buyMuscleWorker}
-              buyTerritory={buyTerritory}
               buyDiscount={buyDiscount}
             />
           )}
         </div>
         <div className={styles.rightWorkspace} data-testid="distribution-workspace">
-          {captainVisible && (
-            <section className={`glass-panel ${styles.captainMilestone}`} aria-labelledby="captain-milestone-title">
-              <div className={styles.captainMilestoneCopy}>
-                <span id="captain-milestone-title" className={styles.metricLabel}>Next Captain — Cash saved:</span>
-                <strong>{formatMoney(captainProgressValue)} / {formatMoney(captainCost)}</strong>
+          {amsterdamZone ? (
+            <section className={`glass-panel ${styles.amsterdamZoneSummary}`} aria-labelledby="amsterdam-zone-title">
+              <div>
+                <h3 id="amsterdam-zone-title" className="heading-section">Amsterdam</h3>
+                <span className={styles.amsterdamZoneLabel}>Zone Captain</span>
               </div>
-              <div className={styles.captainProgressBlock}>
-                <div
-                  className={styles.captainProgressTrack}
-                  role="progressbar"
-                  aria-label="Captain recruitment fund"
-                  aria-valuemin={0}
-                  aria-valuemax={captainCost}
-                  aria-valuenow={captainProgressValue}
-                  aria-valuetext={`${formatMoney(captainProgressValue)} of ${formatMoney(captainCost)}`}
-                >
-                  <span
-                    className={styles.captainProgressFill}
-                    style={{ width: `${captainProgress * 100}%` }}
-                  />
-                </div>
-              </div>
-              {captainProgressValue >= captainCost && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => { void handleRecruitCaptain(); }}
-                >
-                  Hire Captain
-                </button>
-              )}
+              <strong>{amsterdamCaptain?.name ?? 'Captain selection required'}</strong>
             </section>
-          )}
+          ) : null}
           <DistributionPanel
             state={state}
             onHireSeller={hireSeller}
+            onHireDealer={hireDealer}
             onRefreshDealers={refreshDealers}
+            onRecruitCaptain={() => {
+              setCaptainManagementOpen(false);
+              void handleRecruitCaptain();
+            }}
+            onUnlockZone={unlockZone}
+            openCaptainManagement={isCaptainManagementOpen}
+            onCaptainManagementClosed={() => setCaptainManagementOpen(false)}
             onRenameCaptain={renameCaptain}
             fireDealer={handleFireDealer}
             setSellerProduct={setSellerProduct}
             buySellerEquipment={buySellerEquipment}
             toggleDealerProtection={toggleDealerProtection}
             payDealerBail={payDealerBail}
+            buyTerritory={buyTerritory}
+            buyDealerCapacity={buyDealerCapacity}
             claimCaptainLevel={claimCaptainLevel}
             purchaseCaptainTalent={purchaseCaptainTalent}
             promoteCaptain={promoteCaptain}
+            captainZoneBulkSell={captainZoneBulkSell}
+            transferDealer={transferDealer}
           />
         </div>
       </div>
@@ -377,6 +367,12 @@ export function NeonDGame({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+      {state.pendingAmsterdamCaptainSelection ? (
+        <AmsterdamCaptainSelectionModal
+          captains={state.captains}
+          onConfirm={assignAmsterdamCaptain}
+        />
+      ) : null}
     </div>
   );
 }

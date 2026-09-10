@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { isCaptain, isDealer, getAssignedCaptainIds } from '../sellers';
-import type { ActiveSeller } from '../types';
+import { isCaptain, isDealer } from '../sellers';
 import { makeReferenceCaptain, makeReferenceDealer } from './testFixtures';
+import { createAmsterdamZone, getActiveCaptainEntries, getActiveDealerEntries } from '../zones';
 
 describe('seller slot helpers', () => {
   it('identifies sellers by their structural fields rather than display names', () => {
@@ -19,10 +19,25 @@ describe('seller slot helpers', () => {
     expect(isDealer(null)).toBe(false);
   });
 
-  it('derives unique assigned Captain ids from nullable slots', () => {
-    const captain = makeReferenceCaptain({ id: 'captain-1' });
-    const slots: (ActiveSeller | null)[] = [captain, null, { ...captain }, makeReferenceDealer()];
+  it('derives active dealers from zone slots once zones are present', () => {
+    const dealer = makeReferenceDealer({ id: 'dealer-1' });
 
-    expect(getAssignedCaptainIds(slots)).toEqual(new Set(['captain-1']));
+    expect(getActiveDealerEntries({
+      activeDealers: [makeReferenceDealer({ id: 'legacy-dealer' })],
+      zones: [{
+        ...createAmsterdamZone(null),
+        dealerSlots: [{ id: 'amsterdam-slot-0', dealer, reservedTransferId: null }],
+      }],
+    })).toEqual([{ dealer, zoneId: 'amsterdam', slotId: 'amsterdam-slot-0' }]);
+  });
+
+  it('does not treat an unassigned Captain as active', () => {
+    const assignedCaptain = makeReferenceCaptain({ id: 'captain-assigned' });
+    const unassignedCaptain = makeReferenceCaptain({ id: 'captain-unassigned' });
+
+    expect(getActiveCaptainEntries({
+      captains: [assignedCaptain, unassignedCaptain],
+      zones: [createAmsterdamZone(assignedCaptain.id)],
+    })).toEqual([{ captain: assignedCaptain, zoneId: 'amsterdam' }]);
   });
 });

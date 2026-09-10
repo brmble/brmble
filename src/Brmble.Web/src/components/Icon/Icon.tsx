@@ -182,6 +182,14 @@ const iconPaths: Record<string, IconDef> = {
   'star': {
     paths: <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z" />,
   },
+  'crown': {
+    paths: (
+      <>
+        <path d="m3 6 4 4 5-6 5 6 4-4-2 12H5L3 6Z" />
+        <line x1="5" y1="21" x2="19" y2="21" />
+      </>
+    ),
+  },
   'ban': {
     paths: (
       <>

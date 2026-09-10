@@ -25,11 +25,11 @@ describe('getDealerStarRating', () => {
 });
 
 describe('DealerRating', () => {
-  it('exposes the exact multiplier through its label and title', () => {
+  it('exposes the exact multiplier through its accessible label', () => {
     render(<DealerRating label="Volume" multiplier={1.3} />);
 
     const rating = screen.getByRole('img', { name: 'Volume: 1.30x' });
-    expect(rating).toHaveAttribute('title', 'Volume: 1.30x');
+    expect(rating).toHaveAttribute('aria-label', 'Volume: 1.30x');
     expect(rating.querySelectorAll('[data-star-state="full"]')).toHaveLength(4);
     expect(rating.querySelectorAll('[data-star-state="half"]')).toHaveLength(0);
   });

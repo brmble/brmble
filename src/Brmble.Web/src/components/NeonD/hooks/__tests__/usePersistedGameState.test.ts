@@ -1,8 +1,10 @@
 import { renderHook, act } from '@testing-library/react';
 import { usePersistedGameState } from '../usePersistedGameState';
 import { createBaseGameState } from '../../constants';
-import { migrateNeonDState } from '../../saveFormat';
+import { migrateNeonDState, parseNeonDSave, serializeNeonDSave } from '../../saveFormat';
 import type { GameState } from '../../types';
+import { createAmsterdamZone } from '../../zones';
+import { makeReferenceCaptain, makeReferenceDealer } from '../../__tests__/testFixtures';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 beforeEach(() => {
@@ -60,17 +62,49 @@ describe('usePersistedGameState', () => {
       migrateNeonDState,
     ));
 
-    expect(result.current[0].schemaVersion).toBe(5);
+    expect(result.current[0].schemaVersion).toBe(6);
     expect(result.current[0].bulkUnlockedProductIds).toEqual([]);
     expect(result.current[0]).not.toHaveProperty('bulkUnlocked');
     expect(result.current[0]).not.toHaveProperty('autoBulkEnabled');
 
     unmount();
     const persisted = JSON.parse(localStorage.getItem('neon_d_key') ?? '{}');
-    expect(persisted.schemaVersion).toBe(5);
+    expect(persisted.schemaVersion).toBe(6);
     expect(persisted.bulkUnlockedProductIds).toEqual([]);
     expect(persisted).not.toHaveProperty('bulkUnlocked');
     expect(persisted).not.toHaveProperty('autoBulkEnabled');
+  });
+
+  it('keeps an empty zoned legacy-slot array empty after reload and import validation', () => {
+    const captain = makeReferenceCaptain({ id: 'captain-amsterdam', name: 'Captain Amsterdam' });
+    const zonedState: GameState = {
+      ...createBaseGameState(0),
+      captains: [captain],
+      activeDealers: [],
+      zones: [createAmsterdamZone(captain.id)],
+      availableDealers: [
+        makeReferenceDealer({ id: 'candidate-one' }),
+        makeReferenceDealer({ id: 'candidate-two' }),
+        makeReferenceDealer({ id: 'candidate-three' }),
+      ],
+    };
+    localStorage.setItem('neon_d_key', JSON.stringify(zonedState));
+
+    const first = renderHook(() => usePersistedGameState<GameState>(
+      'neon_d_key',
+      createBaseGameState(1),
+      migrateNeonDState,
+    ));
+    expect(first.result.current[0].activeDealers).toEqual([]);
+    expect(parseNeonDSave(serializeNeonDSave(first.result.current[0]))).toEqual(first.result.current[0]);
+
+    first.unmount();
+    const second = renderHook(() => usePersistedGameState<GameState>(
+      'neon_d_key',
+      createBaseGameState(2),
+      migrateNeonDState,
+    ));
+    expect(second.result.current[0].activeDealers).toEqual([]);
   });
 
   it('falls back to initial state if JSON parsing fails', () => {
