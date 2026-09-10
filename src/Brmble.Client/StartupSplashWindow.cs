@@ -55,6 +55,10 @@ internal sealed class StartupSplashWindow : IDisposable
 
     internal static float GetLogoAlpha() => 1f;
 
+    private static Color GetLoadingTextColor() => Color.FromArgb(255, 250, 250, 250);
+
+    private static Color GetLoadingTextShadowColor() => Color.FromArgb(255, 24, 35, 45);
+
     internal static bool IsCloseButtonHit(bool error, int x, int y) =>
         error && CloseButtonBounds.Contains(x, y);
 
@@ -186,15 +190,48 @@ internal sealed class StartupSplashWindow : IDisposable
             graphics.DrawLine(buttonPen, 185, 15, 175, 25);
         }
 
-        using var textBrush = new SolidBrush(_error ? Color.FromArgb(235, 225, 235) : Color.FromArgb(190, 180, 195));
+        using var textBrush = new SolidBrush(_error ? Color.FromArgb(255, 245, 235, 245) : GetLoadingTextColor());
+        using var textShadowBrush = new SolidBrush(GetLoadingTextShadowColor());
         using var font = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Point);
         var message = _error ? "Brmble couldn't finish starting" : "Starting Brmble…";
         var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        graphics.DrawString(message, font, textBrush, new RectangleF(8, LabelTop, Width - 16, 26), format);
+        var messageBounds = new RectangleF(8, LabelTop, Width - 16, 26);
+        DrawReadableText(graphics, message, font, messageBounds, format, textBrush, textShadowBrush);
         if (_error)
-            graphics.DrawString("See the log for more information.", font, textBrush, new RectangleF(8, LabelTop + 24, Width - 16, 26), format);
+        {
+            var detailBounds = new RectangleF(8, LabelTop + 24, Width - 16, 26);
+            DrawReadableText(graphics, "See the log for more information.", font, detailBounds, format, textBrush, textShadowBrush);
+        }
 
         PresentSurface();
+    }
+
+    private static void DrawReadableText(
+        Graphics graphics,
+        string text,
+        Font font,
+        RectangleF bounds,
+        StringFormat format,
+        Brush textBrush,
+        Brush shadowBrush)
+    {
+        for (var x = -1; x <= 1; x++)
+        {
+            for (var y = -1; y <= 1; y++)
+            {
+                if (x == 0 && y == 0)
+                    continue;
+
+                graphics.DrawString(
+                    text,
+                    font,
+                    shadowBrush,
+                    new RectangleF(bounds.X + x, bounds.Y + y, bounds.Width, bounds.Height),
+                    format);
+            }
+        }
+
+        graphics.DrawString(text, font, textBrush, bounds, format);
     }
 
     private void PresentSurface()

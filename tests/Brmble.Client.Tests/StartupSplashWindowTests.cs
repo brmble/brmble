@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -30,6 +31,27 @@ public sealed class StartupSplashWindowTests
     public void LoadingSplashKeepsLogoAtFullAlpha()
     {
         Assert.AreEqual(1f, StartupSplashWindow.GetLogoAlpha());
+    }
+
+    [TestMethod]
+    public void LoadingSplashUsesOpaqueTextWithAReadableShadow()
+    {
+        var textColorMethod = typeof(StartupSplashWindow).GetMethod(
+            "GetLoadingTextColor",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var shadowColorMethod = typeof(StartupSplashWindow).GetMethod(
+            "GetLoadingTextShadowColor",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.IsNotNull(textColorMethod);
+        Assert.IsNotNull(shadowColorMethod);
+
+        var textColor = (Color)textColorMethod!.Invoke(null, null)!;
+        var shadowColor = (Color)shadowColorMethod!.Invoke(null, null)!;
+
+        Assert.AreEqual(255, textColor.A, "Loading text must remain fully opaque on transparent surfaces.");
+        Assert.AreEqual(255, shadowColor.A, "Loading text shadow must remain fully opaque on transparent surfaces.");
+        Assert.IsTrue(textColor.GetBrightness() > shadowColor.GetBrightness());
     }
 
     [TestMethod]
