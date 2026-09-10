@@ -1,141 +1,122 @@
-# Task 4 Report: Capability, Custom Selection Validation, and Moderator Deletion
+# Task 4 implementation report
 
-## What Changed
+## Scope
 
-- Added root-server moderation authorization using only Mumble Kick or Ban permission.
-- Added active-gallery validation for `custom:<matrix-event-id>` selections. Stale custom selections now repair to `floppy`; invalid custom selection requests leave the prior selection unchanged.
-- Added the `matrix.customCompanions` capability after a successful gallery-room join, including gallery metadata, trusted sender, limits, selected companion, and moderation capability. Gallery failures omit the additive capability without failing authentication.
-- Added `CompanionWireSelection` so legacy `companionId` remains `floppy` for custom selections while `customCompanionId` carries the real value in auth, session mapping, and WebSocket payloads.
-- Added authorized, idempotent `DELETE /companions/{eventId}`. It redacts the Matrix event before marking the record deleted, resets affected user selections, updates live mappings, and broadcasts `companionChanged` to the affected users' channels. Redaction failures return 503 and retain the active record.
+Implemented the requirements in `task-4-brief.md` after inspecting the current Task 3 initialization path. The implementation changed only:
 
-## Test Results
+- `src/Brmble.Client/Program.cs`
+- `src/Brmble.Client/StartupSplashWindow.cs`
+- `tests/Brmble.Client.Tests/StartupSplashWindowTests.cs`
 
-Command:
+Pre-existing unrelated untracked files (`Brmble-Server.bat` and `docs/superpowers/plans/2026-09-10-native-splash-app-ready-handoff.md`) were preserved and were not staged.
 
-```powershell
-dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+## Changes
+
+- Simplified `StartupSplashWindow.ShowError(string)` to the zero-argument `ShowError()` API.
+- Added the requested reflection regression test verifying that `ShowError` has zero parameters.
+- Added idempotent `CloseWebViewController()` using `Interlocked.Exchange(ref _controller, null)`.
+- Closed the controller when cancellation races with asynchronous controller creation.
+- Closed the controller immediately from startup cancellation.
+- Closed the controller on initialization failure before showing the native-only error state.
+- Closed the controller during normal `WM_DESTROY` cleanup.
+- Removed startup HTML error navigation and routed initialization failures through `ShowStartupFailure(IntPtr)`.
+- Preserved the native splash error state when available, with the existing native `MessageBox` fallback when the splash cannot be created.
+
+## TDD evidence
+
+1. Added `ErrorSplashDoesNotRequireAnUnusedLogPathArgument` before changing production code.
+2. Focused test initially failed as expected: expected 0 parameters, actual 1.
+3. Changed the production API and reran the test.
+4. Focused test passed: 1 passed, 0 failed.
+
+## Verification
+
+Focused splash/handoff tests:
+
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupSplashWindowTests|FullyQualifiedName~StartupHandoffTests" -v minimal
+Passed: 11, Failed: 0, Skipped: 0
 ```
 
-Result: passed, 40 tests passed, 0 failed.
+Native Debug build:
 
-Committed implementation: `0386add5 feat: authorize custom companion selection and removal`.
-
-## TDD Evidence
-
-1. Added the custom-selection, capability, compatibility, and deletion tests before production changes.
-2. Ran the Task 4 focused red command. It failed because `CompanionWireSelection`, `CanModerateServerAsync`, and `NormalizeCompanionIdAsync` did not yet exist.
-3. Corrected test setup errors while preserving the expected missing-feature failures.
-4. Implemented the minimum production behavior, then reran the focused suite. The first green run exposed an actual 403 implementation issue (`Results.Forbid()` required an unconfigured authentication service); replaced it with an explicit 403 result.
-5. Reran the full Task 4 focused test command successfully.
-
-## Files Changed
-
-- `src/Brmble.Server/Auth/AuthEndpoints.cs`
-- `src/Brmble.Server/Auth/UserRepository.cs`
-- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
-- `src/Brmble.Server/Companions/CustomCompanionModels.cs`
-- `src/Brmble.Server/Events/SessionMappingHandler.cs`
-- `src/Brmble.Server/Mumble/AclAuthorizationService.cs`
-- `src/Brmble.Server/Mumble/IMumbleAclService.cs`
-- `src/Brmble.Server/Mumble/MumbleAclService.cs`
-- `src/Brmble.Server/WebSockets/BrmbleWebSocketHandler.cs`
-- `tests/Brmble.Server.Tests/Auth/AuthEndpointsCompanionTests.cs`
-- `tests/Brmble.Server.Tests/Auth/UserRepositoryTests.cs`
-- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
-- `tests/Brmble.Server.Tests/Events/SessionMappingHandlerTests.cs`
-- `tests/Brmble.Server.Tests/WebSockets/BrmbleWebSocketHandlerTests.cs`
-
-## Self-Review
-
-- Confirmed custom identifiers are kept exactly as `custom:<matrix-event-id>` internally and are never exposed through a legacy wire `companionId`.
-- Confirmed the deletion path checks moderation before looking up or redacting the record, performs Matrix redaction before database deletion, and is idempotent for inactive records.
-- Confirmed custom-gallery capability calculation is isolated from ordinary Matrix room joining and display-name synchronization.
-- Ran `git diff --check`; no whitespace errors were reported.
-- Reviewed the committed diff with `git show --check --stat HEAD`; no post-commit whitespace or scope issues were found.
-
-## Concerns
-
-- The focused test build reports the existing `CS0108` warning in `AuthEndpointsCompanionTests.CompanionAuthFactory` for hiding the base factory's `SessionMappingMock`. This Task 4 work did not introduce that factory member and leaves it unchanged.
-
-## Review Fix: Concurrent Custom Companion Deletion
-
-### Summary
-
-- Serialized active custom-companion deletion per Matrix event after authorization, preventing concurrent requests from issuing duplicate Matrix redactions.
-- Preserved rollback behavior: a redaction failure releases the lock, leaves the record active, and returns 503; once deletion succeeds, subsequent requests return 204 without redaction.
-- Added coverage for the required `companionChanged` payload sent to an affected user's current channel during active deletion.
-
-### Tests
-
-```powershell
-dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+```text
+dotnet build src\\Brmble.Client\\Brmble.Client.csproj -c Debug --no-restore
+Build succeeded.
+0 Warning(s), 0 Error(s)
 ```
 
-Result: passed, 42 tests passed, 0 failed.
+Repository hygiene:
 
-### Files Changed
+- `git diff --check` passed.
+- The commit staged exactly the three permitted files.
+- No unrelated files were modified or staged.
 
-- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
-- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
-- `.superpowers/sdd/task-4-report.md`
+## Commit
 
-## Re-Review Fix: Preserve Newer Live Companion Selections
+`f4adc2d9` — `fix: close webview on startup failure`
 
-### Summary
+## Review follow-up
 
-- Added an atomic compare-and-swap live-mapping update for custom companion deletion.
-- Deletion now changes a connected user's live companion to `floppy` only when it is still `custom:<deleted-event-id>`.
-- `companionChanged` is broadcast only after that conditional update succeeds, so a newer built-in or custom selection is not overwritten or announced as `floppy`.
-- Added a regression test that changes both the database and live selection to `bee` after deletion resets the database record; deletion preserves `bee` and sends no fallback broadcast.
+Addressed the Important race in the `NavigationCompleted` handler. The handler now reads `_controller` with `Volatile.Read`, returns when startup is cancelled or the controller has already been atomically cleared, and only then removes the handler from the captured controller. This prevents a queued completion from dereferencing `_controller!` after `CancelStartup` clears it. Added `NavigationCompletionChecksCancellationBeforeDereferencingController` as a focused regression assertion.
 
-### Tests
+## Review follow-up TDD evidence
 
-```powershell
-dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+The new regression assertion initially failed against the pre-fix ordering:
+
+```text
+Failed NavigationCompletionChecksCancellationBeforeDereferencingController
+Error Message:
+Assert.IsTrue failed. A queued navigation completion must not dereference a controller cleared by cancellation.
+Failed: 1, Passed: 0, Skipped: 0, Total: 1
 ```
 
-Result: passed, 43 tests passed, 0 failed.
+After the fix, the requested focused tests passed:
 
-```powershell
-dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~SessionMappingServiceTests.TryUpdateCompanionIdIfCurrent_PreservesNewerSelection"
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupSplashWindowTests|FullyQualifiedName~StartupHandoffTests" -v minimal
+Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12, Duration: 1 s - Brmble.Client.Tests.dll (net10.0)
 ```
 
-Result: passed, 1 test passed, 0 failed.
+The requested native Debug build passed:
 
-### Files Changed
+```text
+dotnet build src\\Brmble.Client\\Brmble.Client.csproj -c Debug --no-restore
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:00.69
 
-- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
-- `src/Brmble.Server/Events/ISessionMappingService.cs`
-- `src/Brmble.Server/Events/SessionMappingService.cs`
-- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
-- `tests/Brmble.Server.Tests/Events/SessionMappingServiceTests.cs`
-- `tests/Brmble.Server.Tests/Games/SessionMappingGamePresenceTests.cs`
-- `tests/Brmble.Server.Tests/Integration/BrmbleServerFactory.cs`
-- `.superpowers/sdd/task-4-report.md`
+## Review follow-up: stable controller ownership during initialization
 
-## Review Fix: Synchronize Custom Selection and Deletion
+`InitWebView2Async` now keeps the async-created `CoreWebView2Controller` in a local variable for the complete initialization sequence. The static `_controller` remains the shared cleanup slot and is still atomically cleared by `CloseWebViewController`; cancellation therefore cannot make setup, event registration, zoom restoration, bridge creation, or final navigation dereference a null static field. `StartupHandoffTests.cs` remains in scope and retains the navigation-completion regression test.
 
-### Summary
+### TDD evidence
 
-- Added a singleton per-event coordinator shared by custom companion selection and deletion.
-- Custom selection now acquires the event lock, revalidates that the event is active, and holds coordination through database persistence, live mapping publication, channel broadcast, and response construction.
-- When deletion owns the event operation first, a racing selection waits, observes the deleted event, returns 400, and does not publish or return the deleted custom ID.
-- Built-in selection and the existing deletion redaction, rollback, idempotency, reset, and compare-and-swap behavior remain unchanged.
-- Added a regression test that pauses deletion during Matrix redaction, starts a selection for the same event, and verifies deletion wins without a stale live update, broadcast, or successful response.
+Added `WebViewInitializationUsesStableControllerReferenceAfterCreation` before the production change. The focused test failed against the pre-fix code because initialization still used `_controller` and had no `_controller = controller` local ownership assignment. After the production change, the same test passed.
 
-### Tests
+### Verification
 
-```powershell
-dotnet test tests\Brmble.Server.Tests\Brmble.Server.Tests.csproj --no-restore --filter "FullyQualifiedName~AuthEndpointsCompanionTests|FullyQualifiedName~CustomCompanionDeletionTests|FullyQualifiedName~UserRepositoryTests|FullyQualifiedName~SessionMappingHandlerTests|FullyQualifiedName~BrmbleWebSocketHandlerTests"
+Focused regression test:
+
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupHandoffTests.WebViewInitializationUsesStableControllerReferenceAfterCreation" -v minimal
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 11 ms
 ```
 
-Result: passed, 44 tests passed, 0 failed.
+Focused splash/handoff tests:
 
-### Files Changed
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupSplashWindowTests|FullyQualifiedName~StartupHandoffTests" -v minimal
+Passed!  - Failed:     0, Passed:    13, Skipped:     0, Total:    13, Duration: 1 s
+```
 
-- `src/Brmble.Server/Auth/AuthEndpoints.cs`
-- `src/Brmble.Server/Companions/CustomCompanionEndpoints.cs`
-- `src/Brmble.Server/Companions/CustomCompanionEventCoordinator.cs`
-- `src/Brmble.Server/Companions/CustomCompanionExtensions.cs`
-- `tests/Brmble.Server.Tests/Companions/CustomCompanionDeletionTests.cs`
-- `.superpowers/sdd/task-4-report.md`
+Native Debug build:
+
+```text
+dotnet build src\\Brmble.Client\\Brmble.Client.csproj -c Debug --no-restore
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:00.62
+```
