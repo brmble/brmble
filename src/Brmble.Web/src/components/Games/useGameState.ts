@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import bridge from '../../bridge';
 import * as gamesApi from '../../api/games';
+import { isGameType } from './gameTypes';
 
 /** Fallback turn window in ms if the server omits `turnMs` (normal turn). */
 const DEFAULT_TURN_MS = 15000;
-
-// Game types this client build knows how to render. Invites for anything else are
-// auto-declined so an outdated peer can't open the wrong modal. Forward-compat only.
-const SUPPORTED_GAMES = ['deathroll', 'rps'];
 
 /**
  * `game.error` ownership split.
@@ -214,9 +211,14 @@ export function useGameState(myUserId: number): GameState {
       const offerId = d.offerId;
       if (offerId == null || d.from == null) return;
       const gameType = d.gameType ?? 'deathroll';
-      if (!SUPPORTED_GAMES.includes(gameType)) {
-        // This client build doesn't know this game — decline instead of opening the
-        // wrong modal. (Old clients that predate this check can't reach here.)
+      if (!isGameType(gameType)) {
+        // Decline rather than open the wrong board — but say so. This used to be
+        // silent, which made an unrecognised game look to the challenger like a
+        // plain refusal and left no trace at all on this side.
+        console.warn(`[games] declined an invite for an unsupported game type '${gameType}'`);
+        setLastError(
+          `This Brmble version can't play '${gameType}'. Update Brmble to accept this challenge.`,
+        );
         gamesApi.respondOffer(offerId, false).catch(() => {});
         return;
       }

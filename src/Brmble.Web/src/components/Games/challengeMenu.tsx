@@ -1,8 +1,12 @@
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
+import type { InviteOptions } from '../../api/games';
 import { Icon } from '../Icon/Icon';
+import type { GameType } from './gameTypes';
 
 /** The item member of the ContextMenuItem union — what this helper always returns. */
 export type ChallengeMenuItem = Extract<ContextMenuItem, { type: 'item' }>;
+
+export type ChallengeHandler = (session: number, gameType: GameType, options?: InviteOptions) => void;
 
 /**
  * Builds the "Challenge to a duel" context-menu entry shown on eligible user rows.
@@ -23,8 +27,7 @@ export type ChallengeMenuItem = Extract<ContextMenuItem, { type: 'item' }>;
  */
 export function buildChallengeMenuItem(
   session: number,
-  onChallengeDeathroll: (session: number) => void,
-  onChallengeRps: (session: number, bestOf: number) => void,
+  onChallenge: ChallengeHandler,
   busy?: {
     /** Sessions the server currently holds a duel commitment for. */
     committedSessions?: ReadonlySet<number>;
@@ -37,7 +40,7 @@ export function buildChallengeMenuItem(
   const rpsBestOf = (n: number): ContextMenuItem => ({
     type: 'item',
     label: `Best of ${n}`,
-    onClick: () => onChallengeRps(session, n),
+    onClick: () => onChallenge(session, 'rps', { bestOf: n }),
   });
 
   const committed = busy?.committedSessions;
@@ -60,9 +63,15 @@ export function buildChallengeMenuItem(
     children: [
       {
         type: 'item',
+        label: 'Arena Knockoff',
+        icon: <Icon name="game-arena" size={14} />,
+        onClick: () => onChallenge(session, 'arena-knockoff'),
+      },
+      {
+        type: 'item',
         label: 'Deathroll',
         icon: <Icon name="game-deathroll" size={14} />,
-        onClick: () => onChallengeDeathroll(session),
+        onClick: () => onChallenge(session, 'deathroll', undefined),
       },
       {
         type: 'item',

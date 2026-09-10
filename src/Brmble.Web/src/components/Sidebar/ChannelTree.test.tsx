@@ -928,8 +928,7 @@ describe('ChannelTree joined channel presence', () => {
       users,
       currentChannelId: 9,
       onJoinChannel: vi.fn(),
-      onChallengeDeathroll: vi.fn(),
-      onChallengeRps: vi.fn(),
+      onChallenge: vi.fn(),
     };
 
     const { rerender } = render(<ChannelTree {...treeProps} joinedChannelId={7} />);
@@ -951,8 +950,7 @@ describe('ChannelTree joined channel presence', () => {
         ]}
         currentChannelId={7}
         onJoinChannel={vi.fn()}
-        onChallengeDeathroll={vi.fn()}
-        onChallengeRps={vi.fn()}
+        onChallenge={vi.fn()}
       />,
     );
 
@@ -980,8 +978,7 @@ describe('ChannelTree challenge entry', () => {
         currentChannelId={1}
         joinedChannelId={1}
         onJoinChannel={vi.fn()}
-        onChallengeDeathroll={vi.fn()}
-        onChallengeRps={vi.fn()}
+        onChallenge={vi.fn()}
         committedDuelSessions={committedDuelSessions}
       />,
     );

@@ -1,10 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildChallengeMenuItem } from './challengeMenu';
+import type { ChallengeMenuItem } from './challengeMenu';
 
 const noop = () => {};
 
-function item(busy?: Parameters<typeof buildChallengeMenuItem>[3]) {
-  return buildChallengeMenuItem(22, noop, noop, busy);
+type BusyState = {
+  committedSessions?: ReadonlySet<number>;
+  selfSession?: number;
+  targetName?: string;
+};
+
+function findChild(item: ChallengeMenuItem, label: string): ChallengeMenuItem {
+  const child = item.children?.find(candidate => candidate.type === 'item' && candidate.label === label);
+  if (child?.type !== 'item') throw new Error(`expected a ${label} item`);
+  return child;
+}
+
+function item(busy?: BusyState) {
+  return buildChallengeMenuItem(22, noop, busy);
 }
 
 describe('buildChallengeMenuItem', () => {
@@ -13,7 +26,7 @@ describe('buildChallengeMenuItem', () => {
 
     expect(built.label).toBe('Challenge to a duel');
     expect(built.disabled).toBeFalsy();
-    expect(built.children).toHaveLength(2);
+    expect(built.children).toHaveLength(3);
   });
 
   it('is enabled when no busy information is supplied at all', () => {
@@ -21,16 +34,18 @@ describe('buildChallengeMenuItem', () => {
 
     expect(built.label).toBe('Challenge to a duel');
     expect(built.disabled).toBeFalsy();
-    expect(built.children).toHaveLength(2);
+    expect(built.children).toHaveLength(3);
   });
 
   // The server rejects the challenge if EITHER side already holds a commitment, so
   // the entry must state which side is the blocker rather than silently failing.
-  it('disables and names the target when the target is committed', () => {
-    const built = item({ committedSessions: new Set([22]), selfSession: 11, targetName: 'Ava' });
+  it('renders one disabled entry with no children when either side is committed', () => {
+    const built = buildChallengeMenuItem(7, vi.fn(), {
+      committedSessions: new Set([7]), selfSession: 1, targetName: 'Ada',
+    });
 
     expect(built.disabled).toBe(true);
-    expect(built.label).toBe('Ava is in a duel');
+    expect(built.label).toBe('Ada is in a duel');
     expect(built.children).toBeUndefined();
   });
 
@@ -49,14 +64,27 @@ describe('buildChallengeMenuItem', () => {
     expect(built.label).toBe("You're in a duel");
   });
 
-  it('still invites when enabled', () => {
-    const onDeathroll = vi.fn();
-    const built = buildChallengeMenuItem(22, onDeathroll, noop);
-    const deathroll = built.children?.[0];
+  it('offers Arena Knockoff first, ahead of Deathroll and Rock Paper Scissors', () => {
+    const built = buildChallengeMenuItem(7, noop);
 
-    if (deathroll?.type !== 'item') throw new Error('expected a deathroll item');
+    expect(built.children?.map(child => child.type === 'item' ? child.label : '---'))
+      .toEqual(['Arena Knockoff', 'Deathroll', 'Rock Paper Scissors']);
+  });
+
+  it('invites with the chosen game type and options through one handler', () => {
+    const onChallenge = vi.fn();
+    const built = buildChallengeMenuItem(7, onChallenge);
+
+    const deathroll = findChild(built, 'Deathroll');
     deathroll.onClick?.();
+    expect(onChallenge).toHaveBeenNthCalledWith(1, 7, 'deathroll', undefined);
 
-    expect(onDeathroll).toHaveBeenCalledWith(22);
+    const rps = findChild(built, 'Rock Paper Scissors');
+    findChild(rps, 'Best of 5').onClick?.();
+    expect(onChallenge).toHaveBeenNthCalledWith(2, 7, 'rps', { bestOf: 5 });
+
+    const arena = findChild(built, 'Arena Knockoff');
+    arena.onClick?.();
+    expect(onChallenge).toHaveBeenNthCalledWith(3, 7, 'arena-knockoff');
   });
 });

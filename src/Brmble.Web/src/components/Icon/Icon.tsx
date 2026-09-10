@@ -547,6 +547,52 @@ const iconPaths: Record<string, IconDef> = {
     ),
   },
 
+  /* ── arena knockoff ──────────────────────────────────── */
+
+  'game-arena': {
+    paths: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 9.5 12 6l4 3.5-1.5 5L12 18l-2.5-3.5z" />
+        <path d="M3.5 12h3M17.5 12h3" />
+      </>
+    ),
+  },
+
+  /* ── input keys ─────────────────────────────────────────────────────
+     Control-legend glyphs. Wider than tall, so they carry their own
+     viewBox and are sized by CSS height with width:auto rather than the
+     Icon `size` prop, which is square. */
+
+  'keys-wasd': {
+    viewBox: '0 0 34 22',
+    paths: (
+      <>
+        <rect x="12" y="1" width="10" height="9" rx="2" />
+        <rect x="1" y="12" width="10" height="9" rx="2" />
+        <rect x="12" y="12" width="10" height="9" rx="2" />
+        <rect x="23" y="12" width="10" height="9" rx="2" />
+      </>
+    ),
+  },
+
+  'key-space': {
+    viewBox: '0 0 44 16',
+    paths: <rect x="1" y="3" width="42" height="10" rx="2" />,
+  },
+
+  'mouse-left': {
+    viewBox: '0 0 20 28',
+    paths: (
+      <>
+        <rect x="1" y="1" width="18" height="26" rx="9" />
+        <path d="M1 11h18M10 1v10" />
+        {/* Filled quadrant marks which button the caption means. */}
+        <path d="M10 11V1.5H8A7 7 0 0 0 1 8.5V11Z" fill="currentColor" stroke="none" />
+      </>
+    ),
+  },
+
   /* rps choice icons — object metaphors, drawn in the shared stroke style */
   'rps-rock': {
     paths: (

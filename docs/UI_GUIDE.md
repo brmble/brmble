@@ -43,12 +43,12 @@ Do not create new UI systems, one-off component patterns, ad-hoc CSS, native bro
 
 All visual properties must come from CSS custom properties. Two layers exist:
 
-### Layer 1: Global Tokens (41 in `:root`, `index.css`)
+### Layer 1: Global Tokens (42 in `:root`, `index.css`)
 
 | Group | Tokens | Range |
 |---|---|---|
 | Spacing | `--space-2xs` through `--space-3xl` | 4px - 64px (8 tokens) |
-| Font sizes | `--text-2xs` through `--text-4xl` | 10px - 40px (9 tokens) |
+| Font sizes | `--text-2xs` through `--text-5xl` | 10px - 64px (10 tokens) |
 | Layout | `--sidebar-width`, `--header-height`, component layout tokens | Shared layout dimensions and component-specific widths |
 | Transitions | `--transition-fast`, `--transition-normal`, `--transition-slow` | 150ms, 250ms, 400ms (3 tokens) |
 | Entrance animations | `--animation-fast/normal/slow`, `--stagger-step` | 150ms, 300ms, 400ms, 50ms (4 tokens) |
@@ -124,6 +124,31 @@ These names appear in older code and in AI-generated CSS but are **defined nowhe
 
 Before using any token, confirm it exists in `index.css` (`:root`) or
 `themes/_template.css`. Font-size tokens are `--text-*`, never `--font-size-*`.
+
+### Blending Between Tokens
+
+Some UI needs a colour *between* two tokens — a value that ramps with state rather
+than switching at a threshold. Do not sample a token and interpolate the channels
+yourself, and do not pick a literal midpoint colour: both break the moment a theme
+changes, which is exactly what tokens exist to prevent.
+
+Use `color-mix` on the tokens themselves:
+
+```ts
+`color-mix(in oklab, ${danger} ${percent}%, ${neutral})`
+```
+
+Mix in `oklab` rather than `srgb`; sRGB interpolation darkens and desaturates
+through the middle of a ramp, which is very visible on a slow transition.
+
+This works in CSS and as a canvas `strokeStyle` / `fillStyle`. **On canvas it fails
+silently** — an invalid value leaves the previous colour in place rather than
+throwing, so a ramp that quietly stops updating looks like a rendering bug rather
+than an unsupported colour. Pin the computed string in a test.
+
+Example: the Arena lip ramps from `--text-muted` to `--accent-danger` as the arena
+closes (`ArenaRenderer.ts`), replacing a phase label that stated the same thing in
+text without ever making it feel urgent.
 
 ---
 
@@ -353,6 +378,36 @@ shell has **two different owners** across the two surfaces: for a participant th
 *board* wears it, while for a spectator the *stage host* wears it and the boards are
 bare bodies (see the Game Spectator Pattern).
 
+Two boards fit the surface in two different ways, and `GameSurface` supports both. By
+default it centers a content-sized child with `padding: var(--space-lg)`, which is right
+for Deathroll and RPS: they are small cards and centering them reads as deliberate. A
+continuous board with a fixed-geometry canvas is the opposite case — Arena's world is
+20 000 units square and the letterboxed canvas should be as large as the panel allows —
+so `<GameSurface fill>` stretches its single child to the full surface instead. The board
+still wears the same shared card shell; only `align-items` / `justify-content` / `padding`
+change. Do not add a third layout mode, and do not make `fill` the default: centering is
+correct for every discrete board.
+
+**Arena's HUD split.** A continuous board splits its HUD between real DOM and the canvas,
+and the split is not a free choice. The header holds what is textual and stable — match
+title, round and score, the phase countdown, session mute, and close/forfeit — as ordinary
+DOM, so it is focusable, selectable, translatable and reachable by a screen reader without
+any parallel implementation. The canvas draws what is spatial: bodies with clipped avatars,
+names and non-colour side markers, the always-visible thin aim line, the growing charge
+line with its attached forced-fire countdown, projectiles with presentation-only trails,
+the arena circle, a shrink-phase label at the canvas edge, and — **on the player's own
+body** — the shot-cooldown arc and the dash marker. Combat state sits at the player because
+a knockback brawler is unplayable if you have to look away from your character to learn
+whether you can shoot.
+
+Everything drawn on the canvas is also mirrored into an `.sr-only` live region on the
+board. **No gameplay information may exist only on the canvas, and none may be conveyed by
+colour or sound alone.** Colour is always supplementary: names, distinct outlines and side
+notches carry identity, and thickness or texture carries charge intensity.
+
+`prefers-reduced-motion` removes shake, flashes and decorative trail motion. It must not
+change simulation timing, state, or any information the player needs.
+
 Each game gets its **own** board component (Deathroll and RPS do not share a body). The
 `view` prop is the generic `GameView` union from `useGameState`; each one narrows it to its
 own shape with the `isRpsView` guard and ignores views it doesn't understand. App picks which
@@ -397,6 +452,36 @@ Rules:
    `game.ended` nulls the view.
 7. A board may show a **Head-to-head** panel (see the Head-to-head pattern) below the
    result, scoped to the current opponent.
+
+### Pre-Round Overlay Pattern (real-time games)
+
+A real-time game with a pre-round phase may draw a **countdown and control legend**
+over its canvas. Arena Knockoff is the reference (`ArenaBoard.tsx`,
+`ArenaBoard.module.css`).
+
+Rules:
+
+1. **DOM overlay, never canvas text.** Absolutely position it inside the canvas
+   wrapper (`position: relative` on the wrapper, `inset: 0` on the overlay).
+   Canvas-drawn text cannot use tokens, needs hand-rolled metrics, and is invisible
+   to tests. The overlay uses real tokens, the real `<Icon>` component, and CSS
+   animation.
+2. **`pointer-events: none`.** The canvas below owns pointer input — an overlay that
+   swallows clicks breaks aiming.
+3. **`aria-hidden="true"`.** These boards already carry an `aria-live` status region
+   describing phase and countdown. An announced overlay double-announces.
+4. **Visible only in the pre-round phase**, and gated on the *authoritative* snapshot
+   phase — the same source as the HUD countdown — so the overlay and the HUD can
+   never disagree.
+5. **Any looping animation is gated on `prefers-reduced-motion`.** Apply the animation
+   class conditionally rather than disabling it in CSS, so the test can assert it.
+
+Control legends use key glyph icons (`keys-wasd`, `key-space`, `mouse-left`) with a
+caption beneath each. The glyphs carry no lettering — the caption states the binding
+("WASD to move"), so the key faces stay legible at small sizes and need no text
+scaling. These icons are wider or taller than square, so they declare their own
+`viewBox` and are sized by CSS `height` with `width: auto`, not by the `Icon` `size`
+prop, which is square.
 
 ### Minigame Invite Pattern
 

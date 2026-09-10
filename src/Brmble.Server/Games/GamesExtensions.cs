@@ -1,5 +1,6 @@
 using Brmble.Server.Games.Engines;
 using Brmble.Server.Games.Duels;
+using Microsoft.Extensions.Options;
 
 namespace Brmble.Server.Games;
 
@@ -7,6 +8,12 @@ public static class GamesExtensions
 {
     public static IServiceCollection AddGames(this IServiceCollection services)
     {
+        services.AddOptions<Continuous.GamesRealtimeOptions>()
+            .BindConfiguration("Games")
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Continuous.GamesRealtimeOptions>, Continuous.GamesRealtimeOptionsValidator>();
+        services.AddSingleton<Continuous.RealtimeTicketStore>();
+        services.AddSingleton<Continuous.RealtimeTicketRateLimiter>();
         services.AddSingleton<IRandomSource, CryptoRandomSource>();
         services.AddSingleton<DeathrollEngine>();
         services.AddSingleton<RpsEngine>();
@@ -14,6 +21,9 @@ public static class GamesExtensions
         services.AddSingleton<IGameEngine>(sp => sp.GetRequiredService<RpsEngine>());
         services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<DeathrollEngine>());
         services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<RpsEngine>());
+        services.AddSingleton<Arena.ArenaGameDefinition>();
+        services.AddSingleton<IDuelGameDefinition>(sp => sp.GetRequiredService<Arena.ArenaGameDefinition>());
+        services.AddSingleton<Continuous.IContinuousGameDefinition>(sp => sp.GetRequiredService<Arena.ArenaGameDefinition>());
         services.AddSingleton<GameDefinitionCatalog>();
         services.AddSingleton<GameRepository>();
         services.AddSingleton<IDurationSampleRepository>(sp => sp.GetRequiredService<GameRepository>());
@@ -31,6 +41,9 @@ public static class GamesExtensions
         services.AddSingleton<Spectators.ISpectatorLifecycle>(sp => sp.GetRequiredService<Spectators.SpectatorService>());
         services.AddSingleton<GameSessionManager>();
         services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<GameSessionManager>());
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<Continuous.ContinuousGameCoordinator>();
+        services.AddSingleton<IDuelMatchRunner>(sp => sp.GetRequiredService<Continuous.ContinuousGameCoordinator>());
         services.AddSingleton<DuelMatchRunnerRouter>();
         services.AddSingleton<IDuelMatchRunnerRouter>(sp => sp.GetRequiredService<DuelMatchRunnerRouter>());
         services.AddSingleton<DuelOrchestrator>();

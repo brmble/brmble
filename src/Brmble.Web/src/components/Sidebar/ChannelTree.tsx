@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../ContextMenu/ContextMenu';
 import { buildChallengeMenuItem } from '../Games/challengeMenu';
+import type { ChallengeHandler } from '../Games/challengeMenu';
 import { UserInfoDialog } from '../UserInfoDialog/UserInfoDialog';
 import { Tooltip } from '../Tooltip/Tooltip';
 import { UserTooltip } from '../UserTooltip/UserTooltip';
@@ -66,8 +67,7 @@ interface ChannelTreeProps {
   onSelectChannel?: (channelId: number) => void;
   onOpenChannelPermissions?: (channelId: number) => void;
   onStartDM?: (userId: string, userName: string) => void;
-  onChallengeDeathroll?: (session: number) => void;
-  onChallengeRps?: (session: number, bestOf: number) => void;
+  onChallenge?: ChallengeHandler;
   /** Channels with an active/pending duel — shows a swords badge on the row. */
   duelChannelIds?: Set<number>;
   /** Subset of duelChannelIds where the local player is queued or in a ready check. */
@@ -110,7 +110,7 @@ function getManagedPasswordFromAclBody(body: string): string {
   }
 }
 
-export function ChannelTree({ channels, users, currentChannelId, joinedChannelId, onJoinChannel, onSelectChannel, onOpenChannelPermissions, onStartDM, onChallengeDeathroll, onChallengeRps, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, spectatingChannelId, onToggleSpectate, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
+export function ChannelTree({ channels, users, currentChannelId, joinedChannelId, onJoinChannel, onSelectChannel, onOpenChannelPermissions, onStartDM, onChallenge, duelChannelIds, personalDuelChannelIds, committedDuelSessions, onOpenDuelQueue, spectatingChannelId, onToggleSpectate, speakingUsers, voiceIdle, pendingChannelAction, channelUnreads, sharingChannelId, sharingUserSession, onWatchScreenShare, onStopWatching, activeShares, watchingShares, onEditAvatar, onMoveUser }: ChannelTreeProps) {
   const [sortByNamePerChannel, setSortByNamePerChannel] = useState<Record<number, boolean>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; userId: string; userName: string; isSelf: boolean; channelId?: number } | null>(null);
   const [channelContextMenu, setChannelContextMenu] = useState<{ x: number; y: number; channelId: number; channelName: string } | null>(null);
@@ -694,7 +694,7 @@ onClick: () => {
               onClick: () => onStartDM(contextMenu.userId, contextMenu.userName),
             }] : []),
             ...(() => {
-              if (contextMenu.isSelf || !onChallengeDeathroll || !onChallengeRps) return [];
+              if (contextMenu.isSelf || !onChallenge) return [];
               const target = users.find(u => u.session === parseInt(contextMenu.userId));
               // DuelOrchestrator rejects a challenge unless both players are in the same
               // voice channel, so the entry is gated on where you actually are, not on
@@ -704,7 +704,7 @@ onClick: () => {
                 && joinedChannelId != null
                 && contextMenu.channelId === joinedChannelId;
               if (!eligible) return [];
-              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallengeDeathroll, onChallengeRps, {
+              return [buildChallengeMenuItem(parseInt(contextMenu.userId), onChallenge, {
                 committedSessions: committedDuelSessions,
                 // If the local user isn't in the roster yet this is undefined and
                 // detection degrades to the target only. Enabled is the safe default:

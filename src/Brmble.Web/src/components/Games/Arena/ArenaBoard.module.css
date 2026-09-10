@@ -1,0 +1,149 @@
+.board {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.titleBlock {
+  min-width: 0;
+}
+
+.titleBlock p {
+  margin: var(--space-2xs) 0 0;
+}
+
+.hud {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.headerSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-md);
+  margin-left: auto;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.score {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.canvasBox {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-top: var(--space-xs);
+  overflow: hidden;
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.canvas {
+  display: block;
+}
+
+.pregame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Players spawn on the horizontal midline, so the countdown clears it above and
+   the legend clears it below rather than stacking through them. */
+.countdown {
+  position: absolute;
+  right: 0;
+  bottom: 58%;
+  left: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-5xl);
+  color: var(--text-primary);
+}
+
+.countdownPulse {
+  animation: arena-countdown-pulse var(--animation-heartbeat) ease-in-out infinite;
+}
+
+@keyframes arena-countdown-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.legend {
+  position: absolute;
+  top: 68%;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2xl);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+}
+
+.legendIcon {
+  width: auto;
+  height: var(--text-3xl);
+  color: var(--text-primary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  /* Reserved even when empty: the arena must not resize when a match ends.
+     Matches the populated height, which the result block drives. */
+  min-height: var(--space-3xl);
+  margin-top: var(--space-md);
+}
+
+.result {
+  flex: 1;
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.resultText {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}

@@ -51,6 +51,8 @@ public sealed class InputRouter : IDisposable
     // Timers and the hook stay registered to avoid Win32 tear-down/re-up cost.
     private volatile bool _suspended;
 
+    public bool IsSuspended => _suspended;
+
     private enum BindingKind { Ptt, Shortcut }
 
     private sealed record MouseBinding(BindingKind Kind, string Action, string Key)

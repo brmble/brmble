@@ -6,6 +6,6 @@ import './GameSurface.css';
  * panel (it is not a dialog), so the board is laid out here rather than inside
  * `div.modal-overlay`.
  */
-export function GameSurface({ children }: { children: ReactNode }) {
-  return <div className="game-surface">{children}</div>;
+export function GameSurface({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
+  return <div className={`game-surface${fill ? ' game-surface--fill' : ''}`}>{children}</div>;
 }

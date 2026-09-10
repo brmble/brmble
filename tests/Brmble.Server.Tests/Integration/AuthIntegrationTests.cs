@@ -46,6 +46,7 @@ public class AuthIntegrationTests : IDisposable
                     ["ReverseProxy:Routes:placeholder:ClusterId"] = "placeholder",
                     ["ReverseProxy:Routes:placeholder:Match:Path"] = "/__placeholder/{**catch-all}",
                     ["ReverseProxy:Clusters:placeholder:Destinations:d1:Address"] = "http://localhost:1",
+                    ["Games:RealtimePublicWebSocketUrl"] = "wss://realtime.test/games",
                 });
             });
             builder.ConfigureServices(services =>

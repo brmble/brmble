@@ -45,6 +45,7 @@ import { usePrompt, confirm, promptPassword } from './hooks/usePrompt';
 import { NeonDGame } from './components/NeonD/NeonDGame';
 import { DeathrollBoard } from './components/Games/DeathrollBoard';
 import { RpsBoard } from './components/Games/RpsBoard';
+import { ArenaBoard } from './components/Games/Arena/ArenaBoard';
 import { GameSurface } from './components/Games/GameSurface';
 import { MainPanel } from './components/MainPanel/MainPanel';
 import { ChannelActivityRegion } from './components/ChannelActivityRegion/ChannelActivityRegion';
@@ -58,6 +59,8 @@ import { collectCommittedSessions } from './components/Games/committedSessions';
 import { DuelQueueModal } from './components/Games/DuelQueueModal';
 import { useSpectatorState } from './components/Games/useSpectatorState';
 import { SpectatorActivity } from './components/Games/SpectatorActivity';
+import { isGameType } from './components/Games/gameTypes';
+import { UnsupportedGameBoard } from './components/Games/UnsupportedGameBoard';
 import { GameApiError } from './api/games';
 import { ProfileProvider } from './contexts/ProfileContext';
 import { UpdateNotification } from './components/UpdateNotification/UpdateNotification';
@@ -1100,6 +1103,10 @@ function App() {
   duelQueueRef.current = duelQueue;
   const resolveGamePlayerName = useCallback(
     (userId: number) => usersRef.current.find(u => u.session === userId)?.name ?? `Player ${userId}`,
+    [],
+  );
+  const resolveUserAvatarUrl = useCallback(
+    (userId: number) => usersRef.current.find(u => u.session === userId)?.avatarUrl,
     [],
   );
   // Forfeiting is recorded as an abandon on the player's permanent stats, so gate
@@ -2806,6 +2813,7 @@ function App() {
   const onVoiceChannelChanged = ((data: unknown) => {
       clearPendingAction();
       clearPendingJoinAttempt();
+      gameStateRef.current.reset();
       const d = data as { channelId: number; name?: string; previousChannelId?: number; actorName?: string; reason?: 'moved' | 'unknown' } | undefined;
       if (d?.channelId !== undefined && d?.channelId !== null) {
         if (
@@ -5303,41 +5311,72 @@ const handleConnect = (serverData: SavedServer) => {
     : null;
 
 
+  const activeGameType = gameState.activeMatch?.gameType ?? gameState.ended?.gameType;
+  const renderParticipantBoard = () => {
+    if (!isGameType(activeGameType)) {
+      return <UnsupportedGameBoard gameType={activeGameType ?? 'unknown'} onClose={confirmForfeit} />;
+    }
+    switch (activeGameType) {
+      case 'rps':
+        return (
+          <RpsBoard
+            key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onPick={(pick) => gameState.sendAction({ pick })}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
+          />
+        );
+      case 'deathroll':
+        return (
+          <DeathrollBoard
+            view={gameState.view}
+            ended={gameState.ended}
+            myUserId={selfSession}
+            turnDeadline={gameState.turnDeadline}
+            turnWindowMs={gameState.turnWindowMs}
+            penalty={gameState.penalty}
+            resolveName={resolveGamePlayerName}
+            onRoll={gameState.roll}
+            onForfeit={confirmForfeit}
+            onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
+          />
+        );
+      case 'arena-knockoff':
+        return (
+          <ArenaBoard
+            key={`arena-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
+            matchId={Number(participatingMatchId)}
+            selfSessionId={selfSession}
+            resolveName={resolveGamePlayerName}
+            resolveAvatarUrl={resolveUserAvatarUrl}
+            ended={gameState.ended}
+            onForfeit={confirmForfeit}
+            // Close only renders once the match is over, and the arena socket can
+            // report that before the duel event does - so this must never fall back
+            // to a forfeit prompt for an already-finished match.
+            onClose={gameState.dismissEnded}
+            onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
+            rematchPending={rematchPending}
+          />
+        );
+      default:
+        return assertNever(activeGameType);
+    }
+  };
+
   const gameSurface = participatingMatchId !== null ? (
-    <GameSurface>
-      {(gameState.activeMatch?.gameType ?? gameState.ended?.gameType) === 'rps' ? (
-        <RpsBoard
-          key={`rps-${gameState.activeMatch?.matchId ?? gameState.ended?.matchId ?? 'none'}`}
-          view={gameState.view}
-          ended={gameState.ended}
-          myUserId={selfSession}
-          turnDeadline={gameState.turnDeadline}
-          turnWindowMs={gameState.turnWindowMs}
-          penalty={gameState.penalty}
-          resolveName={resolveGamePlayerName}
-          onPick={(pick) => gameState.sendAction({ pick })}
-          onForfeit={confirmForfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-          rematchPending={rematchPending}
-        />
-      ) : (
-        <DeathrollBoard
-          view={gameState.view}
-          ended={gameState.ended}
-          myUserId={selfSession}
-          turnDeadline={gameState.turnDeadline}
-          turnWindowMs={gameState.turnWindowMs}
-          penalty={gameState.penalty}
-          resolveName={resolveGamePlayerName}
-          onRoll={gameState.roll}
-          onForfeit={confirmForfeit}
-          onClose={gameState.ended ? gameState.dismissEnded : confirmForfeit}
-          onRematch={gameState.ended ? () => requestRematch(gameState.ended!.sourceMatchId) : undefined}
-          rematchPending={rematchPending}
-        />
-      )}
-    </GameSurface>
+    <GameSurface fill={activeGameType === 'arena-knockoff'}>{renderParticipantBoard()}</GameSurface>
   ) : showGame ? (
     <NeonDGame onClose={() => setShowGame(false)} />
   ) : null;
@@ -5417,8 +5456,7 @@ const handleConnect = (serverData: SavedServer) => {
           username={username}
           onDisconnect={handleDisconnect}
           onStartDM={handleStartDMFromContextMenu}
-          onChallengeDeathroll={(session) => gameState.invite(session)}
-          onChallengeRps={(session, bestOf) => gameState.invite(session, 'rps', { bestOf })}
+          onChallenge={(session, gameType, options) => gameState.invite(session, gameType, options)}
           duelChannelIds={duelChannelIds}
           personalDuelChannelIds={personalDuelChannelIds}
           committedDuelSessions={committedDuelSessions}

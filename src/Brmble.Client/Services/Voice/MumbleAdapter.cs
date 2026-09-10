@@ -34,6 +34,12 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     private Thread? _processThread;
     private AudioManager? _audioManager;
     private InputRouter? _inputRouter;
+    private object? _captureLock = new();
+    private HashSet<string>? _activeCaptureIds = new(StringComparer.Ordinal);
+    private bool _acceptInputCaptures;
+    private long _connectionGeneration;
+    private int _credentialContinuationsCompletedForTests;
+    private const string LegacyVoiceCaptureId = "legacy:voice";
     // Tracked so we can unsubscribe when AudioManager is disposed.
     private Action<bool>? _pttStateChangedHandler;
     private string? _lastWelcomeText;
@@ -227,6 +233,64 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _inputRouter.PttStateChanged += _pttStateChangedHandler;
     }
 
+    private void SetInputCapture(string captureId, bool active, bool requireCaptureAdmission = false)
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (active && requireCaptureAdmission && !_acceptInputCaptures) return;
+            if (active)
+            {
+                if (!activeCaptureIds.Add(captureId) || activeCaptureIds.Count != 1) return;
+                _inputRouter?.Suspend();
+                return;
+            }
+
+            if (!activeCaptureIds.Remove(captureId) || activeCaptureIds.Count != 0) return;
+            _inputRouter?.Resume();
+        }
+    }
+
+    private void StopAcceptingInputCaptures()
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            _connectionGeneration++;
+            _acceptInputCaptures = false;
+            var activeCaptureIds = _activeCaptureIds ??= new HashSet<string>(StringComparer.Ordinal);
+            if (activeCaptureIds.Count == 0) return;
+            activeCaptureIds.Clear();
+            _inputRouter?.Resume();
+        }
+    }
+
+    private (long Generation, MumbleConnection? Connection) BeginConnectedGeneration()
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            _acceptInputCaptures = false;
+            return (++_connectionGeneration, Connection);
+        }
+    }
+
+    private bool TrySendVoiceConnected(long generation, MumbleConnection? connection, uint? overrideChannelId)
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            if (_connectionGeneration != generation
+                || !ReferenceEquals(Connection, connection)
+                || connection?.State != ConnectionStates.Connected)
+                return false;
+            _acceptInputCaptures = true;
+            SendVoiceConnected(overrideChannelId);
+            return true;
+        }
+    }
+
     /// <summary>
     /// Wires the AudioManager events that emit bridge messages. Called both
     /// from the constructor and from Connect's recreate block — without this
@@ -352,6 +416,17 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         _reconnectPort = port;
     }
 
+    internal sealed record CredentialFetchResult(
+        System.Text.Json.JsonElement? Credentials,
+        int StatusCode,
+        string? ErrorBody,
+        Exception? Exception);
+
+    internal Func<string, Task<CredentialFetchResult>>? CredentialFetchForTests { get; set; }
+    internal Action<string>? WebSocketStartForTests { get; set; }
+    internal Action<string>? HealthCheckStartForTests { get; set; }
+    internal int CredentialContinuationsCompletedForTests => Volatile.Read(ref _credentialContinuationsCompletedForTests);
+
     public void Connect(string host, int port, string username, string password = "", string? apiUrl = null)
     {
         // Clear reconnect flag on every fresh Connect() call.  ReconnectLoop
@@ -461,6 +536,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
     public void Disconnect()
     {
+        StopAcceptingInputCaptures();
         _isReconnect = false;
         _cts?.Cancel();
         var processThread = _processThread;
@@ -1932,40 +2008,72 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         return doc.RootElement.Clone();
     }
 
-    private async Task FetchAndSendCredentials(string apiUrl)
+    private async Task<CredentialFetchResult> FetchCredentialsForConnection(string apiUrl)
     {
-        // Load with Exportable so BouncyCastle can extract private key parameters for signing
-        using var cert = _certService?.GetExportableCertificate();
-        if (cert is null)
-        {
-            _bridge?.Send("voice.error", new { message = "No client certificate — cannot fetch Matrix credentials." });
-            _bridge?.NotifyUiThread();
-            return;
-        }
-
         try
         {
+            // Load with Exportable so BouncyCastle can extract private key parameters for signing.
+            using var cert = _certService?.GetExportableCertificate();
+            if (cert is null)
+                return new(null, 0, null, new InvalidOperationException("No client certificate — cannot fetch Matrix credentials."));
             var baseUri = new Uri(apiUrl, UriKind.Absolute);
             var tokenUri = new Uri(baseUri, "auth/token");
-
             var (credentials, httpStatus, errorBody) = await FetchCredentialsViaBcTls(cert, tokenUri, _reconnectUsername);
-            if (credentials is null)
+            return new(credentials, httpStatus, errorBody, null);
+        }
+        catch (Exception ex)
+        {
+            return new(null, 0, null, ex);
+        }
+    }
+
+    private bool IsCurrentConnectionGeneration(long generation, MumbleConnection? connection)
+        => _connectionGeneration == generation
+            && ReferenceEquals(Connection, connection)
+            && connection?.State == ConnectionStates.Connected;
+
+    private bool TryApplyCredentialResult(string apiUrl, CredentialFetchResult result, long generation, MumbleConnection? connection)
+    {
+        var captureLock = Interlocked.CompareExchange(ref _captureLock, new object(), null) ?? _captureLock!;
+        lock (captureLock)
+        {
+            if (!IsCurrentConnectionGeneration(generation, connection)) return false;
+            var apiUrlDiscovered = _apiUrl is null;
+            _apiUrl = apiUrl;
+            if (apiUrlDiscovered) OnApiUrlDiscovered?.Invoke(apiUrl);
+
+            if (result.Exception is { } exception)
             {
-                if (ShouldMarkCredentialFailureAsServiceOutage(httpStatus))
+                Debug.WriteLine($"[Matrix] Failed to fetch credentials: {exception.Message}");
+                _sawServerHealthFailureSinceCredentials = true;
+                SendBrmbleServiceStatus("server", "reconnecting", reason: "credentials-unavailable");
+                _bridge?.Send("voice.error", new
+                {
+                    message = exception.Message.StartsWith("No client certificate", StringComparison.Ordinal)
+                        ? exception.Message
+                        : $"Failed to fetch chat credentials: {exception.Message}"
+                });
+                _bridge?.NotifyUiThread();
+                return true;
+            }
+
+            if (result.Credentials is null)
+            {
+                if (ShouldMarkCredentialFailureAsServiceOutage(result.StatusCode))
                 {
                     _sawServerHealthFailureSinceCredentials = true;
-                    SendBrmbleServiceStatus("server", "reconnecting", reason: httpStatus > 0 ? $"http-{httpStatus}" : "credentials-unavailable");
+                    SendBrmbleServiceStatus("server", "reconnecting", reason: result.StatusCode > 0 ? $"http-{result.StatusCode}" : "credentials-unavailable");
                 }
-                if (httpStatus == 409)
+                if (result.StatusCode == 409)
                 {
                     // Name conflict — parse error body and send to frontend
                     try
                     {
                         string? conflictName = null;
                         string? conflictMsg = null;
-                        if (errorBody is not null)
+                        if (result.ErrorBody is not null)
                         {
-                            using var errorDoc = System.Text.Json.JsonDocument.Parse(errorBody);
+                            using var errorDoc = System.Text.Json.JsonDocument.Parse(result.ErrorBody);
                             var errorRoot = errorDoc.RootElement;
                             conflictMsg = errorRoot.TryGetProperty("message", out var msg) ? msg.GetString() : null;
                             conflictName = errorRoot.TryGetProperty("name", out var n) ? n.GetString() : null;
@@ -1984,7 +2092,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                         _bridge?.NotifyUiThread();
                     }
                 }
-                else if (httpStatus == 503)
+                else if (result.StatusCode == 503)
                 {
                     _bridge?.Send("voice.authError", new
                     {
@@ -1993,13 +2101,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     });
                     _bridge?.NotifyUiThread();
                 }
-                return;
+                return true;
             }
 
+            var credentials = result.Credentials.Value;
             // The credential body carries the same envelope as a WebSocket snapshot, so it
             // establishes the cursor too. Without this the first event after connect looks like a
             // gap and the client resyncs immediately.
-            if (ProjectionWire.ReadSnapshot(credentials.Value) is { } tokenSnapshot)
+            if (ProjectionWire.ReadSnapshot(credentials) is { } tokenSnapshot)
             {
                 lock (_projectionEmitGate)
                 {
@@ -2017,15 +2126,14 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                     "or mappings block); identities will stay unknown until one arrives");
             }
 
-            ApplyPasswordProtectedChannelIdsFromCredentials(credentials.Value);
+            ApplyPasswordProtectedChannelIdsFromCredentials(credentials);
 
             // The server returns its internal homeserverUrl (e.g. http://localhost:6167).
             // Clients reach Matrix via the YARP proxy on the same Brmble API URL,
             // so rewrite homeserverUrl to the API URL the client connected to.
-            var rewritten = RewriteMatrixHomeserverUrl(credentials.Value, apiUrl);
+            var rewritten = RewriteMatrixHomeserverUrl(credentials, apiUrl);
             _bridge?.Send("server.credentials", rewritten);
             _bridge?.NotifyUiThread();
-            _apiUrl = apiUrl;
             _credentialsAlreadyFetched = true;
             _sawServerHealthFailureSinceCredentials = false;
             SendBrmbleServiceStatus("server", "connected");
@@ -2036,19 +2144,38 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
             // connection: the old read loop and the new one would then race, and the survivor
             // may be the one being torn down. Disconnect() nulls _wsStream synchronously, so a
             // reconnect always passes this guard even while the old read loop is still unwinding.
-            if (_wsStream is null) StartWebSocketConnection(apiUrl);
+            if (_wsStream is null) StartWebSocketForConnection(apiUrl);
+            return true;
+        }
+    }
 
-            // Start periodic health checks (runs from C# to avoid CORS issues)
-            StartHealthCheck(apiUrl);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Matrix] Failed to fetch credentials: {ex.Message}");
-            _sawServerHealthFailureSinceCredentials = true;
-            SendBrmbleServiceStatus("server", "reconnecting", reason: "credentials-unavailable");
-            _bridge?.Send("voice.error", new { message = $"Failed to fetch chat credentials: {ex.Message}" });
-            _bridge?.NotifyUiThread();
-        }
+    private async Task<bool> FetchAndSendCredentials(string apiUrl, long generation, MumbleConnection? connection)
+    {
+        // Health monitoring starts before the credential request is awaited. Starting
+        // it only once the result was applied meant a slow or hung fetch hid server
+        // health entirely and suppressed the recovery polling that would report the
+        // outage — the request has no bounded deadline of its own. The generation check
+        // keeps a superseded connection from starting a monitor for a stale apiUrl.
+        if (ShouldStartHealthCheckBeforeCredentialFetch(apiUrl)
+            && IsCurrentConnectionGeneration(generation, connection))
+            StartHealthCheckForConnection(apiUrl);
+
+        var result = CredentialFetchForTests is { } testFetch
+            ? await testFetch(apiUrl)
+            : await FetchCredentialsForConnection(apiUrl);
+        return TryApplyCredentialResult(apiUrl, result, generation, connection);
+    }
+
+    private void StartHealthCheckForConnection(string apiUrl)
+    {
+        if (HealthCheckStartForTests is { } testStart) testStart(apiUrl);
+        else StartHealthCheck(apiUrl);
+    }
+
+    private void StartWebSocketForConnection(string apiUrl)
+    {
+        if (WebSocketStartForTests is { } testStart) testStart(apiUrl);
+        else StartWebSocketConnection(apiUrl);
     }
 
     private async Task GetRegisteredUsersAsync()
@@ -2217,7 +2344,9 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
                     if (shouldRefreshCredentials)
                     {
-                        _ = Task.Run(() => FetchAndSendCredentials(apiUrl));
+                        var generation = Interlocked.Read(ref _connectionGeneration);
+                        var connection = Connection;
+                        _ = Task.Run(() => FetchAndSendCredentials(apiUrl, generation, connection));
                     }
                 }
                 else
@@ -3036,13 +3165,27 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
 
         bridge.RegisterHandler("voice.suspendHotkeys", _ =>
         {
-            _inputRouter?.Suspend();
+            SetInputCapture(LegacyVoiceCaptureId, active: true);
             return Task.CompletedTask;
         });
 
         bridge.RegisterHandler("voice.resumeHotkeys", _ =>
         {
-            _inputRouter?.Resume();
+            SetInputCapture(LegacyVoiceCaptureId, active: false);
+            return Task.CompletedTask;
+        });
+
+        bridge.RegisterHandler("game.inputCapture", data =>
+        {
+            var captureId = data.TryGetProperty("captureId", out var id)
+                && id.ValueKind == System.Text.Json.JsonValueKind.String
+                ? id.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(captureId) || captureId.Length > 128
+                || !data.TryGetProperty("active", out var value)
+                || value.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                return Task.CompletedTask;
+            SetInputCapture(captureId, value.GetBoolean(), requireCaptureAdmission: true);
             return Task.CompletedTask;
         });
 
@@ -4038,6 +4181,7 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
     public override void ServerSync(ServerSync serverSync)
     {
         base.ServerSync(serverSync);
+        var connectedGeneration = BeginConnectedGeneration();
 
         // Update _reconnectUsername to the Mumble-confirmed name so that
         // credential fetch and future reconnects use the registered name
@@ -4180,8 +4324,6 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
                 && Uri.TryCreate(discovered, UriKind.Absolute, out var discoveredUri)
                 && string.Equals(discoveredUri.Host, _reconnectHost, StringComparison.OrdinalIgnoreCase))
             {
-                _apiUrl = discovered;
-                OnApiUrlDiscovered?.Invoke(discovered);
                 credentialUrl = discovered;
             }
             else if (discovered is not null)
@@ -4198,21 +4340,24 @@ internal sealed class MumbleAdapter : BasicMumbleProtocol, VoiceService
         if (credentialUrl is not null)
         {
             var url = credentialUrl;
-            if (ShouldStartHealthCheckBeforeCredentialFetch(url))
-            {
-                StartHealthCheck(url);
-            }
-
             Task.Run(async () =>
             {
-                await FetchAndSendCredentials(url);
-                SendVoiceConnected(voiceConnectedChannelId);
+                try
+                {
+                    if (await FetchAndSendCredentials(url, connectedGeneration.Generation, connectedGeneration.Connection))
+                        TrySendVoiceConnected(connectedGeneration.Generation, connectedGeneration.Connection, voiceConnectedChannelId);
+                }
+                finally
+                {
+                    if (CredentialFetchForTests is not null)
+                        Interlocked.Increment(ref _credentialContinuationsCompletedForTests);
+                }
             });
         }
         else
         {
             // No API URL — credentials fetch not possible; send voice.connected immediately
-            SendVoiceConnected(voiceConnectedChannelId);
+            TrySendVoiceConnected(connectedGeneration.Generation, connectedGeneration.Connection, voiceConnectedChannelId);
         }
     }
 

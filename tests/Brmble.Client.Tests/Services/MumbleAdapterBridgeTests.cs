@@ -8,6 +8,8 @@ using Brmble.Client.Bridge;
 using Brmble.Client.Services.AppConfig;
 using Brmble.Client.Services.Serverlist;
 using Brmble.Client.Services.Voice;
+using Brmble.Client.Services.Voice.Input;
+using Brmble.Client.Tests.Services.Input;
 using MumbleSharp;
 using MumbleSharp.Packets;
 using MumbleProto;
@@ -20,6 +22,304 @@ namespace Brmble.Client.Tests.Services;
 [TestClass]
 public class MumbleAdapterBridgeTests
 {
+    [TestMethod]
+    public void GameInputCapture_FirstIdSuspendsAndLastReleaseResumes()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "a", active = true });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("game.inputCapture", new { captureId = "b", active = true });
+        h.Send("game.inputCapture", new { captureId = "a", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("game.inputCapture", new { captureId = "b", active = false });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_ForcesPttReleaseAndBlocksShortcutUntilMatchingRelease()
+    {
+        using var h = InputCaptureHarness.Create();
+        var transmitting = false;
+        var shortcutCount = 0;
+        h.Router.PttStateChanged += active => transmitting = active;
+        h.Router.ShortcutReleased += (_, forced) => { if (!forced) shortcutCount++; };
+        h.Router.SetPttBinding("Space");
+        h.Router.SetShortcutBinding("toggleMute", "F1");
+        h.Router.HandleJsPttKey(true);
+        Assert.IsTrue(transmitting);
+
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        Assert.IsFalse(transmitting);
+        h.PressAndReleaseShortcut();
+        Assert.AreEqual(0, shortcutCount);
+        h.Send("game.inputCapture", new { captureId = "arena", active = false });
+        h.PressAndReleaseShortcut();
+        Assert.AreEqual(1, shortcutCount);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_DuplicateAndStaleMessagesAreIdempotent()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = false });
+        h.Send("game.inputCapture", new { captureId = "new", active = true });
+        h.Send("game.inputCapture", new { captureId = "old", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void LegacyVoiceSuspendSharesCaptureOwnershipWithoutBareResumeAffectingArena()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        h.Send("voice.resumeHotkeys", new { });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("voice.suspendHotkeys", new { });
+        h.Send("voice.suspendHotkeys", new { });
+        h.Send("game.inputCapture", new { captureId = "arena", active = false });
+        Assert.IsTrue(h.Router.IsSuspended);
+        h.Send("voice.resumeHotkeys", new { });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    public void GameInputCapture_RejectsInvalidCaptureIds(string? captureId)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId, active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [DataTestMethod]
+    [DataRow("{}")]
+    [DataRow("{\"active\":null}")]
+    [DataRow("{\"active\":\"false\"}")]
+    [DataRow("{\"active\":0}")]
+    [DataRow("{\"active\":{}}")]
+    public void GameInputCapture_MalformedActiveCannotReleaseHeldId(string activeFragment)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+
+        h.SendJson("game.inputCapture", activeFragment == "{}"
+            ? "{\"captureId\":\"arena\"}"
+            : $"{{\"captureId\":\"arena\",{activeFragment[1..]}");
+
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [DataTestMethod]
+    [DataRow("{\"captureId\":\"new\"}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":null}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":\"true\"}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":1}")]
+    [DataRow("{\"captureId\":\"new\",\"active\":[]}")]
+    public void GameInputCapture_MalformedActiveCannotSuspendNewId(string json)
+    {
+        using var h = InputCaptureHarness.Create();
+        h.SendJson("game.inputCapture", json);
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void Disconnect_ClearsCaptureOwnersAndResumesInput()
+    {
+        using var h = InputCaptureHarness.Create();
+        h.Send("game.inputCapture", new { captureId = "arena", active = true });
+        h.Adapter.Disconnect();
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void Disconnect_RacingLateCaptureCannotLeaveInputSuspended()
+    {
+        using var h = InputCaptureHarness.Create();
+        using var start = new ManualResetEventSlim(false);
+        var sends = Enumerable.Range(0, 64).Select(index => Task.Run(() =>
+        {
+            start.Wait();
+            h.Send("game.inputCapture", new { captureId = $"race-{index}", active = true });
+        })).ToArray();
+        var disconnect = Task.Run(() =>
+        {
+            start.Wait();
+            h.Adapter.Disconnect();
+        });
+
+        start.Set();
+        Task.WaitAll([.. sends, disconnect]);
+        h.Send("game.inputCapture", new { captureId = "late", active = true });
+
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void GameInputCapture_IsAcceptedOnlyDuringAnActiveVoiceLifecycle()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        h.Send("game.inputCapture", new { captureId = "early", active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+
+        h.AttachConnectedVoice(session: 1);
+        SetPrivateField(h.Adapter, "_apiUrl", null);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        h.Send("game.inputCapture", new { captureId = "active", active = true });
+
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void DelayedCredentialCompletionAfterDisconnectCannotReopenCaptureAdmission()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var fetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => fetch.Task);
+        h.AttachConnectedVoice(session: 1);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+
+        h.Adapter.Disconnect();
+        fetch.SetResult();
+        h.WaitForCredentialContinuations();
+        h.Send("game.inputCapture", new { captureId = "late", active = true });
+
+        Assert.IsFalse(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    public void DelayedOldCredentialCompletionCannotReopenReplacementButCurrentCompletionCan()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var oldFetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var currentFetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fetches = new System.Collections.Concurrent.ConcurrentQueue<Task>([oldFetch.Task, currentFetch.Task]);
+        h.SetCredentialFetch(_ => fetches.TryDequeue(out var fetch) ? fetch : Task.CompletedTask);
+        h.AttachConnectedVoice(session: 1);
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => fetches.Count == 1, TimeSpan.FromSeconds(5)));
+
+        h.Adapter.Disconnect();
+        h.AttachConnectedVoice(session: 2);
+        h.Adapter.ServerSync(new ServerSync { Session = 2 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => fetches.IsEmpty, TimeSpan.FromSeconds(5)));
+        oldFetch.SetResult();
+        h.WaitForCredentialContinuations(expectedCompleted: 1);
+        h.Send("game.inputCapture", new { captureId = "old", active = true });
+        Assert.IsFalse(h.Router.IsSuspended);
+
+        currentFetch.SetResult();
+        h.WaitForCredentialContinuations(expectedCompleted: 2);
+        h.Send("game.inputCapture", new { captureId = "current", active = true });
+        Assert.IsTrue(h.Router.IsSuspended);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StaleCredentialCompletionAfterDisconnectHasNoSideEffects(bool succeeds)
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var fetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => fetch.Task);
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://old.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+        h.Adapter.Disconnect();
+        _ = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+        var healthStartsBefore = h.HealthStarts;
+
+        fetch.SetResult(succeeds ? SuccessfulCredentials("old-instance", 4) : FailedCredentials(503));
+        h.WaitForCredentialContinuations();
+
+        h.AssertNoCredentialSideEffects(healthStartsBefore);
+    }
+
+    [TestMethod]
+    public void HealthMonitoringStartsWhileTheCredentialFetchIsStillInFlight()
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var pending = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.SetCredentialFetch(_ => pending.Task);
+
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://api.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+
+        // The fetch has not resolved and may not for a long time. Health monitoring
+        // has to be running by now: starting it only after the credential result is
+        // applied means a slow or hung request hides server health entirely and stops
+        // the recovery polling that would report the outage.
+        Assert.AreEqual(1, h.HealthStarts, "health monitoring was suppressed by an unresolved credential fetch");
+
+        pending.SetResult(SuccessfulCredentials("instance", 4));
+        h.WaitForCredentialContinuations();
+
+        // Resolving must not start a second monitor for the same connection.
+        Assert.AreEqual(1, h.HealthStarts);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StaleCredentialCompletionAfterReplacementHasNoSideEffectsButCurrentApplies(bool staleSucceeds)
+    {
+        using var h = InputCaptureHarness.Create(acceptInputCaptures: false);
+        var oldFetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var currentFetch = new TaskCompletionSource<MumbleAdapter.CredentialFetchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fetches = new System.Collections.Concurrent.ConcurrentQueue<Task<MumbleAdapter.CredentialFetchResult>>([oldFetch.Task, currentFetch.Task]);
+        h.SetCredentialFetch(_ => fetches.TryDequeue(out var fetch) ? fetch : Task.FromResult(FailedCredentials(500)));
+        h.AttachConnectedVoice(session: 1, apiUrl: "https://old.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 1 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 1, TimeSpan.FromSeconds(5)));
+
+        h.Adapter.Disconnect();
+        h.AttachConnectedVoice(session: 2, apiUrl: "https://current.example.com");
+        h.Adapter.ServerSync(new ServerSync { Session = 2 });
+        Assert.IsTrue(SpinWait.SpinUntil(() => h.CredentialFetchCalls == 2, TimeSpan.FromSeconds(5)));
+        _ = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+
+        oldFetch.SetResult(staleSucceeds ? SuccessfulCredentials("old-instance", 4) : FailedCredentials(503));
+        h.WaitForCredentialContinuations(expectedCompleted: 1);
+        Assert.AreEqual("https://current.example.com", h.Adapter.ApiUrl);
+        Assert.AreEqual(0, h.WebSocketStarts);
+        // Both connections issued a fetch, and each started monitoring for its own
+        // apiUrl at that point. What matters is that the stale completion adds nothing.
+        var healthStartsAfterStale = h.HealthStarts;
+        Assert.AreEqual(2, healthStartsAfterStale);
+        Assert.IsFalse(h.PasswordProtectedChannels.ContainsKey(4));
+        Assert.IsFalse(h.Projection.Any());
+        Assert.IsFalse(NativeBridgeTestHarness.DrainMessages(h.Bridge).Any(message =>
+            message.Type is "server.credentials" or "voice.authError" or "voice.error" or "brmble.serviceStatus"));
+
+        currentFetch.SetResult(SuccessfulCredentials("current-instance", 5));
+        h.WaitForCredentialContinuations(expectedCompleted: 2);
+        var currentMessages = NativeBridgeTestHarness.DrainMessages(h.Bridge);
+        Assert.AreEqual("https://current.example.com", h.Adapter.ApiUrl);
+        Assert.IsTrue(h.CredentialsAlreadyFetched);
+        Assert.IsTrue(h.PasswordProtectedChannels.ContainsKey(5));
+        Assert.AreEqual("@current-instance:test", h.Projection[2].MatrixUserId);
+        Assert.AreEqual(1, h.WebSocketStarts);
+        // Applying the current result must not start another monitor.
+        Assert.AreEqual(healthStartsAfterStale, h.HealthStarts);
+        Assert.IsTrue(currentMessages.Any(message => message.Type == "server.credentials"));
+        Assert.IsTrue(currentMessages.Any(message => message.Type == "brmble.serviceStatus" && message.DataJson.Contains("\"state\":\"connected\"")));
+    }
+
+    private static MumbleAdapter.CredentialFetchResult SuccessfulCredentials(string instanceId, uint protectedChannelId)
+    {
+        using var document = JsonDocument.Parse(
+            $"{{\"instanceId\":\"{instanceId}\",\"revision\":1,\"mappings\":{{\"1\":{{\"matrixUserId\":\"@{instanceId}:test\"}},\"2\":{{\"matrixUserId\":\"@{instanceId}:test\"}}}},\"passwordProtectedChannelIds\":[{protectedChannelId}],\"matrix\":{{\"homeserverUrl\":\"http://internal\",\"accessToken\":\"token\",\"userId\":\"@user:test\",\"roomMap\":{{}}}}}}");
+        return new(document.RootElement.Clone(), 200, null, null);
+    }
+
+    private static MumbleAdapter.CredentialFetchResult FailedCredentials(int statusCode)
+        => new(null, statusCode, null, null);
+
     [TestMethod]
     public void HandleWebSocketMessage_CompanionChanged_EmitsTheUpdatedRow()
     {
@@ -880,5 +1180,119 @@ public class MumbleAdapterBridgeTests
         public void SetActiveProfileId(string? id) { }
         public string GetCertsDir() => Path.GetTempPath();
         public void SwapProfileRegistrations(string? oldProfileId, string? newProfileId) { }
+    }
+
+    private sealed class InputCaptureHarness : IDisposable
+    {
+        private const int VK_F1 = 0x70;
+        private readonly NativeBridge _bridge;
+        private readonly FakeInputBackend _backend;
+
+        private InputCaptureHarness(NativeBridge bridge, MumbleAdapter adapter, InputRouter router, FakeInputBackend backend)
+        {
+            _bridge = bridge;
+            Adapter = adapter;
+            Router = router;
+            _backend = backend;
+        }
+
+        public MumbleAdapter Adapter { get; }
+        public InputRouter Router { get; }
+        public NativeBridge Bridge => _bridge;
+        public int CredentialFetchCalls { get; private set; }
+        public int WebSocketStarts { get; private set; }
+        public int HealthStarts { get; private set; }
+        public bool CredentialsAlreadyFetched => GetPrivateField<bool>(Adapter, "_credentialsAlreadyFetched");
+        public IReadOnlyDictionary<uint, Brmble.Client.Services.Voice.Projection.UserProjection> Projection
+            => GetPrivateField<Brmble.Client.Services.Voice.Projection.UserProjectionStore>(Adapter, "_projection").Snapshot();
+        public System.Collections.Concurrent.ConcurrentDictionary<uint, bool> PasswordProtectedChannels
+            => GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<uint, bool>>(Adapter, "_channelPasswordRestrictions");
+
+        public static InputCaptureHarness Create(bool acceptInputCaptures = true)
+        {
+            var bridge = NativeBridgeTestHarness.Create();
+            var adapter = MumbleAdapterTestHarness.CreateWithBridge(bridge);
+            var backend = new FakeInputBackend();
+            var router = new InputRouter(backend, autoStartTimers: false);
+            SetPrivateField(adapter, "_inputRouter", router);
+            SetPrivateField(adapter, "_activeCaptureIds", new HashSet<string>(StringComparer.Ordinal));
+            SetPrivateField(adapter, "_captureLock", new object());
+            SetPrivateField(adapter, "_acceptInputCaptures", acceptInputCaptures);
+            adapter.RegisterHandlers(bridge);
+            var harness = new InputCaptureHarness(bridge, adapter, router, backend);
+            adapter.WebSocketStartForTests = _ => harness.WebSocketStarts++;
+            adapter.HealthCheckStartForTests = _ => harness.HealthStarts++;
+            return harness;
+        }
+
+        public void Send(string type, object payload)
+            => NativeBridgeTestHarness.InvokeAsync(_bridge, type, JsonSerializer.SerializeToElement(payload)).GetAwaiter().GetResult();
+
+        public void SendJson(string type, string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            NativeBridgeTestHarness.InvokeAsync(_bridge, type, document.RootElement.Clone()).GetAwaiter().GetResult();
+        }
+
+        public void SetCredentialFetch(Func<string, Task> fetch)
+            => Adapter.CredentialFetchForTests = async url =>
+            {
+                CredentialFetchCalls++;
+                await fetch(url);
+                return SuccessfulCredentials("test-instance", 3);
+            };
+
+        public void SetCredentialFetch(Func<string, Task<MumbleAdapter.CredentialFetchResult>> fetch)
+            => Adapter.CredentialFetchForTests = url =>
+            {
+                CredentialFetchCalls++;
+                return fetch(url);
+            };
+
+        public void AttachConnectedVoice(uint session, string apiUrl = "https://api.example.com")
+        {
+            var connection = new MumbleConnection(new IPEndPoint(IPAddress.Loopback, 64738), Adapter, voiceSupport: false);
+            Adapter.Initialise(connection);
+            typeof(MumbleConnection).GetProperty(nameof(MumbleConnection.State))!.SetValue(connection, ConnectionStates.Connected);
+            var channels = GetChannelDictionary(Adapter);
+            channels[0] = new Channel(Adapter, 0, "Root", 0);
+            var users = MumbleAdapterTestHarness.GetBaseField<System.Collections.Concurrent.ConcurrentDictionary<uint, User>>(Adapter, "UserDictionary");
+            users[session] = new User(Adapter, session) { Name = $"User {session}", Channel = channels[0] };
+            SetPrivateField(Adapter, "_apiUrl", apiUrl);
+        }
+
+        // Health monitoring now starts when the credential fetch is issued, not when
+        // its result is applied, so a monitor started while the connection was still
+        // current is not a side effect of the stale completion. The caller passes the
+        // count taken before resolving so this asserts the completion added nothing.
+        public void AssertNoCredentialSideEffects(int healthStartsBefore = 0)
+        {
+            var messages = NativeBridgeTestHarness.DrainMessages(Bridge);
+            Assert.IsNull(Adapter.ApiUrl);
+            Assert.IsFalse(CredentialsAlreadyFetched);
+            Assert.IsFalse(Projection.Any());
+            Assert.IsFalse(PasswordProtectedChannels.Any());
+            Assert.AreEqual(0, WebSocketStarts);
+            Assert.AreEqual(healthStartsBefore, HealthStarts);
+            Assert.IsFalse(messages.Any(message =>
+                message.Type is "server.credentials" or "voice.authError" or "voice.error" or "brmble.serviceStatus" or "server.healthStatus"));
+        }
+
+        public void WaitForCredentialContinuations(int expectedCompleted = 1)
+        {
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => Adapter.CredentialContinuationsCompletedForTests >= expectedCompleted,
+                TimeSpan.FromSeconds(5)));
+        }
+
+        public void PressAndReleaseShortcut()
+        {
+            _backend.KeyDownStates[VK_F1] = true;
+            Router.TickShortcutPollOnce();
+            _backend.KeyDownStates[VK_F1] = false;
+            Router.TickShortcutPollOnce();
+        }
+
+        public void Dispose() => Router.Dispose();
     }
 }

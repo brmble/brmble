@@ -92,4 +92,16 @@ public class InputRouterSuspendTests
 
         Assert.AreEqual(0, ptt.Count);
     }
+
+    [TestMethod]
+    public void IsSuspended_TracksThePublicSuspendGate()
+    {
+        using var router = new InputRouter(new FakeInputBackend(), autoStartTimers: false);
+
+        Assert.IsFalse(router.IsSuspended);
+        router.Suspend();
+        Assert.IsTrue(router.IsSuspended);
+        router.Resume();
+        Assert.IsFalse(router.IsSuspended);
+    }
 }

@@ -3,6 +3,8 @@ using Brmble.Server.ChannelRequests;
 using Brmble.Server.Events;
 using Brmble.Server.Games.Duels;
 using Brmble.Server.Games.Spectators;
+using Brmble.Server.Games.Continuous;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace Brmble.Server.Games;
@@ -18,9 +20,44 @@ public static class GameEndpoints
     public record ForfeitDto(long MatchId);
     public record GameSettingsDto(bool ChallengesBlocked);
     public record SpectateDto(int ChannelId);
+    public record RealtimeTicketDto(long MatchId, string Role);
 
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/games/realtime-ticket", async (RealtimeTicketDto dto, HttpContext ctx,
+            ICertificateHashExtractor certs, UserRepository users, ISessionMappingService sessions,
+            ContinuousGameCoordinator coordinator, RealtimeTicketStore tickets,
+            RealtimeTicketRateLimiter rateLimiter, IOptions<GamesRealtimeOptions> options) =>
+        {
+            var user = await ResolveUserAsync(ctx, certs, users);
+            if (user is null) return Results.Unauthorized();
+            if (!rateLimiter.TryAcquire(user.UserId)) return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            if (!sessions.TryGetSessionByUserId(user.UserId, out var session))
+                return RealtimeError("You must be connected to Brmble.", "notPresent");
+            if (!string.Equals(dto.Role, "participant", StringComparison.Ordinal))
+                return RealtimeError("Only participant tickets are supported.", "wrongRole");
+            if (!coordinator.TryGetActiveMatch(user.UserId, out var active)
+                || active.MatchId != dto.MatchId
+                || !string.Equals(active.RunnerKey, "continuous", StringComparison.Ordinal))
+                return RealtimeError("The requested continuous match is not live.", "matchNotLive");
+
+            try
+            {
+                var issued = tickets.Issue(user.UserId, session, dto.MatchId, RealtimeRole.Participant);
+                return Results.Ok(new
+                {
+                    protocolVersion = 1,
+                    ticket = issued.Token,
+                    url = options.Value.RealtimePublicWebSocketUrl,
+                    expiresAt = issued.ExpiresAt,
+                });
+            }
+            catch (RealtimeTicketLimitException)
+            {
+                return RealtimeError("The realtime ticket limit was reached.", "ticketLimit");
+            }
+        });
+
         app.MapGet("/games/queue", async (HttpContext ctx,
             ICertificateHashExtractor certs, UserRepository users, IDuelSnapshotProvider snapshots,
             ISessionMappingService sessions) =>
@@ -260,6 +297,9 @@ public static class GameEndpoints
 
     private static IResult InvalidCommandId(string name) => Results.BadRequest(new GameErrorWire(
         $"{name} must be positive.", DuelWire.Reason(DuelRejectReason.InvalidConfiguration)));
+
+    private static IResult RealtimeError(string error, string reason) =>
+        Results.BadRequest(new GameErrorWire(error, reason));
 
     private static IReadOnlyDictionary<string, object?>? ConvertOptions(Dictionary<string, object?>? options)
     {
