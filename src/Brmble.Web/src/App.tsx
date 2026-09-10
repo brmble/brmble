@@ -25,6 +25,7 @@ import { PaintSessionSetupModal } from './components/Paint/PaintSessionSetupModa
 import { PaintSessionView } from './components/Paint/PaintSessionView';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ChatPanel } from './components/ChatPanel/ChatPanel';
+import { DEFAULT_MESSAGE_DELETION_WINDOW_MS } from './utils/messageDeletion';
 import { ConnectModal } from './components/ConnectModal/ConnectModal';
 import { ServerList } from './components/ServerList/ServerList';
 import { ConnectionState } from './components/ConnectionState/ConnectionState';
@@ -5173,6 +5174,9 @@ const handleConnect = (serverData: SavedServer) => {
       onMessageContextMenu: handleChatMessageContextMenu,
       onCopyToClipboard: handleCopyToClipboard,
       currentUserMatrixId: activeDmContact && !selectedDmIsMumble ? matrixCredentials?.userId : undefined,
+      onDeleteMessage: activeDmContact && !selectedDmIsMumble && dmMatrixRoomId ? matrixClient.deleteMessage : undefined,
+      canModerateRecentMessages: activeDmContact && !selectedDmIsMumble ? (matrixCredentials?.messageDeletion?.canModerate ?? false) : false,
+      messageDeletionWindowMs: matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS,
       onToggleReaction: activeDmContact && !selectedDmIsMumble ? handleToggleDmReaction : undefined,
       typingIndicatorText: activeDmContact && !selectedDmIsMumble ? matrixClient.activeTypingText : undefined,
       typingTargetId: activeDmContact && !selectedDmIsMumble ? (activeDmMatrixContactId ?? undefined) : undefined,
@@ -5197,6 +5201,9 @@ const handleConnect = (serverData: SavedServer) => {
       onMessageContextMenu: handleChatMessageContextMenu,
       onCopyToClipboard: handleCopyToClipboard,
       currentUserMatrixId: matrixCredentials?.userId,
+      onDeleteMessage: channelMatrixRoomId ? matrixClient.deleteMessage : undefined,
+      canModerateRecentMessages: matrixCredentials?.messageDeletion?.canModerate ?? false,
+      messageDeletionWindowMs: matrixCredentials?.messageDeletion?.maxAgeMs ?? DEFAULT_MESSAGE_DELETION_WINDOW_MS,
       onToggleReaction: handleToggleChannelReaction,
       typingIndicatorText: matrixClient.activeTypingText,
       typingTargetId: activeChannelId ?? undefined,
