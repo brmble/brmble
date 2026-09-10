@@ -11,6 +11,37 @@ namespace Brmble.Client.Tests;
 public sealed class StartupHandoffTests
 {
     [TestMethod]
+    public void WebViewInitializationUsesStableControllerReferenceAfterCreation()
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "src", "Brmble.Client", "Program.cs"));
+        var source = File.ReadAllText(sourcePath);
+        var assignmentStart = source.IndexOf(
+            "var controller = await env.CreateCoreWebView2ControllerAsync(hwnd);",
+            StringComparison.Ordinal);
+        if (assignmentStart < 0)
+        {
+            assignmentStart = source.IndexOf(
+                "_controller = await env.CreateCoreWebView2ControllerAsync(hwnd);",
+                StringComparison.Ordinal);
+        }
+        var catchStart = source.IndexOf(
+            "catch (Exception ex)",
+            assignmentStart,
+            StringComparison.Ordinal);
+        var initialization = source.Substring(assignmentStart, catchStart - assignmentStart);
+
+        Assert.IsTrue(assignmentStart >= 0);
+        Assert.IsTrue(catchStart > assignmentStart);
+        StringAssert.Contains(initialization, "_controller = controller;");
+        Assert.IsFalse(
+            initialization.Contains("_controller.", StringComparison.Ordinal)
+                || initialization.Contains("_controller!", StringComparison.Ordinal),
+            "Initialization must use its stable local controller reference after cancellation can clear the static field.");
+    }
+
+    [TestMethod]
     public void NavigationCompletionChecksCancellationBeforeDereferencingController()
     {
         var sourcePath = Path.GetFullPath(Path.Combine(

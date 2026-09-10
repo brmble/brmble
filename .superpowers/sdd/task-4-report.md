@@ -86,4 +86,37 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 Time Elapsed 00:00:00.69
+
+## Review follow-up: stable controller ownership during initialization
+
+`InitWebView2Async` now keeps the async-created `CoreWebView2Controller` in a local variable for the complete initialization sequence. The static `_controller` remains the shared cleanup slot and is still atomically cleared by `CloseWebViewController`; cancellation therefore cannot make setup, event registration, zoom restoration, bridge creation, or final navigation dereference a null static field. `StartupHandoffTests.cs` remains in scope and retains the navigation-completion regression test.
+
+### TDD evidence
+
+Added `WebViewInitializationUsesStableControllerReferenceAfterCreation` before the production change. The focused test failed against the pre-fix code because initialization still used `_controller` and had no `_controller = controller` local ownership assignment. After the production change, the same test passed.
+
+### Verification
+
+Focused regression test:
+
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupHandoffTests.WebViewInitializationUsesStableControllerReferenceAfterCreation" -v minimal
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 11 ms
+```
+
+Focused splash/handoff tests:
+
+```text
+dotnet test tests\\Brmble.Client.Tests\\Brmble.Client.Tests.csproj --filter "FullyQualifiedName~StartupSplashWindowTests|FullyQualifiedName~StartupHandoffTests" -v minimal
+Passed!  - Failed:     0, Passed:    13, Skipped:     0, Total:    13, Duration: 1 s
+```
+
+Native Debug build:
+
+```text
+dotnet build src\\Brmble.Client\\Brmble.Client.csproj -c Debug --no-restore
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:00.62
 ```

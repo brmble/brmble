@@ -248,7 +248,8 @@ static class Program
             if (_startupCancelled)
                 return;
 
-            _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            var controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            _controller = controller;
             if (_startupCancelled)
             {
                 CloseWebViewController();
@@ -256,21 +257,21 @@ static class Program
             }
 
             var (startupR, startupG, startupB) = ThemeColors.GetBgDeep(startupTheme);
-            _controller.DefaultBackgroundColor = Color.FromArgb(
+            controller.DefaultBackgroundColor = Color.FromArgb(
                 startupR,
                 startupG,
                 startupB);
 
             Win32Window.GetClientRect(hwnd, out var rect);
-            _controller.Bounds = GetWebViewBounds(hwnd);
-            _controller.IsVisible = true;
+            controller.Bounds = GetWebViewBounds(hwnd);
+            controller.IsVisible = true;
 
             // Enable CSS app-region: drag/no-drag for window dragging
-            _controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
+            controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
 
             // Accept self-signed server certificates so the matrix-js-sdk can
             // reach the Brmble API server (which uses a self-signed TLS cert).
-            _controller.CoreWebView2.ServerCertificateErrorDetected += (_, args) =>
+            controller.CoreWebView2.ServerCertificateErrorDetected += (_, args) =>
             {
                 args.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
             };
@@ -278,7 +279,7 @@ static class Program
             // Suppress the client certificate prompt for Matrix SDK requests.
             // The Brmble server uses AllowCertificate mode, but only /auth/token
             // needs a cert (handled by BouncyCastle). All other requests work without one.
-            _controller.CoreWebView2.ClientCertificateRequested += (_, args) =>
+            controller.CoreWebView2.ClientCertificateRequested += (_, args) =>
             {
                 args.Handled = true; // Don't show prompt, don't send a cert
             };
@@ -289,11 +290,11 @@ static class Program
             // the request arrives as UnknownPermission. We only allow unknown
             // permissions from the app's own origin and when user-initiated to
             // avoid granting arbitrary future permission kinds without consent.
-            _controller.CoreWebView2.PermissionRequested += (_, args) =>
+            controller.CoreWebView2.PermissionRequested += (_, args) =>
             {
                 if (args.PermissionKind == CoreWebView2PermissionKind.UnknownPermission
                     && args.IsUserInitiated
-                    && args.Uri.StartsWith(_controller.CoreWebView2.Source,
+                    && args.Uri.StartsWith(controller.CoreWebView2.Source,
                         StringComparison.OrdinalIgnoreCase))
                 {
                     args.State = CoreWebView2PermissionState.Allow;
@@ -307,7 +308,7 @@ static class Program
 
             // Open target="_blank" links in the system default browser
             // instead of spawning a WebView2 popup window.
-            _controller.CoreWebView2.NewWindowRequested += (_, args) =>
+            controller.CoreWebView2.NewWindowRequested += (_, args) =>
             {
                 args.Handled = true;
                 if (!string.IsNullOrEmpty(args.Uri))
@@ -325,7 +326,7 @@ static class Program
 
             // Prevent in-page navigation to external URLs (e.g. <a> tags in
             // HTML messages that lack target="_blank"). Allow our own origins.
-            _controller.CoreWebView2.NavigationStarting += (_, args) =>
+            controller.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 var uri = args.Uri;
 
@@ -365,10 +366,10 @@ static class Program
             };
 
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
-            _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 WebViewCacheConfig.VirtualHost, webRoot, CoreWebView2HostResourceAccessKind.Allow);
             WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
-                _controller.CoreWebView2, env, webRoot);
+                controller.CoreWebView2, env, webRoot);
 
             if (_startupCancelled)
                 return;
@@ -377,16 +378,16 @@ static class Program
             if (_startupCancelled)
                 return;
 
-            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+            _bridge = new NativeBridge(controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
             _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
             await _overlayHost.InitializeAsync();
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
-            _controller.ZoomFactorChanged += (sender, args) =>
+            controller.ZoomFactorChanged += (sender, args) =>
             {
-                var zoomFactor = _controller!.ZoomFactor;
+                var zoomFactor = controller.ZoomFactor;
                 var zoomPercent = (int)Math.Round(zoomFactor * 100);
                 _bridge?.Send("window.zoomChanged", new { zoomPercent });
                 _bridge?.NotifyUiThread();
@@ -403,7 +404,7 @@ static class Program
             var savedZoom = _appConfigService!.GetZoomFactor();
             if (savedZoom.HasValue && savedZoom.Value > 0)
             {
-                _controller.ZoomFactor = savedZoom.Value;
+                controller.ZoomFactor = savedZoom.Value;
             }
 
 
@@ -487,12 +488,12 @@ static class Program
                 controller.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;
                 startupHandoff.OnMainNavigationCompleted(e.IsSuccess);
             };
-            _controller.CoreWebView2.NavigationCompleted += onMainNavigationCompleted;
+            controller.CoreWebView2.NavigationCompleted += onMainNavigationCompleted;
 
             if (_startupCancelled)
                 return;
 
-            _controller.CoreWebView2.Navigate(mainUiUri);
+            controller.CoreWebView2.Navigate(mainUiUri);
         }
         catch (Exception ex)
         {
