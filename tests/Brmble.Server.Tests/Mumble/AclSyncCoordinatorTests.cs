@@ -78,6 +78,9 @@ public class AclSyncCoordinatorTests
 
         Assert.IsFalse(result.Success);
         Assert.IsNotNull(result.Warning);
-        repo.Verify(r => r.MarkStaleAsync(8, It.Is<string>(reason => reason.Contains("refresh failed"))), Times.Once);
+        repo.Verify(r => r.MarkStaleAsync(
+            8,
+            "ACL change may have succeeded in Mumble, but Brmble could not refresh canonical ACL state."), Times.Once);
+        Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(result).Contains("refresh failed", StringComparison.Ordinal));
     }
 }

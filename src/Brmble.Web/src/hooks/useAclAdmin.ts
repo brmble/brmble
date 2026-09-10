@@ -33,9 +33,8 @@ export function useAclAdmin(channelId: number | null) {
     };
     const handleChanged = (data: unknown) => {
       const payload = data as BridgeResponse;
-      if (payload.channelId !== channelId || !payload.snapshot) return;
-      setSnapshot(payload.snapshot);
-      setError(null);
+      if (payload.channelId !== channelId || channelId == null) return;
+      bridge.send('acl.getChannel', { channelId });
     };
     const handleError = (data: unknown) => {
       const payload = data as BridgeResponse;
@@ -97,15 +96,6 @@ export function useAclAdmin(channelId: number | null) {
     });
   };
 
-  const savePassword = (password: string) => {
-    if (channelId == null) return;
-    setSaving(true);
-    setError(null);
-    // Strip leading # from password since native will prepend # when building ACL selector
-    const normalizedPassword = password.startsWith('#') ? password.slice(1) : password;
-    bridge.send('acl.setChannelPassword', { channelId, password: normalizedPassword });
-  };
-
   const addGroupMember = (group: string, session: number) => {
     if (channelId == null) return;
     setSaving(true);
@@ -120,5 +110,5 @@ export function useAclAdmin(channelId: number | null) {
     bridge.send('acl.removeGroupMember', { channelId, group, session });
   };
 
-  return { snapshot, loading, saving, error, refresh, save, savePassword, addGroupMember, removeGroupMember };
+  return { snapshot, loading, saving, error, refresh, save, addGroupMember, removeGroupMember };
 }

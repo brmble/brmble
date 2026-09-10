@@ -21,6 +21,16 @@ export interface PromptWithInputOptions {
   isPassword?: boolean;
 }
 
+export interface PasswordPromptResult {
+  password: string;
+  remember: boolean;
+}
+
+export interface PasswordPromptOptions extends PromptWithInputOptions {
+  rememberLabel?: string;
+  rememberDefaultChecked?: boolean;
+}
+
 interface UsePromptReturn {
   Prompt: () => React.ReactElement | null;
   PromptWithInput: () => React.ReactElement | null;
@@ -28,9 +38,12 @@ interface UsePromptReturn {
 
 let globalResolve: ((value: boolean) => void) | null = null;
 let globalResolveInput: ((value: string | null) => void) | null = null;
+let globalResolvePassword: ((value: PasswordPromptResult | null) => void) | null = null;
 let globalOptions: PromptOptions = { title: '', message: '' };
 let globalInputOptions: PromptWithInputOptions = { title: '', message: '', placeholder: '', defaultValue: '' };
+let globalPasswordOptions: PasswordPromptOptions = { title: '', message: '' };
 let globalForceUpdate: (() => void) | null = null;
+let globalInputPromptVersion = 0;
 
 function handleConfirm() {
   if (globalResolve) {
@@ -51,6 +64,11 @@ function handleCancel() {
     globalResolveInput = null;
     globalForceUpdate?.();
   }
+  if (globalResolvePassword) {
+    globalResolvePassword(null);
+    globalResolvePassword = null;
+    globalForceUpdate?.();
+  }
 }
 
 export function confirm(options: PromptOptions): Promise<boolean> {
@@ -61,6 +79,10 @@ export function confirm(options: PromptOptions): Promise<boolean> {
   if (globalResolveInput) {
     globalResolveInput(null);
     globalResolveInput = null;
+  }
+  if (globalResolvePassword) {
+    globalResolvePassword(null);
+    globalResolvePassword = null;
   }
   globalOptions = options;
   return new Promise((resolve) => {
@@ -78,9 +100,35 @@ export function prompt(options: PromptWithInputOptions): Promise<string | null> 
     globalResolveInput(null);
     globalResolveInput = null;
   }
+  if (globalResolvePassword) {
+    globalResolvePassword(null);
+    globalResolvePassword = null;
+  }
   globalInputOptions = options;
+  globalInputPromptVersion += 1;
   return new Promise((resolve) => {
     globalResolveInput = resolve;
+    globalForceUpdate?.();
+  });
+}
+
+export function promptPassword(options: PasswordPromptOptions): Promise<PasswordPromptResult | null> {
+  if (globalResolve) {
+    globalResolve(false);
+    globalResolve = null;
+  }
+  if (globalResolveInput) {
+    globalResolveInput(null);
+    globalResolveInput = null;
+  }
+  if (globalResolvePassword) {
+    globalResolvePassword(null);
+    globalResolvePassword = null;
+  }
+  globalPasswordOptions = options;
+  globalInputPromptVersion += 1;
+  return new Promise((resolve) => {
+    globalResolvePassword = resolve;
     globalForceUpdate?.();
   });
 }
@@ -142,20 +190,25 @@ function PromptComponent() {
 
 // Stable top-level component for input prompts.
 function PromptWithInputComponent() {
-  const isOpen = globalResolveInput !== null;
+  const isPasswordPromptOpen = globalResolvePassword !== null;
+  const isOpen = globalResolveInput !== null || isPasswordPromptOpen;
+  const promptVersion = globalInputPromptVersion;
   const [inputValue, setInputValue] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberChecked, setRememberChecked] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [toggleFocused, setToggleFocused] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setInputValue(globalInputOptions.defaultValue || '');
+      const activeOptions = isPasswordPromptOpen ? globalPasswordOptions : globalInputOptions;
+      setInputValue(activeOptions.defaultValue || '');
       setShowPassword(false);
+      setRememberChecked(isPasswordPromptOpen && globalPasswordOptions.rememberDefaultChecked === true);
       setInputFocused(false);
       setToggleFocused(false);
     }
-  }, [isOpen]);
+  }, [isOpen, isPasswordPromptOpen, promptVersion]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -170,18 +223,30 @@ function PromptWithInputComponent() {
   }, [isOpen]);
 
   const handleSubmit = useCallback(() => {
-    if (globalResolveInput) {
+    if (globalResolvePassword) {
+      globalResolvePassword({ password: inputValue, remember: rememberChecked });
+      globalResolvePassword = null;
+      setInputValue('');
+      setShowPassword(false);
+      setRememberChecked(false);
+      setInputFocused(false);
+      setToggleFocused(false);
+      globalForceUpdate?.();
+    } else if (globalResolveInput) {
       globalResolveInput(inputValue);
       globalResolveInput = null;
       setInputValue('');
       setShowPassword(false);
+      setRememberChecked(false);
       setInputFocused(false);
       setToggleFocused(false);
       globalForceUpdate?.();
     }
-  }, [inputValue]);
+  }, [inputValue, rememberChecked]);
 
   if (!isOpen) return null;
+
+  const inputOptions = isPasswordPromptOpen ? globalPasswordOptions : globalInputOptions;
 
   return (
     <div className="modal-overlay" onClick={handleCancel}>
@@ -193,21 +258,21 @@ function PromptWithInputComponent() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 id="prompt-title" className="heading-title modal-title">{globalInputOptions.title}</h2>
-          <p className="modal-subtitle">{globalInputOptions.message}</p>
+          <h2 id="prompt-title" className="heading-title modal-title">{inputOptions.title}</h2>
+          <p className="modal-subtitle">{inputOptions.message}</p>
         </div>
         <div className="prompt-input-container">
           <input
-            type={globalInputOptions.isPassword && !showPassword ? 'password' : 'text'}
+            type={inputOptions.isPassword && !showPassword ? 'password' : 'text'}
             className="brmble-input"
-            placeholder={globalInputOptions.placeholder}
+            placeholder={inputOptions.placeholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onFocus={() => setInputFocused(true)}
             onBlur={() => {
               setInputFocused(false);
               // Hide the password again when focus leaves the field, unless
-              // it moved to the toggle button (matches AclEditorDialog).
+              // it moved to the toggle button.
               if (!toggleFocused) setShowPassword(false);
             }}
             onKeyDown={(e) => {
@@ -218,10 +283,9 @@ function PromptWithInputComponent() {
             }}
             autoFocus
           />
-          {/* Reveal toggle follows the shared focus-gated pattern (see
-              AclEditorDialog): it only appears while the field or toggle is
-              focused, and hides the password again on blur. */}
-          {globalInputOptions.isPassword && (inputFocused || toggleFocused) && (
+          {/* Reveal toggle only appears while the field or toggle is focused,
+              and hides the password again on blur. */}
+          {inputOptions.isPassword && (inputFocused || toggleFocused) && (
             <button
               type="button"
               className="password-toggle-btn"
@@ -235,18 +299,28 @@ function PromptWithInputComponent() {
             </button>
           )}
         </div>
+        {isPasswordPromptOpen && globalPasswordOptions.rememberLabel && (
+          <label className="prompt-checkbox-row">
+            <input
+              type="checkbox"
+              checked={rememberChecked}
+              onChange={(e) => setRememberChecked(e.target.checked)}
+            />
+            <span>{globalPasswordOptions.rememberLabel}</span>
+          </label>
+        )}
         <div className="prompt-footer">
           <button
             className="btn btn-secondary"
             onClick={handleCancel}
           >
-            {globalInputOptions.cancelLabel || 'Cancel'}
+            {inputOptions.cancelLabel || 'Cancel'}
           </button>
           <button
             className="btn btn-primary"
             onClick={handleSubmit}
           >
-            {globalInputOptions.confirmLabel || 'Confirm'}
+            {inputOptions.confirmLabel || 'Confirm'}
           </button>
         </div>
       </div>

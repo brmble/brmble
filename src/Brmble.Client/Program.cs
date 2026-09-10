@@ -13,6 +13,7 @@ using Brmble.Client.Services.Games;
 using Brmble.Client.Services.Paint;
 using Brmble.Client.Services.Update;
 using Brmble.Client.Services.Idle;
+using Brmble.Client.Services.Messages;
 using Brmble.Client.Overlay;
 using System.Text.Json;
 
@@ -30,6 +31,7 @@ static class Program
     private static MumbleAdapter? _mumbleClient;
     private static GameService? _gameService;
     private static PaintService? _paintService;
+    private static MessageService? _messageService;
     private static UpdateService? _updateService;
     private static IdleService? _idleService;
     private static CompanionOverlayRelay? _overlayRelay;
@@ -39,6 +41,9 @@ static class Program
     private static volatile bool _muted;
     private static volatile bool _deafened;
     private static volatile string? _closeAction; // null = ask, "minimize", "quit"
+    private static volatile bool _mainUiReady;
+    private static volatile bool _startupCancelled;
+    private static StartupSplashWindow? _startupSplash;
     private static IntPtr _currentBgBrush;
     private static System.Threading.Timer? _zoomSaveTimer;
     /// <summary>
@@ -173,11 +178,29 @@ static class Program
             }
 
             var startupTheme = _appConfigService.GetSettings().Appearance.Theme;
+
+            try
+            {
+                _startupSplash = new StartupSplashWindow();
+                _startupSplash.Dismissed += CancelStartup;
+                _startupSplash.Show(startupTheme);
+                if (!_startupSplash.IsVisible)
+                {
+                    _startupSplash.Dispose();
+                    _startupSplash = null;
+                }
+            }
+            catch (Exception splashException)
+            {
+                Debug.WriteLine($"[WARN] Native startup splash could not be created: {splashException}");
+                _startupSplash?.Dispose();
+                _startupSplash = null;
+            }
+
             var (br0, bg0, bb0) = ThemeColors.GetBgPrimary(startupTheme);
             uint startupBgColorRef = Win32Window.ToColorRef(br0, bg0, bb0);
-            _hwnd = Win32Window.Create("BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef);
-            if (restoreMaximized)
-                Win32Window.ShowWindow(_hwnd, Win32Window.SW_MAXIMIZE);
+            _hwnd = Win32Window.Create(
+                "BrmbleWindow", "Brmble", wx, wy, ww, wh, WndProc, startupBgColorRef, visible: false);
             Win32Window.ExtendFrameIntoClientArea(_hwnd);
             Win32Window.ForceFrameChange(_hwnd);
 
@@ -188,7 +211,7 @@ static class Program
             Win32Window.SetBorderColor(_hwnd, Win32Window.ToColorRef(sbr, sbg, sbb));
             TrayIcon.Create(_hwnd);
             TaskbarBadge.Initialize(_hwnd);
-            _ = InitWebView2Async(_hwnd, useDevServer);
+            _ = InitWebView2Async(_hwnd, useDevServer, startupTheme, restoreMaximized);
             Win32Window.RunMessageLoop();
         }
         catch (Exception ex)
@@ -197,7 +220,11 @@ static class Program
         }
     }
 
-    private static async Task InitWebView2Async(IntPtr hwnd, bool useDevServer)
+    private static async Task InitWebView2Async(
+        IntPtr hwnd,
+        bool useDevServer,
+        string startupTheme,
+        bool restoreMaximized)
     {
         try
         {
@@ -220,18 +247,33 @@ static class Program
             var env = await CoreWebView2Environment.CreateAsync(
                 browserExecutableFolder: null,
                 userDataFolder: webViewUserDataPath);
-            _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            if (_startupCancelled)
+                return;
+
+            var controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            _controller = controller;
+            if (_startupCancelled)
+            {
+                CloseWebViewController();
+                return;
+            }
+
+            var (startupR, startupG, startupB) = ThemeColors.GetBgDeep(startupTheme);
+            controller.DefaultBackgroundColor = Color.FromArgb(
+                startupR,
+                startupG,
+                startupB);
 
             Win32Window.GetClientRect(hwnd, out var rect);
-            _controller.Bounds = GetWebViewBounds(hwnd);
-            _controller.IsVisible = true;
+            controller.Bounds = GetWebViewBounds(hwnd);
+            controller.IsVisible = true;
 
             // Enable CSS app-region: drag/no-drag for window dragging
-            _controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
+            controller.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
 
             // Accept self-signed server certificates so the matrix-js-sdk can
             // reach the Brmble API server (which uses a self-signed TLS cert).
-            _controller.CoreWebView2.ServerCertificateErrorDetected += (_, args) =>
+            controller.CoreWebView2.ServerCertificateErrorDetected += (_, args) =>
             {
                 args.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
             };
@@ -239,7 +281,7 @@ static class Program
             // Suppress the client certificate prompt for Matrix SDK requests.
             // The Brmble server uses AllowCertificate mode, but only /auth/token
             // needs a cert (handled by BouncyCastle). All other requests work without one.
-            _controller.CoreWebView2.ClientCertificateRequested += (_, args) =>
+            controller.CoreWebView2.ClientCertificateRequested += (_, args) =>
             {
                 args.Handled = true; // Don't show prompt, don't send a cert
             };
@@ -250,20 +292,25 @@ static class Program
             // the request arrives as UnknownPermission. We only allow unknown
             // permissions from the app's own origin and when user-initiated to
             // avoid granting arbitrary future permission kinds without consent.
-            _controller.CoreWebView2.PermissionRequested += (_, args) =>
+            controller.CoreWebView2.PermissionRequested += (_, args) =>
             {
                 if (args.PermissionKind == CoreWebView2PermissionKind.UnknownPermission
                     && args.IsUserInitiated
-                    && args.Uri.StartsWith(_controller.CoreWebView2.Source,
+                    && args.Uri.StartsWith(controller.CoreWebView2.Source,
                         StringComparison.OrdinalIgnoreCase))
                 {
                     args.State = CoreWebView2PermissionState.Allow;
                 }
             };
 
+            var mainUiUri = useDevServer
+                ? DevServerUrl
+                : $"https://{WebViewCacheConfig.VirtualHost}/index.html";
+            ulong? mainUiNavigationId = null;
+
             // Open target="_blank" links in the system default browser
             // instead of spawning a WebView2 popup window.
-            _controller.CoreWebView2.NewWindowRequested += (_, args) =>
+            controller.CoreWebView2.NewWindowRequested += (_, args) =>
             {
                 args.Handled = true;
                 if (!string.IsNullOrEmpty(args.Uri))
@@ -281,9 +328,14 @@ static class Program
 
             // Prevent in-page navigation to external URLs (e.g. <a> tags in
             // HTML messages that lack target="_blank"). Allow our own origins.
-            _controller.CoreWebView2.NavigationStarting += (_, args) =>
+            controller.CoreWebView2.NavigationStarting += (_, args) =>
             {
                 var uri = args.Uri;
+
+                if (string.Equals(uri, mainUiUri, StringComparison.OrdinalIgnoreCase))
+                {
+                    mainUiNavigationId = args.NavigationId;
+                }
 
                 // No URI provided; treat as internal navigation
                 if (string.IsNullOrEmpty(uri))
@@ -316,21 +368,28 @@ static class Program
             };
 
             var webRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "web");
-            _controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            controller.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 WebViewCacheConfig.VirtualHost, webRoot, CoreWebView2HostResourceAccessKind.Allow);
             WebViewCacheConfig.DisableHtmlCacheForVirtualHost(
-                _controller.CoreWebView2, env, webRoot);
+                controller.CoreWebView2, env, webRoot);
 
-            _bridge = new NativeBridge(_controller.CoreWebView2, hwnd);
+            if (_startupCancelled)
+                return;
+
+            await ApplyStartupTestDelayAsync();
+            if (_startupCancelled)
+                return;
+
+            _bridge = new NativeBridge(controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
             _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
             await _overlayHost.InitializeAsync();
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
-            _controller.ZoomFactorChanged += (sender, args) =>
+            controller.ZoomFactorChanged += (sender, args) =>
             {
-                var zoomFactor = _controller!.ZoomFactor;
+                var zoomFactor = controller.ZoomFactor;
                 var zoomPercent = (int)Math.Round(zoomFactor * 100);
                 _bridge?.Send("window.zoomChanged", new { zoomPercent });
                 _bridge?.NotifyUiThread();
@@ -347,7 +406,7 @@ static class Program
             var savedZoom = _appConfigService!.GetZoomFactor();
             if (savedZoom.HasValue && savedZoom.Value > 0)
             {
-                _controller.ZoomFactor = savedZoom.Value;
+                controller.ZoomFactor = savedZoom.Value;
             }
 
 
@@ -402,6 +461,14 @@ static class Program
             _gameService.Initialize(_bridge);
             _gameService.RegisterHandlers(_bridge);
 
+            _messageService = new MessageService(
+                _bridge,
+                () => _certService?.GetExportableCertificate(),
+                () => _mumbleClient?.ApiUrl,
+                MumbleAdapter.PostChannelRequestViaBcTls);
+            _messageService.Initialize(_bridge);
+            _messageService.RegisterHandlers(_bridge);
+
             _paintService = new PaintService(
                 _bridge,
                 () => _certService?.GetExportableCertificate(),
@@ -411,44 +478,150 @@ static class Program
             _paintService.Initialize(_bridge);
             _paintService.RegisterHandlers(_bridge);
 
-            // Auto-connect after frontend loads (one-shot: unsubscribe after first success)
-            EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
-            onNavCompleted = (s, e) =>
-            {
-                if (e.IsSuccess)
-                {
-                    _controller.CoreWebView2.NavigationCompleted -= onNavCompleted;
-                    // Send initial window state — WM_SIZE fires before the bridge
-                    // exists when starting maximized, so without this the React
-                    // app would default to maximized=false and render the
-                    // resize handles over a maximized window.
-                    _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(_hwnd) });
-                    TryAutoConnect();
-                    _updateService?.SendVersion();
-                    _updateService?.StartPeriodicChecks();
-                }
-            };
-            _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
+            var startupHandoff = new StartupHandoff(
+                onReady: () => CompleteStartup(restoreMaximized),
+                onFailure: () => ShowStartupFailure(hwnd));
 
-            if (useDevServer)
-                _controller.CoreWebView2.Navigate(DevServerUrl);
-            else
-                _controller.CoreWebView2.Navigate("https://brmble.local/index.html");
+            startupHandoff.Register(_bridge);
+
+            EventHandler<CoreWebView2NavigationCompletedEventArgs> onMainNavigationCompleted = null!;
+            onMainNavigationCompleted = (_, e) =>
+            {
+                if (mainUiNavigationId != e.NavigationId)
+                    return;
+
+                var controller = Volatile.Read(ref _controller);
+
+                if (_startupCancelled || controller is null)
+                    return;
+
+                controller.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;
+                startupHandoff.OnMainNavigationCompleted(e.IsSuccess);
+            };
+            controller.CoreWebView2.NavigationCompleted += onMainNavigationCompleted;
+
+            if (_startupCancelled)
+                return;
+
+            controller.CoreWebView2.Navigate(mainUiUri);
         }
         catch (Exception ex)
         {
-            // A failure here leaves the window blank (Navigate never runs) and
-            // Debug.WriteLine is invisible in a WinExe — persist to the same
-            // file the unhandled-exception hooks in Main use.
+            if (_startupCancelled)
+            {
+                CloseWebViewController();
+                return;
+            }
+
             Debug.WriteLine($"[ERROR] InitWebView2Async: {ex}");
             try
             {
                 File.AppendAllText(
                     Path.Combine(Path.GetTempPath(), "brmble-tls.log"),
-                    $"[{DateTime.Now:HH:mm:ss.fff}] InitWebView2Async FAILED (window will stay blank): {ex}\n\n");
+                    $"[{DateTime.Now:HH:mm:ss.fff}] InitWebView2Async FAILED: {ex}\n\n");
             }
-            catch { /* logging is best-effort */ }
+            catch
+            {
+                // Logging is best-effort.
+            }
+
+            ShowStartupFailure(hwnd);
         }
+    }
+
+    private static void CloseWebViewController()
+    {
+        var controller = Interlocked.Exchange(ref _controller, null);
+        if (controller is null)
+            return;
+
+        try
+        {
+            controller.Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[WARN] Failed to close WebView2 controller: {exception}");
+        }
+    }
+
+    private static void CancelStartup()
+    {
+        _startupCancelled = true;
+
+        CloseWebViewController();
+
+        _startupSplash?.Close();
+        _startupSplash = null;
+        if (_hwnd != IntPtr.Zero && !_mainUiReady)
+            Win32Window.DestroyWindow(_hwnd);
+    }
+
+    private static void ShowNativeStartupError(IntPtr hwnd)
+    {
+        if (_startupCancelled)
+            return;
+
+        _startupSplash?.Close();
+        _startupSplash = null;
+        Win32Window.ShowStartupError(hwnd, GetStartupLogPath());
+        Win32Window.DestroyWindow(hwnd);
+    }
+
+    private static void ShowStartupFailure(IntPtr hwnd)
+    {
+        if (_startupCancelled)
+            return;
+
+        CloseWebViewController();
+
+        if (_startupSplash is null)
+        {
+            ShowNativeStartupError(hwnd);
+            return;
+        }
+
+        _startupSplash.ShowError();
+    }
+
+    private static void CompleteStartup(bool restoreMaximized)
+    {
+        if (_startupCancelled || _mainUiReady)
+            return;
+
+        // StartupHandoff owns the atomic exactly-once transition.
+        // _mainUiReady is the window lifecycle state used by WndProc.
+        _mainUiReady = true;
+
+        Win32Window.ShowWindow(
+            _hwnd,
+            restoreMaximized ? Win32Window.SW_SHOWMAXIMIZED : Win32Window.SW_SHOW);
+
+        _startupSplash?.Close();
+        _startupSplash = null;
+
+        // WM_SIZE can fire before React is ready while restoring maximized.
+        // Send the authoritative initial state during the app.ready handoff.
+        _bridge?.Send(
+            "window.stateChanged",
+            new { maximized = Win32Window.IsZoomed(_hwnd) });
+
+        TryAutoConnect();
+        _updateService?.SendVersion();
+        _updateService?.StartPeriodicChecks();
+    }
+
+    private static string GetStartupLogPath() =>
+        Path.Combine(Path.GetTempPath(), "brmble-tls.log");
+
+    private static async Task ApplyStartupTestDelayAsync()
+    {
+        var raw = Environment.GetEnvironmentVariable("BRMBLE_STARTUP_DELAY_SECONDS");
+        if (!int.TryParse(raw, out var seconds) || seconds <= 0)
+            return;
+
+        await Task.Delay(TimeSpan.FromSeconds(Math.Min(seconds, 30)));
     }
 
     private static void SetupBridgeHandlers()
@@ -676,7 +849,13 @@ static class Program
                 return IntPtr.Zero;
 
             case Win32Window.WM_CLOSE:
-                if (_closeAction == "quit")
+                if (!_mainUiReady)
+                {
+                    // Startup/loading/error pages have no close-dialog listener;
+                    // always exit, even when the saved preference is minimize.
+                    CancelStartup();
+                }
+                else if (_closeAction == "quit")
                 {
                     Win32Window.DestroyWindow(hwnd);
                 }
@@ -686,14 +865,9 @@ static class Program
                 }
                 else if (_bridge != null)
                 {
-                    // Ask via WebView2 modal — fire-and-forget
+                    // Ask via the React modal after the main UI has mounted.
                     _bridge.Send("window.showCloseDialog");
                     _bridge.Flush();
-                }
-                else
-                {
-                    // Bridge not ready yet — just quit
-                    Win32Window.DestroyWindow(hwnd);
                 }
                 return IntPtr.Zero;
 
@@ -738,7 +912,10 @@ static class Program
                         Console.WriteLine("[Console] Debug console opened");
                         break;
                     case TrayIcon.IDM_QUIT:
-                        Win32Window.DestroyWindow(hwnd);
+                        if (!_mainUiReady)
+                            CancelStartup();
+                        else
+                            Win32Window.DestroyWindow(hwnd);
                         break;
                 }
                 return IntPtr.Zero;
@@ -761,9 +938,12 @@ static class Program
             }
 
             case Win32Window.WM_DESTROY:
+                _startupSplash?.Close();
+                _startupSplash = null;
+                CloseWebViewController();
                 _zoomSaveTimer?.Dispose();
                 _zoomSaveTimer = null;
-                if (_appConfigService != null)
+                if (_appConfigService != null && !_startupCancelled)
                 {
                     var placement = new Win32Window.WINDOWPLACEMENT
                     {

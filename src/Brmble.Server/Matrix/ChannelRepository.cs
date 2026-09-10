@@ -46,4 +46,13 @@ public class ChannelRepository
             "SELECT mumble_channel_id, matrix_room_id FROM channel_room_map");
         return rows.Select(r => new ChannelRoomMapping((int)(long)r.mumble_channel_id, (string)r.matrix_room_id)).ToList();
     }
+
+    public async Task<bool> IsRoomRegisteredAsync(string matrixRoomId)
+    {
+        using var conn = _db.CreateConnection();
+        var match = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT matrix_room_id FROM channel_room_map WHERE matrix_room_id = @roomId LIMIT 1",
+            new { roomId = matrixRoomId });
+        return match is not null;
+    }
 }

@@ -15,6 +15,7 @@ using Brmble.Server.ServerInfo;
 using Brmble.Server.WebSockets;
 using Brmble.Server.Paint;
 using Brmble.Server.Companions;
+using Brmble.Server.Messages;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
@@ -44,6 +45,8 @@ builder.Services.AddMatrix();
 builder.Services.AddLiveKit();
 builder.Services.AddGames();
 builder.Services.AddCustomCompanions();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<MessageDeletionService>();
 builder.Services.AddOptions<PaintStorageOptions>()
     .BindConfiguration("PaintStorage");
 builder.Services.AddSingleton<IPaintTemporarySourceStore, FilePaintTemporarySourceStore>();
@@ -144,6 +147,7 @@ app.Map("/games/realtime", RealtimeGameEndpoint.HandleAsync);
 app.MapServerInfoEndpoints();
 app.MapLiveKitEndpoints();
 app.MapCustomCompanionEndpoints();
+app.MapMessageEndpoints();
 app.MapReverseProxy();
 
 app.Run();

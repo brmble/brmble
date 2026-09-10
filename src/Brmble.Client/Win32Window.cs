@@ -15,6 +15,8 @@ internal static class Win32Window
     public const int CW_USEDEFAULT = unchecked((int)0x80000000);
     private const uint CS_HREDRAW = 0x0002;
     private const uint CS_VREDRAW = 0x0001;
+    private const uint MB_OK = 0x00000000;
+    private const uint MB_ICONERROR = 0x00000010;
 
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_MOVE = 0x0003;
@@ -101,6 +103,16 @@ internal static class Win32Window
 
     [DllImport("user32.dll")]
     public static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr MessageBox(IntPtr hWnd, string lpText, string lpCaption, uint uType);
+
+    public static void ShowStartupError(IntPtr hwnd, string? logPath = null)
+    {
+        logPath ??= Path.Combine(Path.GetTempPath(), "brmble-tls.log");
+        var message = $"Brmble couldn't finish starting. Please close Brmble and try again. For more information, see the log at {logPath}.";
+        MessageBox(hwnd, message, "Brmble couldn't start", MB_OK | MB_ICONERROR);
+    }
 
     public const int SW_MINIMIZE = 6;
     public const int SW_MAXIMIZE = 3;
@@ -433,7 +445,16 @@ internal static class Win32Window
         }
     }
 
-    public static IntPtr Create(string className, string title, int x, int y, int width, int height, WndProc wndProc, uint backgroundColorRef)
+    public static IntPtr Create(
+        string className,
+        string title,
+        int x,
+        int y,
+        int width,
+        int height,
+        WndProc wndProc,
+        uint backgroundColorRef,
+        bool visible = true)
     {
         var hInstance = GetModuleHandle(null);
         _wndProcRefs.Add(wndProc);
@@ -455,8 +476,9 @@ internal static class Win32Window
         };
         RegisterClassEx(ref wc);
 
+        var windowStyle = WS_OVERLAPPEDWINDOW | (visible ? WS_VISIBLE : 0u);
         return CreateWindowEx(0, className, title,
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            windowStyle,
             x, y, width, height,
             IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
     }

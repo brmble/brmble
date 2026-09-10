@@ -23,9 +23,11 @@ describe('useAclAdmin', () => {
 
   it('requests channel ACL and stores bridge snapshot', () => {
     let channelHandler: ((data: unknown) => void) | undefined;
+    let changedHandler: ((data: unknown) => void) | undefined;
     let errorHandler: ((data: unknown) => void) | undefined;
     vi.mocked(bridge.on).mockImplementation((type, handler) => {
       if (type === 'acl.channel') channelHandler = handler;
+      if (type === 'acl.changed') changedHandler = handler;
       if (type === 'acl.error') errorHandler = handler;
     });
     const { result } = renderHook(() => useAclAdmin(4));
@@ -53,6 +55,18 @@ describe('useAclAdmin', () => {
     expect(result.current.error).toBeNull();
 
     act(() => result.current.save({ inheritAcls: true, groups: [], acls: [] }));
+    expect(bridge.send).toHaveBeenCalledWith('acl.setChannel', {
+      channelId: 4,
+      request: {
+        inheritAcls: true,
+        groups: [],
+        acls: [],
+        expectedSnapshotHash: 'known-hash',
+      },
+    });
+    act(() => changedHandler?.({ channelId: 4, snapshotHash: 'new-hash', hasManagedPassword: true }));
+    expect(bridge.send).toHaveBeenCalledWith('acl.getChannel', { channelId: 4 });
+
     act(() => errorHandler?.({
       channelId: 4,
       statusCode: 409,
@@ -74,5 +88,19 @@ describe('useAclAdmin', () => {
 
     expect(result.current.snapshot?.snapshotHash).toBe('canonical-hash');
     expect(result.current.error).toContain('ACL changed since it was opened.');
+  });
+
+  it('refetches the authorized ACL when a metadata-only change event arrives', () => {
+    let changedHandler: ((data: unknown) => void) | undefined;
+    vi.mocked(bridge.on).mockImplementation((type, handler) => {
+      if (type === 'acl.changed') changedHandler = handler;
+    });
+    vi.mocked(bridge.send).mockClear();
+    const { result } = renderHook(() => useAclAdmin(7));
+
+    act(() => changedHandler?.({ channelId: 7, snapshotHash: 'new-hash', hasManagedPassword: true }));
+
+    expect(bridge.send).toHaveBeenCalledWith('acl.getChannel', { channelId: 7 });
+    expect(result.current.snapshot).toBeNull();
   });
 });

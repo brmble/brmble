@@ -402,6 +402,23 @@
   padding: 0 var(--space-lg) var(--space-md);
 }
 
+.chat-action-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 var(--space-md) var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--accent-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--accent-danger-subtle);
+  color: var(--accent-danger-text);
+}
+
+.chat-action-error__dismiss {
+  flex: 0 0 auto;
+}
+
 .chat-typing-indicator {
   --chat-typing-indicator-min-height: calc(var(--space-lg) - var(--space-2xs));
   min-height: var(--chat-typing-indicator-min-height);

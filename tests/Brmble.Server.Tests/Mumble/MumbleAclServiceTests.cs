@@ -1,4 +1,5 @@
 using Brmble.Server.Mumble;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
@@ -48,6 +49,39 @@ public class MumbleAclServiceTests
             It.Is<MumbleServer.ACL[]>(rules => rules.Length == 1 && rules[0].group == "#secret"),
             It.Is<MumbleServer.Group[]>(groups => groups.Length == 0),
             true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SetChannelAclAsync_LogsErrorTypeWithoutExceptionObjectOrPassword()
+    {
+        const string password = "class-a-voice";
+        var lowerLevel = new MumbleAclException($"failed selector #{password}", new InvalidOperationException($"raw selector #{password}"));
+        var ice = new Mock<IMumbleAclIceClient>();
+        ice.Setup(client => client.SetAclAsync(7, It.IsAny<MumbleServer.ACL[]>(), It.IsAny<MumbleServer.Group[]>(), true)).ThrowsAsync(lowerLevel);
+        var logger = new Mock<ILogger<MumbleAclService>>();
+        var service = new MumbleAclService(ice.Object, logger.Object);
+
+        var thrown = await Assert.ThrowsExceptionAsync<MumbleAclException>(() => service.SetChannelAclAsync(7, new AclUpdateRequest(true, [], [], "hash-7")));
+
+        Assert.IsNull(thrown.InnerException);
+        Assert.IsFalse(thrown.ToString().Contains(password, StringComparison.Ordinal));
+        logger.Verify(log => log.Log(LogLevel.Warning, It.IsAny<EventId>(), It.Is<It.IsAnyType>((state, _) => !state.ToString()!.Contains(password, StringComparison.Ordinal) && state.ToString()!.Contains(nameof(MumbleAclException), StringComparison.Ordinal)), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetChannelAclAsync_LogsErrorTypeWithoutExceptionObjectOrPassword()
+    {
+        const string password = "class-a-voice";
+        var ice = new Mock<IMumbleAclIceClient>();
+        ice.Setup(client => client.GetAclAsync(7)).ThrowsAsync(new InvalidOperationException($"failed selector #{password}"));
+        var logger = new Mock<ILogger<MumbleAclService>>();
+        var service = new MumbleAclService(ice.Object, logger.Object);
+
+        var thrown = await Assert.ThrowsExceptionAsync<MumbleAclException>(() => service.GetChannelAclAsync(7));
+
+        Assert.IsNull(thrown.InnerException);
+        Assert.IsFalse(thrown.ToString().Contains(password, StringComparison.Ordinal));
+        logger.Verify(log => log.Log(LogLevel.Warning, It.IsAny<EventId>(), It.Is<It.IsAnyType>((state, _) => !state.ToString()!.Contains(password, StringComparison.Ordinal) && state.ToString()!.Contains(nameof(InvalidOperationException), StringComparison.Ordinal)), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
     }
 
     [TestMethod]

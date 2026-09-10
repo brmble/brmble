@@ -15,6 +15,7 @@ import type { Channel } from '../../types';
 interface AdminSettingsTabProps {
   channels?: Channel[];
   onChannelsChange?: (channels: Channel[]) => void;
+  initialChannelId?: number;
   liveUsers?: Array<{
     session: number;
     name: string;
@@ -31,6 +32,7 @@ interface AdminSettingsTabProps {
 export function AdminSettingsTab({
   channels = [],
   onChannelsChange,
+  initialChannelId,
   liveUsers = [],
   customCompanions,
   customCompanionGallery,
@@ -56,7 +58,7 @@ export function AdminSettingsTab({
       <div className="admin-workspace-body">
         {activeTab === 'channels' && (
           <div className="admin-workspace-stack">
-            <AdminChannelsSection channels={channels} onChannelsChange={onChannelsChange} />
+            <AdminChannelsSection channels={channels} onChannelsChange={onChannelsChange} initialChannelId={initialChannelId} />
             <AdminChannelRequestsSection />
           </div>
         )}

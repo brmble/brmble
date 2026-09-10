@@ -4,6 +4,7 @@ using Brmble.Server.Matrix;
 using Brmble.Server.Mumble;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 
@@ -15,6 +16,7 @@ public class MatrixServiceTests
     private SqliteConnection? _keepAlive;
     private ChannelRepository _channelRepo = null!;
     private Mock<IMatrixAppService> _appService = null!;
+    private Mock<UserRepository> _users = null!;
     private Mock<IActiveBrmbleSessions> _sessions = null!;
     private MatrixService _svc = null!;
 
@@ -30,8 +32,11 @@ public class MatrixServiceTests
         _channelRepo = new ChannelRepository(db);
 
         _appService = new Mock<IMatrixAppService>();
+        _users = new Mock<UserRepository>(db, Options.Create(new MatrixSettings { ServerDomain = "localhost" }));
+        _users.Setup(r => r.GetByCertHash("og-hash"))
+            .ReturnsAsync(new User(1, "og-hash", "Bob", "@bob:localhost", null));
         _sessions = new Mock<IActiveBrmbleSessions>();
-        _svc = new MatrixService(_channelRepo, _appService.Object, _sessions.Object, NullLogger<MatrixService>.Instance);
+        _svc = new MatrixService(_channelRepo, _appService.Object, _sessions.Object, NullLogger<MatrixService>.Instance, _users.Object);
     }
 
     [TestCleanup]
@@ -81,7 +86,7 @@ public class MatrixServiceTests
 
         await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 2), "hello", 42);
 
-        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "hello"), Times.Once);
+        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "hello", "@bob:localhost"), Times.Once);
     }
 
     [TestMethod]
@@ -96,7 +101,7 @@ public class MatrixServiceTests
             1);
 
         _appService.Verify(
-            a => a.SendMessage("!room:server", "Bob", "bold and italic"),
+            a => a.SendMessage("!room:server", "Bob", "bold and italic", "@bob:localhost"),
             Times.Once);
     }
 
@@ -112,7 +117,7 @@ public class MatrixServiceTests
             1);
 
         _appService.Verify(
-            a => a.SendMessage("!room:server", "Bob", "hello & world"),
+            a => a.SendMessage("!room:server", "Bob", "hello & world", "@bob:localhost"),
             Times.Once);
     }
 
@@ -143,7 +148,7 @@ public class MatrixServiceTests
         await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
 
         _appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), "image/png", "image.png"), Times.Once);
-        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4), Times.Once);
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4, "@bob:localhost"), Times.Once);
         _appService.Verify(a => a.SendMessage(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -161,8 +166,8 @@ public class MatrixServiceTests
 
         await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
 
-        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4), Times.Once);
-        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "Check this out:"), Times.Once);
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded123", "image.png", "image/png", 4, "@bob:localhost"), Times.Once);
+        _appService.Verify(a => a.SendMessage("!room:server", "Bob", "Check this out:", "@bob:localhost"), Times.Once);
     }
 
     [TestMethod]
@@ -208,6 +213,6 @@ public class MatrixServiceTests
         await _svc.RelayMessage(new MumbleUser("Bob", "og-hash", 1), msg, 1);
 
         _appService.Verify(a => a.UploadMedia(It.IsAny<byte[]>(), "image/JPEG", "image.jpg"), Times.Once);
-        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded456", "image.jpg", "image/JPEG", 4), Times.Once);
+        _appService.Verify(a => a.SendImageMessage("!room:server", "Bob", "mxc://server/uploaded456", "image.jpg", "image/JPEG", 4, "@bob:localhost"), Times.Once);
     }
 }
