@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.IO;
 using Brmble.Client.Tests.Services;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -9,6 +10,34 @@ namespace Brmble.Client.Tests;
 [TestClass]
 public sealed class StartupHandoffTests
 {
+    [TestMethod]
+    public void NavigationCompletionChecksCancellationBeforeDereferencingController()
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "src", "Brmble.Client", "Program.cs"));
+        var source = File.ReadAllText(sourcePath);
+        var handlerStart = source.IndexOf(
+            "onMainNavigationCompleted = (_, e) =>",
+            StringComparison.Ordinal);
+        var handlerEnd = source.IndexOf("};", handlerStart, StringComparison.Ordinal);
+        var handler = source.Substring(handlerStart, handlerEnd - handlerStart);
+        var cancellationCheck = handler.IndexOf(
+            "if (_startupCancelled || controller is null)",
+            StringComparison.Ordinal);
+        var controllerDereference = handler.IndexOf(
+            "controller.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;",
+            StringComparison.Ordinal);
+
+        Assert.IsTrue(handlerStart >= 0);
+        Assert.IsTrue(handlerEnd > handlerStart);
+        Assert.IsTrue(cancellationCheck >= 0);
+        Assert.IsTrue(controllerDereference >= 0);
+        Assert.IsTrue(
+            cancellationCheck < controllerDereference,
+            "A queued navigation completion must not dereference a controller cleared by cancellation.");
+    }
+
     [TestMethod]
     public async Task SuccessfulNavigationDoesNotRevealUntilAppReady()
     {

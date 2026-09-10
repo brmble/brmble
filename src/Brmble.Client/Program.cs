@@ -479,11 +479,12 @@ static class Program
                 if (mainUiNavigationId != e.NavigationId)
                     return;
 
-                _controller!.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;
+                var controller = Volatile.Read(ref _controller);
 
-                if (_startupCancelled)
+                if (_startupCancelled || controller is null)
                     return;
 
+                controller.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;
                 startupHandoff.OnMainNavigationCompleted(e.IsSuccess);
             };
             _controller.CoreWebView2.NavigationCompleted += onMainNavigationCompleted;
