@@ -370,12 +370,6 @@ static class Program
             if (_startupCancelled)
                 return;
 
-            _controller.CoreWebView2.Navigate(
-                StartupPageUri.Build(
-                    useDevServer,
-                    DevServerUrl,
-                    StartupPageState.Loading));
-
             await ApplyStartupTestDelayAsync();
             if (_startupCancelled)
                 return;
@@ -470,68 +464,26 @@ static class Program
             _paintService.Initialize(_bridge);
             _paintService.RegisterHandlers(_bridge);
 
-            // Auto-connect after the main frontend loads (one-shot final navigation handler)
-            EventHandler<CoreWebView2NavigationCompletedEventArgs> onNavCompleted = null!;
-            onNavCompleted = (s, e) =>
+            var startupHandoff = new StartupHandoff(
+                onReady: () => CompleteStartup(restoreMaximized),
+                onFailure: () => ShowStartupFailure(hwnd));
+
+            startupHandoff.Register(_bridge);
+
+            EventHandler<CoreWebView2NavigationCompletedEventArgs> onMainNavigationCompleted = null!;
+            onMainNavigationCompleted = (_, e) =>
             {
                 if (mainUiNavigationId != e.NavigationId)
                     return;
 
-                if (_startupCancelled)
-                    return;
-
-                _controller!.CoreWebView2.NavigationCompleted -= onNavCompleted;
-
-                if (!e.IsSuccess)
-                {
-                    if (_startupSplash is null)
-                    {
-                        ShowNativeStartupError(hwnd);
-                        return;
-                    }
-
-                    if (_startupCancelled)
-                        return;
-
-                    _startupSplash.ShowError(GetStartupLogPath());
-                    if (_startupCancelled)
-                        return;
-
-                    try
-                    {
-                        _controller.CoreWebView2.Navigate(
-                            StartupPageUri.Build(
-                                useDevServer,
-                                DevServerUrl,
-                                StartupPageState.Error));
-                    }
-                    catch
-                    {
-                        ShowNativeStartupError(hwnd);
-                    }
-                    return;
-                }
+                _controller!.CoreWebView2.NavigationCompleted -= onMainNavigationCompleted;
 
                 if (_startupCancelled)
                     return;
 
-                _mainUiReady = true;
-                Win32Window.ShowWindow(
-                    _hwnd,
-                    restoreMaximized ? Win32Window.SW_SHOWMAXIMIZED : Win32Window.SW_SHOW);
-                _startupSplash?.Close();
-                _startupSplash = null;
-
-                // Send initial window state — WM_SIZE fires before the bridge
-                // exists when starting maximized, so without this the React
-                // app would default to maximized=false and render the
-                // resize handles over a maximized window.
-                _bridge?.Send("window.stateChanged", new { maximized = Win32Window.IsZoomed(_hwnd) });
-                TryAutoConnect();
-                _updateService?.SendVersion();
-                _updateService?.StartPeriodicChecks();
+                startupHandoff.OnMainNavigationCompleted(e.IsSuccess);
             };
-            _controller.CoreWebView2.NavigationCompleted += onNavCompleted;
+            _controller.CoreWebView2.NavigationCompleted += onMainNavigationCompleted;
 
             if (_startupCancelled)
                 return;
@@ -601,6 +553,50 @@ static class Program
         _startupSplash = null;
         Win32Window.ShowStartupError(hwnd, GetStartupLogPath());
         Win32Window.DestroyWindow(hwnd);
+    }
+
+    private static void ShowStartupFailure(IntPtr hwnd)
+    {
+        if (_startupCancelled)
+            return;
+
+        if (_startupSplash is null)
+        {
+            ShowNativeStartupError(hwnd);
+            return;
+        }
+
+        if (_startupCancelled)
+            return;
+
+        _startupSplash.ShowError(GetStartupLogPath());
+    }
+
+    private static void CompleteStartup(bool restoreMaximized)
+    {
+        if (_startupCancelled || _mainUiReady)
+            return;
+
+        // StartupHandoff owns the atomic exactly-once transition.
+        // _mainUiReady is the window lifecycle state used by WndProc.
+        _mainUiReady = true;
+
+        Win32Window.ShowWindow(
+            _hwnd,
+            restoreMaximized ? Win32Window.SW_SHOWMAXIMIZED : Win32Window.SW_SHOW);
+
+        _startupSplash?.Close();
+        _startupSplash = null;
+
+        // WM_SIZE can fire before React is ready while restoring maximized.
+        // Send the authoritative initial state during the app.ready handoff.
+        _bridge?.Send(
+            "window.stateChanged",
+            new { maximized = Win32Window.IsZoomed(_hwnd) });
+
+        TryAutoConnect();
+        _updateService?.SendVersion();
+        _updateService?.StartPeriodicChecks();
     }
 
     private static string GetStartupLogPath() =>
