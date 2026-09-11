@@ -3,6 +3,7 @@ import '../AdminSettingsTab.css';
 import { ContextMenu } from '../../ContextMenu/ContextMenu';
 import type { ContextMenuItem } from '../../ContextMenu/ContextMenu';
 import { EditChannelDialog } from '../../EditChannelDialog/EditChannelDialog';
+import { Icon } from '../../Icon/Icon';
 import bridge from '../../../bridge';
 import { prompt } from '../../../hooks/usePrompt';
 import type { Channel } from '../../../types';
@@ -242,7 +243,7 @@ export function AdminChannelsSection({ channels = [], onChannelsChange, initialC
                         toggleChannelExpansion();
                       }}
                     >
-                      <span aria-hidden="true">{isExpanded ? '▾' : '▸'}</span>
+                      <Icon name={isExpanded ? 'chevron-down' : 'chevron-right'} />
                     </button>
                   ) : (
                     <span className="admin-channel-root-access-note">Group access managed in Groups</span>
