@@ -45,7 +45,16 @@ builder.Services.AddMatrix();
 builder.Services.AddLiveKit();
 builder.Services.AddGames();
 builder.Services.AddCustomCompanions();
-builder.Services.AddSingleton(TimeProvider.System);
+// Development-only. Games:DevClockSkewMs shifts the wall clock the server stamps
+// snapshots with, so the client's clock-offset correction can be exercised on a
+// single machine - where both sides share one clock, the offset is always zero, and
+// the class of bug it corrects is therefore invisible. Ignored outside Development.
+var devClockSkewMs = builder.Environment.IsDevelopment()
+    ? builder.Configuration.GetValue<int>("Games:DevClockSkewMs")
+    : 0;
+builder.Services.AddSingleton<TimeProvider>(devClockSkewMs == 0
+    ? TimeProvider.System
+    : new DevClockSkewTimeProvider(TimeProvider.System, TimeSpan.FromMilliseconds(devClockSkewMs)));
 builder.Services.AddSingleton<MessageDeletionService>();
 builder.Services.AddOptions<PaintStorageOptions>()
     .BindConfiguration("PaintStorage");
@@ -127,6 +136,14 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+if (devClockSkewMs != 0)
+{
+    app.Logger.LogWarning(
+        "Games:DevClockSkewMs is {Skew} ms: snapshot timestamps are deliberately wrong by that "
+        + "much. This is a local testing aid and must never be set outside Development.",
+        devClockSkewMs);
+}
 
 app.UseWebSockets();
 app.UseMiddleware<ConnectionLoggingMiddleware>();
