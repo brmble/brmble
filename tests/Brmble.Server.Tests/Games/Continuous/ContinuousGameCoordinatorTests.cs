@@ -413,6 +413,9 @@ public sealed class ContinuousGameCoordinatorTests
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
         await WaitUntilAsync(() => !h.Coordinator.TryGetActiveMatch(501, out _));
+        // Ownership is released before the subscribers run, so wait for the publish that
+        // ends CompleteAsync before asserting on anything downstream of it.
+        await WaitForGameEndedAsync(h.Publisher);
 
         Assert.AreEqual("scheduler_error", h.Sink.Match!.AbandonReason);
         Assert.AreEqual(1, h.MatchCompletedCount);
@@ -443,6 +446,7 @@ public sealed class ContinuousGameCoordinatorTests
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
         await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+        await WaitForGameEndedAsync(h.Publisher);
 
         Assert.AreEqual("decided", h.Sink.Match!.Outcome);
         Assert.IsNull(h.Sink.Match.AbandonReason);
@@ -491,7 +495,7 @@ public sealed class ContinuousGameCoordinatorTests
         await h.AttachBothAsync();
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
-        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+        await WaitForGameEndedAsync(h.Publisher);
 
         // The completion names stable user 501 as the winner; the wire carries session 10.
         Assert.AreEqual(10, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
@@ -504,7 +508,7 @@ public sealed class ContinuousGameCoordinatorTests
         await h.AttachBothAsync();
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
-        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+        await WaitForGameEndedAsync(h.Publisher);
 
         var ended = h.Publisher.GameEnded();
         Assert.IsTrue(ended.TryGetProperty("winnerId", out var winner));
@@ -518,7 +522,7 @@ public sealed class ContinuousGameCoordinatorTests
         await h.AttachBothAsync();
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
-        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+        await WaitForGameEndedAsync(h.Publisher);
 
         var ended = h.Publisher.GameEnded();
         Assert.AreEqual(JsonValueKind.Null, ended.GetProperty("winnerId").ValueKind);
@@ -539,7 +543,7 @@ public sealed class ContinuousGameCoordinatorTests
         await h.AttachAsync(502, 21, "twoAgain");
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
-        await WaitUntilAsync(() => h.MatchCompletedCount == 1);
+        await WaitForGameEndedAsync(h.Publisher);
 
         // 502's simulation session is still 20; only the current session is 21.
         Assert.AreEqual(21, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
@@ -555,6 +559,8 @@ public sealed class ContinuousGameCoordinatorTests
 
         h.Time.Advance(TimeSpan.FromMilliseconds(20));
         await WaitUntilAsync(() => !h.Coordinator.TryGetActiveMatch(501, out _));
+        // Ownership is released before the publish, so that alone is not enough.
+        await WaitForGameEndedAsync(h.Publisher);
 
         Assert.AreEqual("scheduler_error", h.Sink.Match!.AbandonReason);
         var ended = h.Publisher.GameEnded();
@@ -571,6 +577,7 @@ public sealed class ContinuousGameCoordinatorTests
         await h.AttachAsync(501, 10, "one", acknowledge: true);
 
         h.Time.Advance(TimeSpan.FromSeconds(15));
+        await WaitForGameEndedAsync(h.Publisher);
 
         Assert.AreEqual("connection_timeout", h.Sink.Match!.AbandonReason);
         Assert.AreEqual(10, h.Publisher.GameEnded().GetProperty("winnerId").GetInt64());
@@ -757,11 +764,27 @@ public sealed class ContinuousGameCoordinatorTests
             .TryGetProperty("acknowledgedInput", out _));
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    /// <summary>
+    /// Waits against a deadline rather than a spin count. Completion runs on the
+    /// coordinator's own scheduler thread, so how many yields it takes to get there is
+    /// thread-pool scheduling luck, not a property of the code under test: a bounded
+    /// <see cref="Task.Yield"/> loop passes on an idle machine and expires on a loaded one.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, string because = "Condition was not reached.")
     {
-        for (var attempt = 0; attempt < 100 && !condition(); attempt++) await Task.Yield();
-        Assert.IsTrue(condition(), "Condition was not reached.");
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(5);
+        Assert.IsTrue(condition(), because);
     }
+
+    /// <summary>
+    /// Waits for the <c>game.ended</c> publish specifically. Tests that assert on the
+    /// published payload must wait for the publish itself: <c>MatchCompleted</c> is raised
+    /// earlier in <c>CompleteAsync</c>, so waiting on the subscriber count returns while the
+    /// publish is still pending and the assertion reads an empty recorder.
+    /// </summary>
+    private static Task WaitForGameEndedAsync(RecordingPublisher publisher) =>
+        WaitUntilAsync(() => publisher.Published("game.ended"), "No game.ended message was published.");
 
     private sealed class CapturingDefinition : IContinuousGameDefinition
     {
@@ -785,26 +808,44 @@ public sealed class ContinuousGameCoordinatorTests
 
     private sealed class RecordingPublisher : IGameEventPublisher
     {
-        public List<string> Types { get; } = [];
-        public List<string> Payloads { get; } = [];
-        public int SnapshotEventCount { get; private set; }
+        // The coordinator publishes from its scheduler thread while tests read from the
+        // test thread, so every access is guarded and readers get a snapshot. Handing out
+        // the live List<T> would race even once the ordering above is correct.
+        private readonly object _gate = new();
+        private readonly List<string> _types = [];
+        private readonly List<string> _payloads = [];
+        private int _snapshotEventCount;
+
+        public IReadOnlyList<string> Types { get { lock (_gate) return _types.ToArray(); } }
+        public int SnapshotEventCount { get { lock (_gate) return _snapshotEventCount; } }
+
+        public bool Published(string type) { lock (_gate) return _types.Contains(type); }
+
         public Task PublishToUsersAsync(IReadOnlySet<long> userIds, object message)
         {
             var json = JsonSerializer.Serialize(message);
             using var document = JsonDocument.Parse(json);
             var type = document.RootElement.GetProperty("type").GetString()!;
-            Types.Add(type);
-            Payloads.Add(json);
-            if (type == "snapshot") SnapshotEventCount++;
+            lock (_gate)
+            {
+                _types.Add(type);
+                _payloads.Add(json);
+                if (type == "snapshot") _snapshotEventCount++;
+            }
             return Task.CompletedTask;
         }
         public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
 
         public JsonElement GameEnded()
         {
-            var index = Types.IndexOf("game.ended");
-            Assert.IsTrue(index >= 0, "No game.ended message was published.");
-            using var document = JsonDocument.Parse(Payloads[index]);
+            string? payload;
+            lock (_gate)
+            {
+                var index = _types.IndexOf("game.ended");
+                payload = index >= 0 ? _payloads[index] : null;
+            }
+            Assert.IsNotNull(payload, "No game.ended message was published.");
+            using var document = JsonDocument.Parse(payload);
             return document.RootElement.Clone();
         }
     }
