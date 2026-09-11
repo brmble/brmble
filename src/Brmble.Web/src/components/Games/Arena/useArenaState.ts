@@ -194,7 +194,25 @@ export function useArenaState({
       inputDirtyRef.current = true;
     }
     if (finalState) authorityDirtyRef.current = true;
-  }, [finalState, pendingInputs, selfSessionId]);
+    // No dependency array: this effect must run after EVERY render, not only when
+    // its inputs change by identity. The welcome effect runs after it in the same
+    // commit and clears `inputKeyRef`, so the ref is left out of step with the key
+    // computed here; the re-run on the next render is what resyncs it and raises the
+    // dirty flag that reconciles the first frame of a new match. It also means a
+    // pending interval that grows without adding a fire or dash edge - ordinary held
+    // movement, which the key deliberately ignores - still reaches `inputsRef` in
+    // time for the next frame.
+    //
+    // This used to happen by accident: `recentInputs` defaulted to a fresh `[]` on
+    // every render, so the dependency array changed every render. Removing that
+    // unused parameter removed the accident, and four tests across cadence,
+    // reconciliation and input-only targets went red in two different directions.
+    // The cadence is load-bearing, so it is now stated rather than inherited.
+    //
+    // Follow-up worth taking deliberately: `inputKey` tracks only fire and dash
+    // edges, so nothing else can mark input dirty on its own. That is why this has
+    // to run unconditionally, and it is a thin contract to rest on.
+  });
   inputsRef.current.currentInput = currentInput;
 
   useEffect(() => {
