@@ -229,7 +229,7 @@ public class ArenaMatchTests
         CollectionAssert.AreEquivalent(new[] { "radius", "shrinkPhase" },
             root.GetProperty("arena").EnumerateObject().Select(x => x.Name).ToArray());
         CollectionAssert.AreEquivalent(
-            new[] { "sessionId", "side", "x", "y", "vx", "vy", "aimX", "aimY", "chargePermille", "forcedFireTicks", "cooldownTicks", "dashAvailable", "acknowledgedInput" },
+            new[] { "sessionId", "side", "x", "y", "vx", "vy", "aimX", "aimY", "chargePermille", "forcedFireTicks", "cooldownTicks", "dashAvailable", "dashTicksRemaining", "acknowledgedInput" },
             root.GetProperty("players")[0].EnumerateObject().Select(x => x.Name).ToArray());
         CollectionAssert.AreEquivalent(
             new[] { "id", "ownerSessionId", "x", "y", "vx", "vy", "chargePermille" },
