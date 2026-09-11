@@ -8,6 +8,7 @@ import type {
   ArenaWelcome,
 } from './arenaProtocol';
 import { parseServerMessage } from './arenaProtocol';
+import { createServerClock, type ServerClock } from './serverClock';
 
 const RECONNECT_DELAYS = [250, 500, 1000, 2000] as const;
 // Leave headroom below the server's rolling 30 aim changes/second limit.
@@ -44,6 +45,12 @@ export interface ArenaConnection {
   recentInputs: RecentArenaInput[];
   pendingInputCount: number;
   currentInput: ArenaInputState;
+  /**
+   * Server-minus-client clock offset, sampled at the moment each server message
+   * is received. Anything that compares a server timestamp against `Date.now()`
+   * — the snapshot timeline above all — has to go through this.
+   */
+  serverClock: ServerClock;
   sendInput: (input: ArenaInputState) => void;
   sendHeartbeat: () => void;
 }
@@ -105,6 +112,17 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   const [recentInputs, setRecentInputs] = useState<RecentArenaInput[]>([]);
   const [currentInput, setCurrentInput] = useState<ArenaInputState>(neutralInput);
   const runtimeRef = useRef<Runtime | null>(null);
+  // One instance for the life of the hook, so `useArenaState` sees a live estimate
+  // without a re-render per sample. Deliberately NOT replaced when the effect
+  // reconnects: the offset is a property of the two machines rather than of the
+  // match, it stays valid across a reconnect, and a fresh instance would render
+  // uncorrected until it recalibrated. Stale samples age out of the window within
+  // 2 s regardless. It must also never be reassigned from inside the effect — that
+  // writes a ref without re-rendering, and on a first mount the effect's setState
+  // calls all bail out as no-ops, leaving the consumer reading an instance the
+  // socket is not feeding.
+  const serverClockRef = useRef<ServerClock | null>(null);
+  serverClockRef.current ??= createServerClock();
   const sendStateRef = useRef<(runtime: Runtime, input: ArenaInputState, heartbeat: boolean) => void>(() => {});
 
   const sendMessage = (runtime: Runtime, message: ArenaClientMessage) => {
@@ -367,11 +385,17 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
         socket.onmessage = event => {
           if (!current() || attempt !== runtime.attemptGeneration
             || runtime.socket !== socket || typeof event.data !== 'string') return;
+          // Sampled here, at the moment of receipt, rather than wherever the message
+          // is eventually consumed: React scheduling between the two would be charged
+          // to the latency term and bias the offset low.
+          const receivedAt = Date.now();
           const message = parseServerMessage(event.data);
           if (!message || message.matchId !== matchId) return;
           if (message.type === 'welcome') {
+            serverClockRef.current?.observe(message.generatedAtUnixMs, receivedAt);
             handleWelcome(socket, message);
           } else if (message.type === 'snapshot') {
+            serverClockRef.current?.observe(message.generatedAtUnixMs, receivedAt);
             if (message.sequence < runtime.lastSnapshotSequence) return;
             runtime.lastSnapshotSequence = message.sequence;
             runtime.serverTick = message.serverTick;
@@ -471,6 +495,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
 
   return {
     status, welcome, latestSnapshot, closed, pendingInputs, recentInputs,
-    pendingInputCount: pendingInputs.length, currentInput, sendInput, sendHeartbeat,
+    pendingInputCount: pendingInputs.length, currentInput,
+    serverClock: serverClockRef.current, sendInput, sendHeartbeat,
   };
 }

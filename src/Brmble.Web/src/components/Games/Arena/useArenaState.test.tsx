@@ -5,6 +5,7 @@ import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile, sampleTimeline } from './arenaMath';
 import { KNOCKOUT_DURATION_MS } from './arenaKnockout';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
+import { createServerClock } from './serverClock';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
@@ -28,9 +29,12 @@ function state(x = 1000, chargePermille = 0) {
   };
 }
 
-function welcome(chargePermille = 0): ArenaWelcome {
+// `generatedAtUnixMs` defaults to the 1000 these fixtures mount at, so the welcome
+// frame lands where `asSnapshot` used to put it when it stamped with `Date.now()`.
+function welcome(chargePermille = 0, generatedAtUnixMs = 1000): ArenaWelcome {
   return { type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91, role: 'participant', sessionId: 10,
-    snapshotSequence: 1, serverTick: 100, tickRate: 60, snapshotRate: 20, interpolationMs: 100,
+    snapshotSequence: 1, serverTick: 100, generatedAtUnixMs,
+    tickRate: 60, snapshotRate: 20, interpolationMs: 100,
     maxExtrapolationMs: 50, inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
     prediction, state: state(1000, chargePermille), acknowledgedInput: 0 };
 }
@@ -64,7 +68,7 @@ describe('useArenaState', () => {
 
   it('ignores stale snapshot order and advances interpolation on animation frames', () => {
     vi.setSystemTime(900);
-    const initial = welcome();
+    const initial = welcome(0, 900);
     const hook = renderHook(({ latestSnapshot }) => useArenaState({
       welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
@@ -1151,5 +1155,60 @@ describe('useArenaState', () => {
 
       expect(frameOf().knockout).toHaveLength(0);
     });
+  });
+});
+
+describe('useArenaState across unsynchronised clocks', () => {
+  let frame: FrameRequestCallback | null;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    frame = null;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  /**
+   * Mounts the hook on a client whose wall clock sits `skewMs` behind the server's,
+   * feeds two snapshots, and returns where the remote player is drawn.
+   *
+   * Everything the server stamps is in server time (client time + skew); the client's
+   * own `Date.now()` stays on client time. The clock is fed the same (sent, received)
+   * pairs the socket would see. The remote player is the one that matters here: it is
+   * drawn purely from the timeline, so it is the part the sampling clock governs.
+   */
+  function remoteAt(skewMs: number): number | undefined {
+    const clientMount = 1000;
+    const toServer = (clientMs: number) => clientMs + skewMs;
+    const clock = createServerClock();
+
+    vi.setSystemTime(clientMount);
+    const initial: ArenaWelcome = { ...welcome(), generatedAtUnixMs: toServer(clientMount) };
+    clock.observe(toServer(clientMount), clientMount);
+
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10, serverClock: clock,
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+    clock.observe(toServer(1050), 1050);
+    hook.rerender({ latestSnapshot: snapshot(2, toServer(1050), 2000) });
+    clock.observe(toServer(1100), 1100);
+    hook.rerender({ latestSnapshot: snapshot(3, toServer(1100), 3000) });
+
+    vi.setSystemTime(1150);
+    act(() => frame?.(performance.now()));
+    const x = hook.result.current.remotePlayer?.x;
+    hook.unmount();
+    return x;
+  }
+
+  it('draws the remote player at the same instant however far the clocks disagree', () => {
+    const synchronised = remoteAt(0);
+    expect(synchronised).toBeDefined();
+    // Behind, ahead, and far enough out to fall off the buffer entirely. Before the
+    // server clock was introduced these produced three different positions.
+    for (const skew of [-4000, -800, -250, 250, 800, 4000]) {
+      expect(remoteAt(skew)).toBe(synchronised);
+    }
   });
 });

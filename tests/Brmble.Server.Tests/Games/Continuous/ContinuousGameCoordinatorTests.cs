@@ -245,6 +245,17 @@ public sealed class ContinuousGameCoordinatorTests
         Assert.AreEqual(1, snapshotJson.RootElement.GetProperty("sequence").GetInt64());
         Assert.IsTrue(snapshotJson.RootElement.TryGetProperty("serverTick", out _));
         Assert.IsFalse(snapshotJson.RootElement.GetProperty("players")[0].TryGetProperty("serverTick", out _));
+
+        // The client seeds its server-clock offset from the welcome and then samples a
+        // timeline whose first entry is this very snapshot. Stamp the two from different
+        // instants and the seed disagrees with the frame it is supposed to place, which
+        // is the same class of defect as having no offset at all. They are taken from one
+        // `attachedAt` for exactly this reason.
+        Assert.IsTrue(welcomeJson.RootElement.TryGetProperty("generatedAtUnixMs", out var welcomeStamp));
+        Assert.AreEqual(
+            welcomeStamp.GetInt64(),
+            snapshotJson.RootElement.GetProperty("generatedAtUnixMs").GetInt64(),
+            "Welcome and its attach snapshot must describe the same instant.");
     }
 
     [TestMethod]

@@ -7,6 +7,7 @@ import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type Predi
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
 } from './arenaKnockout';
+import { createServerClock, type ServerClock } from './serverClock';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
@@ -17,6 +18,16 @@ interface UseArenaStateOptions {
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
   reducedMotion?: boolean;
+  /**
+   * Converts this client's wall clock to the server's. Snapshots are stamped with
+   * the server's clock, so the timeline must be sampled in server time; sampling it
+   * with a raw `Date.now()` slides the render point off the interpolation buffer by
+   * however far the two machines disagree. Defaults to an uncalibrated clock — zero
+   * offset, i.e. the two clocks assumed identical — which is correct only when they
+   * genuinely are, as in a test or a single-machine dev loop. Production callers
+   * pass the one `useArenaConnection` samples from real traffic.
+   */
+  serverClock?: ServerClock;
   onFrame?: (state: ArenaRenderState) => void;
 }
 
@@ -77,7 +88,9 @@ export function interpolateLocalPresentation(
   };
 }
 
-function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = Date.now()): ArenaSnapshot {
+function asSnapshot(
+  welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = welcome.generatedAtUnixMs,
+): ArenaSnapshot {
   return {
     type: 'snapshot', protocolVersion: 1, matchId: welcome.matchId,
     sequence: welcome.snapshotSequence, serverTick: welcome.serverTick, generatedAtUnixMs, ...state,
@@ -101,8 +114,14 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
 
 export function useArenaState({
   welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
-  reducedMotion = false, onFrame,
+  reducedMotion = false, serverClock, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
+  // One fallback instance per hook, never shared: a module-level singleton would let
+  // one match's samples leak into another's.
+  const fallbackClockRef = useRef<ServerClock | null>(null);
+  fallbackClockRef.current ??= createServerClock();
+  const serverClockRef = useRef<ServerClock>(serverClock ?? fallbackClockRef.current);
+  serverClockRef.current = serverClock ?? fallbackClockRef.current;
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
   const predictedRef = useRef<PredictedArenaState | undefined>(undefined);
@@ -314,7 +333,14 @@ export function useArenaState({
         );
         const sampled = current.finalState
           ? authority
-          : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
+          // Server time, not client time. `generatedAtUnixMs` on every frame in the
+          // timeline comes from the server's clock, so the render point has to be
+          // expressed in that clock or the 100 ms buffer means whatever the offset
+          // between the two machines happens to be.
+          : sampleTimeline(
+              timeline, serverClockRef.current.now(Date.now()),
+              welcome.interpolationMs, welcome.maxExtrapolationMs,
+            );
         const correction = correctionRef.current;
         const remaining = correction ? Math.max(0, 1 - (frameTime - correction.startedAt) / 100) : 0;
         const local = correction ? {

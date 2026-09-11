@@ -40,7 +40,7 @@ const held = {
 const welcome = (acknowledgedInput = 0, snapshotSequence = 1) => ({
   type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91,
   role: 'participant', sessionId: 10, snapshotSequence, serverTick: 100,
-  tickRate: 60, snapshotRate: 20, interpolationMs: 100, maxExtrapolationMs: 50,
+  generatedAtUnixMs: Date.now(), tickRate: 60, snapshotRate: 20, interpolationMs: 100, maxExtrapolationMs: 50,
   inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
   prediction: {
     unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90,

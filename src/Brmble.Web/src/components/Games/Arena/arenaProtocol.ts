@@ -66,6 +66,8 @@ export interface ArenaWelcome {
   sessionId: number;
   snapshotSequence: number;
   serverTick: number;
+  /** The server's wall clock when this welcome was built. Seeds the clock offset. */
+  generatedAtUnixMs: number;
   tickRate: 60;
   snapshotRate: 20;
   interpolationMs: 100;
@@ -193,14 +195,14 @@ export const PREDICTION_V1: ArenaPredictionConstants = {
 };
 
 function validWelcome(value: JsonObject): value is JsonObject & ArenaWelcome {
-  const keys = ['type', 'protocolVersion', 'rulesetVersion', 'matchId', 'role', 'sessionId', 'snapshotSequence', 'serverTick', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'prediction', 'state', 'acknowledgedInput'];
+  const keys = ['type', 'protocolVersion', 'rulesetVersion', 'matchId', 'role', 'sessionId', 'snapshotSequence', 'serverTick', 'generatedAtUnixMs', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'prediction', 'state', 'acknowledgedInput'];
   return objectWithKeys(value, keys) && value.type === 'welcome' && value.protocolVersion === 1
     && value.role === 'participant' && value.rulesetVersion === 1
     && value.tickRate === 60 && value.snapshotRate === 20
     && value.interpolationMs === 100 && value.maxExtrapolationMs === 50
     && value.inputHeartbeatMs === 250 && value.neutralAfterMs === 750
     && value.reconnectGraceMs === 5000
-    && ['matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'acknowledgedInput'].every(key => integer(value[key]))
+    && ['matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'generatedAtUnixMs', 'acknowledgedInput'].every(key => integer(value[key]))
     && validPrediction(value.prediction) && validState(value.state);
 }
 
