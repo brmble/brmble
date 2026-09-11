@@ -2,7 +2,7 @@ import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaPredictionConstants, ArenaProjectileSnapshot,
   ArenaSnapshot, ArenaStateSnapshot,
 } from './arenaProtocol';
-import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
+import type { PendingArenaInput } from './useArenaConnection';
 
 export interface FixedVec {
   x: number;
@@ -258,7 +258,6 @@ export interface ArenaAuthority {
   snapshot: ArenaSnapshot;
   selfSessionId: number;
   previous?: PredictedArenaState;
-  recentInputs?: RecentArenaInput[];
   correctionOrigin?: FixedVec;
 }
 
@@ -448,24 +447,21 @@ function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionCons
   const player = authority.snapshot.players.find(candidate => candidate.sessionId === authority.selfSessionId);
   if (!player) throw new Error('Arena authority does not contain the current session');
   const opponent = authority.snapshot.players.find(candidate => candidate.sessionId !== authority.selfSessionId) ?? null;
-  const previousDashEnd = authority.previous?.dashEndsAtTick;
-  const acknowledgedDash = authority.recentInputs
-    ?.filter(input => input.input.dash && input.sequence <= player.acknowledgedInput)
-    .at(-1);
-  const acknowledgedAtTick = acknowledgedDash?.acknowledgedAtTick ?? authority.snapshot.serverTick;
-  const inferredDashStart = acknowledgedDash
-    ? Math.min(acknowledgedAtTick, Math.max(
-        acknowledgedDash.predictedTick,
-        acknowledgedAtTick - (constants.dashTicks - 2),
-      ))
-    : null;
-  const reconstructedDashEnd = inferredDashStart === null
-    ? null
-    : inferredDashStart + constants.dashTicks;
-  const dashEndsAtTick = !player.dashAvailable
-    ? [previousDashEnd ?? 0, reconstructedDashEnd ?? 0]
-        .filter(tick => tick > authority.snapshot.serverTick)
-        .reduce<number | null>((latest, tick) => latest === null ? tick : Math.max(latest, tick), null)
+  // The server states what it owes; nothing here infers it. The previous shape of
+  // this — reconstructing the window from the newest acknowledged dash in the
+  // client's own sent inputs, gated only on `!dashAvailable` — was wrong in two
+  // ways. A dash the server accepted but stripped (`DashSpent`) acknowledges
+  // exactly like one it honoured, so after the round's first dash every further
+  // press re-armed six ticks of 240-per-tick displacement the server never
+  // applied: 720 units of pure fiction per press against a 300-unit snap
+  // threshold, which is the spasming under spammed dash. And even a single honest
+  // dash was placed by guesswork, since the wire never said which tick it began on.
+  //
+  // `dashTicksRemaining` counts applications still owed AFTER `serverTick`, so
+  // those land on ticks `serverTick + 1 .. serverTick + remaining`, and `stepLocal`
+  // applies while `tick < dashEndsAtTick` — hence the + 1.
+  const dashEndsAtTick = player.dashTicksRemaining > 0
+    ? authority.snapshot.serverTick + player.dashTicksRemaining + 1
     : null;
   return {
     player: { ...player }, opponent: opponent ? { ...opponent } : null,

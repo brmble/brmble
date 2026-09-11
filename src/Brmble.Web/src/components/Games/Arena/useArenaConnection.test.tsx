@@ -54,7 +54,7 @@ const welcome = (acknowledgedInput = 0, snapshotSequence = 1) => ({
     arena: { radius: 9000, shrinkPhase: 'hold' },
     players: [
       { sessionId: 10, side: 0, x: -3500, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput },
-      { sessionId: 20, side: 1, x: 3500, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+      { sessionId: 20, side: 1, x: 3500, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
     ], projectiles: [],
   },
   acknowledgedInput,
@@ -67,7 +67,7 @@ const world = (sequence: number, acknowledgedInput = 0) => ({
   arena: { radius: 9000, shrinkPhase: 'hold' },
   players: [
     { sessionId: 10, side: 0, x: -3500, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput },
-    { sessionId: 20, side: 1, x: 3500, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+    { sessionId: 20, side: 1, x: 3500, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
   ], projectiles: [],
 });
 
@@ -129,23 +129,22 @@ describe('useArenaConnection', () => {
     }]);
     h.socket.message(world(2, 11));
     expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.recentInputs).toEqual([]);
   });
 
-  it('retains acknowledged dash edges for six ticks and clears them on terminal state', async () => {
+  // A dash press is no longer retained after acknowledgement. It used to be, so that
+  // the client could reconstruct the dash window from its own sent inputs — an
+  // inference that could not distinguish a dash the server honoured from one it
+  // accepted and stripped. The window is now stated by the server on every snapshot
+  // (`dashTicksRemaining`), so the press is ordinary pending input and clears on ack.
+  it('clears an acknowledged dash press like any other input', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput({ ...held, dash: true }));
+    expect(h.result.current.pendingInputs).toHaveLength(1);
     h.socket.message({ ...world(2, 101), serverTick: 101,
       players: world(2, 1).players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, acknowledgedInput: 1 }
+        ? { ...player, dashAvailable: false, dashTicksRemaining: 5, acknowledgedInput: 1 }
         : player) });
     expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.recentInputs[0].input.dash).toBe(true);
-    h.socket.message({ ...world(3, 1), serverTick: 108 });
-    expect(h.result.current.recentInputs).toEqual([]);
-    act(() => h.result.current.sendInput({ ...held, dash: true }));
-    h.socket.message(matchClosed());
-    expect(h.result.current.recentInputs).toEqual([]);
   });
 
   it('uses non-overlapping inclusive intervals and preserves same-tick edges in empty intervals', async () => {

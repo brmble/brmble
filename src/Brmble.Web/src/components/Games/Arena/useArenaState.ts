@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
-import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
+import type { PendingArenaInput } from './useArenaConnection';
 import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
@@ -13,7 +13,6 @@ interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
   latestSnapshot: ArenaSnapshot | null;
   pendingInputs: PendingArenaInput[];
-  recentInputs?: RecentArenaInput[];
   currentInput?: ArenaInputState;
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
@@ -113,7 +112,7 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
 }
 
 export function useArenaState({
-  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
+  welcome, latestSnapshot, pendingInputs, currentInput = neutralInput, selfSessionId, finalState,
   reducedMotion = false, serverClock, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
   // One fallback instance per hook, never shared: a module-level singleton would let
@@ -137,7 +136,7 @@ export function useArenaState({
   const welcomeRef = useRef<ArenaWelcome | null>(null);
   const correctionRef = useRef<{ x: number; y: number; startedAt: number } | null>(null);
   const snappedRef = useRef(false);
-  const inputsRef = useRef({ pendingInputs, recentInputs, currentInput, selfSessionId, finalState });
+  const inputsRef = useRef({ pendingInputs, currentInput, selfSessionId, finalState });
   const authorityDirtyRef = useRef(true);
   const inputDirtyRef = useRef(true);
   const inputKeyRef = useRef('');
@@ -149,7 +148,7 @@ export function useArenaState({
   const renderedBaseRef = useRef<ArenaPlayerSnapshot | null>(null);
   const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
   const presentedAtRef = useRef(0);
-  const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
+  const suppressedInputsRef = useRef<{ pending: PendingArenaInput[] } | null>(null);
   // Presentation only. Nothing sampled from this ref is ever written back into
   // prediction, presentation or authority state — it is read once per frame to
   // build `nextRendered.knockout` and nowhere else.
@@ -167,7 +166,7 @@ export function useArenaState({
   useEffect(() => {
     if (sessionRef.current !== selfSessionId) {
       sessionRef.current = selfSessionId;
-      suppressedInputsRef.current = { pending: pendingInputs, recent: recentInputs };
+      suppressedInputsRef.current = { pending: pendingInputs };
       predictedRef.current = undefined;
       presentedRef.current = undefined;
       presentedAtRef.current = 0;
@@ -182,23 +181,20 @@ export function useArenaState({
     }
     const suppressed = suppressedInputsRef.current;
     const usePending = suppressed?.pending === pendingInputs ? [] : pendingInputs;
-    const useRecent = suppressed?.recent === recentInputs ? [] : recentInputs;
-    if (suppressed && suppressed.pending !== pendingInputs && suppressed.recent !== recentInputs) {
+    if (suppressed && suppressed.pending !== pendingInputs) {
       suppressedInputsRef.current = null;
     }
-    inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, currentInput, selfSessionId, finalState };
-    const inputKey = JSON.stringify([
+    inputsRef.current = { pendingInputs: usePending, currentInput, selfSessionId, finalState };
+    const inputKey = JSON.stringify(
       usePending.filter(input => input.input.fireReleased || input.input.dash)
         .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
-      useRecent.filter(input => input.input.fireReleased || input.input.dash)
-        .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
-    ]);
+    );
     if (inputKey !== inputKeyRef.current) {
       inputKeyRef.current = inputKey;
       inputDirtyRef.current = true;
     }
     if (finalState) authorityDirtyRef.current = true;
-  }, [finalState, pendingInputs, recentInputs, selfSessionId]);
+  }, [finalState, pendingInputs, selfSessionId]);
   inputsRef.current.currentInput = currentInput;
 
   useEffect(() => {
@@ -280,7 +276,6 @@ export function useArenaState({
           const result = reconcile(
             {
               snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current,
-              recentInputs: current.recentInputs,
               correctionOrigin: authorityChanged ? correctionOrigin : undefined,
             },
             current.finalState ? [] : current.pendingInputs,

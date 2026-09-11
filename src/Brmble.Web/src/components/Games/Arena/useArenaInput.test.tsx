@@ -35,7 +35,7 @@ function inputHarness(
   const sent: ArenaInputState[] = [];
   const connection: ArenaConnection = {
     status, welcome: null, latestSnapshot: null, closed: null,
-    pendingInputs: [], recentInputs: [], pendingInputCount: 0, currentInput: neutral,
+    pendingInputs: [], pendingInputCount: 0, currentInput: neutral,
     serverClock: createServerClock(),
     sendInput: vi.fn(input => sent.push(input)), sendHeartbeat: vi.fn(),
   };

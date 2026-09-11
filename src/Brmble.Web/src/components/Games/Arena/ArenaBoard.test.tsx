@@ -26,7 +26,7 @@ function player(sessionId: number, side: 0 | 1, overrides: Partial<ArenaPlayerSn
   return {
     sessionId, side, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
     chargePermille: 640, forcedFireTicks: 18, cooldownTicks: 12,
-    dashAvailable: false, acknowledgedInput: 0, ...overrides,
+    dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 0, ...overrides,
   };
 }
 
@@ -57,7 +57,7 @@ describe('ArenaBoard', () => {
     state.useReal = false;
     connection.current = {
       status: 'connected', welcome: { serverTick: 100, tickRate: 60 } as ArenaConnection['welcome'],
-      latestSnapshot: null, closed: null, pendingInputs: [], recentInputs: [], pendingInputCount: 0,
+      latestSnapshot: null, closed: null, pendingInputs: [], pendingInputCount: 0,
       serverClock: createServerClock(),
       currentInput: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
       sendInput: vi.fn(), sendHeartbeat: vi.fn(),

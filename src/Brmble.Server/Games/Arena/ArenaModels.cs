@@ -52,6 +52,11 @@ public sealed record ArenaPlayerView(
     int? ForcedFireTicks,
     int CooldownTicks,
     bool DashAvailable,
+    // Dash applications still owed after this tick. The client cannot infer this:
+    // an input the server accepted but stripped acknowledges identically to one it
+    // honoured, so a client reconstructing the window from its own sent inputs
+    // predicts dashes that never happened. Authoritative here, guessed nowhere.
+    int DashTicksRemaining,
     long? AcknowledgedInput);
 
 public sealed record ArenaProjectileView(

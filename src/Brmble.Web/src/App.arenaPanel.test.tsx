@@ -58,8 +58,8 @@ const finalState: ArenaStateSnapshot = {
   arena: { radius: 7000, shrinkPhase: 'collapse' },
   projectiles: [],
   players: [
-    { sessionId: 1, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
-    { sessionId: 20, side: 1, x: 1000, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+    { sessionId: 1, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
+    { sessionId: 20, side: 1, x: 1000, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
   ],
 };
 

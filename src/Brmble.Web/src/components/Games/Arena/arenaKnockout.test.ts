@@ -11,7 +11,7 @@ const knockout = (overrides: Partial<ArenaKnockout> = {}): ArenaKnockout => ({
 
 const player = (sessionId: number, side: 0 | 1, x: number, vx = 0) => ({
   sessionId, side, x, y: 0, vx, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0,
-  forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0,
+  forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0,
 });
 const snapshot = (
   phase: ArenaStateSnapshot['phase'], score: [number, number], doubleKos = 0,

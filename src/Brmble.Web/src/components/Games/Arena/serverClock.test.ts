@@ -84,7 +84,7 @@ describe('sampling the timeline through the server clock', () => {
     arena: { radius: 9_000, shrinkPhase: 'hold' },
     players: [{
       sessionId: 20, side: 1, x: index * 500, y: 0, vx: 0, vy: 0, aimX: 32_767, aimY: 0,
-      chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true,
+      chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0,
       acknowledgedInput: 0,
     }],
     projectiles: [],

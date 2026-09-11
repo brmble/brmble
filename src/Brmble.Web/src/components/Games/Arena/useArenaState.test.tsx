@@ -22,9 +22,9 @@ function state(x = 1000, chargePermille = 0) {
     arena: { radius: 9000, shrinkPhase: 'hold' as const }, projectiles: [],
     players: [
       { sessionId: 10, side: 0 as const, x, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille,
-        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
       { sessionId: 20, side: 1 as const, x: -1000, y: 0, vx: 10, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0,
-        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
     ],
   };
 }
@@ -192,7 +192,7 @@ describe('useArenaState', () => {
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot, pendingInputs, selfSessionId: 10,
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -215,25 +215,27 @@ describe('useArenaState', () => {
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(() => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs: [fire], recentInputs: [fire], selfSessionId: 10,
+      welcome: initial, latestSnapshot: null, pendingInputs: [fire], selfSessionId: 10,
     }));
     expect(hook.result.current.projectiles).toHaveLength(1);
   });
 
-  it('continues a dash acknowledged before the first RAF using recent input history', () => {
+  // Was: 'continues a dash acknowledged before the first RAF using recent input
+  // history'. The client no longer keeps that history, and inferring a dash from it
+  // was the defect — a press the server accepted and stripped acknowledged exactly
+  // like one it honoured, so spamming dash re-armed movement the server never ran.
+  // The authority below reports dashAvailable false (the round's dash is spent) with
+  // nothing owed, which is precisely that case: the player must not move.
+  it('does not continue a dash the server reports nothing owed on', () => {
     const initial = welcome();
-    const dash: PendingArenaInput = {
-      sequence: 1, predictedTick: 110, fromTick: 110, toTick: 110,
-      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
-    };
     const acknowledged = {
       ...snapshot(2, 1000, 1990), serverTick: 103,
       players: snapshot(2, 1000, 1990).players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, acknowledgedInput: 1 }
+        ? { ...player, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 1 }
         : player),
     };
     const hook = renderHook(() => useArenaState({
-      welcome: initial, latestSnapshot: acknowledged, pendingInputs: [], recentInputs: [dash], selfSessionId: 10,
+      welcome: initial, latestSnapshot: acknowledged, pendingInputs: [], selfSessionId: 10,
     }));
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1990);
@@ -250,7 +252,7 @@ describe('useArenaState', () => {
     const initial = welcome();
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot, pendingInputs, selfSessionId: 10,
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -440,7 +442,7 @@ describe('useArenaState', () => {
       input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
     };
     const hook = renderHook(({ pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot: null, pendingInputs, selfSessionId: 10,
     }), { initialProps: { pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ pendingInputs: [move] });
     act(() => frame?.(performance.now()));
@@ -450,7 +452,7 @@ describe('useArenaState', () => {
   it('resets caches when selfSessionId changes with the same welcome object', () => {
     const initial = welcome();
     const hook = renderHook(({ selfSessionId, finalState }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs: [], recentInputs: [], selfSessionId, finalState,
+      welcome: initial, latestSnapshot: null, pendingInputs: [], selfSessionId, finalState,
     }), { initialProps: { selfSessionId: 10, finalState: undefined as ArenaStateSnapshot | undefined } });
     hook.rerender({ selfSessionId: 10, finalState: { ...state(5000), phase: 'ended', score: [2, 0] } });
     act(() => frame?.(performance.now()));
@@ -467,13 +469,13 @@ describe('useArenaState', () => {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
       input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
     };
-    const hook = renderHook(({ selfSessionId, pendingInputs, recentInputs }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs, selfSessionId,
-    }), { initialProps: { selfSessionId: 10, pendingInputs: [oldDash], recentInputs: [oldDash] } });
-    hook.rerender({ selfSessionId: 20, pendingInputs: [oldDash], recentInputs: [oldDash] });
+    const hook = renderHook(({ selfSessionId, pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, selfSessionId,
+    }), { initialProps: { selfSessionId: 10, pendingInputs: [oldDash] } });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [oldDash] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer).toMatchObject({ sessionId: 20, x: -1000, dashAvailable: true });
-    hook.rerender({ selfSessionId: 20, pendingInputs: [], recentInputs: [] });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.sessionId).toBe(20);
   });

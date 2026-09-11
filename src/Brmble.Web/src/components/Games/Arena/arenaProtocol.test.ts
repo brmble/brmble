@@ -5,7 +5,7 @@ const player = (sessionId: number) => ({
   sessionId, side: sessionId === 10 ? 0 : 1, x: sessionId === 10 ? -3500 : 3500, y: 0,
   vx: 0, vy: 0, aimX: sessionId === 10 ? 32767 : -32767, aimY: 0,
   chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
-  dashAvailable: true, acknowledgedInput: 0,
+  dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0,
 });
 
 const state = () => ({

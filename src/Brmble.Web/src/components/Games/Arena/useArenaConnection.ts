@@ -16,7 +16,6 @@ const AIM_INTERVAL_MS = 40;
 const DEFAULT_HEARTBEAT_MS = 250;
 const DEFAULT_TICK_RATE = 60;
 const RECONNECT_GRACE_MS = 5000;
-const RECENT_INPUT_TICKS = 6;
 
 export type ArenaConnectionStatus = 'disabled' | 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'failed';
 
@@ -32,17 +31,12 @@ export interface PendingArenaInput {
   input: ArenaInputState;
 }
 
-export interface RecentArenaInput extends PendingArenaInput {
-  acknowledgedAtTick?: number | null;
-}
-
 export interface ArenaConnection {
   status: ArenaConnectionStatus;
   welcome: ArenaWelcome | null;
   latestSnapshot: ArenaSnapshot | null;
   closed: ArenaMatchClosed | null;
   pendingInputs: PendingArenaInput[];
-  recentInputs: RecentArenaInput[];
   pendingInputCount: number;
   currentInput: ArenaInputState;
   /**
@@ -89,7 +83,6 @@ interface Runtime {
   currentInput: ArenaInputState;
   queuedAimInput: ArenaInputState | null;
   pendingInputs: PendingArenaInput[];
-  recentInputs: RecentArenaInput[];
   sentFrames: Array<{ sequence: number; aimX: number; aimY: number; aimSentAt: number }>;
   terminal: boolean;
 }
@@ -109,7 +102,6 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   const [latestSnapshot, setLatestSnapshot] = useState<ArenaSnapshot | null>(null);
   const [closed, setClosed] = useState<ArenaMatchClosed | null>(null);
   const [pendingInputs, setPendingInputs] = useState<PendingArenaInput[]>([]);
-  const [recentInputs, setRecentInputs] = useState<RecentArenaInput[]>([]);
   const [currentInput, setCurrentInput] = useState<ArenaInputState>(neutralInput);
   const runtimeRef = useRef<Runtime | null>(null);
   // One instance for the life of the hook, so `useArenaState` sees a live estimate
@@ -161,14 +153,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     runtime.pendingInputs = [...extended, {
       sequence, predictedTick, fromTick: predictedTick, toTick: predictedTick, input: recordedInput,
     }];
-    if (recordedInput.dash) {
-      runtime.recentInputs = [...runtime.recentInputs, {
-        sequence, predictedTick, fromTick: predictedTick, toTick: predictedTick,
-        input: recordedInput, acknowledgedAtTick: null,
-      }];
-    }
     setPendingInputs(runtime.pendingInputs);
-    setRecentInputs(runtime.recentInputs);
   };
   sendStateRef.current = sendState;
 
@@ -255,7 +240,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastSnapshotSequence: -1,
       lastAimSentAt: Number.NEGATIVE_INFINITY, transmittedAimX: neutralInput.aimX,
       transmittedAimY: neutralInput.aimY, lastSentInput: neutralInput,
-      currentInput: neutralInput, queuedAimInput: null, pendingInputs: [], recentInputs: [], sentFrames: [], terminal: false,
+      currentInput: neutralInput, queuedAimInput: null, pendingInputs: [], sentFrames: [], terminal: false,
     };
     runtimeRef.current = runtime;
 
@@ -273,8 +258,6 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       setCurrentInput(neutralInput);
       setPendingInputs([]);
       runtime.pendingInputs = [];
-      runtime.recentInputs = [];
-      setRecentInputs([]);
       runtime.sentFrames = [];
       runtime.nextSequence = null;
     };
@@ -345,11 +328,9 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       runtime.transmittedAimY = self?.aimY ?? neutralInput.aimY;
       runtime.lastAimSentAt = Number.NEGATIVE_INFINITY;
       runtime.pendingInputs = [];
-      runtime.recentInputs = [];
       runtime.sentFrames = [];
       setCurrentInput(neutralInput);
       setPendingInputs([]);
-      setRecentInputs([]);
       setWelcome(message);
       setLatestSnapshot(null);
       setStatus('connected');
@@ -404,16 +385,9 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             const self = message.players.find(player => player.sessionId === runtime.sessionId);
             const acknowledged = self?.acknowledgedInput;
             if (acknowledged !== undefined) {
-              runtime.recentInputs = runtime.recentInputs
-                .map(input => input.sequence <= acknowledged && input.acknowledgedAtTick === null
-                  ? { ...input, acknowledgedAtTick: message.serverTick }
-                  : input)
-                .filter(input => input.acknowledgedAtTick == null
-                  || message.serverTick - input.acknowledgedAtTick <= RECENT_INPUT_TICKS);
               runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence > acknowledged);
               runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence > acknowledged);
               setPendingInputs(runtime.pendingInputs);
-              setRecentInputs(runtime.recentInputs);
             }
           } else if (message.type === 'inputRejected') {
             if (runtime.aimTimer !== null) clearTimeout(runtime.aimTimer);
@@ -434,10 +408,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             }
             runtime.nextSequence = message.sequence;
             runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence !== message.sequence);
-            runtime.recentInputs = runtime.recentInputs.filter(input => input.sequence !== message.sequence);
             runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence !== message.sequence);
             setPendingInputs(runtime.pendingInputs);
-            setRecentInputs(runtime.recentInputs);
           } else if (message.type === 'matchClosed') {
             if (message.sequence < runtime.lastSnapshotSequence) return;
             runtime.lastSnapshotSequence = message.sequence;
@@ -450,10 +422,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             clearConnectionTimers();
             runtime.nextSequence = null;
             runtime.pendingInputs = [];
-            runtime.recentInputs = [];
             runtime.sentFrames = [];
             setPendingInputs([]);
-            setRecentInputs([]);
             setClosed(message);
             setStatus('closed');
           }
@@ -475,7 +445,6 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     setLatestSnapshot(null);
     setClosed(null);
     setPendingInputs([]);
-    setRecentInputs([]);
     setCurrentInput(neutralInput);
     if (enabled) {
       setStatus('connecting');
@@ -494,7 +463,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   }, [enabled, matchId]);
 
   return {
-    status, welcome, latestSnapshot, closed, pendingInputs, recentInputs,
+    status, welcome, latestSnapshot, closed, pendingInputs,
     pendingInputCount: pendingInputs.length, currentInput,
     serverClock: serverClockRef.current, sendInput, sendHeartbeat,
   };

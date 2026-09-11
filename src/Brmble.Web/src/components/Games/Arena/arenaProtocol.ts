@@ -31,6 +31,8 @@ export interface ArenaPlayerSnapshot {
   forcedFireTicks: number | null;
   cooldownTicks: number;
   dashAvailable: boolean;
+  /** Dash applications still owed after `serverTick`. Authoritative; never inferred. */
+  dashTicksRemaining: number;
   acknowledgedInput: number;
 }
 
@@ -141,13 +143,14 @@ const phases = ['awaitingParticipants', 'loading', 'positioning', 'live', 'round
 const shrinkPhases = ['hold', 'normal', 'collapse'] as const;
 
 function validPlayer(value: unknown): value is ArenaPlayerSnapshot {
-  const keys = ['sessionId', 'side', 'x', 'y', 'vx', 'vy', 'aimX', 'aimY', 'chargePermille', 'forcedFireTicks', 'cooldownTicks', 'dashAvailable', 'acknowledgedInput'];
+  const keys = ['sessionId', 'side', 'x', 'y', 'vx', 'vy', 'aimX', 'aimY', 'chargePermille', 'forcedFireTicks', 'cooldownTicks', 'dashAvailable', 'dashTicksRemaining', 'acknowledgedInput'];
   return objectWithKeys(value, keys)
     && integer(value.sessionId) && (value.side === 0 || value.side === 1)
     && integer(value.x) && integer(value.y) && integer(value.vx) && integer(value.vy)
     && integer(value.aimX) && integer(value.aimY) && integer(value.chargePermille)
     && nullableInteger(value.forcedFireTicks) && integer(value.cooldownTicks)
-    && typeof value.dashAvailable === 'boolean' && integer(value.acknowledgedInput);
+    && typeof value.dashAvailable === 'boolean' && integer(value.dashTicksRemaining)
+    && integer(value.acknowledgedInput);
 }
 
 function validProjectile(value: unknown): value is ArenaProjectileSnapshot {

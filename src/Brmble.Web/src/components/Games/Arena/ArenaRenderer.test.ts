@@ -10,7 +10,7 @@ function player(sessionId: number, side: 0 | 1, overrides: Partial<ArenaPlayerSn
   return {
     sessionId, side, x: side ? 3000 : -3000, y: 0, vx: 0, vy: 0,
     aimX: side ? -32767 : 32767, aimY: 0, chargePermille: 0,
-    forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true,
+    forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0,
     acknowledgedInput: 0, ...overrides,
   };
 }
