@@ -139,8 +139,9 @@ Both clients read the same wall clock, which is exactly the blind spot that let 
 snapshot-interpolation bug reach a playtest: the client renders remote players at
 "server now minus the interpolation delay", and on one machine the offset between
 the two clocks is always zero, so no local test and no unit test could see it going
-wrong. To manufacture the disagreement, uncomment `Games__DevClockSkewMs` in
-`docker-local/docker-compose.yml` and rebuild the server:
+wrong. To manufacture the disagreement, uncomment both `ASPNETCORE_ENVIRONMENT` and
+`Games__DevClockSkewMs` in `docker-local/docker-compose.yml` and rebuild the server
+(the skew is Development-only, and the container otherwise defaults to Production):
 
 ```bash
 docker compose -f docker-local/docker-compose.yml up -d --build brmble
