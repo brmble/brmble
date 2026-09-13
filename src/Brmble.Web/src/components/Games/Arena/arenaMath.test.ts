@@ -37,10 +37,10 @@ function snapshot(overrides: Partial<ArenaSnapshot> = {}): ArenaSnapshot {
     consecutiveDoubleKos: 0, arena: { radius: 9000, shrinkPhase: 'hold' },
     players: [
       { sessionId: 10, side: 0, x: 1000, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
-        chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true,
+        chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0,
         acknowledgedInput: 7 },
       { sessionId: 20, side: 1, x: -3000, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0,
-        chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true,
+        chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0,
         acknowledgedInput: 0 },
     ],
     projectiles: [], ...overrides,
@@ -150,76 +150,78 @@ describe('arena client prediction', () => {
     expect(next.local.projectiles).toHaveLength(1);
   });
 
-  it('continues only the remaining acknowledged dash ticks after a mid-burst snapshot', () => {
-    const started = reconcile(authority(), [pending(8, 101, 106, { ...right, dash: true })], prediction).local;
+  // The server grants a dash at a tick it knows and counts down the applications it
+  // still owes. `dashTicksRemaining` is that count, so the client never has to work
+  // out when a dash began. These four tests replace an earlier set that pinned an
+  // inference built from the client's own acknowledged inputs; that inference could
+  // not tell a dash the server honoured from one it accepted and silently stripped,
+  // which is the defect they now guard against.
+
+  it('continues only the dash ticks the server still owes after a mid-burst snapshot', () => {
+    // Granted at 101, so after tick 103 three applications are outstanding: 104-106.
     const midDash = snapshot({
       serverTick: 103,
       players: snapshot().players.map(player => player.sessionId === 10
-        ? { ...player, x: 1990, dashAvailable: false, acknowledgedInput: 8 }
+        ? { ...player, x: 1990, dashAvailable: false, dashTicksRemaining: 3, acknowledgedInput: 8 }
         : player),
     });
-    const continued = reconcile(authority(midDash, started), [pending(9, 104, 106)], prediction);
+    const continued = reconcile(authority(midDash), [pending(9, 104, 106)], prediction);
     expect(continued.replayedTicks).toBe(3);
     expect(continued.local.dashTicks).toBe(0);
     expect(continued.local.player.x).toBe(2980);
   });
 
-  it('reconstructs acknowledged dash before prediction exists and clamps future predicted tick skew', () => {
-    const dash = pending(8, 110, 110, { ...right, dash: true });
-    const accepted = snapshot({
+  it('takes the dash window from the server instead of inferring one', () => {
+    const midDash = snapshot({
       serverTick: 103,
       players: snapshot().players.map(player => player.sessionId === 10
-        ? { ...player, x: 1990, dashAvailable: false, acknowledgedInput: 8 }
+        ? { ...player, x: 1990, dashAvailable: false, dashTicksRemaining: 3 }
         : player),
     });
-    const next = reconcile({ ...authority(accepted), recentInputs: [dash] }, [pending(9, 104, 106)], prediction);
-    expect(next.local.player.x).toBe(2980);
-    expect(next.local.dashTicks).toBe(2);
-  });
+    let local = reconcile(authority(midDash), [], prediction).local;
+    // Owed applications land on 104, 105 and 106; stepLocal dashes while
+    // tick < dashEndsAtTick, so the exclusive end is 107.
+    expect(local.dashEndsAtTick).toBe(107);
+    expect(local.dashTicks).toBe(3);
 
-  it.each([
-    ['far behind', 90, 99, 105, [104]],
-    ['lagging within the active window', 100, 100, 106, [104, 105]],
-    ['exact', 103, 103, 109, [104, 105, 106, 107, 108]],
-    ['future skew', 120, 103, 109, [104, 105, 106, 107, 108]],
-  ])('keeps %s inferred dash movement within six ticks and stops at its exclusive end', (
-    _label, predictedTick, expectedStart, expectedEnd, expectedMovementTicks,
-  ) => {
-    const accepted = snapshot({
-      serverTick: 103,
-      players: snapshot().players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, acknowledgedInput: 8 }
-        : player),
-    });
-    const dash = { ...pending(8, predictedTick, predictedTick, { ...right, dash: true }), acknowledgedAtTick: 103 };
-    let local = reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local;
-    const movementTicks: number[] = [];
-    while (local.serverTick <= expectedEnd) {
+    const travelled: number[] = [];
+    for (let step = 0; step < 4; step++) {
       const before = local.player.x;
       local = stepLocal(local, right, prediction);
-      if (local.player.x - before === prediction.baseMovePerTick + prediction.dashPerTick) {
-        movementTicks.push(local.serverTick);
-      }
+      travelled.push(local.player.x - before);
     }
-
-    expect(expectedEnd - expectedStart).toBeLessThanOrEqual(6);
-    expect(local.dashEndsAtTick).toBe(expectedEnd);
-    expect(movementTicks).toEqual(expectedMovementTicks);
-    expect(movementTicks).not.toContain(expectedEnd);
+    const dashing = prediction.baseMovePerTick + prediction.dashPerTick;
+    expect(travelled).toEqual([dashing, dashing, dashing, prediction.baseMovePerTick]);
   });
 
-  it('ends inferred dash at its bounded end and never extends it past six authoritative ticks', () => {
-    const dash = { ...pending(8, 120, 120, { ...right, dash: true }), acknowledgedAtTick: 103 };
-    const accepted = snapshot({ serverTick: 103, players: snapshot().players.map(player => player.sessionId === 10
-      ? { ...player, dashAvailable: false, acknowledgedInput: 8 }
-      : player) });
-    const first = reconcile({ ...authority(accepted), recentInputs: [dash] }, [], prediction).local;
-    const atEnd = snapshot({ ...accepted, serverTick: 109 });
-    const ended = reconcile({ ...authority(atEnd, first), recentInputs: [dash] }, [], prediction).local;
-    expect(ended.dashTicks).toBe(0);
-    expect(ended.dashEndsAtTick).toBeNull();
-    const later = reconcile({ ...authority(snapshot({ ...accepted, serverTick: 110 }), ended), recentInputs: [dash] }, [], prediction).local;
-    expect(later.dashEndsAtTick).toBeNull();
+  it('does not dash on a press the server accepted but refused', () => {
+    // Spamming space once the round's dash is spent. The server strips the flag and
+    // acknowledges the input exactly as it would one it honoured, so the
+    // acknowledgement is no evidence; dashAvailable has been false since the real
+    // dash. Only dashTicksRemaining distinguishes the two, and here it is zero.
+    const refused = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10
+        ? { ...player, x: 1990, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 8 }
+        : player),
+    });
+    const local = reconcile(authority(refused), [], prediction).local;
+    expect(local.dashEndsAtTick).toBeNull();
+    expect(local.dashTicks).toBe(0);
+    const stepped = stepLocal(local, right, prediction);
+    expect(stepped.player.x - local.player.x).toBe(prediction.baseMovePerTick);
+  });
+
+  it('replays an unacknowledged dash press without re-arming a spent dash', () => {
+    const refused = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10
+        ? { ...player, x: 1990, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 8 }
+        : player),
+    });
+    const next = reconcile(authority(refused), [pending(9, 104, 104, { ...right, dash: true })], prediction);
+    expect(next.local.dashEndsAtTick).toBeNull();
+    expect(next.local.player.x).toBe(1990 + prediction.baseMovePerTick);
   });
 
   it('smooths a 300-unit correction and snaps a 301-unit correction', () => {
@@ -354,7 +356,7 @@ describe('resolveBodyOverlap', () => {
   const body = (overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot => ({
     sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
     chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
-    dashAvailable: true, acknowledgedInput: 0, ...overrides,
+    dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0, ...overrides,
   });
   const low = (x: number, y = 0) => body({ sessionId: 10, side: 0, x, y });
   const high = (x: number, y = 0) => body({ sessionId: 20, side: 1, x, y });
@@ -413,7 +415,7 @@ describe('resolveBodyOverlap', () => {
   });
 
   it('preserves velocity and every non-position field', () => {
-    const source = body({ sessionId: 10, side: 0, x: 0, y: 0, vx: 41, vy: -17, aimX: 100, aimY: -200, chargePermille: 333, forcedFireTicks: 4, cooldownTicks: 7, dashAvailable: false, acknowledgedInput: 12 });
+    const source = body({ sessionId: 10, side: 0, x: 0, y: 0, vx: 41, vy: -17, aimX: 100, aimY: -200, chargePermille: 333, forcedFireTicks: 4, cooldownTicks: 7, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 12 });
     const result = resolveBodyOverlap(source, high(1000), 600);
     expect(result.a).toEqual({ ...source, x: -100 });
     expect(source.x).toBe(0);
@@ -532,7 +534,7 @@ describe('constrainLocalDisplay', () => {
   const body = (overrides: Partial<ArenaPlayerSnapshot> = {}): ArenaPlayerSnapshot => ({
     sessionId: 10, side: 0, x: 0, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0,
     chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
-    dashAvailable: true, acknowledgedInput: 0, ...overrides,
+    dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0, ...overrides,
   });
   const clear = (local: ArenaPlayerSnapshot, remote: ArenaPlayerSnapshot) => {
     const dx = local.x - remote.x;
@@ -579,7 +581,7 @@ describe('constrainLocalDisplay', () => {
   });
 
   it('never mutates its inputs and preserves every non-position field', () => {
-    const local = body({ x: 400, vx: 31, vy: -9, aimX: 12, aimY: -34, chargePermille: 500, cooldownTicks: 3, dashAvailable: false, acknowledgedInput: 8 });
+    const local = body({ x: 400, vx: 31, vy: -9, aimX: 12, aimY: -34, chargePermille: 500, cooldownTicks: 3, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 8 });
     const remote = body({ sessionId: 20, side: 1, x: 0, y: 0 });
     const result = constrainLocalDisplay(local, remote, 600, 9000);
     expect(local.x).toBe(400);

@@ -150,7 +150,6 @@
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-overlay));
   color: var(--text-primary);
-  font-size: var(--text-lg);
   line-height: 1;
   cursor: pointer;
   transition:

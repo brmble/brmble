@@ -5,7 +5,7 @@ const player = (sessionId: number) => ({
   sessionId, side: sessionId === 10 ? 0 : 1, x: sessionId === 10 ? -3500 : 3500, y: 0,
   vx: 0, vy: 0, aimX: sessionId === 10 ? 32767 : -32767, aimY: 0,
   chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0,
-  dashAvailable: true, acknowledgedInput: 0,
+  dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0,
 });
 
 const state = () => ({
@@ -22,7 +22,7 @@ const snapshot = () => ({
 const welcome = () => ({
   type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91,
   role: 'participant', sessionId: 10, snapshotSequence: 1, serverTick: 0,
-  tickRate: 60, snapshotRate: 20, interpolationMs: 100, maxExtrapolationMs: 50,
+  generatedAtUnixMs: 1_700_000_000_000, tickRate: 60, snapshotRate: 20, interpolationMs: 100, maxExtrapolationMs: 50,
   inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
   prediction: {
     unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90,

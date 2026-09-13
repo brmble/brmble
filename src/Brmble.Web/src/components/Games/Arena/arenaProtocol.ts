@@ -31,6 +31,8 @@ export interface ArenaPlayerSnapshot {
   forcedFireTicks: number | null;
   cooldownTicks: number;
   dashAvailable: boolean;
+  /** Dash applications still owed after `serverTick`. Authoritative; never inferred. */
+  dashTicksRemaining: number;
   acknowledgedInput: number;
 }
 
@@ -66,6 +68,8 @@ export interface ArenaWelcome {
   sessionId: number;
   snapshotSequence: number;
   serverTick: number;
+  /** The server's wall clock when this welcome was built. Seeds the clock offset. */
+  generatedAtUnixMs: number;
   tickRate: 60;
   snapshotRate: 20;
   interpolationMs: 100;
@@ -139,13 +143,14 @@ const phases = ['awaitingParticipants', 'loading', 'positioning', 'live', 'round
 const shrinkPhases = ['hold', 'normal', 'collapse'] as const;
 
 function validPlayer(value: unknown): value is ArenaPlayerSnapshot {
-  const keys = ['sessionId', 'side', 'x', 'y', 'vx', 'vy', 'aimX', 'aimY', 'chargePermille', 'forcedFireTicks', 'cooldownTicks', 'dashAvailable', 'acknowledgedInput'];
+  const keys = ['sessionId', 'side', 'x', 'y', 'vx', 'vy', 'aimX', 'aimY', 'chargePermille', 'forcedFireTicks', 'cooldownTicks', 'dashAvailable', 'dashTicksRemaining', 'acknowledgedInput'];
   return objectWithKeys(value, keys)
     && integer(value.sessionId) && (value.side === 0 || value.side === 1)
     && integer(value.x) && integer(value.y) && integer(value.vx) && integer(value.vy)
     && integer(value.aimX) && integer(value.aimY) && integer(value.chargePermille)
     && nullableInteger(value.forcedFireTicks) && integer(value.cooldownTicks)
-    && typeof value.dashAvailable === 'boolean' && integer(value.acknowledgedInput);
+    && typeof value.dashAvailable === 'boolean' && integer(value.dashTicksRemaining)
+    && integer(value.acknowledgedInput);
 }
 
 function validProjectile(value: unknown): value is ArenaProjectileSnapshot {
@@ -193,14 +198,14 @@ export const PREDICTION_V1: ArenaPredictionConstants = {
 };
 
 function validWelcome(value: JsonObject): value is JsonObject & ArenaWelcome {
-  const keys = ['type', 'protocolVersion', 'rulesetVersion', 'matchId', 'role', 'sessionId', 'snapshotSequence', 'serverTick', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'prediction', 'state', 'acknowledgedInput'];
+  const keys = ['type', 'protocolVersion', 'rulesetVersion', 'matchId', 'role', 'sessionId', 'snapshotSequence', 'serverTick', 'generatedAtUnixMs', 'tickRate', 'snapshotRate', 'interpolationMs', 'maxExtrapolationMs', 'inputHeartbeatMs', 'neutralAfterMs', 'reconnectGraceMs', 'prediction', 'state', 'acknowledgedInput'];
   return objectWithKeys(value, keys) && value.type === 'welcome' && value.protocolVersion === 1
     && value.role === 'participant' && value.rulesetVersion === 1
     && value.tickRate === 60 && value.snapshotRate === 20
     && value.interpolationMs === 100 && value.maxExtrapolationMs === 50
     && value.inputHeartbeatMs === 250 && value.neutralAfterMs === 750
     && value.reconnectGraceMs === 5000
-    && ['matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'acknowledgedInput'].every(key => integer(value[key]))
+    && ['matchId', 'sessionId', 'snapshotSequence', 'serverTick', 'generatedAtUnixMs', 'acknowledgedInput'].every(key => integer(value[key]))
     && validPrediction(value.prediction) && validState(value.state);
 }
 

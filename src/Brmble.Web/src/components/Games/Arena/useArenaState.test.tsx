@@ -5,6 +5,7 @@ import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile, sampleTimeline } from './arenaMath';
 import { KNOCKOUT_DURATION_MS } from './arenaKnockout';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
+import { createServerClock } from './serverClock';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
@@ -21,16 +22,19 @@ function state(x = 1000, chargePermille = 0) {
     arena: { radius: 9000, shrinkPhase: 'hold' as const }, projectiles: [],
     players: [
       { sessionId: 10, side: 0 as const, x, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille,
-        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
       { sessionId: 20, side: 1 as const, x: -1000, y: 0, vx: 10, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0,
-        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, acknowledgedInput: 0 },
+        forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
     ],
   };
 }
 
-function welcome(chargePermille = 0): ArenaWelcome {
+// `generatedAtUnixMs` defaults to the 1000 these fixtures mount at, so the welcome
+// frame lands where `asSnapshot` used to put it when it stamped with `Date.now()`.
+function welcome(chargePermille = 0, generatedAtUnixMs = 1000): ArenaWelcome {
   return { type: 'welcome', protocolVersion: 1, rulesetVersion: 1, matchId: 91, role: 'participant', sessionId: 10,
-    snapshotSequence: 1, serverTick: 100, tickRate: 60, snapshotRate: 20, interpolationMs: 100,
+    snapshotSequence: 1, serverTick: 100, generatedAtUnixMs,
+    tickRate: 60, snapshotRate: 20, interpolationMs: 100,
     maxExtrapolationMs: 50, inputHeartbeatMs: 250, neutralAfterMs: 750, reconnectGraceMs: 5000,
     prediction, state: state(1000, chargePermille), acknowledgedInput: 0 };
 }
@@ -64,7 +68,7 @@ describe('useArenaState', () => {
 
   it('ignores stale snapshot order and advances interpolation on animation frames', () => {
     vi.setSystemTime(900);
-    const initial = welcome();
+    const initial = welcome(0, 900);
     const hook = renderHook(({ latestSnapshot }) => useArenaState({
       welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10,
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
@@ -188,7 +192,7 @@ describe('useArenaState', () => {
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot, pendingInputs, selfSessionId: 10,
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [fire] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -211,25 +215,27 @@ describe('useArenaState', () => {
       input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: true, dash: false },
     };
     const hook = renderHook(() => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs: [fire], recentInputs: [fire], selfSessionId: 10,
+      welcome: initial, latestSnapshot: null, pendingInputs: [fire], selfSessionId: 10,
     }));
     expect(hook.result.current.projectiles).toHaveLength(1);
   });
 
-  it('continues a dash acknowledged before the first RAF using recent input history', () => {
+  // Was: 'continues a dash acknowledged before the first RAF using recent input
+  // history'. The client no longer keeps that history, and inferring a dash from it
+  // was the defect — a press the server accepted and stripped acknowledged exactly
+  // like one it honoured, so spamming dash re-armed movement the server never ran.
+  // The authority below reports dashAvailable false (the round's dash is spent) with
+  // nothing owed, which is precisely that case: the player must not move.
+  it('does not continue a dash the server reports nothing owed on', () => {
     const initial = welcome();
-    const dash: PendingArenaInput = {
-      sequence: 1, predictedTick: 110, fromTick: 110, toTick: 110,
-      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
-    };
     const acknowledged = {
       ...snapshot(2, 1000, 1990), serverTick: 103,
       players: snapshot(2, 1000, 1990).players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, acknowledgedInput: 1 }
+        ? { ...player, dashAvailable: false, dashTicksRemaining: 0, acknowledgedInput: 1 }
         : player),
     };
     const hook = renderHook(() => useArenaState({
-      welcome: initial, latestSnapshot: acknowledged, pendingInputs: [], recentInputs: [dash], selfSessionId: 10,
+      welcome: initial, latestSnapshot: acknowledged, pendingInputs: [], selfSessionId: 10,
     }));
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.x).toBe(1990);
@@ -246,7 +252,7 @@ describe('useArenaState', () => {
     const initial = welcome();
     let latestFrame: ReturnType<typeof useArenaState> | undefined;
     const hook = renderHook(({ latestSnapshot, pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot, pendingInputs, selfSessionId: 10,
       onFrame: state => { latestFrame = state; },
     }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null, pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ latestSnapshot: snapshot(2, 1000, 1200), pendingInputs: [] });
@@ -436,7 +442,7 @@ describe('useArenaState', () => {
       input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
     };
     const hook = renderHook(({ pendingInputs }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs: pendingInputs, selfSessionId: 10,
+      welcome: initial, latestSnapshot: null, pendingInputs, selfSessionId: 10,
     }), { initialProps: { pendingInputs: [] as PendingArenaInput[] } });
     hook.rerender({ pendingInputs: [move] });
     act(() => frame?.(performance.now()));
@@ -446,7 +452,7 @@ describe('useArenaState', () => {
   it('resets caches when selfSessionId changes with the same welcome object', () => {
     const initial = welcome();
     const hook = renderHook(({ selfSessionId, finalState }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs: [], recentInputs: [], selfSessionId, finalState,
+      welcome: initial, latestSnapshot: null, pendingInputs: [], selfSessionId, finalState,
     }), { initialProps: { selfSessionId: 10, finalState: undefined as ArenaStateSnapshot | undefined } });
     hook.rerender({ selfSessionId: 10, finalState: { ...state(5000), phase: 'ended', score: [2, 0] } });
     act(() => frame?.(performance.now()));
@@ -463,13 +469,13 @@ describe('useArenaState', () => {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
       input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: true },
     };
-    const hook = renderHook(({ selfSessionId, pendingInputs, recentInputs }) => useArenaState({
-      welcome: initial, latestSnapshot: null, pendingInputs, recentInputs, selfSessionId,
-    }), { initialProps: { selfSessionId: 10, pendingInputs: [oldDash], recentInputs: [oldDash] } });
-    hook.rerender({ selfSessionId: 20, pendingInputs: [oldDash], recentInputs: [oldDash] });
+    const hook = renderHook(({ selfSessionId, pendingInputs }) => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs, selfSessionId,
+    }), { initialProps: { selfSessionId: 10, pendingInputs: [oldDash] } });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [oldDash] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer).toMatchObject({ sessionId: 20, x: -1000, dashAvailable: true });
-    hook.rerender({ selfSessionId: 20, pendingInputs: [], recentInputs: [] });
+    hook.rerender({ selfSessionId: 20, pendingInputs: [] });
     act(() => frame?.(performance.now()));
     expect(hook.result.current.localPlayer?.sessionId).toBe(20);
   });
@@ -1151,5 +1157,60 @@ describe('useArenaState', () => {
 
       expect(frameOf().knockout).toHaveLength(0);
     });
+  });
+});
+
+describe('useArenaState across unsynchronised clocks', () => {
+  let frame: FrameRequestCallback | null;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    frame = null;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  /**
+   * Mounts the hook on a client whose wall clock sits `skewMs` behind the server's,
+   * feeds two snapshots, and returns where the remote player is drawn.
+   *
+   * Everything the server stamps is in server time (client time + skew); the client's
+   * own `Date.now()` stays on client time. The clock is fed the same (sent, received)
+   * pairs the socket would see. The remote player is the one that matters here: it is
+   * drawn purely from the timeline, so it is the part the sampling clock governs.
+   */
+  function remoteAt(skewMs: number): number | undefined {
+    const clientMount = 1000;
+    const toServer = (clientMs: number) => clientMs + skewMs;
+    const clock = createServerClock();
+
+    vi.setSystemTime(clientMount);
+    const initial: ArenaWelcome = { ...welcome(), generatedAtUnixMs: toServer(clientMount) };
+    clock.observe(toServer(clientMount), clientMount);
+
+    const hook = renderHook(({ latestSnapshot }) => useArenaState({
+      welcome: initial, latestSnapshot, pendingInputs: [], selfSessionId: 10, serverClock: clock,
+    }), { initialProps: { latestSnapshot: null as ArenaSnapshot | null } });
+
+    clock.observe(toServer(1050), 1050);
+    hook.rerender({ latestSnapshot: snapshot(2, toServer(1050), 2000) });
+    clock.observe(toServer(1100), 1100);
+    hook.rerender({ latestSnapshot: snapshot(3, toServer(1100), 3000) });
+
+    vi.setSystemTime(1150);
+    act(() => frame?.(performance.now()));
+    const x = hook.result.current.remotePlayer?.x;
+    hook.unmount();
+    return x;
+  }
+
+  it('draws the remote player at the same instant however far the clocks disagree', () => {
+    const synchronised = remoteAt(0);
+    expect(synchronised).toBeDefined();
+    // Behind, ahead, and far enough out to fall off the buffer entirely. Before the
+    // server clock was introduced these produced three different positions.
+    for (const skew of [-4000, -800, -250, 250, 800, 4000]) {
+      expect(remoteAt(skew)).toBe(synchronised);
+    }
   });
 });

@@ -124,6 +124,36 @@ docker compose -f docker-local/docker-compose.yml up -d --build brmble
 docker compose -f docker-local/docker-compose.yml logs -f brmble
 ```
 
+### Testing a realtime game with two local clients
+
+Start the server as above, then run two Debug clients side by side (Debug builds
+skip the single-instance mutex, so no flags are needed):
+
+```bash
+cd src/Brmble.Web && npm run build   # once, or `npm run dev` in its own terminal
+dotnet run --project src/Brmble.Client   # terminal 1
+dotnet run --project src/Brmble.Client   # terminal 2
+```
+
+Both clients read the same wall clock, which is exactly the blind spot that let a
+snapshot-interpolation bug reach a playtest: the client renders remote players at
+"server now minus the interpolation delay", and on one machine the offset between
+the two clocks is always zero, so no local test and no unit test could see it going
+wrong. To manufacture the disagreement, uncomment both `ASPNETCORE_ENVIRONMENT` and
+`Games__DevClockSkewMs` in `docker-local/docker-compose.yml` and rebuild the server
+(the skew is Development-only, and the container otherwise defaults to Production):
+
+```bash
+docker compose -f docker-local/docker-compose.yml up -d --build brmble
+```
+
+The arena should play normally with any value set (try `-400` and `400`). If the
+opponent lags behind, or freezes between snapshots and jumps, the client's
+clock-offset correction has regressed. The setting shifts only the timestamp the
+server writes on snapshots - simulation pacing, input rate budgets and timers all
+run on the monotonic clock and are untouched - and it is ignored outside
+Development.
+
 ## Build & Test (repeatable commands)
 - Build all: dotnet build
 - Build frontend: (cd src/Brmble.Web && npm run build)

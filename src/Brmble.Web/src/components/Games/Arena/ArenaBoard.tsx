@@ -91,8 +91,8 @@ export function ArenaBoard({
   const [reducedMotion, setReducedMotion] = useState(false);
   const state = useArenaState({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
-    pendingInputs: connection.pendingInputs, recentInputs: connection.recentInputs,
-    currentInput: connection.currentInput,
+    pendingInputs: connection.pendingInputs,
+    currentInput: connection.currentInput, serverClock: connection.serverClock,
     selfSessionId, finalState, reducedMotion, onFrame: current => drawFrameRef.current(current),
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);

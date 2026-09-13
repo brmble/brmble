@@ -689,6 +689,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.ForcedFireTicks > 0 ? player.ForcedFireTicks : null,
             player.CooldownTicks,
             player.DashAvailable,
+            player.DashTicks,
             acknowledgedInputs is not null && acknowledgedInputs.TryGetValue(player.SessionId, out var sequence)
                 ? sequence
                 : null)).ToList().AsReadOnly(),

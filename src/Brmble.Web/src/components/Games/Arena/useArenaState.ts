@@ -2,21 +2,31 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
-import type { PendingArenaInput, RecentArenaInput } from './useArenaConnection';
+import type { PendingArenaInput } from './useArenaConnection';
 import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
 } from './arenaKnockout';
+import { createServerClock, type ServerClock } from './serverClock';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
   latestSnapshot: ArenaSnapshot | null;
   pendingInputs: PendingArenaInput[];
-  recentInputs?: RecentArenaInput[];
   currentInput?: ArenaInputState;
   selfSessionId: number;
   finalState?: ArenaStateSnapshot;
   reducedMotion?: boolean;
+  /**
+   * Converts this client's wall clock to the server's. Snapshots are stamped with
+   * the server's clock, so the timeline must be sampled in server time; sampling it
+   * with a raw `Date.now()` slides the render point off the interpolation buffer by
+   * however far the two machines disagree. Defaults to an uncalibrated clock — zero
+   * offset, i.e. the two clocks assumed identical — which is correct only when they
+   * genuinely are, as in a test or a single-machine dev loop. Production callers
+   * pass the one `useArenaConnection` samples from real traffic.
+   */
+  serverClock?: ServerClock;
   onFrame?: (state: ArenaRenderState) => void;
 }
 
@@ -77,7 +87,9 @@ export function interpolateLocalPresentation(
   };
 }
 
-function asSnapshot(welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = Date.now()): ArenaSnapshot {
+function asSnapshot(
+  welcome: ArenaWelcome, state = welcome.state, generatedAtUnixMs = welcome.generatedAtUnixMs,
+): ArenaSnapshot {
   return {
     type: 'snapshot', protocolVersion: 1, matchId: welcome.matchId,
     sequence: welcome.snapshotSequence, serverTick: welcome.serverTick, generatedAtUnixMs, ...state,
@@ -100,9 +112,15 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
 }
 
 export function useArenaState({
-  welcome, latestSnapshot, pendingInputs, recentInputs = [], currentInput = neutralInput, selfSessionId, finalState,
-  reducedMotion = false, onFrame,
+  welcome, latestSnapshot, pendingInputs, currentInput = neutralInput, selfSessionId, finalState,
+  reducedMotion = false, serverClock, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
+  // One fallback instance per hook, never shared: a module-level singleton would let
+  // one match's samples leak into another's.
+  const fallbackClockRef = useRef<ServerClock | null>(null);
+  fallbackClockRef.current ??= createServerClock();
+  const serverClockRef = useRef<ServerClock>(serverClock ?? fallbackClockRef.current);
+  serverClockRef.current = serverClock ?? fallbackClockRef.current;
   const [rendered, setRendered] = useState<ArenaRenderState>(emptyState);
   const timelineRef = useRef<ArenaSnapshot[]>([]);
   const predictedRef = useRef<PredictedArenaState | undefined>(undefined);
@@ -118,7 +136,7 @@ export function useArenaState({
   const welcomeRef = useRef<ArenaWelcome | null>(null);
   const correctionRef = useRef<{ x: number; y: number; startedAt: number } | null>(null);
   const snappedRef = useRef(false);
-  const inputsRef = useRef({ pendingInputs, recentInputs, currentInput, selfSessionId, finalState });
+  const inputsRef = useRef({ pendingInputs, currentInput, selfSessionId, finalState });
   const authorityDirtyRef = useRef(true);
   const inputDirtyRef = useRef(true);
   const inputKeyRef = useRef('');
@@ -130,7 +148,7 @@ export function useArenaState({
   const renderedBaseRef = useRef<ArenaPlayerSnapshot | null>(null);
   const presentedRef = useRef<PredictedArenaState | undefined>(undefined);
   const presentedAtRef = useRef(0);
-  const suppressedInputsRef = useRef<{ pending: PendingArenaInput[]; recent: RecentArenaInput[] } | null>(null);
+  const suppressedInputsRef = useRef<{ pending: PendingArenaInput[] } | null>(null);
   // Presentation only. Nothing sampled from this ref is ever written back into
   // prediction, presentation or authority state — it is read once per frame to
   // build `nextRendered.knockout` and nowhere else.
@@ -148,7 +166,7 @@ export function useArenaState({
   useEffect(() => {
     if (sessionRef.current !== selfSessionId) {
       sessionRef.current = selfSessionId;
-      suppressedInputsRef.current = { pending: pendingInputs, recent: recentInputs };
+      suppressedInputsRef.current = { pending: pendingInputs };
       predictedRef.current = undefined;
       presentedRef.current = undefined;
       presentedAtRef.current = 0;
@@ -163,23 +181,38 @@ export function useArenaState({
     }
     const suppressed = suppressedInputsRef.current;
     const usePending = suppressed?.pending === pendingInputs ? [] : pendingInputs;
-    const useRecent = suppressed?.recent === recentInputs ? [] : recentInputs;
-    if (suppressed && suppressed.pending !== pendingInputs && suppressed.recent !== recentInputs) {
+    if (suppressed && suppressed.pending !== pendingInputs) {
       suppressedInputsRef.current = null;
     }
-    inputsRef.current = { pendingInputs: usePending, recentInputs: useRecent, currentInput, selfSessionId, finalState };
-    const inputKey = JSON.stringify([
+    inputsRef.current = { pendingInputs: usePending, currentInput, selfSessionId, finalState };
+    const inputKey = JSON.stringify(
       usePending.filter(input => input.input.fireReleased || input.input.dash)
         .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
-      useRecent.filter(input => input.input.fireReleased || input.input.dash)
-        .map(input => [input.sequence, input.input.fireReleased, input.input.dash]),
-    ]);
+    );
     if (inputKey !== inputKeyRef.current) {
       inputKeyRef.current = inputKey;
       inputDirtyRef.current = true;
     }
     if (finalState) authorityDirtyRef.current = true;
-  }, [finalState, pendingInputs, recentInputs, selfSessionId]);
+    // No dependency array: this effect must run after EVERY render, not only when
+    // its inputs change by identity. The welcome effect runs after it in the same
+    // commit and clears `inputKeyRef`, so the ref is left out of step with the key
+    // computed here; the re-run on the next render is what resyncs it and raises the
+    // dirty flag that reconciles the first frame of a new match. It also means a
+    // pending interval that grows without adding a fire or dash edge - ordinary held
+    // movement, which the key deliberately ignores - still reaches `inputsRef` in
+    // time for the next frame.
+    //
+    // This used to happen by accident: `recentInputs` defaulted to a fresh `[]` on
+    // every render, so the dependency array changed every render. Removing that
+    // unused parameter removed the accident, and four tests across cadence,
+    // reconciliation and input-only targets went red in two different directions.
+    // The cadence is load-bearing, so it is now stated rather than inherited.
+    //
+    // Follow-up worth taking deliberately: `inputKey` tracks only fire and dash
+    // edges, so nothing else can mark input dirty on its own. That is why this has
+    // to run unconditionally, and it is a thin contract to rest on.
+  });
   inputsRef.current.currentInput = currentInput;
 
   useEffect(() => {
@@ -261,7 +294,6 @@ export function useArenaState({
           const result = reconcile(
             {
               snapshot: authority, selfSessionId: current.selfSessionId, previous: predictedRef.current,
-              recentInputs: current.recentInputs,
               correctionOrigin: authorityChanged ? correctionOrigin : undefined,
             },
             current.finalState ? [] : current.pendingInputs,
@@ -314,7 +346,14 @@ export function useArenaState({
         );
         const sampled = current.finalState
           ? authority
-          : sampleTimeline(timeline, Date.now(), welcome.interpolationMs, welcome.maxExtrapolationMs);
+          // Server time, not client time. `generatedAtUnixMs` on every frame in the
+          // timeline comes from the server's clock, so the render point has to be
+          // expressed in that clock or the 100 ms buffer means whatever the offset
+          // between the two machines happens to be.
+          : sampleTimeline(
+              timeline, serverClockRef.current.now(Date.now()),
+              welcome.interpolationMs, welcome.maxExtrapolationMs,
+            );
         const correction = correctionRef.current;
         const remaining = correction ? Math.max(0, 1 - (frameTime - correction.startedAt) / 100) : 0;
         const local = correction ? {

@@ -15,6 +15,10 @@ public sealed record WelcomeMessage(
     long SessionId,
     long SnapshotSequence,
     long ServerTick,
+    // The server's wall clock at attach. The client seeds its clock-offset estimate
+    // from this, so the interpolation buffer is measured in server time from the
+    // first frame rather than from the first snapshot that happens to arrive.
+    long GeneratedAtUnixMs,
     int TickRate,
     int SnapshotRate,
     int InterpolationMs,
@@ -169,13 +173,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
             var acknowledged = AcknowledgedInputs(state);
             var view = ParticipantView(state, participant, acknowledged);
+            var attachedAt = _time.GetUtcNow();
             welcome = new WelcomeMessage(
                 1, state.Reservation.Configuration.RulesetVersion, matchId, RealtimeRole.Participant,
                 sessionId, participant.AttachSequence, state.Simulation.Tick,
+                attachedAt.ToUnixTimeMilliseconds(),
                 ArenaRulesetV1.TickRate, ArenaRulesetV1.SnapshotRate, 100, 50, 250, 750, 5000,
                 state.Definition.PredictionConstants, view, participant.AcknowledgedInput);
             snapshot = SerializeSnapshot(matchId, participant.AttachSequence, state.Simulation.Tick,
-                _time.GetUtcNow(), view);
+                attachedAt, view);
             mailbox.WriteControl(new RealtimeControl("welcome", sessionId, welcome.SnapshotSequence,
                 SerializeWelcome(welcome), Coalescible: false));
             mailbox.ReplaceSnapshot(snapshot);

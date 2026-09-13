@@ -92,7 +92,7 @@ public class RealtimeGameEndpointTests
         CollectionAssert.AreEquivalent(new[]
         {
             "type", "protocolVersion", "rulesetVersion", "matchId", "role", "sessionId",
-            "snapshotSequence", "serverTick", "tickRate", "snapshotRate", "interpolationMs",
+            "snapshotSequence", "serverTick", "generatedAtUnixMs", "tickRate", "snapshotRate", "interpolationMs",
             "maxExtrapolationMs", "inputHeartbeatMs", "neutralAfterMs", "reconnectGraceMs",
             "prediction", "state", "acknowledgedInput",
         }, root.EnumerateObject().Select(x => x.Name).ToArray());
