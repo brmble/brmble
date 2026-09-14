@@ -165,6 +165,31 @@ public sealed class RealtimeTicketStoreTests
     }
 
     [TestMethod]
+    public void ProductionComposeSuppliesRealtimeConfiguration()
+    {
+        // The URL is required in every environment, so the compose file operators
+        // deploy from must supply it. v0.8.0 shipped the validation without it and
+        // every stock deployment aborted during host startup — the games feature
+        // taking the whole server down with it.
+        var composePath = FindRepositoryFile("docker-compose.yml");
+        var compose = File.ReadAllText(composePath);
+
+        StringAssert.Contains(compose,
+            "Games__RealtimePublicWebSocketUrl: ${GAMES_REALTIME_WSS_URL}");
+        StringAssert.Contains(compose,
+            "Games__RealtimeAllowedOrigins__0: ${GAMES_REALTIME_ORIGIN:-https://brmble.local}");
+    }
+
+    [TestMethod]
+    public void ReadmeDocumentsRealtimeConfigurationAsRequired()
+    {
+        var readme = File.ReadAllText(FindRepositoryFile("README.md"));
+
+        StringAssert.Contains(readme, "`Games__RealtimePublicWebSocketUrl`");
+        StringAssert.Contains(readme, "`Games__RealtimeAllowedOrigins__0`");
+    }
+
+    [TestMethod]
     public async Task ProductionOptionsValidationFailsStartupWithoutUrlAndPassesWithExplicitWssUrl()
     {
         await Assert.ThrowsExceptionAsync<OptionsValidationException>(() =>
