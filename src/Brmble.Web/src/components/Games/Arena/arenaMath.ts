@@ -474,13 +474,35 @@ function fromAuthority(authority: ArenaAuthority, constants: ArenaPredictionCons
   };
 }
 
+/**
+ * Rebuilds local prediction from the newest authority and replays the pending
+ * intervals it does not yet contain.
+ *
+ * Pending is pruned by tick, not by acknowledgement: the server applies an input at
+ * the tick the client stamped it with (or on arrival if that has passed), so a
+ * snapshot at `serverTick` contains exactly the inputs stamped at or before it. An
+ * acknowledged input stamped in the future is received but not yet applied and must
+ * still be replayed; filtering by `acknowledgedInput` here used to drop it.
+ *
+ * `throughTick` is the client's current local tick (`serverTick + elapsed + lead`).
+ * The newest interval is open-ended - its held state persists until the next frame -
+ * so it is replayed through that tick rather than stopping at its own stamp. Without
+ * it (tests, or a caller with no local clock) the newest interval is one tick wide,
+ * which is what `useArenaConnection` records at send time.
+ */
 export function reconcile(
   authority: ArenaAuthority,
   allPending: PendingArenaInput[],
   constants: ArenaPredictionConstants,
+  throughTick?: number,
 ): { local: PredictedArenaState; pending: PendingArenaInput[]; replayedTicks: number; correction: ArenaCorrection | null; snapped: boolean } {
   const authoritative = fromAuthority(authority, constants);
-  const pending = allPending.filter(input => input.sequence > authoritative.player.acknowledgedInput);
+  const newest = allPending.length - 1;
+  const pending = throughTick === undefined
+    ? allPending
+    : allPending.map((interval, index) => index === newest && interval.fromTick <= interval.toTick
+      ? { ...interval, toTick: Math.max(interval.toTick, throughTick) }
+      : interval);
   let local = cloneState(authoritative);
   let replayedTicks = 0;
   let carriedFire = false;

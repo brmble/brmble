@@ -129,13 +129,30 @@ describe('arena client prediction', () => {
     expect(next.local.player.dashAvailable).toBe(true);
   });
 
-  it('discards acknowledged sequences before replaying', () => {
-    const authority = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
-      ? { ...player, acknowledgedInput: 9 }
-      : player) });
-    const next = reconcile({ snapshot: authority, selfSessionId: 10 }, [pending(8, 101, 103), pending(9, 104, 105), pending(10, 106, 106)], prediction);
-    expect(next.pending.map(x => x.sequence)).toEqual([10]);
-    expect(next.replayedTicks).toBe(1);
+  it('replays by tick, not by acknowledgement, and through the local tick when given one', () => {
+    // Acknowledged means received: the server applies at the stamp, so an
+    // acknowledged interval past the snapshot's tick is still replayed.
+    const authorityAt = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10 ? { ...player, acknowledgedInput: 9 } : player),
+    });
+    const acknowledgedButFuture = reconcile(authority(authorityAt), [pending(9, 104, 106)], prediction);
+    expect(acknowledgedButFuture.replayedTicks).toBe(3);
+    expect(acknowledgedButFuture.local.player.x).toBe(1000 + 3 * 90);
+
+    // The newest interval is open-ended: given the local tick, it replays through it.
+    const through = reconcile(authority(authorityAt), [pending(9, 104, 104)], prediction, 110);
+    expect(through.replayedTicks).toBe(7);
+    expect(through.local.player.x).toBe(1000 + 7 * 90);
+
+    // Only the newest is widened; a superseded interval keeps its bounds.
+    const two = reconcile(authority(authorityAt), [pending(9, 104, 105), pending(10, 106, 106, { ...right, moveX: 0 })], prediction, 110);
+    expect(two.replayedTicks).toBe(7);
+    expect(two.local.player.x).toBe(1000 + 2 * 90);
+
+    // An interval already behind the snapshot contributes nothing either way.
+    const behind = reconcile(authority(authorityAt), [pending(8, 100, 102), pending(9, 104, 104)], prediction);
+    expect(behind.replayedTicks).toBe(1);
   });
 
   it('carries same-tick empty edge flags into the next nonempty interval exactly once', () => {

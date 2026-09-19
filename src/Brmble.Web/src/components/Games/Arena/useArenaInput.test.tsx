@@ -5,6 +5,7 @@ import type { ArenaInputState, ArenaPlayerSnapshot } from './arenaProtocol';
 import type { ArenaConnection } from './useArenaConnection';
 import { useArenaInput } from './useArenaInput';
 import { createServerClock } from './serverClock';
+import { createInputLead } from './inputLead';
 
 vi.mock('../../../bridge', () => ({ default: { send: vi.fn() } }));
 
@@ -36,7 +37,7 @@ function inputHarness(
   const connection: ArenaConnection = {
     status, welcome: null, latestSnapshot: null, closed: null,
     pendingInputs: [], pendingInputCount: 0, currentInput: neutral,
-    serverClock: createServerClock(),
+    serverClock: createServerClock(), inputLead: createInputLead({ tickRate: 60 }), currentPredictedTick: () => 101,
     sendInput: vi.fn(input => sent.push(input)), sendHeartbeat: vi.fn(),
   };
   const renderer = { pointerToWorld: vi.fn(() => ({ x: 0, y: -1000 })) };

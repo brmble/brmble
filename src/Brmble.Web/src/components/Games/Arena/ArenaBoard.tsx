@@ -93,6 +93,7 @@ export function ArenaBoard({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs,
     currentInput: connection.currentInput, serverClock: connection.serverClock,
+    currentPredictedTick: connection.currentPredictedTick,
     selfSessionId, finalState, reducedMotion, onFrame: current => drawFrameRef.current(current),
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);

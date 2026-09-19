@@ -114,21 +114,65 @@ describe('useArenaConnection', () => {
     act(() => h.result.current.sendInput(held));
     expect(h.socket.sent[1]).toMatchObject({ type: 'input', sequence: 1, ...held });
     await act(() => vi.advanceTimersByTimeAsync(250));
+    // serverTick 100 + 15 ticks elapsed + the 3-tick minimum lead.
     expect(h.socket.sent[2]).toEqual({
       type: 'heartbeat', protocolVersion: 1, matchId: 91, sequence: 2,
-      predictedTick: 115, moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false,
+      predictedTick: 118, moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false,
     });
     expect(h.result.current.pendingInputs[1].input).toEqual(held);
   });
 
-  it('records exact prediction intervals and removes acknowledged inputs', async () => {
+  it('records exact prediction intervals and prunes them by tick, never the newest', async () => {
     const h = await connect(10);
     act(() => h.result.current.sendInput(held));
+    // serverTick 100 + max(1, elapsed) + the 3-tick minimum lead.
     expect(h.result.current.pendingInputs).toEqual([{
-      sequence: 11, predictedTick: 101, fromTick: 101, toTick: 101, input: held,
+      sequence: 11, predictedTick: 104, fromTick: 104, toTick: 104, input: held,
     }]);
+    act(() => h.result.current.sendInput({ ...held, charging: true }));
+    expect(h.result.current.pendingInputs).toEqual([
+      { sequence: 11, predictedTick: 104, fromTick: 104, toTick: 103, input: held },
+      { sequence: 12, predictedTick: 104, fromTick: 104, toTick: 104, input: { ...held, charging: true } },
+    ]);
+
+    // The snapshot acknowledges both, but acknowledgement means received, not
+    // applied: the server applies at the stamp. The superseded interval is behind the
+    // snapshot's tick and goes; the newest is open-ended and stays until superseded.
+    h.socket.message(world(2, 12));
+    expect(h.result.current.pendingInputs).toEqual([
+      { sequence: 12, predictedTick: 104, fromTick: 104, toTick: 104, input: { ...held, charging: true } },
+    ]);
+  });
+
+  it('keeps an acknowledged interval the snapshot has not reached yet', async () => {
+    const h = await connect(10);
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    act(() => h.result.current.sendInput({ ...held, charging: true }));
+    expect(h.result.current.pendingInputs.map(input => [input.sequence, input.fromTick, input.toTick]))
+      .toEqual([[11, 104, 105], [12, 106, 106]]);
+
+    // Both acknowledged, but the first still covers tick 105 against a snapshot at
+    // 104: the server has received it and applies it on the stamped ticks, so it is
+    // still replayed. One tick later it is behind the snapshot and goes.
+    h.socket.message({ ...world(2, 12), serverTick: 104 });
+    expect(h.result.current.pendingInputs.map(input => input.sequence)).toEqual([11, 12]);
+    h.socket.message({ ...world(3, 12), serverTick: 105 });
+    expect(h.result.current.pendingInputs.map(input => input.sequence)).toEqual([12]);
+  });
+
+  it('samples the round trip from the newest acknowledged frame and raises the lead', async () => {
+    const h = await connect(10);
+    act(() => h.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    expect(h.result.current.inputLead.rttMs).toBeNull();
     h.socket.message(world(2, 11));
-    expect(h.result.current.pendingInputs).toEqual([]);
+    // Sent at 0, acknowledged 120 ms later: ceil(120 * 60 / 1000) = 8 ticks + 2 margin.
+    expect(h.result.current.inputLead.rttMs).toBe(120);
+    expect(h.result.current.inputLead.targetTicks).toBe(10);
+    // A second snapshot acknowledging nothing new adds no sample.
+    h.socket.message(world(3, 11));
+    expect(h.result.current.inputLead.sampleCount).toBe(1);
   });
 
   // A dash press is no longer retained after acknowledgement. It used to be, so that
@@ -136,15 +180,16 @@ describe('useArenaConnection', () => {
   // inference that could not distinguish a dash the server honoured from one it
   // accepted and stripped. The window is now stated by the server on every snapshot
   // (`dashTicksRemaining`), so the press is ordinary pending input and clears on ack.
-  it('clears an acknowledged dash press like any other input', async () => {
+  it('clears a superseded dash press like any other input once the snapshot passes it', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput({ ...held, dash: true }));
-    expect(h.result.current.pendingInputs).toHaveLength(1);
-    h.socket.message({ ...world(2, 101), serverTick: 101,
+    act(() => h.result.current.sendInput({ ...held, charging: true }));
+    expect(h.result.current.pendingInputs).toHaveLength(2);
+    h.socket.message({ ...world(2, 101), serverTick: 104,
       players: world(2, 1).players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, dashTicksRemaining: 5, acknowledgedInput: 1 }
+        ? { ...player, dashAvailable: false, dashTicksRemaining: 5, acknowledgedInput: 2 }
         : player) });
-    expect(h.result.current.pendingInputs).toEqual([]);
+    expect(h.result.current.pendingInputs.map(input => input.sequence)).toEqual([2]);
   });
 
   it('uses non-overlapping inclusive intervals and preserves same-tick edges in empty intervals', async () => {
@@ -154,9 +199,9 @@ describe('useArenaConnection', () => {
     act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
 
     expect(h.result.current.pendingInputs).toEqual([
-      { sequence: 1, predictedTick: 101, fromTick: 101, toTick: 100, input: held },
-      { sequence: 2, predictedTick: 101, fromTick: 101, toTick: 100, input: { ...held, dash: true } },
-      { sequence: 3, predictedTick: 101, fromTick: 101, toTick: 101, input: { ...held, moveX: -32767 } },
+      { sequence: 1, predictedTick: 104, fromTick: 104, toTick: 103, input: held },
+      { sequence: 2, predictedTick: 104, fromTick: 104, toTick: 103, input: { ...held, dash: true } },
+      { sequence: 3, predictedTick: 104, fromTick: 104, toTick: 104, input: { ...held, moveX: -32767 } },
     ]);
   });
 

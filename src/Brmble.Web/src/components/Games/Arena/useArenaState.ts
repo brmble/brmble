@@ -27,6 +27,14 @@ interface UseArenaStateOptions {
    * pass the one `useArenaConnection` samples from real traffic.
    */
   serverClock?: ServerClock;
+  /**
+   * The client's current local tick, from `useArenaConnection`: the tick its frames
+   * are stamped with. Pending intervals are replayed through it, so the local state
+   * after a reconcile sits at the same tick the next input will be stamped with.
+   * Without it the newest interval is replayed only to its own stamp, which is the
+   * pre-scheduling behaviour and what the tests without a connection exercise.
+   */
+  currentPredictedTick?: () => number;
   onFrame?: (state: ArenaRenderState) => void;
 }
 
@@ -113,7 +121,7 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
 
 export function useArenaState({
   welcome, latestSnapshot, pendingInputs, currentInput = neutralInput, selfSessionId, finalState,
-  reducedMotion = false, serverClock, onFrame,
+  reducedMotion = false, serverClock, currentPredictedTick, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
   // One fallback instance per hook, never shared: a module-level singleton would let
   // one match's samples leak into another's.
@@ -162,6 +170,8 @@ export function useArenaState({
   const frozenBoardRef = useRef<ArenaStateSnapshot | null>(null);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
+  const currentPredictedTickRef = useRef(currentPredictedTick);
+  currentPredictedTickRef.current = currentPredictedTick;
 
   useEffect(() => {
     if (sessionRef.current !== selfSessionId) {
@@ -298,6 +308,7 @@ export function useArenaState({
             },
             current.finalState ? [] : current.pendingInputs,
             welcome.prediction,
+            current.finalState ? undefined : currentPredictedTickRef.current?.(),
           );
           const tickMs = 1000 / welcome.tickRate;
           if (authorityChanged) {

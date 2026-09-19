@@ -8,6 +8,7 @@ import { ArenaRenderer, type ArenaRenderView } from './ArenaRenderer';
 import { GameSurface } from '../GameSurface';
 import bridge from '../../../bridge';
 import { createServerClock } from './serverClock';
+import { createInputLead } from './inputLead';
 
 const connection = vi.hoisted(() => ({ current: {} as ArenaConnection }));
 const state = vi.hoisted(() => ({
@@ -58,7 +59,7 @@ describe('ArenaBoard', () => {
     connection.current = {
       status: 'connected', welcome: { serverTick: 100, tickRate: 60 } as ArenaConnection['welcome'],
       latestSnapshot: null, closed: null, pendingInputs: [], pendingInputCount: 0,
-      serverClock: createServerClock(),
+      serverClock: createServerClock(), inputLead: createInputLead({ tickRate: 60 }), currentPredictedTick: () => 101,
       currentInput: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
       sendInput: vi.fn(), sendHeartbeat: vi.fn(),
     };

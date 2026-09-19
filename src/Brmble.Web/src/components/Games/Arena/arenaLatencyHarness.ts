@@ -48,9 +48,9 @@ export interface LatencyScenarioOptions {
   heartbeatEveryTicks?: number;
   maxScheduleAheadTicks?: number;
   /**
-   * Phase C only: replay pending intervals through the client's current local tick
-   * (`S_last + elapsed + lead`) instead of stopping at the newest interval's stamp.
-   * Requires the `throughTick` argument on `reconcile`.
+   * Replay pending intervals through the client's current local tick
+   * (`S_last + elapsed + lead`) instead of stopping at the newest interval's stamp,
+   * as the scheduling client does.
    */
   replayThroughCurrentTick?: boolean;
   /**
@@ -234,11 +234,9 @@ export function runLatencyScenario(options: LatencyScenarioOptions): LatencyScen
         : pending.filter((entry, index) => index === pending.length - 1 || entry.toTick > snapshot.serverTick);
       const origin = presented.player;
       const authorityInput = { snapshot, selfSessionId: 10, previous: predicted, correctionOrigin: { x: origin.x, y: origin.y } };
-      const result = replayThroughCurrentTick
-        ? (reconcile as unknown as (
-            a: typeof authorityInput, p: PendingArenaInput[], c: ArenaPredictionConstants, through: number,
-          ) => ReturnType<typeof reconcile>)(authorityInput, pending, constants, currentPredictedTick(tick))
-        : reconcile(authorityInput, pending, constants);
+      const result = reconcile(
+        authorityInput, pending, constants, replayThroughCurrentTick ? currentPredictedTick(tick) : undefined,
+      );
       const dx = result.local.player.x - origin.x;
       const dy = result.local.player.y - origin.y;
       correctionMagnitude = Math.max(correctionMagnitude, Math.hypot(dx, dy));

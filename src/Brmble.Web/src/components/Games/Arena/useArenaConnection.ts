@@ -9,6 +9,7 @@ import type {
 } from './arenaProtocol';
 import { parseServerMessage } from './arenaProtocol';
 import { createServerClock, type ServerClock } from './serverClock';
+import { createInputLead, type InputLead } from './inputLead';
 
 const RECONNECT_DELAYS = [250, 500, 1000, 2000] as const;
 // Leave headroom below the server's rolling 30 aim changes/second limit.
@@ -45,6 +46,18 @@ export interface ArenaConnection {
    * — the snapshot timeline above all — has to go through this.
    */
   serverClock: ServerClock;
+  /**
+   * How far ahead of the server this client stamps its inputs, from the round trip
+   * measured off `acknowledgedInput`. Shared with `useArenaState` so replay runs
+   * through the same local tick the stamps use.
+   */
+  inputLead: InputLead;
+  /**
+   * The client's current local tick: `serverTick + elapsed since the last snapshot +
+   * lead`. Every sent frame is stamped with this; `useArenaState` replays pending
+   * intervals through it.
+   */
+  currentPredictedTick: () => number;
   sendInput: (input: ArenaInputState) => void;
   sendHeartbeat: () => void;
 }
@@ -83,7 +96,8 @@ interface Runtime {
   currentInput: ArenaInputState;
   queuedAimInput: ArenaInputState | null;
   pendingInputs: PendingArenaInput[];
-  sentFrames: Array<{ sequence: number; aimX: number; aimY: number; aimSentAt: number }>;
+  sentFrames: Array<{ sequence: number; aimX: number; aimY: number; aimSentAt: number; sentAt: number }>;
+  lead: InputLead;
   terminal: boolean;
 }
 
@@ -91,9 +105,16 @@ function sameHeldState(left: ArenaInputState, right: ArenaInputState): boolean {
   return left.moveX === right.moveX && left.moveY === right.moveY && left.charging === right.charging;
 }
 
+/**
+ * The client's local tick. The server applies an input at the tick it is stamped
+ * with, so the stamp has to name a tick the input can still reach: the last known
+ * server tick, plus the time since it was known, plus a lead covering the round trip.
+ * Local prediction runs from the same tick, which is what makes the two agree.
+ */
 function currentPredictedTick(runtime: Runtime): number {
-  const elapsedTicks = Math.floor((performance.now() - runtime.clockStartedAt) * runtime.tickRate / 1000);
-  return runtime.serverTick + Math.max(1, elapsedTicks);
+  const now = performance.now();
+  const elapsedTicks = Math.floor((now - runtime.clockStartedAt) * runtime.tickRate / 1000);
+  return runtime.serverTick + Math.max(1, elapsedTicks) + runtime.lead.leadTicks(now);
 }
 
 export function useArenaConnection({ matchId, enabled }: { matchId: number; enabled: boolean }): ArenaConnection {
@@ -115,6 +136,10 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   // socket is not feeding.
   const serverClockRef = useRef<ServerClock | null>(null);
   serverClockRef.current ??= createServerClock();
+  // Same lifetime and the same discipline as the clock above: the round trip is a
+  // property of the network, not of the match, so it survives a reconnect.
+  const inputLeadRef = useRef<InputLead | null>(null);
+  inputLeadRef.current ??= createInputLead({ tickRate: DEFAULT_TICK_RATE });
   const sendStateRef = useRef<(runtime: Runtime, input: ArenaInputState, heartbeat: boolean) => void>(() => {});
 
   const sendMessage = (runtime: Runtime, message: ArenaClientMessage) => {
@@ -146,7 +171,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
     runtime.transmittedAimX = input.aimX;
     runtime.transmittedAimY = input.aimY;
     runtime.lastSentInput = recordedInput;
-    runtime.sentFrames.push({ sequence, aimX: input.aimX, aimY: input.aimY, aimSentAt });
+    runtime.sentFrames.push({ sequence, aimX: input.aimX, aimY: input.aimY, aimSentAt, sentAt: performance.now() });
     const extended = runtime.pendingInputs.map((pending, index) => index === runtime.pendingInputs.length - 1
         ? { ...pending, toTick: predictedTick - 1 }
         : pending);
@@ -240,7 +265,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
       tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastSnapshotSequence: -1,
       lastAimSentAt: Number.NEGATIVE_INFINITY, transmittedAimX: neutralInput.aimX,
       transmittedAimY: neutralInput.aimY, lastSentInput: neutralInput,
-      currentInput: neutralInput, queuedAimInput: null, pendingInputs: [], sentFrames: [], terminal: false,
+      currentInput: neutralInput, queuedAimInput: null, pendingInputs: [], sentFrames: [],
+      lead: inputLeadRef.current ?? createInputLead({ tickRate: DEFAULT_TICK_RATE }), terminal: false,
     };
     runtimeRef.current = runtime;
 
@@ -370,6 +396,7 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
           // is eventually consumed: React scheduling between the two would be charged
           // to the latency term and bias the offset low.
           const receivedAt = Date.now();
+          const receivedAtPerf = performance.now();
           const message = parseServerMessage(event.data);
           if (!message || message.matchId !== matchId) return;
           if (message.type === 'welcome') {
@@ -385,7 +412,22 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
             const self = message.players.find(player => player.sessionId === runtime.sessionId);
             const acknowledged = self?.acknowledgedInput;
             if (acknowledged !== undefined) {
-              runtime.pendingInputs = runtime.pendingInputs.filter(input => input.sequence > acknowledged);
+              // One round-trip sample per snapshot, from the newest frame it acknowledges:
+              // the server echoes the newest sequence it has *received*, and this client
+              // knows when it sent it. Older acknowledged frames would only add queueing.
+              const newestAcknowledged = runtime.sentFrames.reduce<Runtime['sentFrames'][number] | null>(
+                (newest, frame) => frame.sequence <= acknowledged && (newest === null || frame.sequence > newest.sequence) ? frame : newest,
+                null,
+              );
+              if (newestAcknowledged !== null) runtime.lead.sample(receivedAtPerf - newestAcknowledged.sentAt, receivedAtPerf);
+              // Pending is pruned by tick, not by acknowledgement. The server applies an
+              // input at its stamped tick, so this snapshot contains exactly the inputs
+              // stamped at or before its serverTick; an acknowledged input stamped later
+              // is received but not yet applied and must still be replayed. The newest
+              // interval is open-ended - its held state persists until the next frame -
+              // and is never pruned.
+              runtime.pendingInputs = runtime.pendingInputs.filter((input, index, all) =>
+                index === all.length - 1 || input.toTick > message.serverTick);
               runtime.sentFrames = runtime.sentFrames.filter(frame => frame.sequence > acknowledged);
               setPendingInputs(runtime.pendingInputs);
             }
@@ -465,6 +507,8 @@ export function useArenaConnection({ matchId, enabled }: { matchId: number; enab
   return {
     status, welcome, latestSnapshot, closed, pendingInputs,
     pendingInputCount: pendingInputs.length, currentInput,
-    serverClock: serverClockRef.current, sendInput, sendHeartbeat,
+    serverClock: serverClockRef.current, inputLead: inputLeadRef.current,
+    currentPredictedTick: () => runtimeRef.current === null ? 0 : currentPredictedTick(runtimeRef.current),
+    sendInput, sendHeartbeat,
   };
 }

@@ -82,6 +82,30 @@ describe('useArenaState', () => {
     expect(cancelAnimationFrame).toHaveBeenCalled();
   });
 
+  it('replays the newest pending interval through the connection\'s local tick', () => {
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    // Hoisted: a fresh welcome identity per render would re-run the [welcome] effect.
+    const initial = welcome();
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [move], currentInput: move.input, selfSessionId: 10,
+      // The connection stamps at serverTick + elapsed + lead; the local state after a
+      // reconcile has to sit at that same tick, ten ticks past the welcome's 100.
+      currentPredictedTick: () => 110,
+    }));
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1000 + 10 * 90);
+
+    // Without a local clock the newest interval is only as wide as its own stamp.
+    const bare = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [move], currentInput: move.input, selfSessionId: 10,
+    }));
+    act(() => frame?.(performance.now()));
+    expect(bare.result.current.localPlayer?.x).toBe(1090);
+  });
+
   it('advances local held movement every fixed tick between network sends', () => {
     const move: PendingArenaInput = {
       sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
