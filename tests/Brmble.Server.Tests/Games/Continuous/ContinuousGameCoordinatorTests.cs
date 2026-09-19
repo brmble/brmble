@@ -788,10 +788,15 @@ public sealed class ContinuousGameCoordinatorTests
 
     private sealed class CapturingDefinition : IContinuousGameDefinition
     {
+        private readonly ArenaGameDefinition _arena = new();
         public string GameType => "arena-knockoff";
         public int RulesetVersion => 1;
+        public ContinuousTiming Timing => _arena.Timing;
         public object PredictionConstants => ArenaRulesetV1.PredictionConstants;
         public ArenaSimulation? Simulation { get; private set; }
+        // Configuration validation moved from the coordinator into the game definition;
+        // this fake is the arena in all but capture, so it validates like the arena.
+        public string? ValidateConfiguration(DuelConfiguration configuration) => _arena.ValidateConfiguration(configuration);
         public IContinuousSimulation Create(DuelReservation reservation) => Simulation = new ArenaSimulation(reservation);
     }
 

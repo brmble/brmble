@@ -86,8 +86,15 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     public ContinuousInput InitialInput(long sessionId)
     {
+        // The spawn-facing aim, whatever the player is aiming at by now: this seeds the
+        // coordinator's direction budget at match creation, and it must be the same
+        // answer whenever it is asked.
         var player = FindPlayer(sessionId);
-        return NeutralInput with { AimX = checked((short)player.AimX), AimY = checked((short)player.AimY) };
+        return NeutralInput with
+        {
+            AimX = checked((short)(player.Side == 0 ? ArenaRulesetV1.AimQuantizationMax : -ArenaRulesetV1.AimQuantizationMax)),
+            AimY = 0,
+        };
     }
 
     /// <summary>
