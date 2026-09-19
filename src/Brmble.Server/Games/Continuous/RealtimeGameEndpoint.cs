@@ -72,7 +72,11 @@ public static class RealtimeGameEndpoint
         }
 
         var connectionId = CreateConnectionId();
-        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        // Development-only artificial latency; the null object outside Development
+        // returns the accepted socket untouched.
+        var transportDelay = context.RequestServices.GetService<DevRealtimeTransportDelay>()
+            ?? DevRealtimeTransportDelay.None;
+        using var socket = transportDelay.Wrap(await context.WebSockets.AcceptWebSocketAsync());
         var mailbox = new RealtimeSnapshotMailbox();
         var attached = await coordinator.AttachParticipantAsync(
             scope.MatchId, scope.StableUserId, scope.SessionId, connectionId, mailbox);

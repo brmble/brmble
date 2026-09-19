@@ -53,6 +53,13 @@ services:
       # Games__RealtimeAllowedOrigins entries above dead config locally.
       # ASPNETCORE_ENVIRONMENT: 'Development'
       # Games__DevClockSkewMs: '-400'
+      # Local testing aid, Development only. Holds every realtime game message for this
+      # long in each direction (plus 0..jitter ms at random), so the arena can be played
+      # against a real round trip on one machine - which is otherwise under a millisecond
+      # and hides every defect in how the client predicts its own inputs. 50/10 is about
+      # a 100 ms round trip. Uncomment the environment line above as well and rebuild.
+      # Games__DevRealtimeDelayMs: '50'
+      # Games__DevRealtimeJitterMs: '10'
     restart: unless-stopped
     depends_on:
       - mumble
