@@ -47,7 +47,7 @@ section *Finding 3*. All decisions are made; there is nothing to ask before star
 
 ### 1. Split validation from refusal in `SubmitInput`
 
-- [ ] Introduce a private `Sanitize(ContinuousInput input, long serverTick, bool isHeartbeat,
+- [x] Introduce a private `Sanitize(ContinuousInput input, long serverTick, bool isHeartbeat,
       ParticipantInputState participant) → (ContinuousInput sanitized, bool malformed)` that
       replaces `IsInRange`. `malformed` is true only for a heartbeat carrying fire or dash.
       Otherwise it returns a corrected input:
@@ -55,58 +55,58 @@ section *Finding 3*. All decisions are made; there is nothing to ask before star
       - Aim `(0,0)` or `|aim| > 32_767` → `participant.AimX/AimY`.
       - `|move| > 32_767` → scaled down along its own direction (use `FixedVec`), preserving
         the `>= -32_767` component floor.
-- [ ] `malformed` → `Reject(InvalidRange)` (unchanged behaviour for that one case). Everything
+- [x] `malformed` → `Reject(InvalidRange)` (unchanged behaviour for that one case). Everything
       else proceeds with the sanitized input.
-- [ ] Sequence: `input.Sequence <= participant.AcknowledgedInput` → log at Information with
+- [x] Sequence: `input.Sequence <= participant.AcknowledgedInput` → log at Information with
       both numbers and `return new InputResult(true, default, participant.AcknowledgedInput)`.
       No `inputRejected` is emitted because `Accepted` is true; verify
       `RealtimeGameEndpoint.HandlePayload` (`:203`) only writes the control on `!Accepted`.
       `input.Sequence > AcknowledgedInput + 1` → log at Information with the gap size and
       continue; the acknowledgement advances to `input.Sequence` on the normal path.
-- [ ] `messageRateExceeded` (`:353`): do **not** return. Strip `FireReleased` and `Dash`,
+- [x] `messageRateExceeded` (`:353`): do **not** return. Strip `FireReleased` and `Dash`,
       keep held state, and fall through to `SetInput` and acknowledgement. Do **not** enqueue
       the timestamp for an over-budget message — today a rejected message is not counted
       either, and counting it would let a flood extend its own window. (If you conclude the
       current code *does* count it, keep whatever it does and say so in the commit.)
-- [ ] `Reject` is now called for `WrongRole`, `WrongMatch` and the malformed-heartbeat case
+- [x] `Reject` is now called for `WrongRole`, `WrongMatch` and the malformed-heartbeat case
       only. Leave its signature.
 
 ### 2. Rewrite the pinned contract
 
-- [ ] `Validation_UsesMatchRoleThenSequenceOrderWithoutAdvancingAcknowledgement` (`:26`):
+- [x] `Validation_UsesMatchRoleThenSequenceOrderWithoutAdvancingAcknowledgement` (`:26`):
       split into the connection-level part (unchanged) and a new
       `StaleAndGapSequences_AreAcknowledgedWithoutRejecting`.
-- [ ] `RangeValidation_UsesInclusiveTickAndNormalizedVectorBoundaries` (`:45`): becomes
+- [x] `RangeValidation_UsesInclusiveTickAndNormalizedVectorBoundaries` (`:45`): becomes
       `RangeViolations_AreClampedAndAcknowledged`. Assert on what `SetInput` received (the
       test's fake simulation already records it — see `SetInput` at `:595`), not on
       `InputResult` alone.
-- [ ] `Heartbeat_AcceptsCompleteHeldStateButRejectsEdges` (`:63`): unchanged — this is the
+- [x] `Heartbeat_AcceptsCompleteHeldStateButRejectsEdges` (`:63`): unchanged — this is the
       surviving rejection.
-- [ ] `MessageRate_…` (`:75`), `RateLimit_DoesNotMaskSequenceOrRangeReasons` (`:90`),
+- [x] `MessageRate_…` (`:75`), `RateLimit_DoesNotMaskSequenceOrRangeReasons` (`:90`),
       `HeartbeatRate_…` (`:105`): rewrite to assert acknowledged + held state applied + edges
       stripped + budget still enforced. `RateLimit_DoesNotMaskSequenceOrRangeReasons` no
       longer has reasons to mask; replace it with an ordering test that a rate-limited
       *malformed heartbeat* is still rejected (malformed beats rate-limited).
-- [ ] `GameEndpointsTests` `RateLimited` assertion: update to the new behaviour.
-- [ ] `RealtimeGameEndpointTests`: if any test expects an `inputRejected` frame for a reason
+- [x] `GameEndpointsTests` `RateLimited` assertion: update to the new behaviour.
+- [x] `RealtimeGameEndpointTests`: if any test expects an `inputRejected` frame for a reason
       that no longer rejects, rewrite it to expect none.
 
 ### 3. New tests
 
-- [ ] `RateLimitedInput_IsAcknowledgedAppliesHeldStateAndStripsEdges`: send 120 messages in
+- [x] `RateLimitedInput_IsAcknowledgedAppliesHeldStateAndStripsEdges`: send 120 messages in
       one second, then a 121st with `moveX = 32_767, fireReleased = true`. Assert
       `Accepted`, `AcknowledgedInput == 121`, the simulation's last input has `MoveX == 32_767`
       and `FireReleased == false`, and `SetInput` was called exactly 121 times.
-- [ ] `ServerStall_DoesNotRejectClientInputs` (the realistic trigger, spec §*server tick
+- [x] `ServerStall_DoesNotRejectClientInputs` (the realistic trigger, spec §*server tick
       starvation*): drive the scheduler with the fake `TimeProvider`, advance the clock 700 ms
       in one step so `PlanCycle` forgives debt, then submit an input whose `PredictedTick`
       is 40 ticks past `Simulation.Tick`. Assert acknowledged and `SetInput` received
       `PredictedTick == Simulation.Tick + 30`.
-- [ ] `ZeroAim_IsReplacedByLastAcceptedAim`: two inputs, the second with aim `(0,0)`. Assert the
+- [x] `ZeroAim_IsReplacedByLastAcceptedAim`: two inputs, the second with aim `(0,0)`. Assert the
       simulation saw the first aim twice and both were acknowledged.
-- [ ] `SequenceGap_AdvancesToReceivedSequence`: sequences 1, 2, 5. Assert acknowledged 5 and
+- [x] `SequenceGap_AdvancesToReceivedSequence`: sequences 1, 2, 5. Assert acknowledged 5 and
       three `SetInput` calls.
-- [ ] `StaleSequence_IsIgnoredAndAcknowledgementDoesNotRegress`: sequences 1, 2, 1. Assert
+- [x] `StaleSequence_IsIgnoredAndAcknowledgementDoesNotRegress`: sequences 1, 2, 1. Assert
       acknowledged 2 and two `SetInput` calls.
 
 ### 4. Verify

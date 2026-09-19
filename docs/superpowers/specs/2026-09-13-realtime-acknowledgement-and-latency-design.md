@@ -1,6 +1,6 @@
 # Realtime Acknowledgement and Latency — Design
 
-**Status:** design agreed, all decisions made. Not implemented. Supersedes the earlier version
+**Status:** design agreed, all decisions made. Implemented on `fix/arena-unconditional-acknowledgement` (Finding 3) and `feature/arena-input-scheduling` (Finding 4); server side awaiting a `dotnet test` run. Supersedes the earlier version
 of this file; the second-opinion review that drove the changes is
 `docs/superpowers/reviews/2026-09-13-realtime-acknowledgement-and-latency-review.md`.
 
@@ -85,11 +85,12 @@ substituting fields, which the client already handles because it never learns ab
 | Reason | Today | New behaviour |
 |---|---|---|
 | `WrongMatch`, `WrongRole` | reject | **unchanged** — connection-level; client treats as fatal |
-| `InvalidRange`: `PredictedTick` outside `[tick - 120, tick + 30]` | reject | clamp into the window, acknowledge. The server does not use `PredictedTick` for anything except this check and the determinism hash (`ArenaSimulation.cs:167`), so clamp-vs-pass-through has no gameplay consequence today. Clamp anyway: the input-scheduling design below gives the bound meaning. |
+| `InvalidRange`: `PredictedTick` outside `[tick - 120, tick + 30]` | reject | clamp into the window, acknowledge. Before the input-scheduling design below the server did not use `PredictedTick` for anything except this check and the determinism hash (`ArenaSimulation.cs:167`), so the clamp had no gameplay consequence; scheduling narrows the window to `[tick + 1, tick + 30]` and gives it meaning. |
 | `InvalidRange`: aim `(0,0)` or over-length aim | reject | substitute the last accepted aim (`participant.AimX/AimY`), exactly as the aim-rate clamp does at `:362`; acknowledge |
 | `InvalidRange`: over-length move vector | reject | scale down to length ≤ 32 767, acknowledge |
 | `InvalidRange`: heartbeat carrying fire or dash | reject | **unchanged** — that is a malformed client, not drift |
-| `RateLimited` | reject | acknowledge, **apply held state, strip edges**. Rate limiting is about message volume; applying the held state of an over-budget message costs nothing, and discarding it makes the character freeze — the same reasoning as the aim-rate comment at `:355-361`. Message and heartbeat budgets are not weakened: the message is still counted. |
+| `RateLimited` (input) | reject | acknowledge, **apply held state, strip edges**. Rate limiting is about message volume; applying the held state of an over-budget message costs nothing, and discarding it makes the character freeze — the same reasoning as the aim-rate comment at `:355-361`. The message is not counted against the window, exactly as a rejected one never was, so a flood cannot extend its own punishment. |
+| `RateLimited` (heartbeat) | reject | acknowledge and **ignore**. The heartbeat budget (12/s against 4/s sent) is only ever reached by abuse, unlike the input budget which normal play reaches, so the beat neither lands nor refreshes the neutral deadline. |
 | `StaleSequence` | reject | **ignore silently**: it is a retransmit or a client bug, and the connection-level reasons already cover a client that is truly lost. Keep the `LogInformation` so a confused client is still visible server-side. No `inputRejected` is sent. |
 | `SequenceGap` | reject | **advance to the received sequence and apply it.** Log it — it should never happen once this ships. No `inputRejected` is sent. |
 | `PhaseDenied`, `Cooldown`, `DashSpent` | already strip | unchanged |

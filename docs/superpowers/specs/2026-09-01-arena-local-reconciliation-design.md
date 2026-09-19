@@ -76,6 +76,15 @@ problem and is handled in presentation.
 
 ### Local deterministic state
 
+> **Superseded detail (2026-09-13).** Pending input is no longer pruned by
+> acknowledgement. The server applies an input at the tick the client stamped it
+> with, the client stamps `serverTick + elapsed + lead` with the lead covering its
+> measured round trip, and `reconcile()` replays every pending interval whose
+> `toTick` is past the snapshot's `serverTick` — including acknowledged ones, since
+> acknowledgement means received, not applied — through the client's current local
+> tick. See `docs/superpowers/specs/2026-09-13-realtime-acknowledgement-and-latency-design.md`,
+> *Finding 4*. The rest of this section stands.
+
 `reconcile()` continues to rebuild local deterministic state from the newest
 authoritative snapshot and all unacknowledged input intervals. This state is the
 source for local movement, charge, fire, recoil, dash, and predicted local

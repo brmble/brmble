@@ -61,7 +61,7 @@ merged, stop.
 The point of this harness is that it needs no socket, no timers and no React: it is a loop over
 integer ticks, so it can run in CI and its numbers are exact.
 
-- [ ] `arenaLatencyHarness.ts` exports `runLatencyScenario(options)`:
+- [x] `arenaLatencyHarness.ts` exports `runLatencyScenario(options)`:
       - `options`: `{ upTicks, downTicks, snapshotEveryTicks = 3, script, constants, leadTicks? }`
         where `script` is a list of `{ atClientTick, input }` changes to the held input.
       - **Server model:** the local player's authoritative state advanced with `stepLocal` (it is
@@ -83,7 +83,7 @@ integer ticks, so it can run in CI and its numbers are exact.
         snapped }`, plus totals `{ snapCount, maxCorrection, ticksUntilFirstMovement }` where
         the last is how many client ticks after the press the *displayed* position first
         advances and keeps advancing (no pullback for 6 consecutive ticks).
-- [ ] `arenaLatencyHarness.test.ts`: a fixture scenario `press right at tick 30, release at
+- [x] `arenaLatencyHarness.test.ts`: a fixture scenario `press right at tick 30, release at
       tick 120` at `(up, down) ∈ {(0,0), (3,3), (6,6), (12,12)}` — 0, 100, 200, 400 ms RTT.
       Assert only the invariants that hold *today*: the run completes; totals are finite; at
       `(0,0)` `snapCount == 0` and `maxCorrection <= 90` (one tick of `Math.max(1, …)`
@@ -95,7 +95,7 @@ integer ticks, so it can run in CI and its numbers are exact.
 Same pattern and same caveats as `DevClockSkewTimeProvider`: opt-in, Development only, pinned
 to zero in Production by `Program.cs`, changes nothing when unset.
 
-- [ ] `DevRealtimeTransportDelay` with `DelayMs` and `JitterMs`. Inbound: `await
+- [x] `DevRealtimeTransportDelay` with `DelayMs` and `JitterMs`. Inbound: `await
       Task.Delay(delay)` after the read loop receives a frame and before `HandlePayload`.
       Outbound: **not** a delay inside the writer loop's dequeue — that serialises sends and
       collapses throughput to one message per delay. Instead, after the writer dequeues a
@@ -103,10 +103,10 @@ to zero in Production by `Program.cs`, changes nothing when unset.
       second loop awaits `dueAt` then sends. Enforce monotonic `dueAt` so jitter cannot
       reorder. Coalescing in `RealtimeSnapshotMailbox` is unaffected because dequeue timing
       does not change.
-- [ ] `Program.cs`: read `Games:DevRealtimeDelayMs` / `Games:DevRealtimeJitterMs` under
+- [x] `Program.cs`: read `Games:DevRealtimeDelayMs` / `Games:DevRealtimeJitterMs` under
       `IsDevelopment()`, log the same style of warning as `:143`, register a null-object when
       zero.
-- [ ] `docker-local/docker-compose.yml`: a commented block next to `Games__DevClockSkewMs`
+- [x] `docker-local/docker-compose.yml`: a commented block next to `Games__DevClockSkewMs`
       with the same "uncomment BOTH lines" instruction. Suggested default `50` delay, `10`
       jitter, i.e. ~100 ms RTT.
 - [ ] `RealtimeGameEndpointTests`: one test that with the null-object nothing changes (same
@@ -115,13 +115,13 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 
 ## Phase B — Baseline on current behaviour
 
-- [ ] Run the harness with `application: 'onArrival'`, `pruning: 'byAck'`, `leadTicks: 0`
+- [x] Run the harness with `application: 'onArrival'`, `pruning: 'byAck'`, `leadTicks: 0`
       (today's client) and record in the PR description, per RTT: `snapCount`,
       `maxCorrection`, `ticksUntilFirstMovement`. The spec predicts `ticksUntilFirstMovement
       ≈ up + down` and a pullback on every snapshot during that window. If the harness does
       **not** show that, stop and report — the spec's mechanism is wrong and Phase C's design
       rests on it.
-- [ ] Run it with `leadTicks = (up + down) / 2` and everything else unchanged (the previous
+- [x] Run it with `leadTicks = (up + down) / 2` and everything else unchanged (the previous
       plan's half-RTT proposal). Record the same numbers. The spec predicts a snap at movement
       start from `(6,6)` upward. Whatever it shows, record it; this is the comparison that
       justifies Phase C's shape.
@@ -134,28 +134,28 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 
 ### C1. Server: queue, install before step, install-time strip
 
-- [ ] `ParticipantInputState` gains `Queue<ContinuousInput> Scheduled` kept ordered by
+- [x] `ParticipantInputState` gains `Queue<ContinuousInput> Scheduled` kept ordered by
       `(PredictedTick, Sequence)`. Inputs arrive in sequence order over an ordered socket and
       stamps are monotonic on a sane client, so a plain queue with an ordered insert fallback
       is enough; do not reach for a priority queue unless a test proves you need one.
-- [ ] `SubmitInput`: after Finding 3's sanitisation, clamp `PredictedTick` into
+- [x] `SubmitInput`: after Finding 3's sanitisation, clamp `PredictedTick` into
       `[Simulation.Tick + 1, Simulation.Tick + 30]` (this **replaces** the `[-120, +30]`
       clamp for the tick component; the aim/move sanitisation is unchanged). Log at Debug when
       the clamp moved it, with the distance and direction. Enqueue instead of calling
       `SetInput`. Everything else in `SubmitInput` — budgets, aim-rate clamp, acknowledgement,
       neutral timer, `AcceptedGeneration` — stays at receive time.
-- [ ] `RunSchedulerAsync` (`:661-690`): inside the per-tick lock, before `Step()`, call a new
+- [x] `RunSchedulerAsync` (`:661-690`): inside the per-tick lock, before `Step()`, call a new
       `InstallScheduled(state)` that for each participant dequeues every input with
       `PredictedTick <= Simulation.Tick + 1`, applies the **install-time strip** (the block at
       `:335-350`, moved here verbatim and evaluated against the simulation state now), and
       calls `SetInput`. Then `Step()`.
-- [ ] `DetachAsync`, `NeutralizeIfStale`, `CompleteAsync`: clear `Scheduled` alongside
+- [x] `DetachAsync`, `NeutralizeIfStale`, `CompleteAsync`: clear `Scheduled` alongside
       `SetNeutralInput`.
-- [ ] The `Cooldown`/`DashSpent` bookkeeping (`CooldownUntilTick`, `DashSpent`,
+- [x] The `Cooldown`/`DashSpent` bookkeeping (`CooldownUntilTick`, `DashSpent`,
       `RoundGeneration`) moves with the strip to install time. `AimX/AimY` tracking for the
       aim-rate budget stays at receive time (it is a message-rate concern, not a simulation
       one).
-- [ ] Tests:
+- [x] Tests:
       - `ScheduledInput_IsInstalledAtItsStampNotOnArrival`: stamp `tick + 5`, step 4 ticks,
         assert the fake simulation has not seen it; step 1 more, assert it has.
       - `LateInput_IsInstalledOnTheNextStep`: stamp `tick - 3`, assert installed at `tick + 1`.
@@ -172,13 +172,13 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 
 ### C2. Client: RTT, lead, local tick
 
-- [ ] `inputLead.ts`: `createInputLead({ tickRate, windowSize = 40, marginTicks = 2, min = 3,
+- [x] `inputLead.ts`: `createInputLead({ tickRate, windowSize = 40, marginTicks = 2, min = 3,
       max = 20, slewMs = 500 })` with `sample(rttMs, nowMs)`, `leadTicks(nowMs)` (slewed),
       `rttP20Ms`. Same bounded-window shape as `serverClock.ts`.
-- [ ] `inputLead.test.ts`: percentile selection; slew never moves more than one tick per
+- [x] `inputLead.test.ts`: percentile selection; slew never moves more than one tick per
       `slewMs`; clamps; starts at `min` before any sample; a single outlier sample does not
       move the lead.
-- [ ] `useArenaConnection.ts`:
+- [x] `useArenaConnection.ts`:
       - `sentFrames` entries gain `sentAt: performance.now()` at send (`:149`).
       - On snapshot: sample RTT once from the newest frame with `sequence <= acknowledgedInput`
         (`receivedAt` is `Date.now()` at `:372`; use `performance.now()` captured at the same
@@ -188,26 +188,26 @@ to zero in Production by `Program.cs`, changes nothing when unset.
         `sentFrames` pruning stays by acknowledgement.
       - The lead instance lives in a ref beside `serverClockRef` with the same "never
         reassigned inside the effect" discipline (see the comment at `:107-116`).
-- [ ] `arenaMath.ts` `reconcile`: add `throughTick: number`; drop the
+- [x] `arenaMath.ts` `reconcile`: add `throughTick: number`; drop the
       `sequence > acknowledgedInput` filter; treat the newest interval as covering
       `[fromTick, throughTick]`. Keep `fromTick > toTick` empty-interval semantics for
       edge-only frames.
-- [ ] `useArenaState.ts` (`:294`): pass `throughTick = authority.serverTick + elapsedTicks +
+- [x] `useArenaState.ts` (`:294`): pass `throughTick = authority.serverTick + elapsedTicks +
       leadTicks`. The hook does not know the lead today; expose it from `useArenaConnection`
       alongside `serverClock` rather than recomputing it.
-- [ ] Rewrite `arenaMath.test.ts` `'discards acknowledged sequences before replaying'`
+- [x] Rewrite `arenaMath.test.ts` `'discards acknowledged sequences before replaying'`
       (`:132`) as `'prunes replay by tick, not by acknowledgement'`: an interval with
       `sequence <= acknowledgedInput` but `toTick > serverTick` **is** replayed.
-- [ ] `useArenaConnection.test.tsx`: stamps include the lead; a snapshot with
+- [x] `useArenaConnection.test.tsx`: stamps include the lead; a snapshot with
       `acknowledgedInput = n` yields one RTT sample equal to the fake clock distance; pruning
       keeps an acknowledged-but-future interval.
-- [ ] `useArenaState.test.tsx`: the sequencing tests that assert exact predicted ticks are
+- [x] `useArenaState.test.tsx`: the sequencing tests that assert exact predicted ticks are
       updated for the lead; add one that a reconcile leaves the presented tick at
       `S + elapsed + lead` rather than `S`.
 
 ### C3. Harness numbers after the change
 
-- [ ] Run the harness with `application: 'atStamp'`, `pruning: 'byTick'`, `leadTicks = up +
+- [x] Run the harness with `application: 'atStamp'`, `pruning: 'byTick'`, `leadTicks = up +
       down + 2`. Assert, and record in the PR description next to the Phase B baseline:
       - `(0,0)`, `(3,3)`, `(6,6)`, `(12,12)`: `snapCount == 0`, `maxCorrection <= 90` (one
         tick of base movement — the tick quantisation in `currentPredictedTick` plus the 50 ms
@@ -226,7 +226,7 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 
 ### C4. Docs
 
-- [ ] `docs/superpowers/specs/2026-09-01-arena-local-reconciliation-design.md`: add a short
+- [x] `docs/superpowers/specs/2026-09-01-arena-local-reconciliation-design.md`: add a short
       "Superseded detail" note under *Local deterministic state* — pending is pruned by tick
       and the client runs ahead by a measured lead; link to this plan's spec.
 
