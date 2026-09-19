@@ -290,24 +290,69 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (participant.ConnectionId is null || !participant.AttachAcknowledged)
                 return Reject(ContinuousRejectReason.WrongMatch, participant);
 
+            // Everything above is connection-level and stays a rejection: the client
+            // treats those as fatal and that is the intent. Everything below is
+            // acknowledged. Reject does not advance AcknowledgedInput, and a client whose
+            // next frame is already in flight when the rejection lands answers the
+            // resulting SequenceGap by reconnecting, which drops input capture and
+            // silently clears the player's held movement keys. On any real network the
+            // client's in-place rewind loses that race almost every time, so one refused
+            // message became a dropped connection mid-fight. Game-level refusal is
+            // therefore expressed only as a stripped or substituted field, never as a
+            // rejected message.
+            //
+            // The single exception is a heartbeat carrying a fire or a dash. Heartbeats
+            // carry held state and nothing else, so that is a malformed client, not
+            // drift, and refusing it is the point.
+            if (isHeartbeat && (input.FireReleased || input.Dash))
+                return Reject(ContinuousRejectReason.InvalidRange, participant);
+
             var now = _time.GetTimestamp();
             // Heartbeats are budgeted separately. They carry held state and nothing
-            // else — IsInRange already refuses a heartbeat bearing a fire or a dash — so
-            // letting the input budget silence them is what turns a dropped frame into a
-            // character that ignores the player until they let go of the keys. The
-            // client sends four a second; this budget only has to stop abuse.
+            // else, so letting the input budget silence them is what turns a dropped
+            // frame into a character that ignores the player until they let go of the
+            // keys. The client sends four a second; this budget only has to stop abuse.
             var timestamps = isHeartbeat ? participant.HeartbeatTimestamps : participant.MessageTimestamps;
             var budget = isHeartbeat ? MaxHeartbeatsPerSecond : MaxMessagesPerSecond;
             RemoveExpired(timestamps, now);
             var messageRateExceeded = timestamps.Count >= budget;
 
+            // The socket is ordered and reliable, so a stale or skipped sequence can only
+            // be a retransmit or a client bug. Neither is a reason to drop the player:
+            // a repeat is ignored and a gap is accepted by advancing to what arrived.
+            // Both are logged because after this change they should never happen.
             var acknowledgedInput = participant.AcknowledgedInput;
             if (input.Sequence <= acknowledgedInput)
-                return Reject(ContinuousRejectReason.StaleSequence, participant);
+            {
+                _logger.LogInformation(
+                    "Realtime input for match {MatchId}, session {SessionId} repeated sequence {Sequence} at or below acknowledged {AcknowledgedInput}; ignored.",
+                    matchId, sessionId, input.Sequence, acknowledgedInput);
+                return new InputResult(true, default, acknowledgedInput);
+            }
             if (input.Sequence != acknowledgedInput + 1)
-                return Reject(ContinuousRejectReason.SequenceGap, participant);
-            if (!IsInRange(input, state.Simulation.Tick, isHeartbeat))
-                return Reject(ContinuousRejectReason.InvalidRange, participant);
+            {
+                _logger.LogInformation(
+                    "Realtime input for match {MatchId}, session {SessionId} skipped {Gap} sequences before {Sequence}; accepted.",
+                    matchId, sessionId, input.Sequence - acknowledgedInput - 1, input.Sequence);
+            }
+
+            // The heartbeat budget - twelve a second against the four the client sends -
+            // is only ever reached by abuse, so an over-budget heartbeat is acknowledged
+            // and otherwise ignored: it neither lands nor refreshes the neutral deadline.
+            // The input budget is different, normal play reaches it, so an over-budget
+            // input still applies its held state further down.
+            if (messageRateExceeded && isHeartbeat)
+            {
+                participant.AcknowledgedInput = input.Sequence;
+                return new InputResult(true, default, input.Sequence);
+            }
+
+            // Out-of-range fields are corrected rather than refused. The realistic way a
+            // PredictedTick leaves the window is the server falling behind wall time -
+            // FixedStepScheduler forgives its catch-up debt after MaxCatchUpTicks - so a
+            // stall of half a second put every subsequent input past serverTick + 30
+            // until the next snapshot, exactly when a reconnect storm is least affordable.
+            input = Sanitize(input, state.Simulation.Tick, participant);
 
             var arenaPlayer = state.Simulation is ArenaSimulation arena
                 ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
@@ -328,12 +373,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             }
 
             // A refused action strips itself from the input rather than rejecting the
-            // whole message. Reject does not advance AcknowledgedInput, so rejecting
-            // sequence N turns every later frame into a SequenceGap and forces the
-            // client to reconnect — and reconnecting drops input capture, which
-            // silently clears the player's held movement keys. Spam clicking means most
-            // clicks land during the shot cooldown, so this fired constantly in normal
-            // play. The action is still refused; only the disconnect is gone.
+            // whole message. Spam clicking means most clicks land during the shot
+            // cooldown, so this fired constantly in normal play. The action is still
+            // refused; only the disconnect is gone.
             if (state.Simulation.Phase != ContinuousMatchPhase.Live)
             {
                 if (input.FireReleased || input.Dash)
@@ -350,8 +392,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 if (input.Dash && participant.DashSpent)
                     input = input with { Dash = false };
             }
+
+            // Over the message budget the held state still lands and only the edges are
+            // discarded, for the same reason the aim-rate clamp below keeps movement:
+            // rate limiting is about message volume, and a character that freezes reads
+            // as a broken game rather than as a rate limit. The message is not counted
+            // against the window, exactly as a rejected one never was, so a flood cannot
+            // extend its own punishment; it is simply cheap and nearly inert.
             if (messageRateExceeded)
-                return Reject(ContinuousRejectReason.RateLimited, participant);
+                input = input with { FireReleased = false, Dash = false };
 
             // An aim-rate violation clamps the aim to the last accepted one and lets the
             // rest of the input through. Movement, charging and dash merely shared a
@@ -365,7 +414,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 aimChanged = false;
             }
 
-            timestamps.Enqueue(now);
+            if (!messageRateExceeded)
+                timestamps.Enqueue(now);
             if (aimChanged)
                 participant.AimChangeTimestamps.Enqueue(now);
             state.Simulation.SetInput(participant.SimulationSessionId, input);
@@ -805,23 +855,45 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             timestamps.Dequeue();
     }
 
-    private static bool IsInRange(ContinuousInput input, long serverTick, bool isHeartbeat)
+    /// <summary>
+    /// Corrects an input's out-of-range fields instead of refusing the message. The
+    /// tick is clamped into the window the simulation accepts; a movement vector longer
+    /// than unit is scaled down along its own direction; an aim that is zero or longer
+    /// than unit is replaced by the last accepted aim, which is what the aim-rate clamp
+    /// already substitutes. <c>short.MinValue</c> is the one component value the
+    /// original range check refused outright (it has no positive counterpart), so it
+    /// is folded to <c>-32_767</c> before scaling.
+    /// </summary>
+    internal static ContinuousInput Sanitize(
+        ContinuousInput input, long serverTick, short lastAimX, short lastAimY)
     {
-        if (input.PredictedTick < serverTick - 120 || input.PredictedTick > serverTick + 30)
-            return false;
-        if (isHeartbeat && (input.FireReleased || input.Dash))
-            return false;
+        var predictedTick = Math.Clamp(input.PredictedTick, serverTick - 120, serverTick + 30);
 
-        var movementSquared = (long)input.MoveX * input.MoveX + (long)input.MoveY * input.MoveY;
-        var aimSquared = (long)input.AimX * input.AimX + (long)input.AimY * input.AimY;
-        return input.MoveX >= -32_767
-               && input.MoveY >= -32_767
-               && input.AimX >= -32_767
-               && input.AimY >= -32_767
-               && FixedVec.IntegerSqrt(movementSquared) <= 32_767
-               && aimSquared > 0
-               && FixedVec.IntegerSqrt(aimSquared) <= 32_767;
+        var move = FixedVec.NormalizeQ15(
+            Math.Max(input.MoveX, (short)-32_767), Math.Max(input.MoveY, (short)-32_767));
+
+        var aimX = Math.Max(input.AimX, (short)-32_767);
+        var aimY = Math.Max(input.AimY, (short)-32_767);
+        var aimSquared = (long)aimX * aimX + (long)aimY * aimY;
+        if (aimSquared == 0 || FixedVec.IntegerSqrt(aimSquared) > 32_767)
+        {
+            aimX = lastAimX;
+            aimY = lastAimY;
+        }
+
+        return input with
+        {
+            PredictedTick = predictedTick,
+            MoveX = checked((short)move.X),
+            MoveY = checked((short)move.Y),
+            AimX = aimX,
+            AimY = aimY,
+        };
     }
+
+    private static ContinuousInput Sanitize(
+        ContinuousInput input, long serverTick, ParticipantInputState participant) =>
+        Sanitize(input, serverTick, participant.AimX, participant.AimY);
 
     private void NeutralizeIfStale(
         ContinuousMatchState state, ParticipantInputState participant, long acceptedGeneration)
