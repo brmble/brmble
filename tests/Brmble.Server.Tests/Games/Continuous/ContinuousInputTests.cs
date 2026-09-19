@@ -488,66 +488,6 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task RefusedAction_StripsTheActionButKeepsTheInputAndItsSequence()
-    {
-        var h = await CoordinatorHarness.Started();
-
-        Assert.IsTrue(h.Submit(Input(1, fireReleased: true)).Accepted);
-
-        // Spam clicking means most clicks land during the shot cooldown, which the
-        // server is right to refuse. Rejecting the whole message does not advance
-        // AcknowledgedInput, so every later frame becomes a SequenceGap and the client
-        // reconnects - and reconnecting drops input capture, which silently clears the
-        // player's held movement keys. A refused action must not cost the input.
-        var refused = h.Submit(Input(2, moveY: -32_767, fireReleased: true));
-
-        Assert.IsTrue(refused.Accepted, $"input was rejected: {refused.Reason}");
-        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY, "movement rode down with the refused shot");
-        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased, "the shot itself must still be refused");
-
-        // The sequence advanced, so the next frame is not a gap.
-        Assert.IsTrue(h.Submit(Input(3, moveY: -32_767)).Accepted);
-    }
-
-    [TestMethod]
-    public async Task RefusedDash_StripsOnlyTheDash()
-    {
-        var h = await CoordinatorHarness.Started();
-        Assert.IsTrue(h.Submit(Input(1, dash: true)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2)).Accepted);
-
-        var refused = h.Submit(Input(3, moveY: -32_767, dash: true));
-
-        Assert.IsTrue(refused.Accepted, $"input was rejected: {refused.Reason}");
-        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY);
-        Assert.IsFalse(h.Simulation.LastInput(10).Dash);
-    }
-    [TestMethod]
-    public async Task ActionValidation_StripsRefusedActionsInsteadOfRejectingTheInput()
-    {
-        var h = await CoordinatorHarness.Started(phase: ContinuousMatchPhase.Positioning);
-
-        // Refused actions are stripped, not rejected: the input and its sequence stand
-        // so the client is never forced to reconnect over an ordinary cooldown.
-        Assert.IsTrue(h.Submit(Input(1, charging: true)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2, fireReleased: true)).Accepted);
-        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased);
-        Assert.IsTrue(h.Submit(Input(3, dash: true)).Accepted);
-        Assert.IsFalse(h.Simulation.LastInput(10).Dash);
-
-        h.Simulation.Phase = ContinuousMatchPhase.Live;
-        Assert.IsTrue(h.Submit(Input(4, fireReleased: true)).Accepted);
-        Assert.IsTrue(h.Simulation.LastInput(10).FireReleased, "a legal shot must survive");
-        Assert.IsTrue(h.Submit(Input(5)).Accepted);
-        Assert.IsTrue(h.Submit(Input(6, fireReleased: true)).Accepted);
-
-        var dash = await CoordinatorHarness.Started();
-        Assert.IsTrue(dash.Submit(Input(1, dash: true)).Accepted);
-        Assert.IsTrue(dash.Submit(Input(2)).Accepted);
-        Assert.IsTrue(dash.Submit(Input(3, dash: true)).Accepted);
-    }
-
-    [TestMethod]
     public async Task AcceptedInput_NeutralizesOnlyAfterSevenHundredFiftyMilliseconds()
     {
         var h = await CoordinatorHarness.Started();
@@ -883,6 +823,7 @@ public class ContinuousInputTests
 
     private sealed class TestSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         private readonly Dictionary<long, ContinuousInput> _inputs = [];
         public long Tick { get; set; }
         public ContinuousMatchPhase Phase { get; set; } = ContinuousMatchPhase.Live;

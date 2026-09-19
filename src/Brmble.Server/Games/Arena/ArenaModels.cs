@@ -24,6 +24,11 @@ public sealed class ArenaPlayerState
     public int DashTicks;
     public bool DashAvailable = true;
     public ContinuousInput Input = new(0, 0, 0, 0, 32767, 0, false, false, false);
+    // Admission bookkeeping (see ArenaSimulation.Admit). Not part of the deterministic
+    // hash: it decides what an input is allowed to ask for, not what the simulation does.
+    public long AdmissionCooldownUntilTick;
+    public bool DashReserved;
+    public long DashReservationRound;
     internal ArenaKnockoutCause VelocityCause = ArenaKnockoutCause.DashOrMovement;
     internal ArenaKnockoutCause? BoundaryCause;
 }

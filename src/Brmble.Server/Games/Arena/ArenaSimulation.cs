@@ -84,6 +84,49 @@ public sealed class ArenaSimulation : IContinuousSimulation
         }
     }
 
+    public ContinuousInput InitialInput(long sessionId)
+    {
+        var player = FindPlayer(sessionId);
+        return NeutralInput with { AimX = checked((short)player.AimX), AimY = checked((short)player.AimY) };
+    }
+
+    /// <summary>
+    /// What the arena refuses, expressed by stripping the action from the input rather
+    /// than rejecting the message: fire and dash outside the live phase, a fire inside
+    /// the shot cooldown, and a second dash in a round whose dash is spent. Evaluated
+    /// against the state the input will meet - the coordinator calls this at install
+    /// time - so a fire stamped past the end of a cooldown is not refused against a
+    /// cooldown that will have ended.
+    /// </summary>
+    public ContinuousInput Admit(long sessionId, ContinuousInput input)
+    {
+        var player = FindPlayer(sessionId);
+        if (player.DashReservationRound != RoundGeneration)
+        {
+            player.DashReserved = false;
+            player.DashReservationRound = RoundGeneration;
+        }
+
+        if (Phase != ContinuousMatchPhase.Live)
+        {
+            if (input.FireReleased || input.Dash)
+                input = input with { FireReleased = false, Dash = false };
+        }
+        else
+        {
+            if (input.FireReleased && (Tick < player.AdmissionCooldownUntilTick || player.CooldownTicks > 0))
+                input = input with { FireReleased = false };
+            if (input.Dash && player.DashReserved)
+                input = input with { Dash = false };
+        }
+
+        if (input.FireReleased)
+            player.AdmissionCooldownUntilTick = checked(Tick + ArenaRulesetV1.ShotCooldownTicks);
+        if (input.Dash)
+            player.DashReserved = true;
+        return input;
+    }
+
     public void SetInput(long sessionId, ContinuousInput input)
     {
         var player = FindPlayer(sessionId);
@@ -142,9 +185,14 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     public object ParticipantSnapshot(
         long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs) =>
-        CreateSnapshot(acknowledgedInputs);
+        CreateSnapshot(acknowledgedInputs, null);
 
-    public object SpectatorSnapshot() => CreateSnapshot(null);
+    public object ParticipantSnapshot(
+        long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs,
+        IReadOnlyDictionary<long, long> wireSessionIds) =>
+        CreateSnapshot(acknowledgedInputs, wireSessionIds);
+
+    public object SpectatorSnapshot() => CreateSnapshot(null, null);
 
     public ulong DeterministicHash()
     {
@@ -665,7 +713,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
         Array.AsReadOnly(_landedCharges.Select(x => (IReadOnlyList<int>)Array.AsReadOnly(x.ToArray())).ToArray()),
         Array.AsReadOnly((int[])_dashUses.Clone()), Array.AsReadOnly(_koRadii.ToArray()));
 
-    private ArenaSnapshotView CreateSnapshot(IReadOnlyDictionary<long, long>? acknowledgedInputs) => new(
+    private ArenaSnapshotView CreateSnapshot(
+        IReadOnlyDictionary<long, long>? acknowledgedInputs, IReadOnlyDictionary<long, long>? wireSessionIds) => new(
         Phase,
         Phase switch
         {
@@ -677,7 +726,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
         _consecutiveDoubleKos,
         new ArenaArenaView(ArenaRadius, ShrinkPhase),
         Players.Select(player => new ArenaPlayerView(
-            player.SessionId,
+            WireSessionId(player.SessionId, wireSessionIds),
             player.Side,
             player.X,
             player.Y,
@@ -695,12 +744,19 @@ public sealed class ArenaSimulation : IContinuousSimulation
                 : null)).ToList().AsReadOnly(),
         _projectiles.Select(projectile => new ArenaProjectileView(
             projectile.Id,
-            projectile.OwnerSessionId,
+            WireSessionId(projectile.OwnerSessionId, wireSessionIds),
             projectile.X,
             projectile.Y,
             projectile.Vx,
             projectile.Vy,
             projectile.ChargePermille)).ToList().AsReadOnly());
+
+    // A reconnected participant has a new wire session id while the simulation keeps
+    // the one it started with; the acknowledgement map above is keyed by the latter.
+    private static long WireSessionId(long simulationSessionId, IReadOnlyDictionary<long, long>? wireSessionIds) =>
+        wireSessionIds is not null && wireSessionIds.TryGetValue(simulationSessionId, out var wire)
+            ? wire
+            : simulationSessionId;
 
     private void RecordBoundaryTransition(
         ArenaPlayerState player, bool wasInside, ArenaKnockoutCause cause)

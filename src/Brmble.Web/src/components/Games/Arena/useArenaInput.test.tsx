@@ -4,8 +4,8 @@ import bridge from '../../../bridge';
 import type { ArenaInputState, ArenaPlayerSnapshot } from './arenaProtocol';
 import type { ArenaConnection } from './useArenaConnection';
 import { useArenaInput } from './useArenaInput';
-import { createServerClock } from './serverClock';
-import { createInputLead } from './inputLead';
+import { createServerClock } from '../Realtime/serverClock';
+import { createInputLead } from '../Realtime/inputLead';
 
 vi.mock('../../../bridge', () => ({ default: { send: vi.fn() } }));
 

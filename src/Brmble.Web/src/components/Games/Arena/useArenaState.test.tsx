@@ -5,7 +5,7 @@ import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile, sampleTimeline } from './arenaMath';
 import { KNOCKOUT_DURATION_MS } from './arenaKnockout';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
-import { createServerClock } from './serverClock';
+import { createServerClock } from '../Realtime/serverClock';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,

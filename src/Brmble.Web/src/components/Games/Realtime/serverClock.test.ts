@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createServerClock, DEFAULT_SAMPLE_WINDOW } from './serverClock';
-import { sampleTimeline } from './arenaMath';
-import type { ArenaSnapshot } from './arenaProtocol';
+import { sampleTimeline } from '../Arena/arenaMath';
+import type { ArenaSnapshot } from '../Arena/arenaProtocol';
 
 describe('createServerClock', () => {
   it('is the identity before any sample, and says so', () => {

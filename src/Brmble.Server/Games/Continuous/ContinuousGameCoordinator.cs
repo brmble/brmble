@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Brmble.Server.Games.Arena;
 using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.Games.Continuous;
@@ -36,18 +35,17 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     private const int MaxMessagesPerSecond = 120;
     // The client sends four a second; this only has to stop abuse.
     private const int MaxHeartbeatsPerSecond = 12;
-    // The client's aim throttle intends 25 changes/second, heartbeats carry aim as
-    // well, and fire and dash bypass the throttle so their direction stays honest.
-    // Aggressive spam measures around 33, so 30 sat below legitimate play. The client
-    // test 'stays under the server aim-change budget' guards this relationship.
-    private const int MaxAimChangesPerSecond = 45;
+    // Direction (the input's aim pair) changes per second. The client's aim throttle
+    // intends 25 changes/second, heartbeats carry the direction as well, and fire and
+    // dash bypass the throttle so their direction stays honest. Aggressive spam
+    // measures around 33, so 30 sat below legitimate play. The client test 'stays
+    // under the server aim-change budget' guards this relationship.
+    private const int MaxDirectionChangesPerSecond = 45;
     // How far ahead of the simulation an input may be scheduled: half a second. A stamp
     // past this applies then rather than never; the client caps its own lead well below.
     internal const int MaxScheduleAheadTicks = 30;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan NeutralTimeout = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
@@ -91,12 +89,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         if (reservation.PlayerOne.UserId == reservation.PlayerTwo.UserId
             || reservation.PlayerOne.SessionId == reservation.PlayerTwo.SessionId)
             return new GameStartResult(false, 0, null, "Continuous games require two distinct participants.");
-        if (string.Equals(reservation.Configuration.GameType, "arena-knockoff", StringComparison.OrdinalIgnoreCase)
-            && (reservation.Configuration.GameType != "arena-knockoff"
-                || reservation.Configuration.Format != "bo3"
-                || reservation.Configuration.RulesetVersion != ArenaRulesetV1.Version
-                || reservation.Configuration.Options.Count != 0))
-            return new GameStartResult(false, 0, null, "Arena configuration is not canonical.");
+        if (definition.ValidateConfiguration(reservation.Configuration) is { } configurationError)
+            return new GameStartResult(false, 0, null, configurationError);
 
         var matchId = Interlocked.Increment(ref _nextMatchId);
         var startedAt = _time.GetUtcNow();
@@ -177,11 +171,13 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             var acknowledged = AcknowledgedInputs(state);
             var view = ParticipantView(state, participant, acknowledged);
             var attachedAt = _time.GetUtcNow();
+            var timing = state.Definition.Timing;
             welcome = new WelcomeMessage(
                 1, state.Reservation.Configuration.RulesetVersion, matchId, RealtimeRole.Participant,
                 sessionId, participant.AttachSequence, state.Simulation.Tick,
                 attachedAt.ToUnixTimeMilliseconds(),
-                ArenaRulesetV1.TickRate, ArenaRulesetV1.SnapshotRate, 100, 50, 250, 750, 5000,
+                timing.TickRate, timing.SnapshotRate, timing.InterpolationMs, timing.MaxExtrapolationMs,
+                timing.InputHeartbeatMs, timing.NeutralAfterMs, timing.ReconnectGraceMs,
                 state.Definition.PredictionConstants, view, participant.AcknowledgedInput);
             snapshot = SerializeSnapshot(matchId, participant.AttachSequence, state.Simulation.Tick,
                 attachedAt, view);
@@ -211,9 +207,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 state.AttachTimer?.Dispose();
                 state.AttachTimer = null;
                 state.AttachGeneration++;
-                if (state.Simulation is ArenaSimulation arena)
-                    foreach (var slot in state.ParticipantsByUser.Values)
-                        arena.MarkParticipantReady(slot.SimulationSessionId);
+                foreach (var slot in state.ParticipantsByUser.Values)
+                    state.Simulation.MarkParticipantReady(slot.SimulationSessionId);
                 startScheduler = true;
             }
         }
@@ -244,14 +239,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 participant.ReconnectTimer?.Dispose();
                 participant.ReconnectTimer = _time.CreateTimer(
                     _ => ReconnectExpired(state, participant, generation), null,
-                    ReconnectGrace, Timeout.InfiniteTimeSpan);
+                    state.ReconnectGrace, Timeout.InfiniteTimeSpan);
             }
             control = new RealtimeControl("connectionState", participant.SessionId, null,
                 JsonSerializer.Serialize(new
                 {
                     type = "connectionState", protocolVersion = 1, matchId = state.MatchId,
                     sessionId = participant.SessionId, state = "reconnecting",
-                    graceEndsAtUnixMs = _time.GetUtcNow().Add(ReconnectGrace).ToUnixTimeMilliseconds(),
+                    graceEndsAtUnixMs = _time.GetUtcNow().Add(state.ReconnectGrace).ToUnixTimeMilliseconds(),
                 }, JsonOptions), Coalescible: true);
             survivors = state.ParticipantsByUser.Values
                 .Where(x => x.Mailbox is not null).Select(x => x.Mailbox!).ToList();
@@ -308,7 +303,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             // The single exception is a heartbeat carrying a fire or a dash. Heartbeats
             // carry held state and nothing else, so that is a malformed client, not
             // drift, and refusing it is the point.
-            if (isHeartbeat && (input.FireReleased || input.Dash))
+            if (isHeartbeat && input.HasEdges())
                 return Reject(ContinuousRejectReason.InvalidRange, participant);
 
             var now = _time.GetTimestamp();
@@ -369,12 +364,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             }
             input = sanitized;
 
-            var aimChanged = input.AimX != participant.AimX || input.AimY != participant.AimY;
-            var aimRateExceeded = false;
-            if (aimChanged)
+            var directionChanged = !input.SameDirection(participant.DirectionX, participant.DirectionY);
+            var directionRateExceeded = false;
+            if (directionChanged)
             {
-                RemoveExpired(participant.AimChangeTimestamps, now);
-                aimRateExceeded = participant.AimChangeTimestamps.Count >= MaxAimChangesPerSecond;
+                RemoveExpired(participant.DirectionChangeTimestamps, now);
+                directionRateExceeded = participant.DirectionChangeTimestamps.Count >= MaxDirectionChangesPerSecond;
             }
 
             // Over the message budget the held state still lands and only the edges are
@@ -384,26 +379,26 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             // against the window, exactly as a rejected one never was, so a flood cannot
             // extend its own punishment; it is simply cheap and nearly inert.
             if (messageRateExceeded)
-                input = input with { FireReleased = false, Dash = false };
+                input = input.HeldOnly();
 
-            // An aim-rate violation clamps the aim to the last accepted one and lets the
-            // rest of the input through. Movement, charging and dash merely shared a
-            // message with the offending aim; discarding them makes the character stop
-            // responding to the player, which reads as a broken game rather than as a
-            // rate limit. Volume is still capped by the message budget above, and an aim
-            // that is refused here simply does not move.
-            if (aimRateExceeded)
+            // A direction-rate violation clamps the direction to the last accepted one
+            // and lets the rest of the input through. Movement, charging and dash merely
+            // shared a message with the offending direction; discarding them makes the
+            // character stop responding to the player, which reads as a broken game
+            // rather than as a rate limit. Volume is still capped by the message budget
+            // above, and a direction that is refused here simply does not move.
+            if (directionRateExceeded)
             {
-                input = input with { AimX = participant.AimX, AimY = participant.AimY };
-                aimChanged = false;
+                input = input with { AimX = participant.DirectionX, AimY = participant.DirectionY };
+                directionChanged = false;
             }
 
             if (!messageRateExceeded)
                 timestamps.Enqueue(now);
-            if (aimChanged)
-                participant.AimChangeTimestamps.Enqueue(now);
-            participant.AimX = input.AimX;
-            participant.AimY = input.AimY;
+            if (directionChanged)
+                participant.DirectionChangeTimestamps.Enqueue(now);
+            participant.DirectionX = input.AimX;
+            participant.DirectionY = input.AimY;
 
             // Acknowledgement means received, and it must stay that way: the client
             // measures its round trip from it, and an acknowledgement that waited for
@@ -424,7 +419,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             var timerResolution = TimeSpan.FromTicks(Math.Max(
                 1L,
                 (long)Math.Ceiling((double)TimeSpan.TicksPerSecond / _time.TimestampFrequency)));
-            var neutralDelay = NeutralTimeout + timerResolution;
+            var neutralDelay = state.NeutralTimeout + timerResolution;
             var acceptedGeneration = participant.AcceptedGeneration;
             participant.NeutralTimer = _time.CreateTimer(
                 _ => NeutralizeIfStale(state, participant, acceptedGeneration),
@@ -474,45 +469,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     }
 
     /// <summary>
-    /// Game-level admission and installation, evaluated against the simulation state
-    /// the input will actually meet - which for a scheduled input is not the state it
-    /// was received against. A refused action strips itself from the input rather than
-    /// rejecting the message; the action is refused, the held state still lands.
+    /// Installation. Admission is the game's: <see cref="IContinuousSimulation.Admit"/>
+    /// runs here, at install time, against the state the input will actually meet -
+    /// which for a scheduled input is not the state it was received against.
     /// </summary>
     private static void Install(ContinuousMatchState state, ParticipantInputState participant, ContinuousInput input)
     {
-        var arenaPlayer = state.Simulation is ArenaSimulation arena
-            ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
-            : null;
-        if (state.Simulation is ArenaSimulation arenaSimulation
-            && participant.RoundGeneration != arenaSimulation.RoundGeneration)
-        {
-            participant.DashSpent = false;
-            participant.RoundGeneration = arenaSimulation.RoundGeneration;
-        }
-
-        if (state.Simulation.Phase != ContinuousMatchPhase.Live)
-        {
-            if (input.FireReleased || input.Dash)
-                input = input with { FireReleased = false, Dash = false };
-        }
-        else
-        {
-            if (input.FireReleased
-                && (state.Simulation.Tick < participant.CooldownUntilTick
-                    || arenaPlayer is { CooldownTicks: > 0 }))
-            {
-                input = input with { FireReleased = false };
-            }
-            if (input.Dash && participant.DashSpent)
-                input = input with { Dash = false };
-        }
-
-        state.Simulation.SetInput(participant.SimulationSessionId, input);
-        if (input.FireReleased)
-            participant.CooldownUntilTick = checked(state.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks);
-        if (input.Dash)
-            participant.DashSpent = true;
+        var admitted = state.Simulation.Admit(participant.SimulationSessionId, input);
+        state.Simulation.SetInput(participant.SimulationSessionId, admitted);
     }
 
     public async Task ForfeitAsync(long matchId, long stableUserId, string reason)
@@ -636,7 +600,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             await _publisher.PublishToUsersAsync(ParticipantUserIds(state.Reservation), new
             {
                 type = "game.ended", matchId,
-                gameType = "arena-knockoff", format = "bo3", rulesetVersion = 1,
+                gameType = state.Reservation.Configuration.GameType,
+                format = state.Reservation.Configuration.Format,
+                rulesetVersion = state.Reservation.Configuration.RulesetVersion,
                 options = state.Reservation.Configuration.Options,
                 abandoned = abandonReason is not null, reason = abandonReason,
                 winnerId = winnerSessionId,
@@ -700,7 +666,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         {
             // start_failed (:128) and scheduler_error (:659) blame PlayerOne purely by
             // convention for a server fault neither player caused. Naming a winner here
-            // would make ArenaBoard vanish PlayerOne as the loser, so the wire must stay
+            // would make the client vanish PlayerOne as the loser, so the wire must stay
             // silent. The persisted record keeps its existing (invisible) convention.
             // connection_timeout and realtime_disconnect are excluded deliberately: those
             // do blame the participant who actually dropped.
@@ -783,7 +749,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     private async Task RunSchedulerAsync(ContinuousMatchState state)
     {
-        var scheduler = new FixedStepScheduler(_time, ArenaRulesetV1.TickRate, ArenaRulesetV1.MaxCatchUpTicks);
+        var timing = state.Definition.Timing;
+        var scheduler = new FixedStepScheduler(_time, timing.TickRate, timing.MaxCatchUpTicks);
         scheduler.Start(_time.GetTimestamp());
         try
         {
@@ -800,7 +767,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                             InstallDue(state, participant);
                         var result = state.Simulation.Step();
                         if (result.Completed) completion = result.Completion;
-                        if (state.Simulation.Tick % ArenaRulesetV1.SnapshotEveryTicks == 0)
+                        if (state.Simulation.Tick % timing.SnapshotEveryTicks == 0)
                         {
                             var acknowledged = AcknowledgedInputs(state);
                             foreach (var participant in state.ParticipantsByUser.Values.Where(
@@ -861,22 +828,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         ParticipantInputState participant,
         IReadOnlyDictionary<long, long> acknowledgedInputs)
     {
-        var view = state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledgedInputs);
-        if (view is not ArenaSnapshotView arena) return view;
-
-        var currentBySimulation = state.ParticipantsByUser.Values
+        // A reconnected participant has a new wire session id while the simulation
+        // keeps the one it started with. The game substitutes wherever its snapshot
+        // names a session; the coordinator only knows the mapping.
+        var wireSessionIds = state.ParticipantsByUser.Values
             .ToDictionary(x => x.SimulationSessionId, x => x.SessionId);
-        return arena with
-        {
-            Players = Array.AsReadOnly(arena.Players.Select(player => player with
-            {
-                SessionId = currentBySimulation[player.SessionId],
-            }).ToArray()),
-            Projectiles = Array.AsReadOnly(arena.Projectiles.Select(projectile => projectile with
-            {
-                OwnerSessionId = currentBySimulation[projectile.OwnerSessionId],
-            }).ToArray()),
-        };
+        return state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledgedInputs, wireSessionIds);
     }
 
     private static HashSet<long> ParticipantUserIds(DuelReservation reservation) =>
@@ -968,7 +925,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     private static ContinuousInput Sanitize(
         ContinuousInput input, long serverTick, ParticipantInputState participant) =>
-        Sanitize(input, serverTick, participant.AimX, participant.AimY);
+        Sanitize(input, serverTick, participant.DirectionX, participant.DirectionY);
 
     private void NeutralizeIfStale(
         ContinuousMatchState state, ParticipantInputState participant, long acceptedGeneration)
@@ -1004,6 +961,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public DuelReservation Reservation { get; }
         public IContinuousGameDefinition Definition { get; }
         public IContinuousSimulation Simulation { get; }
+        public TimeSpan NeutralTimeout => TimeSpan.FromMilliseconds(Definition.Timing.NeutralAfterMs);
+        public TimeSpan ReconnectGrace => TimeSpan.FromMilliseconds(Definition.Timing.ReconnectGraceMs);
         public DateTimeOffset StartedAt { get; }
         public object SyncRoot { get; } = new();
         public bool Active { get; set; } = true;
@@ -1022,13 +981,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             var byUser = new[] { reservation.PlayerOne, reservation.PlayerTwo }
                 .ToDictionary(x => x.UserId, x => new ParticipantInputState(x.UserId, x.SessionId));
             var participants = byUser.Values.ToDictionary(x => x.SessionId);
-            if (simulation is ArenaSimulation arena)
+            foreach (var participant in participants.Values)
             {
-                foreach (var player in arena.Players)
-                {
-                    participants[player.SessionId].AimX = checked((short)player.AimX);
-                    participants[player.SessionId].AimY = checked((short)player.AimY);
-                }
+                // The direction-change budget compares against the last accepted
+                // direction; seeding it from the game's initial input means the first
+                // frame is compared against the true starting direction.
+                var initial = simulation.InitialInput(participant.SimulationSessionId);
+                participant.DirectionX = initial.AimX;
+                participant.DirectionY = initial.AimY;
             }
 
             return participants;
@@ -1050,15 +1010,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public long AcknowledgedInput;
         /// <summary>Received inputs not yet due, ordered by stamp then arrival.</summary>
         public List<ContinuousInput> Scheduled { get; } = [];
-        public short AimX = 32_767;
-        public short AimY;
-        public long CooldownUntilTick;
-        public bool DashSpent;
-        public long RoundGeneration;
+        public short DirectionX = 32_767;
+        public short DirectionY;
         public long AcceptedGeneration;
         public Queue<long> MessageTimestamps { get; } = [];
         public Queue<long> HeartbeatTimestamps { get; } = [];
-        public Queue<long> AimChangeTimestamps { get; } = [];
+        public Queue<long> DirectionChangeTimestamps { get; } = [];
         public ITimer? NeutralTimer;
     }
 }

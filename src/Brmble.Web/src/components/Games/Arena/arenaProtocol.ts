@@ -119,7 +119,7 @@ export type ArenaClientMessage =
 export type ArenaServerMessage =
   | ArenaWelcome
   | ArenaSnapshot
-  | { type: 'inputRejected'; protocolVersion: 1; matchId: number; sequence: number; reason: 'staleSequence' | 'sequenceGap' | 'invalidRange' | 'rateLimited' | 'wrongMatch' | 'wrongRole' | 'phaseDenied' | 'cooldown' | 'dashSpent' }
+  | { type: 'inputRejected'; protocolVersion: 1; matchId: number; sequence: number; reason: 'staleSequence' | 'sequenceGap' | 'invalidRange' | 'rateLimited' | 'wrongMatch' | 'wrongRole' }
   | { type: 'connectionState'; protocolVersion: 1; matchId: number; sessionId: number; state: 'reconnecting'; graceEndsAtUnixMs: number }
   | ArenaMatchClosed;
 
@@ -223,7 +223,7 @@ function validInputRejected(value: JsonObject): value is JsonObject & ArenaInput
   return objectWithKeys(value, ['type', 'protocolVersion', 'matchId', 'sequence', 'reason'])
     && value.type === 'inputRejected' && value.protocolVersion === 1
     && integer(value.matchId) && integer(value.sequence)
-    && oneOf(value.reason, ['staleSequence', 'sequenceGap', 'invalidRange', 'rateLimited', 'wrongMatch', 'wrongRole', 'phaseDenied', 'cooldown', 'dashSpent'] as const);
+    && oneOf(value.reason, ['staleSequence', 'sequenceGap', 'invalidRange', 'rateLimited', 'wrongMatch', 'wrongRole'] as const);
 }
 
 function validConnectionState(value: JsonObject): value is JsonObject & ArenaConnectionState {

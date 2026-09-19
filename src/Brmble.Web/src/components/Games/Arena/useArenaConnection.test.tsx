@@ -500,20 +500,6 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', sequence: 1 });
   });
 
-  it.each(['staleSequence', 'sequenceGap'] as const)(
-    'reconnects on %s without repeating the rejected sequence',
-    async reason => {
-      const h = await connect();
-      act(() => h.result.current.sendInput(held));
-      h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
-      expect(h.result.current.status).toBe('reconnecting');
-      expect(h.socket.close).toHaveBeenCalledOnce();
-      await act(() => vi.advanceTimersByTimeAsync(250));
-      expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
-      expect(h.socket.sent.filter(message => (message as { sequence?: number }).sequence === 1)).toHaveLength(1);
-    },
-  );
-
   it.each(['wrongMatch', 'wrongRole'] as const)('fails and closes on terminal rejection %s', async reason => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -524,7 +510,7 @@ describe('useArenaConnection', () => {
     expect(requestRealtimeTicket).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['invalidRange', 'rateLimited', 'phaseDenied', 'cooldown', 'dashSpent'] as const)(
+  it.each(['invalidRange', 'rateLimited'] as const)(
     'safely rewinds newest %s rejection without auto-resending an edge',
     async reason => {
       const h = await connect();

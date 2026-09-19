@@ -7,8 +7,8 @@ import { ArenaBoard } from './ArenaBoard';
 import { ArenaRenderer, type ArenaRenderView } from './ArenaRenderer';
 import { GameSurface } from '../GameSurface';
 import bridge from '../../../bridge';
-import { createServerClock } from './serverClock';
-import { createInputLead } from './inputLead';
+import { createServerClock } from '../Realtime/serverClock';
+import { createInputLead } from '../Realtime/inputLead';
 
 const connection = vi.hoisted(() => ({ current: {} as ArenaConnection }));
 const state = vi.hoisted(() => ({

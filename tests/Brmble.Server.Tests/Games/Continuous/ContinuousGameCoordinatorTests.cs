@@ -962,6 +962,7 @@ public sealed class ContinuousGameCoordinatorTests
 
     private sealed class BlockingProjectionSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         public ManualResetEventSlim ProjectionEntered { get; } = new(false);
         public ManualResetEventSlim ReleaseProjection { get; } = new(false);
         public long Tick => 0;
@@ -995,6 +996,7 @@ public sealed class ContinuousGameCoordinatorTests
         bool unknownWinnerOnStep = false,
         long winnerUserId = 501) : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         private int _snapshotCount;
         public long Tick { get; private set; }
         public ContinuousMatchPhase Phase { get; private set; } = ContinuousMatchPhase.AwaitingParticipants;

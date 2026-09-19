@@ -7,7 +7,7 @@ import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type Predi
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
 } from './arenaKnockout';
-import { createServerClock, type ServerClock } from './serverClock';
+import { createServerClock, type ServerClock } from '../Realtime/serverClock';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;

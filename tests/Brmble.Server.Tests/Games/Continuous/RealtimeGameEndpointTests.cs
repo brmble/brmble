@@ -677,6 +677,7 @@ public class RealtimeGameEndpointTests
 
     private sealed class TestSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         private readonly System.Collections.Concurrent.ConcurrentQueue<(long SessionId, long Sequence)> _received = new();
         public long Tick => 0;
         public ContinuousMatchPhase Phase => ContinuousMatchPhase.AwaitingParticipants;
