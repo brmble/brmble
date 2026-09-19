@@ -18,7 +18,10 @@
  * the truest, and the window keeps the estimate tracking a changing network.
  *
  * Changes to the lead move the local clock, and a moved clock is a correction on
- * screen, so the lead is slewed one tick at a time no faster than `slewMs`.
+ * screen, so the lead is slewed one tick at a time no faster than `slewMs` - except
+ * for the very first sample, which is taken at once: before it the lead is a guess,
+ * and slewing up from the guess would spend the opening seconds of every match
+ * applying inputs late.
  *
  * It must be measured from the *received* acknowledgement, never from when the
  * server installed the input: an install-time acknowledgement would fold the
@@ -86,6 +89,10 @@ export function createInputLead({
       const index = Math.min(sorted.length - 1, Math.floor(sorted.length * percentile));
       rttMs = sorted[index];
       targetTicks = clamp(Math.ceil(rttMs * tickRate / 1000) + marginTicks);
+      if (samples.length === 1) {
+        currentTicks = targetTicks;
+        lastSlewAt = nowMs;
+      }
     },
     leadTicks(nowMs) {
       if (currentTicks !== targetTicks && nowMs - lastSlewAt >= slewMs) {

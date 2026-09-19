@@ -28,20 +28,24 @@ describe('inputLead', () => {
     expect(lead.targetTicks).toBe(before);
   });
 
-  it('slews no faster than one tick per slew interval in either direction', () => {
-    const lead = createInputLead({ tickRate: 60, slewMs: 500 });
-    lead.sample(200, 0); // target ceil(12) + 2 = 14
-    expect(lead.targetTicks).toBe(14);
-    expect(lead.leadTicks(0)).toBe(4);
-    expect(lead.leadTicks(100)).toBe(4);
-    expect(lead.leadTicks(500)).toBe(5);
-    expect(lead.leadTicks(999)).toBe(5);
-    expect(lead.leadTicks(1000)).toBe(6);
+  it('takes the first sample at once, then slews no faster than one tick per interval', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500, windowSize: 4 });
+    // First sample: a guess becomes a measurement, so the lead jumps to it.
+    lead.sample(100, 0); // target ceil(6) + 2 = 8
+    expect(lead.leadTicks(0)).toBe(8);
 
-    for (let index = 0; index < 40; index++) lead.sample(0, 1000 + index);
+    // Later samples move the target; the lead follows one tick per slew interval.
+    for (let index = 0; index < 4; index++) lead.sample(200, 10 + index); // target 14
+    expect(lead.targetTicks).toBe(14);
+    expect(lead.leadTicks(100)).toBe(8);
+    expect(lead.leadTicks(500)).toBe(9);
+    expect(lead.leadTicks(999)).toBe(9);
+    expect(lead.leadTicks(1000)).toBe(10);
+
+    for (let index = 0; index < 4; index++) lead.sample(0, 1100 + index);
     expect(lead.targetTicks).toBe(3);
-    expect(lead.leadTicks(1400)).toBe(6);
-    expect(lead.leadTicks(1500)).toBe(5);
+    expect(lead.leadTicks(1400)).toBe(10);
+    expect(lead.leadTicks(1500)).toBe(9);
   });
 
   it('clamps the target to the configured range', () => {

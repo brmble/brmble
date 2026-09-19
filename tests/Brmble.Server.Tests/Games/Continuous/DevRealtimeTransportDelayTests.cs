@@ -30,7 +30,7 @@ public class DevRealtimeTransportDelayTests
         // ~120 and ~180 ms; a pipeline delivers each ~60 ms after its own send.
         for (var index = 0; index < 3; index++)
         {
-            await socket.SendAsync(Encoding.UTF8.GetBytes($"m{index}"), WebSocketMessageType.Text, true, default);
+            await socket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes($"m{index}")), WebSocketMessageType.Text, true, default);
             await Task.Delay(5);
         }
         await inner.WaitForSendsAsync(3, TimeSpan.FromSeconds(2));
@@ -39,6 +39,36 @@ public class DevRealtimeTransportDelayTests
         var last = Stopwatch.GetElapsedTime(started, inner.Sends[2].Timestamp);
         Assert.IsTrue(last >= TimeSpan.FromMilliseconds(60), $"third message left after {last.TotalMilliseconds} ms");
         Assert.IsTrue(last < TimeSpan.FromMilliseconds(150), $"sends were serialised: third left after {last.TotalMilliseconds} ms");
+    }
+
+    [TestMethod]
+    public async Task ReceivesArePipelinedEachDelayedByTheConfiguredAmountNotSerialised()
+    {
+        var inner = new RecordingWebSocket();
+        var delay = new DevRealtimeTransportDelay(TimeSpan.FromMilliseconds(60), TimeSpan.Zero);
+        using var socket = delay.Wrap(inner);
+        var started = Stopwatch.GetTimestamp();
+
+        // Three messages arrive 5 ms apart. A delay applied per read would hand them
+        // out at ~60, ~120 and ~180 ms - and a client sending input frames faster than
+        // the delay would fall further behind for as long as it played.
+        for (var index = 0; index < 3; index++)
+        {
+            inner.QueueReceive($"m{index}");
+            await Task.Delay(5);
+        }
+        var buffer = new byte[64];
+        var texts = new List<string>();
+        for (var index = 0; index < 3; index++)
+        {
+            var received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), default);
+            texts.Add(Encoding.UTF8.GetString(buffer, 0, received.Count));
+        }
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        CollectionAssert.AreEqual(new[] { "m0", "m1", "m2" }, texts);
+        Assert.IsTrue(elapsed >= TimeSpan.FromMilliseconds(60), $"third message arrived after {elapsed.TotalMilliseconds} ms");
+        Assert.IsTrue(elapsed < TimeSpan.FromMilliseconds(150), $"receives were serialised: third arrived after {elapsed.TotalMilliseconds} ms");
     }
 
     [TestMethod]
@@ -55,7 +85,7 @@ public class DevRealtimeTransportDelayTests
         Assert.IsTrue(Stopwatch.GetElapsedTime(started) >= TimeSpan.FromMilliseconds(40));
         Assert.AreEqual("hello", Encoding.UTF8.GetString(buffer, 0, received.Count));
 
-        await socket.SendAsync(Encoding.UTF8.GetBytes("terminal"), WebSocketMessageType.Text, true, default);
+        await socket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("terminal")), WebSocketMessageType.Text, true, default);
         await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", default);
 
         Assert.AreEqual(1, inner.Sends.Count, "the pending send must leave before the close frame");
@@ -64,11 +94,14 @@ public class DevRealtimeTransportDelayTests
 
     private sealed class RecordingWebSocket : WebSocket
     {
-        private readonly Queue<byte[]> _receives = new();
+        // Blocks when empty, as a real socket does: the delayed socket's receive pump
+        // reads continuously and must not see an "empty" failure.
+        private readonly System.Threading.Channels.Channel<byte[]> _receives =
+            System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
         public List<(long Timestamp, string Text)> Sends { get; } = [];
         public bool OutputClosed { get; private set; }
 
-        public void QueueReceive(string text) => _receives.Enqueue(Encoding.UTF8.GetBytes(text));
+        public void QueueReceive(string text) => _receives.Writer.TryWrite(Encoding.UTF8.GetBytes(text));
 
         public async Task WaitForSendsAsync(int count, TimeSpan timeout)
         {
@@ -96,11 +129,11 @@ public class DevRealtimeTransportDelayTests
             return Task.CompletedTask;
         }
         public override void Dispose() { }
-        public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+        public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
         {
-            var payload = _receives.Dequeue();
+            var payload = await _receives.Reader.ReadAsync(cancellationToken);
             payload.CopyTo(buffer.Array!, buffer.Offset);
-            return Task.FromResult(new WebSocketReceiveResult(payload.Length, WebSocketMessageType.Text, true));
+            return new WebSocketReceiveResult(payload.Length, WebSocketMessageType.Text, true);
         }
         public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken cancellationToken)
         {
