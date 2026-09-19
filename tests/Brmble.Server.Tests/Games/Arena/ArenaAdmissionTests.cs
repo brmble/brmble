@@ -93,15 +93,19 @@ public class ArenaAdmissionTests
     }
 
     [TestMethod]
-    public void InitialInput_CarriesThePlayersStartingAim()
+    public void InitialInput_IsTheSpawnFacingAimWhateverThePlayerAimsAtNow()
     {
         var sim = Live();
+        // Both players have been aiming along the neutral input for a few hundred ticks
+        // by now; the initial input must still answer with the spawn-facing aim.
+        Assert.AreEqual(sim.Players.Single(x => x.SessionId == 20).AimX, sim.Players.Single(x => x.SessionId == 10).AimX);
+
         var low = sim.InitialInput(10);
         var high = sim.InitialInput(20);
 
-        Assert.AreEqual(sim.Players.Single(x => x.SessionId == 10).AimX, low.AimX);
-        Assert.AreEqual(sim.Players.Single(x => x.SessionId == 20).AimX, high.AimX);
-        Assert.AreNotEqual(low.AimX, high.AimX, "the sides face each other");
+        Assert.AreEqual(ArenaRulesetV1.AimQuantizationMax, low.AimX);
+        Assert.AreEqual(-ArenaRulesetV1.AimQuantizationMax, high.AimX);
+        Assert.AreEqual(0, low.AimY);
         Assert.IsFalse(low.FireReleased || low.Dash || low.Charging);
     }
 
