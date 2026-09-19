@@ -82,39 +82,43 @@ public class ContinuousInputTests
     {
         var h = await CoordinatorHarness.Started(serverTick: 1_000);
 
-        // Ticks are clamped to the inclusive window; the boundary values pass untouched.
-        // Clamping has no gameplay consequence today - the simulation only hashes the
-        // tick - but the input-scheduling design gives the bound meaning, so the clamped
-        // value is asserted rather than merely the acceptance.
+        // The tick is clamped into [tick + 1, tick + 30]: a late stamp applies on the
+        // next step, a far-future one no more than half a second out. What matters is
+        // what the simulation sees, so the far-future one is driven to its install.
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 879)).Accepted);
-        Assert.AreEqual(880L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a late stamp applies on the next step");
         Assert.IsTrue(h.Submit(Input(2, predictedTick: 1_031)).Accepted);
-        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick);
-        Assert.IsTrue(h.Submit(Input(3, predictedTick: 880)).Accepted);
-        Assert.AreEqual(880L, h.Simulation.LastInput(10).PredictedTick);
-        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_030)).Accepted);
-        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a future stamp waits for its tick");
+        h.Simulation.Tick = 1_029;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick, "clamped to tick + 30");
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_030)).Accepted);
+        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick, "the lower boundary passes untouched");
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_059)).Accepted);
+        h.Simulation.Tick = 1_058;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_059L, h.Simulation.LastInput(10).PredictedTick, "the upper boundary passes untouched");
 
         // A zero or over-length aim falls back to the last accepted aim.
-        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_000, aimX: 0, aimY: 0)).Accepted);
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_059, aimX: 0, aimY: 0)).Accepted);
         Assert.AreEqual(32_767, h.Simulation.LastInput(10).AimX);
         Assert.AreEqual(0, h.Simulation.LastInput(10).AimY);
-        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_000, aimX: -23_170, aimY: 23_170)).Accepted);
+        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_059, aimX: -23_170, aimY: 23_170)).Accepted);
         Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX);
-        Assert.IsTrue(h.Submit(Input(7, predictedTick: 1_000, aimX: 23_171, aimY: 23_170)).Accepted);
+        Assert.IsTrue(h.Submit(Input(7, predictedTick: 1_059, aimX: 23_171, aimY: 23_170)).Accepted);
         Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX, "an over-length aim falls back to the last accepted aim");
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).AimY);
 
         // An over-length move is scaled down along its own direction; short.MinValue,
         // which has no positive counterpart, is folded to -32767 first.
-        Assert.IsTrue(h.Submit(Input(8, predictedTick: 1_000, moveX: 32_767, moveY: 256)).Accepted);
+        Assert.IsTrue(h.Submit(Input(8, predictedTick: 1_059, moveX: 32_767, moveY: 256)).Accepted);
         var scaled = h.Simulation.LastInput(10);
         Assert.IsTrue(scaled.MoveX is > 32_000 and < 32_767, $"MoveX {scaled.MoveX}");
         Assert.IsTrue(scaled.MoveY is > 0 and <= 256, $"MoveY {scaled.MoveY}");
         Assert.IsTrue(FixedVec.IntegerSqrt((long)scaled.MoveX * scaled.MoveX + (long)scaled.MoveY * scaled.MoveY) <= 32_767);
-        Assert.IsTrue(h.Submit(Input(9, predictedTick: 1_000, moveX: -32_768)).Accepted);
+        Assert.IsTrue(h.Submit(Input(9, predictedTick: 1_059, moveX: -32_768)).Accepted);
         Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveX);
-        Assert.IsTrue(h.Submit(Input(10, predictedTick: 880,
+        Assert.IsTrue(h.Submit(Input(10, predictedTick: 1_059,
             moveX: 23_170, moveY: 23_170, aimX: -23_170, aimY: 23_170)).Accepted);
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveX);
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveY);
@@ -137,8 +141,163 @@ public class ContinuousInputTests
 
         Assert.IsTrue(stalled.Accepted, $"input after a server stall was rejected: {stalled.Reason}");
         Assert.AreEqual(2L, stalled.AcknowledgedInput);
+        h.Simulation.Tick = 1_029;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
         Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick);
         Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInput_IsInstalledAtItsStampNotOnArrival()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 5, moveX: 100)).Accepted);
+
+        Assert.IsFalse(h.Simulation.HasInput(10), "stamped four ticks out; nothing is due yet");
+        h.Simulation.Tick = 3;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10), "tick 5 is not the next step after tick 3");
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.HasInput(10));
+        Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task LateInput_IsInstalledOnTheNextStep()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 100);
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 97, moveX: 100)).Accepted);
+
+        Assert.AreEqual(101L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task FarFutureInput_IsClampedToThirtyTicks()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 100);
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 500)).Accepted);
+
+        h.Simulation.Tick = 128;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10));
+        h.Simulation.Tick = 129;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(130L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInputs_InstallInStampOrderThenArrivalOrder()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 6, moveX: 60)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 4, moveX: 40)).Accepted);
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 6, moveX: 61)).Accepted);
+
+        h.Simulation.Tick = 3;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(40, h.Simulation.LastInput(10).MoveX);
+        Assert.AreEqual(1, h.Simulation.SetInputCount(10));
+        h.Simulation.Tick = 5;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(61, h.Simulation.LastInput(10).MoveX, "same stamp: arrival order, so the later one wins");
+        Assert.AreEqual(3, h.Simulation.SetInputCount(10));
+    }
+
+    [TestMethod]
+    public async Task Acknowledgement_AdvancesOnReceiptNotInstall()
+    {
+        // The client measures its round trip from the acknowledgement. Advancing it at
+        // install time would fold the client's own lead into that estimate.
+        var h = await CoordinatorHarness.Started();
+
+        var result = h.Submit(Input(1, predictedTick: 10));
+
+        Assert.AreEqual(1L, result.AcknowledgedInput);
+        Assert.IsFalse(h.Simulation.HasInput(10));
+    }
+
+    [TestMethod]
+    public async Task Detach_ClearsScheduledInputs()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 10, moveX: 100)).Accepted);
+
+        await h.Coordinator.DetachAsync("one");
+
+        h.Simulation.Tick = 9;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.IsNeutral(10), "a detached participant's future inputs must not land");
+    }
+
+    [TestMethod]
+    public async Task NeutralTimeout_ClearsScheduledInputs()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 10, moveX: 100)).Accepted);
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(751));
+
+        h.Simulation.Tick = 9;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.IsNeutral(10));
+    }
+
+    [TestMethod]
+    public async Task Arena_EdgeSurvivesAHeldStateInputScheduledForTheSameTick()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        var target = h.Simulation.Tick + 5;
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: target, dash: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: target, moveX: 100)).Accepted);
+        Assert.IsFalse(h.Player.Input.Dash, "nothing is due yet");
+
+        while (h.Simulation.Tick < target - 1)
+        {
+            h.Coordinator.InstallScheduledInputs(h.MatchId);
+            h.Simulation.Step();
+        }
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+
+        // SetInput ORs the edge into the latched input, so the held-state frame that
+        // followed the dash on the same tick did not erase it.
+        Assert.IsTrue(h.Player.Input.Dash);
+        Assert.AreEqual(100, h.Player.Input.MoveX);
+    }
+
+    [TestMethod]
+    public async Task Arena_CooldownStripIsEvaluatedAtInstallTime()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
+        h.Simulation.Step();
+        Assert.AreEqual(1, h.Simulation.Projectiles.Count);
+        Assert.IsTrue(h.Player.CooldownTicks > 0);
+
+        // Received while the cooldown has 23 ticks left, stamped 30 ticks out. A strip at
+        // receive time would refuse it; the cooldown it will actually meet has ended.
+        var target = h.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks + 6;
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: target, fireReleased: true)).Accepted);
+
+        while (h.Simulation.Tick < target - 1)
+        {
+            h.Coordinator.InstallScheduledInputs(h.MatchId);
+            h.Simulation.Step();
+        }
+        Assert.AreEqual(0, h.Player.CooldownTicks);
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Player.Input.FireReleased, "the fire was stripped against a cooldown that had already ended");
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+        h.Simulation.Step();
+
+        Assert.AreEqual(ArenaRulesetV1.ShotCooldownTicks, h.Player.CooldownTicks, "the second shot fired");
     }
 
     [TestMethod]
@@ -740,6 +899,7 @@ public class ContinuousInputTests
         public void SetNeutralInput(long sessionId) =>
             _inputs[sessionId] = Input(0, aimX: 32_767);
         public ContinuousInput LastInput(long sessionId) => _inputs[sessionId];
+        public bool HasInput(long sessionId) => _inputs.ContainsKey(sessionId);
 
         public bool IsNeutral(long sessionId) =>
             _inputs.TryGetValue(sessionId, out var input)

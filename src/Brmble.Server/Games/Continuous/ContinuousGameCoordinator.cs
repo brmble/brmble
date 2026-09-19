@@ -41,6 +41,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     // Aggressive spam measures around 33, so 30 sat below legitimate play. The client
     // test 'stays under the server aim-change budget' guards this relationship.
     private const int MaxAimChangesPerSecond = 45;
+    // How far ahead of the simulation an input may be scheduled: half a second. A stamp
+    // past this applies then rather than never; the client caps its own lead well below.
+    internal const int MaxScheduleAheadTicks = 30;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan NeutralTimeout = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
@@ -231,6 +234,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participant.ConnectionId = null;
             participant.Mailbox = null;
             participant.AttachAcknowledged = false;
+            participant.Scheduled.Clear();
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -347,22 +351,23 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return new InputResult(true, default, input.Sequence);
             }
 
-            // Out-of-range fields are corrected rather than refused. The realistic way a
-            // PredictedTick leaves the window is the server falling behind wall time -
-            // FixedStepScheduler forgives its catch-up debt after MaxCatchUpTicks - so a
-            // stall of half a second put every subsequent input past serverTick + 30
-            // until the next snapshot, exactly when a reconnect storm is least affordable.
-            input = Sanitize(input, state.Simulation.Tick, participant);
-
-            var arenaPlayer = state.Simulation is ArenaSimulation arena
-                ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
-                : null;
-            if (state.Simulation is ArenaSimulation arenaSimulation
-                && participant.RoundGeneration != arenaSimulation.RoundGeneration)
+            // Out-of-range fields are corrected rather than refused. The tick is clamped
+            // into [tick + 1, tick + 30]: a late stamp applies on the next step, a
+            // far-future one no more than half a second out. The realistic way a stamp
+            // leaves the window is the server falling behind wall time - FixedStepScheduler
+            // forgives its catch-up debt after MaxCatchUpTicks - so a stall of half a
+            // second used to put every subsequent input past the window until the next
+            // snapshot, exactly when a reconnect storm was least affordable. The clamp is
+            // logged because it is the health signal for the client's lead estimate.
+            var sanitized = Sanitize(input, state.Simulation.Tick, participant);
+            if (sanitized.PredictedTick != input.PredictedTick)
             {
-                participant.DashSpent = false;
-                participant.RoundGeneration = arenaSimulation.RoundGeneration;
+                _logger.LogDebug(
+                    "Realtime input for match {MatchId}, session {SessionId} stamped tick {PredictedTick} against server tick {ServerTick}; clamped by {Distance} ticks.",
+                    matchId, sessionId, input.PredictedTick, state.Simulation.Tick,
+                    sanitized.PredictedTick - input.PredictedTick);
             }
+            input = sanitized;
 
             var aimChanged = input.AimX != participant.AimX || input.AimY != participant.AimY;
             var aimRateExceeded = false;
@@ -370,27 +375,6 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             {
                 RemoveExpired(participant.AimChangeTimestamps, now);
                 aimRateExceeded = participant.AimChangeTimestamps.Count >= MaxAimChangesPerSecond;
-            }
-
-            // A refused action strips itself from the input rather than rejecting the
-            // whole message. Spam clicking means most clicks land during the shot
-            // cooldown, so this fired constantly in normal play. The action is still
-            // refused; only the disconnect is gone.
-            if (state.Simulation.Phase != ContinuousMatchPhase.Live)
-            {
-                if (input.FireReleased || input.Dash)
-                    input = input with { FireReleased = false, Dash = false };
-            }
-            else
-            {
-                if (input.FireReleased
-                    && (state.Simulation.Tick < participant.CooldownUntilTick
-                        || arenaPlayer is { CooldownTicks: > 0 }))
-                {
-                    input = input with { FireReleased = false };
-                }
-                if (input.Dash && participant.DashSpent)
-                    input = input with { Dash = false };
             }
 
             // Over the message budget the held state still lands and only the edges are
@@ -418,15 +402,23 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 timestamps.Enqueue(now);
             if (aimChanged)
                 participant.AimChangeTimestamps.Enqueue(now);
-            state.Simulation.SetInput(participant.SimulationSessionId, input);
-
             participant.AimX = input.AimX;
             participant.AimY = input.AimY;
+
+            // Acknowledgement means received, and it must stay that way: the client
+            // measures its round trip from it, and an acknowledgement that waited for
+            // the install would fold the client's own lead into that estimate.
             participant.AcknowledgedInput = input.Sequence;
-            if (input.FireReleased)
-                participant.CooldownUntilTick = checked(state.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks);
-            if (input.Dash)
-                participant.DashSpent = true;
+
+            // The stamp names the tick the input applies at. The client runs ahead of the
+            // server by its measured round trip plus a margin and predicts from the same
+            // tick, so installing here at the stamp - rather than on arrival - is what
+            // makes the two agree. An input due for the very next step is installed now;
+            // that is the same order the scheduler would install it in, and it keeps a
+            // "now" input visible to the simulation the moment it is accepted.
+            Schedule(participant, input);
+            InstallDue(state, participant);
+
             participant.AcceptedGeneration = checked(participant.AcceptedGeneration + 1);
             participant.NeutralTimer?.Dispose();
             var timerResolution = TimeSpan.FromTicks(Math.Max(
@@ -441,6 +433,86 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 Timeout.InfiniteTimeSpan);
             return new InputResult(true, default, input.Sequence);
         }
+    }
+
+    /// <summary>
+    /// Installs every scheduled input that is due for the next step. What the scheduler
+    /// runs before each <c>Step()</c>; exposed so tests can drive it against a
+    /// simulation whose tick they advance by hand.
+    /// </summary>
+    internal void InstallScheduledInputs(long matchId)
+    {
+        if (!_matches.TryGetValue(matchId, out var state)) return;
+        lock (state.SyncRoot)
+        {
+            if (!state.Active) return;
+            foreach (var participant in state.ParticipantsByUser.Values)
+                InstallDue(state, participant);
+        }
+    }
+
+    private static void Schedule(ParticipantInputState participant, ContinuousInput input)
+    {
+        // Ordered by stamp, then by arrival. Stamps are monotonic on a sane client and the
+        // socket is ordered, so this is an append in practice; the walk back covers a
+        // clamp that pulled a far-future stamp below an earlier one.
+        var scheduled = participant.Scheduled;
+        var index = scheduled.Count;
+        while (index > 0 && scheduled[index - 1].PredictedTick > input.PredictedTick) index--;
+        scheduled.Insert(index, input);
+    }
+
+    private static void InstallDue(ContinuousMatchState state, ParticipantInputState participant)
+    {
+        var scheduled = participant.Scheduled;
+        while (scheduled.Count > 0 && scheduled[0].PredictedTick <= state.Simulation.Tick + 1)
+        {
+            var input = scheduled[0];
+            scheduled.RemoveAt(0);
+            Install(state, participant, input);
+        }
+    }
+
+    /// <summary>
+    /// Game-level admission and installation, evaluated against the simulation state
+    /// the input will actually meet - which for a scheduled input is not the state it
+    /// was received against. A refused action strips itself from the input rather than
+    /// rejecting the message; the action is refused, the held state still lands.
+    /// </summary>
+    private static void Install(ContinuousMatchState state, ParticipantInputState participant, ContinuousInput input)
+    {
+        var arenaPlayer = state.Simulation is ArenaSimulation arena
+            ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
+            : null;
+        if (state.Simulation is ArenaSimulation arenaSimulation
+            && participant.RoundGeneration != arenaSimulation.RoundGeneration)
+        {
+            participant.DashSpent = false;
+            participant.RoundGeneration = arenaSimulation.RoundGeneration;
+        }
+
+        if (state.Simulation.Phase != ContinuousMatchPhase.Live)
+        {
+            if (input.FireReleased || input.Dash)
+                input = input with { FireReleased = false, Dash = false };
+        }
+        else
+        {
+            if (input.FireReleased
+                && (state.Simulation.Tick < participant.CooldownUntilTick
+                    || arenaPlayer is { CooldownTicks: > 0 }))
+            {
+                input = input with { FireReleased = false };
+            }
+            if (input.Dash && participant.DashSpent)
+                input = input with { Dash = false };
+        }
+
+        state.Simulation.SetInput(participant.SimulationSessionId, input);
+        if (input.FireReleased)
+            participant.CooldownUntilTick = checked(state.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks);
+        if (input.Dash)
+            participant.DashSpent = true;
     }
 
     public async Task ForfeitAsync(long matchId, long stableUserId, string reason)
@@ -496,6 +568,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         var acknowledged = AcknowledgedInputs(state);
         foreach (var participant in participants)
         {
+            participant.Scheduled.Clear();
             try { state.Simulation.SetNeutralInput(participant.SimulationSessionId); }
             catch (Exception ex)
             {
@@ -723,6 +796,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                     lock (state.SyncRoot)
                     {
                         if (!state.Active) return;
+                        foreach (var participant in state.ParticipantsByUser.Values)
+                            InstallDue(state, participant);
                         var result = state.Simulation.Step();
                         if (result.Completed) completion = result.Completion;
                         if (state.Simulation.Tick % ArenaRulesetV1.SnapshotEveryTicks == 0)
@@ -857,7 +932,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     /// <summary>
     /// Corrects an input's out-of-range fields instead of refusing the message. The
-    /// tick is clamped into the window the simulation accepts; a movement vector longer
+    /// tick is clamped into the window the scheduler will install it in; a movement vector longer
     /// than unit is scaled down along its own direction; an aim that is zero or longer
     /// than unit is replaced by the last accepted aim, which is what the aim-rate clamp
     /// already substitutes. <c>short.MinValue</c> is the one component value the
@@ -867,7 +942,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     internal static ContinuousInput Sanitize(
         ContinuousInput input, long serverTick, short lastAimX, short lastAimY)
     {
-        var predictedTick = Math.Clamp(input.PredictedTick, serverTick - 120, serverTick + 30);
+        var predictedTick = Math.Clamp(input.PredictedTick, serverTick + 1, serverTick + MaxScheduleAheadTicks);
 
         var move = FixedVec.NormalizeQ15(
             Math.Max(input.MoveX, (short)-32_767), Math.Max(input.MoveY, (short)-32_767));
@@ -903,6 +978,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (!state.Active || participant.AcceptedGeneration != acceptedGeneration)
                 return;
 
+            participant.Scheduled.Clear();
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -972,6 +1048,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public long ConnectionGeneration;
         public ITimer? ReconnectTimer;
         public long AcknowledgedInput;
+        /// <summary>Received inputs not yet due, ordered by stamp then arrival.</summary>
+        public List<ContinuousInput> Scheduled { get; } = [];
         public short AimX = 32_767;
         public short AimY;
         public long CooldownUntilTick;
