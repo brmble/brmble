@@ -20,6 +20,26 @@ public class ArenaDeterminismTests
         CollectionAssert.AreEqual(first.Score, second.Score);
     }
 
+    // The final hash of the deterministic stream, recorded once on the commit before the
+    // coordinator extraction. Every refactor of ArenaSimulation must reproduce it; a
+    // change here is a behaviour change and needs to be justified against the spec.
+    // Zero means "not recorded yet": the test then reports the value to record and is
+    // inconclusive rather than green.
+    private const ulong RecordedFinalHash = 0;
+
+    [TestMethod]
+    public void HashFixture_MatchesRecordedValue()
+    {
+        var inputs = DeterministicInputGenerator.Build(seed: 0xA8E1, ticks: 3_600);
+        var run = RunToCompletion(inputs);
+        var final = run.Hashes[^1];
+
+        if (RecordedFinalHash == 0)
+            Assert.Inconclusive($"Record the fixture: final hash 0x{final:X16} over {run.Hashes.Length} ticks, outcome {run.Outcome}.");
+        Assert.AreEqual(RecordedFinalHash, final,
+            $"the deterministic stream now ends at 0x{final:X16} over {run.Hashes.Length} ticks; the simulation's behaviour changed");
+    }
+
     [TestMethod]
     public void DeterministicHashChangesForFutureAffectingState()
     {
