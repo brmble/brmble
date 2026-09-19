@@ -1,89 +1,127 @@
-# Realtime Acknowledgement and Latency — Implementation Plan
+# Realtime Acknowledgement — Implementation Plan (Finding 3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stop a single refused input from dropping the player's connection mid-match, and
-stop the client systematically under-replaying its own inputs.
+**Goal:** a refused input never costs the player their connection. The coordinator refuses at
+the connection level only; everything else is acknowledged, with game-level refusal expressed
+by stripping or substituting fields.
 
-**Spec:** `docs/superpowers/specs/2026-09-13-realtime-acknowledgement-and-latency-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-13-realtime-acknowledgement-and-latency-design.md`,
+section *Finding 3*. All decisions are made; there is nothing to ask before starting.
 
-**Branch:** `fix/arena-unconditional-acknowledgement`, already created from `origin/main`.
-Do not commit to `main`. Do not push or open a PR without asking.
+**Branch:** `fix/arena-unconditional-acknowledgement`, already created from `origin/main`
+(it is empty). Do not commit to `main`. Do not push or open a PR without asking.
+
+**Scope:** server only. `dotnet test` covers all of it. Finding 4 is a separate plan
+(`2026-09-13-arena-input-scheduling.md`) and starts after this one merges.
 
 ## Read this first
 
-**There is an open design decision in the spec** (`StaleSequence` / `SequenceGap`, Option A
-vs B). It is not made. Ask the user before implementing Phase 1; everything else in Phase 1
-is agreed.
+- **Wire shape does not change.** No new fields on any message. The arena snapshot validator
+  is arity-strict (`arenaProtocol.ts`, `objectWithKeys`); adding a field is a breaking change.
+- **Rate limiting must not weaken.** A rate-limited message is still counted against the
+  budget; only the punishment changes. Prove it with a test that counts what reaches the
+  simulation.
+- **Do not touch `ContinuousRejectReason`'s members.** Removing `Cooldown`/`DashSpent` (which
+  are already never returned) belongs to the coordinator extraction.
+- **Sequential guards shadow each other.** `SubmitInput` has ~8 guards in sequence
+  (`ContinuousGameCoordinator.cs:289-378`); a test only pins the one that happens to fire.
+  Mutation-verify one guard at a time, each with an input constructed to clear every preceding
+  guard, and **confirm each mutation actually applied** — a find-and-replace that matched
+  nothing yields a green run that proves nothing.
+- The correct mental model of the bug is a **race** (spec, *Mechanism (corrected)*). A client
+  test that answers a rejection synchronously exercises the rewind path and proves nothing
+  about the cascade. No client tests are needed in this plan; if you add one, it must send a
+  second frame before the rejection arrives.
 
-**Phase 2 is blocked.** Finding 4 needs `serverClock.ts`, which lives on
-`fix/arena-server-clock-offset` (PR open, not merged at the time of writing). Confirm that
-branch has merged before starting Phase 2. If it has not, stop after Phase 1.
-
-## Global Constraints
-
-- **This changes the wire contract's behaviour, not its shape.** No new fields are needed.
-  If you find yourself adding one, stop — the arena snapshot validator is arity-strict
-  (`arenaProtocol.ts`, `objectWithKeys`), so any added field is a breaking change requiring
-  client and server to ship together.
-- **Rate limiting must not weaken.** Acknowledging a rate-limited message must still discard
-  its effect. Prove this with a test that counts what reaches the simulation, not just what
-  the endpoint returns.
-- **Do not touch `ContinuousRejectReason`'s enum members in this change.** Removing
-  `Cooldown` / `DashSpent` belongs to the orchestrator extraction, not here.
-- Every test must be able to fail for the reason it claims. Verify by mutation before
-  reporting, and **confirm the mutation actually applied** — a find-and-replace that matches
-  nothing produces a green run that looks like proof and is worthless. This bit us twice on
-  the sibling branch.
-- **Sequential guards shadow each other.** `SubmitInput` has ~8 guards in sequence; a test
-  only pins the one that happens to reject it. Run one mutation per guard, each with an
-  input constructed to clear every preceding guard.
-
-## Phase 1 — Unconditional acknowledgement (Finding 3)
-
-Server-only. `dotnet test` covers it fully; no frontend build or playtest needed.
+## Files
 
 | File | Change | Responsibility |
 |---|---|---|
-| `src/Brmble.Server/Games/Continuous/ContinuousGameCoordinator.cs` | Modify | `SubmitInput` guards (~`:289-378`), `Reject` (`:798`), `IsInRange` (`:808`) |
-| `tests/Brmble.Server.Tests/Games/Continuous/ContinuousInputTests.cs` | Modify | 683 lines; pins most of the current rejection contract |
+| `src/Brmble.Server/Games/Continuous/ContinuousGameCoordinator.cs` | Modify | `SubmitInput` (`:274-386`), `Reject` (`:798`), `IsInRange` (`:808`) |
+| `tests/Brmble.Server.Tests/Games/Continuous/ContinuousInputTests.cs` | Modify | Pins the current rejection contract: 9 `InvalidRange`, 5 `RateLimited`, 2 `SequenceGap`, 2 `StaleSequence` references |
 | `tests/Brmble.Server.Tests/Games/GameEndpointsTests.cs` | Modify | One `RateLimited` assertion |
+| `tests/Brmble.Server.Tests/Games/Continuous/RealtimeGameEndpointTests.cs` | Verify | Asserts on `inputRejected` control frames — check which reasons it expects |
 
-- [ ] Confirm the open decision with the user.
-- [ ] `InvalidRange`: clamp `PredictedTick` into `[serverTick - 120, serverTick + 30]` and
-      normalise out-of-range axes instead of rejecting. Keep the rejection for a heartbeat
-      bearing a fire or dash.
-- [ ] `RateLimited`: acknowledge and discard the effect, mirroring the aim-rate clamp at `:362`.
-- [ ] `StaleSequence` / `SequenceGap`: per the agreed option.
-- [ ] Rewrite the affected tests to assert stripped-and-acknowledged rather than rejected.
-      Counts before the change: 9 `InvalidRange`, 5 `RateLimited`, 3 `SequenceGap`,
-      2 `StaleSequence` in `ContinuousInputTests`, 1 `RateLimited` in `GameEndpointsTests`.
-- [ ] Add a test that a rate-limited input is acknowledged **and** does not reach the
-      simulation.
-- [ ] Add a test that a `PredictedTick` far outside the window is clamped and accepted,
-      and that the clamped value is what the simulation sees.
-- [ ] Mutation-verify each changed guard, one at a time.
-- [ ] `dotnet test` green (1718 tests at the time of writing, before this plan's additions).
+## Tasks
 
-## Phase 2 — Latency term in `predictedTick` (Finding 4)
+### 1. Split validation from refusal in `SubmitInput`
 
-**Blocked on `fix/arena-server-clock-offset` merging.** Verify before starting.
+- [ ] Introduce a private `Sanitize(ContinuousInput input, long serverTick, bool isHeartbeat,
+      ParticipantInputState participant) → (ContinuousInput sanitized, bool malformed)` that
+      replaces `IsInRange`. `malformed` is true only for a heartbeat carrying fire or dash.
+      Otherwise it returns a corrected input:
+      - `PredictedTick` clamped into `[serverTick - 120, serverTick + 30]`.
+      - Aim `(0,0)` or `|aim| > 32_767` → `participant.AimX/AimY`.
+      - `|move| > 32_767` → scaled down along its own direction (use `FixedVec`), preserving
+        the `>= -32_767` component floor.
+- [ ] `malformed` → `Reject(InvalidRange)` (unchanged behaviour for that one case). Everything
+      else proceeds with the sanitized input.
+- [ ] Sequence: `input.Sequence <= participant.AcknowledgedInput` → log at Information with
+      both numbers and `return new InputResult(true, default, participant.AcknowledgedInput)`.
+      No `inputRejected` is emitted because `Accepted` is true; verify
+      `RealtimeGameEndpoint.HandlePayload` (`:203`) only writes the control on `!Accepted`.
+      `input.Sequence > AcknowledgedInput + 1` → log at Information with the gap size and
+      continue; the acknowledgement advances to `input.Sequence` on the normal path.
+- [ ] `messageRateExceeded` (`:353`): do **not** return. Strip `FireReleased` and `Dash`,
+      keep held state, and fall through to `SetInput` and acknowledgement. Do **not** enqueue
+      the timestamp for an over-budget message — today a rejected message is not counted
+      either, and counting it would let a flood extend its own window. (If you conclude the
+      current code *does* count it, keep whatever it does and say so in the commit.)
+- [ ] `Reject` is now called for `WrongRole`, `WrongMatch` and the malformed-heartbeat case
+      only. Leave its signature.
 
-| File | Change | Responsibility |
-|---|---|---|
-| `src/Brmble.Web/src/components/Games/Arena/serverClock.ts` | Modify | Add RTT alongside the existing offset estimate |
-| `src/Brmble.Web/src/components/Games/Arena/serverClock.test.ts` | Modify | RTT estimator tests |
-| `src/Brmble.Web/src/components/Games/Arena/useArenaConnection.ts` | Modify | `currentPredictedTick` (`:94`) adds half RTT |
-| `src/Brmble.Web/src/components/Games/Arena/useArenaConnection.test.tsx` | Modify | Sequencing tests assert predicted ticks |
+### 2. Rewrite the pinned contract
 
-- [ ] Extend `serverClock` with an RTT estimate from the samples it already takes. Same
-      bounded-window discipline as the offset: prefer the low percentile, not the mean.
-- [ ] `currentPredictedTick` adds `halfRtt` in ticks.
-- [ ] Test that replay under simulated latency no longer discards the opening ticks of a
-      pending interval (`arenaMath.ts:497` is the clamp that discards them).
-- [ ] `npm test` green.
+- [ ] `Validation_UsesMatchRoleThenSequenceOrderWithoutAdvancingAcknowledgement` (`:26`):
+      split into the connection-level part (unchanged) and a new
+      `StaleAndGapSequences_AreAcknowledgedWithoutRejecting`.
+- [ ] `RangeValidation_UsesInclusiveTickAndNormalizedVectorBoundaries` (`:45`): becomes
+      `RangeViolations_AreClampedAndAcknowledged`. Assert on what `SetInput` received (the
+      test's fake simulation already records it — see `SetInput` at `:595`), not on
+      `InputResult` alone.
+- [ ] `Heartbeat_AcceptsCompleteHeldStateButRejectsEdges` (`:63`): unchanged — this is the
+      surviving rejection.
+- [ ] `MessageRate_…` (`:75`), `RateLimit_DoesNotMaskSequenceOrRangeReasons` (`:90`),
+      `HeartbeatRate_…` (`:105`): rewrite to assert acknowledged + held state applied + edges
+      stripped + budget still enforced. `RateLimit_DoesNotMaskSequenceOrRangeReasons` no
+      longer has reasons to mask; replace it with an ordering test that a rate-limited
+      *malformed heartbeat* is still rejected (malformed beats rate-limited).
+- [ ] `GameEndpointsTests` `RateLimited` assertion: update to the new behaviour.
+- [ ] `RealtimeGameEndpointTests`: if any test expects an `inputRejected` frame for a reason
+      that no longer rejects, rewrite it to expect none.
 
-## Verification
+### 3. New tests
+
+- [ ] `RateLimitedInput_IsAcknowledgedAppliesHeldStateAndStripsEdges`: send 120 messages in
+      one second, then a 121st with `moveX = 32_767, fireReleased = true`. Assert
+      `Accepted`, `AcknowledgedInput == 121`, the simulation's last input has `MoveX == 32_767`
+      and `FireReleased == false`, and `SetInput` was called exactly 121 times.
+- [ ] `ServerStall_DoesNotRejectClientInputs` (the realistic trigger, spec §*server tick
+      starvation*): drive the scheduler with the fake `TimeProvider`, advance the clock 700 ms
+      in one step so `PlanCycle` forgives debt, then submit an input whose `PredictedTick`
+      is 40 ticks past `Simulation.Tick`. Assert acknowledged and `SetInput` received
+      `PredictedTick == Simulation.Tick + 30`.
+- [ ] `ZeroAim_IsReplacedByLastAcceptedAim`: two inputs, the second with aim `(0,0)`. Assert the
+      simulation saw the first aim twice and both were acknowledged.
+- [ ] `SequenceGap_AdvancesToReceivedSequence`: sequences 1, 2, 5. Assert acknowledged 5 and
+      three `SetInput` calls.
+- [ ] `StaleSequence_IsIgnoredAndAcknowledgementDoesNotRegress`: sequences 1, 2, 1. Assert
+      acknowledged 2 and two `SetInput` calls.
+
+### 4. Verify
+
+- [ ] Mutation-verify each changed guard, one at a time. Suggested mutations: remove the tick
+      clamp; remove the aim substitution; make the rate-limit path `return`; make the stale
+      path advance acknowledgement. Each must turn exactly the tests that claim to pin it red.
+      Record which test went red for which mutation in the PR description.
+- [ ] `dotnet test` green (1718 tests before this plan's additions).
+- [ ] Grep the client for `staleSequence`/`sequenceGap`/`invalidRange`/`rateLimited` and
+      confirm nothing in it *depends* on receiving those reasons to stay correct. It should
+      not; leave the branch at `useArenaConnection.ts:400` in place for the extraction to
+      remove.
+
+## Verification commands
 
 From the repo root:
 
@@ -91,20 +129,12 @@ From the repo root:
 dotnet test
 ```
 
-From `src/Brmble.Web`:
-
-```powershell
-npm test
-```
-
-Note `uiGuideCompliance > component code does not use emoji or glyph icons in UI text` is
-**already red on `main`** (`AdminChannelsSection.tsx:245` uses `▾`/`▸`). It is unrelated to
-this work and must not be fixed here. Everything else should be green.
+The web suite is untouched by this plan. If you touch it anyway, note that
+`uiGuideCompliance > component code does not use emoji or glyph icons in UI text` is already
+red on `main` (`AdminChannelsSection.tsx:245`) and must not be fixed here.
 
 ## Environment note
 
-The sibling branch was implemented from a Linux sandbox that could not run either suite —
-no .NET, and the web suite needs a rollup binary the blocked npm registry would not provide.
-That cost five round-trips of "write, ask the user to run, read the output". If you are in
-the same position, say so early and plan for it. Phase 1 is server-only, so a worker who
-can run `dotnet test` can verify all of it without help.
+Phase 1 is server-only. A worker that can run `dotnet test` can verify all of it without help.
+If you are in a sandbox without .NET, say so before starting; the sibling branch lost five
+round-trips to that.
