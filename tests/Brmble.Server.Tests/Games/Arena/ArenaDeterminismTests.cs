@@ -25,7 +25,7 @@ public class ArenaDeterminismTests
     // change here is a behaviour change and needs to be justified against the spec.
     // Zero means "not recorded yet": the test then reports the value to record and is
     // inconclusive rather than green.
-    private const ulong RecordedFinalHash = 0;
+    private const ulong RecordedFinalHash = 0x6E117D823928FE4D;
 
     [TestMethod]
     public void HashFixture_MatchesRecordedValue()
