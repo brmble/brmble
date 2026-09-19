@@ -16,6 +16,32 @@ Task 3 assumes the input queue from the scheduling plan exists.
 
 **Do not** commit to `main`, push, or open a PR without asking.
 
+## Status (2026-09-19)
+
+Implemented on `refactor/continuous-coordinator-extraction`, stacked on
+`feature/arena-input-scheduling`. Deviations from the tasks below, each deliberate:
+
+- **Hash fixture:** `ArenaDeterminismTests.HashFixture_MatchesRecordedValue` exists but its
+  constant is still `0` - the environment that implemented this could not run .NET. Run it
+  on commit `c7421c4e` (the commit before the extraction), paste the reported hash into
+  `RecordedFinalHash`, and run it again on the branch head. That run is the proof the
+  refactor changed nothing.
+- **Defaults on the interfaces:** `IContinuousGameDefinition.Timing` and
+  `ValidateConfiguration`, and `IContinuousSimulation.MarkParticipantReady`, `InitialInput`
+  and the wire-id-mapped `ParticipantSnapshot` overload have default implementations so
+  the eleven test fakes did not each need five one-liners. `Admit` has none, as the spec
+  requires. The mapped `ParticipantSnapshot` default delegates to the unmapped one, which
+  is right only for a snapshot that carries no session identity - the doc comment says so.
+- **Task 3, commit 2 (prove or keep the duplication):** not done. `ArenaSimulation.Admit`
+  carries the strip verbatim, including the `AdmissionCooldownUntilTick` that duplicates
+  what `ProcessFire` already enforces. The distinguishing test (a fire during cooldown
+  while charging: cancelled charge vs preserved) still needs writing, with .NET.
+- **Task 5:** the connection tests stay in `useArenaConnection.test.tsx` and exercise the
+  generic hook through the arena codec; nothing was moved to a `useRealtimeConnection.test`.
+  `realtimeBoundary.test.ts` pins that `Realtime/` imports nothing from a game folder.
+- `SpectatorSnapshot()` kept its signature: nothing calls it outside the arena and the
+  test fakes.
+
 ## Read this first
 
 - **This is a refactor.** Every task must leave `dotnet test` and `npm test` green with the
@@ -52,10 +78,10 @@ Task 3 assumes the input queue from the scheduling plan exists.
 
 ### 0. Fixtures
 
-- [ ] Add `ArenaDeterminismTests.HashFixture_MatchesRecordedValue`: a scripted 600-tick input
+- [x] Add `ArenaDeterminismTests.HashFixture_MatchesRecordedValue`: a scripted 600-tick input
       stream for both players (movement, charge, fire, dash, one knockout) and the resulting
       `DeterministicHash`, recorded once. This is the guard for every later task.
-- [ ] Add `ContinuousBoundaryTests`: fails if any `.cs` under `Games/Continuous/` contains
+- [x] Add `ContinuousBoundaryTests`: fails if any `.cs` under `Games/Continuous/` contains
       `Arena` outside a `using` that is itself flagged, i.e. the test greps the source tree
       (the test project already has the repo path for similar checks — reuse whatever
       `uiGuideCompliance` does on the web side, or `Directory.GetFiles` from the solution
@@ -63,29 +89,29 @@ Task 3 assumes the input queue from the scheduling plan exists.
 
 ### 1. Timing and configuration move to the definition
 
-- [ ] `ContinuousTiming` record in `ContinuousContracts.cs`; `IContinuousGameDefinition.Timing`
+- [x] `ContinuousTiming` record in `ContinuousContracts.cs`; `IContinuousGameDefinition.Timing`
       and `ValidateConfiguration`. `ArenaGameDefinition` returns
       `(60, 3, 5, 100, 50, 250, 750, 5000)` and the canonical check moved verbatim from
       `StartAsync` `:90-96`.
-- [ ] Coordinator: `StartAsync` calls `definition.ValidateConfiguration`;
+- [x] Coordinator: `StartAsync` calls `definition.ValidateConfiguration`;
       `AttachParticipantAsync` `:181` and `RunSchedulerAsync` `:663`, `:678` read
       `state.Definition.Timing`. `NeutralTimeout` and `ReconnectGrace` statics become
       per-match from `Timing` (`:41-43`).
-- [ ] `CompleteAsync` `:516`: `game.ended` reads `state.Reservation.Configuration` exactly as
+- [x] `CompleteAsync` `:516`: `game.ended` reads `state.Reservation.Configuration` exactly as
       `game.started` does at `:117-125`. Add a test that the two events carry the same
       `gameType`/`format`/`rulesetVersion`/`options` for the same match.
-- [ ] Tests green; hash fixture unchanged (nothing in the simulation moved).
+- [x] Tests green; hash fixture unchanged (nothing in the simulation moved).
 
 ### 2. Casts become interface calls
 
-- [ ] `IContinuousSimulation.MarkParticipantReady(long)`. `AcknowledgeAttach` `:211-213` calls
+- [x] `IContinuousSimulation.MarkParticipantReady(long)`. `AcknowledgeAttach` `:211-213` calls
       it unconditionally on every simulation. `ArenaSimulation` already has the method.
-- [ ] `ParticipantSnapshot` / `SpectatorSnapshot` take `wireSessionIds`. `ArenaSimulation`
+- [x] `ParticipantSnapshot` / `SpectatorSnapshot` take `wireSessionIds`. `ArenaSimulation`
       applies the map to `Players[].SessionId` and `Projectiles[].OwnerSessionId` — the exact
       rewrite from `ParticipantView` `:740-757`, moved. Coordinator's `ParticipantView` becomes
       a pass-through. Add the same map to the spectator path and confirm `SpectatorService`
       was not relying on unmapped ids (it should not be; check its tests).
-- [ ] `CreateParticipants` `:877`: the aim seed exists so the aim-rate budget's "changed?"
+- [x] `CreateParticipants` `:877`: the aim seed exists so the aim-rate budget's "changed?"
       comparison starts from the true initial aim. Replace with a
       `ContinuousInput InitialInput(long sessionId)` on the simulation, and have the
       coordinator initialise its direction-tracking from that. (Alternative: track "changed"
@@ -98,7 +124,7 @@ Task 3 assumes the input queue from the scheduling plan exists.
 
 This is the only task that touches gameplay-adjacent code. Do it in two commits.
 
-- [ ] **Commit 1 — move, do not change.** `IContinuousSimulation.Admit(long, ContinuousInput)`
+- [x] **Commit 1 — move, do not change.** `IContinuousSimulation.Admit(long, ContinuousInput)`
       with no default. `ArenaSimulation.Admit` contains the strip block from the coordinator's
       install step (post-scheduling-plan location; originally `:335-350`) *verbatim*, reading
       cooldown from `player.CooldownTicks` plus a per-player `CooldownUntilTick` and the
@@ -116,25 +142,25 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
       branch, `ProcessFire`) or preserved (strip)? Whichever the current behaviour is, keep it,
       and either delete the now-provably-redundant part of `Admit` or leave a comment stating
       precisely which case makes it non-redundant. Do not guess.
-- [ ] Remove `PhaseDenied`, `Cooldown`, `DashSpent` from `ContinuousRejectReason`. Grep the
+- [x] Remove `PhaseDenied`, `Cooldown`, `DashSpent` from `ContinuousRejectReason`. Grep the
       client for the camelCase strings; they should only appear in the type union in
       `arenaProtocol.ts`, which is updated too.
 
 ### 4. Input shape and the direction budget
 
-- [ ] In `ContinuousContracts.cs`, document `ContinuousInput` as the continuous wire input and
+- [x] In `ContinuousContracts.cs`, document `ContinuousInput` as the continuous wire input and
       add two static helpers the coordinator uses instead of naming fields: `HeldOnly(input)`
       (edges cleared) and `DirectionChanged(a, b)` (the aim pair). Replace every
       `FireReleased`/`Dash`/`AimX`/`AimY` mention in the coordinator with them. Rename
       `AimChangeTimestamps` → `DirectionChangeTimestamps` and the constant accordingly. The
       client test `'stays under the server aim-change budget'` keeps its name — it is about
       Arena's client.
-- [ ] `RealtimeGameEndpoint.HandlePayload` `:186-199` still parses the fixed field set; that is
+- [x] `RealtimeGameEndpoint.HandlePayload` `:186-199` still parses the fixed field set; that is
       fine (it is the wire), but it must not reference anything under `Games.Arena`. Check.
 
 ### 5. Client split
 
-- [ ] Create `components/Games/Realtime/`; move `serverClock.ts`, `inputLead.ts` and their
+- [x] Create `components/Games/Realtime/`; move `serverClock.ts`, `inputLead.ts` and their
       tests. Extract `useRealtimeConnection<TWelcome, TSnapshot, TClosed>({ matchId, enabled,
       parse })` from `useArenaConnection.ts` with everything that is not Arena: ticket,
       socket lifecycle, welcome/attachAck, sequencing, heartbeat, pending intervals, RTT
@@ -143,7 +169,7 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
       (`'rewinds a rejected newest sequence…'` stays — that is the rewind path for the
       surviving malformed-heartbeat rejection; `'reconnects when a rejected sequence already
       has later frames'` stays for the same reason).
-- [ ] `useArenaConnection` becomes `useRealtimeConnection` specialised with
+- [x] `useArenaConnection` becomes `useRealtimeConnection` specialised with
       `parseServerMessage` and the Arena types. If that is one line, delete the file and update
       the imports; otherwise keep it as the one-line wrapper.
 - [ ] Move `useArenaConnection.test.tsx` cases that test generic behaviour to
@@ -153,9 +179,9 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
 
 ### 6. Boundary
 
-- [ ] Un-skip `ContinuousBoundaryTests`. It must pass. If it does not, the failing file is the
+- [x] Un-skip `ContinuousBoundaryTests`. It must pass. If it does not, the failing file is the
       remaining leak — fix it, do not exempt it.
-- [ ] Add the web-side equivalent to `uiGuideCompliance`'s neighbourhood: no import from
+- [x] Add the web-side equivalent to `uiGuideCompliance`'s neighbourhood: no import from
       `components/Games/Arena/` inside `components/Games/Realtime/`.
 - [ ] `dotnet test` and `npm test` green. Hash fixture unchanged.
 

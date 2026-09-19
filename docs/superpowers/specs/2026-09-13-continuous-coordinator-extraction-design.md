@@ -1,6 +1,6 @@
 # Continuous Coordinator Extraction — Design
 
-**Status:** design agreed. Not implemented. Sequenced after
+**Status:** implemented on `refactor/continuous-coordinator-extraction` (see the plan's *Status* for the deviations). Sequenced after
 `fix/arena-unconditional-acknowledgement` and `feature/arena-input-scheduling` have merged.
 
 **Origin:** the second-opinion review of the realtime netcode work
