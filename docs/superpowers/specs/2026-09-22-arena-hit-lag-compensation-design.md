@@ -102,3 +102,12 @@ against the opponent as it is, `o(P)`. Two consequences:
   server's knockback physics, and returns to zero after the gap; the state hook pushes the
   displayed opponent on a visual hit and keys hits by trajectory; the input hook stamps the fire
   with the view tick; the arena codec keeps it off heartbeats and held frames.
+- End to end, `arenaClientLatency.test.tsx`: the real hooks against a simulated server that
+  judges hits in the shooter's frame, with an opponent walking across the aim line. A shot
+  released at where the opponent is *drawn* (leading by the flight time) lands at 50, 100 and
+  220 ms one-way with the view tick and misses without it; the drawn opponent is pushed from
+  the visual hit and does not snap back at the handover. Two residuals are pinned there: the
+  server judges on whole ticks against a body the client saw at a fractional one, so the two
+  knockbacks can start a tick apart and the handover can step back by up to one impulse once;
+  and the timeline's linear interpolation of the authority's curved knockback path wobbles by a
+  few tens of units between snapshots.

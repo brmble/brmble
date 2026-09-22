@@ -441,9 +441,11 @@ export function useArenaState({
           for (const projectile of reached) {
             const key = projectileTrajectoryKey(projectile);
             if (predictedHitsRef.current.some(hit => hit.key === key)) continue;
+            // The gap is rounded to whole ticks: the fire's view tick went out rounded,
+            // so the server's rewind and its hit tick are whole ticks too.
             predictedHitsRef.current.push({
               key, impulse: knockbackImpulse(projectile), hitViewTick: sampled.viewTick,
-              gapTicks: Math.max(0, presented.serverTick - sampled.viewTick),
+              gapTicks: Math.max(0, Math.round(presented.serverTick - sampled.viewTick)),
             });
           }
           predictedHitsRef.current = predictedHitsRef.current.filter(hit => sampled.viewTick - hit.hitViewTick < PREDICTED_HIT_TTL_TICKS);
