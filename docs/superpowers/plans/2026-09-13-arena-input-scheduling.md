@@ -21,15 +21,36 @@ merged, stop.
 
 Phases A, B (harness runs) and C are implemented on `feature/arena-input-scheduling`,
 stacked on `fix/arena-unconditional-acknowledgement`; the coordinator extraction is stacked
-on top. `dotnet test` and `npm test` are green at the head of the stack. The two playtests
-(Phase B on `main`, Phase C at 50/10 and 150/30) are the only open items; the Phase C one
-supersedes the baseline. What is prepared for it, locally and uncommitted:
-`docker-local/docker-compose.yml` has `ASPNETCORE_ENVIRONMENT=Development`,
-`Games__DevRealtimeDelayMs=50`, `Games__DevRealtimeJitterMs=10` and the coordinator's log
-level at `Debug` (the clamp log is the lead-estimate health signal and is Debug-only; the
-default `Information` level hides it). Those lines must go back to comments before the PR.
-`arenaClientLatency.test.tsx` runs the real hooks against a stamp-applying server model at
-0/50/100 ms one-way and is the automated stand-in until the round is played.
+on top. `dotnet test` and `npm test` are green at the head of the stack. The Phase C
+playtest was done on 2026-09-22 at 50/10, 100/20 and 200/40 ms (see C3 for the per-setting
+notes); the Phase B baseline playtest on `main` was not, the harness baseline stands in for
+it. `arenaClientLatency.test.tsx` runs the real hooks against a stamp-applying server model
+at 0/50/100/220 ms one-way and is the automated form of the playtest.
+
+Open after the playtest, each a design decision rather than a defect in this plan:
+
+- **Knockback delay.** The opponent's reaction to a hit is drawn a round trip plus the lead
+  plus the 100 ms sampling buffer after the shot reached them on screen - about 300 ms at a
+  50 ms round trip, 450 ms at 200 ms. Closing it means predicting the knockback locally when
+  an own shot reaches the displayed opponent and correcting on the verdict, and it belongs
+  with server-side lag compensation (judging the hit in the shooter's frame), since without
+  that a shot at a moving opponent disagrees with the server as often as the opponent has
+  moved a body's width over the frame gap. Not made; fairness call.
+- **Two local clocks.** The stamp clock (`serverTick + max(1, elapsed) + lead`) and the
+  presentation's tick-phase clock disagree by a tick or two around a snapshot, so every key
+  press or release steps the display back by up to two ticks once. Pinned at its current
+  size in `arenaClientLatency.test.tsx`; the fix is one shared local tick clock.
+- **Lead margin vs jitter.** The +2 margin is added to the 20th-percentile round trip, so
+  jitter above it lands inputs a tick or two late (26 of them in one 200/40 match). A margin
+  derived from the spread (for example p80 - p20) would cover it at the cost of a slightly
+  larger lead on jittery links.
+- **Lead start.** Before the first round-trip sample the lead is 3 ticks; on a 450 ms link
+  the first second of inputs is applied 20-odd ticks late. The first snapshot's
+  acknowledgement fixes it at once, but a first estimate from the welcome exchange would
+  remove the opening spike.
+
+`docker-local/docker-compose.yml` locally has `ASPNETCORE_ENVIRONMENT=Development` and the
+delay at 200/40 uncommitted; those lines must go back to comments before the PR.
 
 ## Read this first
 
@@ -239,16 +260,42 @@ to zero in Production by `Program.cs`, changes nothing when unset.
         `arrival + 30`; the run completes, `snapCount` is bounded (record it), and it is
         strictly worse than the correct lead — this is the test that the server clamp
         degrades gracefully rather than the test that it is good.
-- [ ] Playtest in `docker-local` with the transport delay at 50/10, same 60 s protocol as
+- [x] Playtest in `docker-local` with the transport delay at 50/10, same 60 s protocol as
       Phase B. Record `snapCount` and the subjective note. Then once at 150/30 (≈300 ms RTT,
-      lead at the 20-tick cap) and confirm it is playable, not that it is good. *Open as of
-      2026-09-22: the container, the Debug clamp log and both desktop clients are prepared
-      (see Status); the round itself still needs two hands on WASD. Lesson from the first
-      attempt: the desktop client bakes `src/Brmble.Web/dist` into
+      lead at the 20-tick cap) and confirm it is playable, not that it is good. *Done
+      2026-09-22 at 50/10, 100/20 and 200/40 ms, two desktop clients, several rounds each;
+      `snapCount` was not read out, the player's report and the server log stand in for it.
+      Lesson from the first attempt: the desktop client bakes `src/Brmble.Web/dist` into
       `bin/<Config>/net10.0-windows/web` at build time, and a bundle built before this work
       made the player spasm under latency - that was a stale client, not a netcode defect.
       Run `npm run build` and rebuild `Brmble.Client` (or copy `dist` into `web/`) before
       every playtest.*
+      - *50/10 (~110 ms RTT): the movement jitter is gone; one spike in two matches. Server
+        log: 0 clamps, 0 sequence anomalies. Shooting looked wrong - the shot appeared, paused
+        and then left from where the player had been - which was the own projectile being
+        drawn in the sampled frame while the player is drawn in the prediction frame; fixed
+        in `06310777` and `ee9b4560` (own projectiles drawn in the prediction frame, and no
+        longer drawn once they have reached the displayed opponent). Both pinned by
+        `arenaClientLatency.test.tsx`.*
+      - *100/20 (~220 ms RTT): no jitter, hits read right on a standing opponent, the
+        knockback arrives visibly late (round trip + lead + the 100 ms sampling buffer,
+        about 450 ms here). 0 clamps, 0 sequence anomalies.*
+      - *200/40 (~450 ms RTT): first run jittered on every key change, because the 20-tick
+        lead cap could not cover the round trip and every input was applied late; the
+        harness reproduces it at 220 ms one-way. Cap raised to 34 and the server clamp to
+        40 in `066deeb6`. Second run: no real jitter, one spike, shooting fine, knockback
+        delay very clear. Server log for one match: 26 inputs clamped by 1 tick and one by
+        2 (the +2 margin is measured off the 20th-percentile round trip and does not cover
+        the 0-80 ms of jitter, so a few inputs land a tick late; each is a 90-unit
+        correction, below the snap threshold), plus two clamped by 23 and 25 ticks in the
+        first second of the match, before the first round-trip sample had raised the lead
+        from its 3-tick start - the likely spike. The only rejections in every setting were
+        `WrongMatch` for inputs still in flight when a match ended; the client is terminal
+        by then and ignores them.*
+      - *The Debug clamp log only became visible for the last run: the container's `/bin/sh`
+        entrypoint drops environment variables whose names contain dots, so the
+        `Logging__LogLevel__<category>` line in docker-compose never reached the server. It
+        is now in `appsettings.Development.json` (`3ae4b461`).*
 
 ### C4. Docs
 
