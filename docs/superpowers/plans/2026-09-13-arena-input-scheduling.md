@@ -33,6 +33,9 @@ Open after the playtest, each a design decision rather than a defect in this pla
   server judges the hit in the shooter's frame against a 64-tick position history, and the
   client predicts the knockback on the displayed opponent and hands over to the authority
   without a jump. Spec: `docs/superpowers/specs/2026-09-22-arena-hit-lag-compensation-design.md`.
+  Playtested at 100/20 ms: the knockback is on the hit. The moving-target case, which one
+  person cannot play, is covered end to end by `arenaClientLatency.test.tsx` at 50, 100 and
+  220 ms one-way.
 - **Two local clocks.** The stamp clock (`serverTick + max(1, elapsed) + lead`) and the
   presentation's tick-phase clock disagree by a tick or two around a snapshot, so every key
   press or release steps the display back by up to two ticks once. Pinned at its current
