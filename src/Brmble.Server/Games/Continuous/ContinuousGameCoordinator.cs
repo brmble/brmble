@@ -41,9 +41,15 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     // measures around 33, so 30 sat below legitimate play. The client test 'stays
     // under the server aim-change budget' guards this relationship.
     private const int MaxDirectionChangesPerSecond = 45;
-    // How far ahead of the simulation an input may be scheduled: half a second. A stamp
-    // past this applies then rather than never; the client caps its own lead well below.
-    internal const int MaxScheduleAheadTicks = 30;
+    // How far ahead of the simulation an input may be scheduled: two thirds of a second.
+    // A stamp past this applies then rather than never. The client's lead has to cover
+    // its whole round trip (its clock is anchored on snapshots that are a downlink old),
+    // and it caps that lead at 34 ticks, six below this, so a stamp that is early by a
+    // jitter's worth or a snapshot interval is still installed at its tick rather than
+    // clamped. Raised from 30 after the 200/40 ms playtest: at a 450 ms round trip the
+    // old 20-tick client cap stamped every input in the past, and the lateness came
+    // back as the pre-scheduling jitter on every key change.
+    internal const int MaxScheduleAheadTicks = 40;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

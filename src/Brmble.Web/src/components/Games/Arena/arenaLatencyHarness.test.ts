@@ -130,11 +130,11 @@ describe('arena latency harness under input scheduling', () => {
   });
 
   it('degrades to a bounded correction, not a snap, when the lead runs away', () => {
-    // A lead far past the round trip: the server clamps the stamp to arrival + 30 and
+    // A lead far past the round trip: the server clamps the stamp to arrival + 40 and
     // applies it then; the client predicted earlier, so the display runs ahead by the
     // clamped-off ticks and the correction stays bounded. Strictly worse than the right
-    // lead, and the reason the client caps its own lead at 20.
-    const runaway = scheduled({ upTicks: 3, downTicks: 3, leadTicks: 40 });
+    // lead, and the reason the client caps its own lead below the server clamp.
+    const runaway = scheduled({ upTicks: 3, downTicks: 3, leadTicks: 50 });
     expect(runaway.snapCount).toBe(0);
     expect(runaway.maxCorrection).toBeLessThanOrEqual(3 * prediction.baseMovePerTick);
     expect(runaway.maxCorrection).toBeGreaterThan(scheduled({ upTicks: 3, downTicks: 3 }).maxCorrection);

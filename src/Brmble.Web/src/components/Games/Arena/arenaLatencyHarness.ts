@@ -130,7 +130,7 @@ export function runLatencyScenario(options: LatencyScenarioOptions): LatencyScen
   const {
     upTicks, downTicks, script, durationTicks, constants,
     application = 'onArrival', pruning = 'byAck', leadTicks = 0,
-    snapshotEveryTicks = 3, heartbeatEveryTicks = 15, maxScheduleAheadTicks = 30,
+    snapshotEveryTicks = 3, heartbeatEveryTicks = 15, maxScheduleAheadTicks = 40,
     replayThroughCurrentTick = false, uplinkJitterBySequence = {},
   } = options;
 

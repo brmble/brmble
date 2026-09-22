@@ -82,43 +82,43 @@ public class ContinuousInputTests
     {
         var h = await CoordinatorHarness.Started(serverTick: 1_000);
 
-        // The tick is clamped into [tick + 1, tick + 30]: a late stamp applies on the
-        // next step, a far-future one no more than half a second out. What matters is
+        // The tick is clamped into [tick + 1, tick + 40]: a late stamp applies on the
+        // next step, a far-future one no more than two thirds of a second out. What matters is
         // what the simulation sees, so the far-future one is driven to its install.
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 879)).Accepted);
         Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a late stamp applies on the next step");
-        Assert.IsTrue(h.Submit(Input(2, predictedTick: 1_031)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 1_041)).Accepted);
         Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a future stamp waits for its tick");
-        h.Simulation.Tick = 1_029;
+        h.Simulation.Tick = 1_039;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
-        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick, "clamped to tick + 30");
-        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_030)).Accepted);
-        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick, "the lower boundary passes untouched");
-        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_059)).Accepted);
-        h.Simulation.Tick = 1_058;
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick, "clamped to tick + 40");
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_040)).Accepted);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick, "the lower boundary passes untouched");
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_079)).Accepted);
+        h.Simulation.Tick = 1_078;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
-        Assert.AreEqual(1_059L, h.Simulation.LastInput(10).PredictedTick, "the upper boundary passes untouched");
+        Assert.AreEqual(1_079L, h.Simulation.LastInput(10).PredictedTick, "the upper boundary passes untouched");
 
         // A zero or over-length aim falls back to the last accepted aim.
-        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_059, aimX: 0, aimY: 0)).Accepted);
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_079, aimX: 0, aimY: 0)).Accepted);
         Assert.AreEqual(32_767, h.Simulation.LastInput(10).AimX);
         Assert.AreEqual(0, h.Simulation.LastInput(10).AimY);
-        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_059, aimX: -23_170, aimY: 23_170)).Accepted);
+        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_079, aimX: -23_170, aimY: 23_170)).Accepted);
         Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX);
-        Assert.IsTrue(h.Submit(Input(7, predictedTick: 1_059, aimX: 23_171, aimY: 23_170)).Accepted);
+        Assert.IsTrue(h.Submit(Input(7, predictedTick: 1_079, aimX: 23_171, aimY: 23_170)).Accepted);
         Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX, "an over-length aim falls back to the last accepted aim");
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).AimY);
 
         // An over-length move is scaled down along its own direction; short.MinValue,
         // which has no positive counterpart, is folded to -32767 first.
-        Assert.IsTrue(h.Submit(Input(8, predictedTick: 1_059, moveX: 32_767, moveY: 256)).Accepted);
+        Assert.IsTrue(h.Submit(Input(8, predictedTick: 1_079, moveX: 32_767, moveY: 256)).Accepted);
         var scaled = h.Simulation.LastInput(10);
         Assert.IsTrue(scaled.MoveX is > 32_000 and < 32_767, $"MoveX {scaled.MoveX}");
         Assert.IsTrue(scaled.MoveY is > 0 and <= 256, $"MoveY {scaled.MoveY}");
         Assert.IsTrue(FixedVec.IntegerSqrt((long)scaled.MoveX * scaled.MoveX + (long)scaled.MoveY * scaled.MoveY) <= 32_767);
-        Assert.IsTrue(h.Submit(Input(9, predictedTick: 1_059, moveX: -32_768)).Accepted);
+        Assert.IsTrue(h.Submit(Input(9, predictedTick: 1_079, moveX: -32_768)).Accepted);
         Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveX);
-        Assert.IsTrue(h.Submit(Input(10, predictedTick: 1_059,
+        Assert.IsTrue(h.Submit(Input(10, predictedTick: 1_079,
             moveX: 23_170, moveY: 23_170, aimX: -23_170, aimY: 23_170)).Accepted);
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveX);
         Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveY);
@@ -130,20 +130,20 @@ public class ContinuousInputTests
     {
         // FixedStepScheduler forgives its catch-up debt after MaxCatchUpTicks, so after a
         // stall the server's tick is behind wall time while the client keeps stamping
-        // from wall time. Every input then lands past serverTick + 30 until the next
+        // from wall time. Every input then lands past serverTick + 40 until the next
         // snapshot resets the client. Rejecting those turned a server hiccup into a
         // reconnect storm at the moment the server was least able to afford one.
         var h = await CoordinatorHarness.Started(serverTick: 1_000);
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_003)).Accepted);
 
-        // The server stalls for 700 ms; the client's stamps run 42 ticks ahead of it.
-        var stalled = h.Submit(Input(2, predictedTick: 1_045, moveX: 100));
+        // The server stalls for 800 ms; the client's stamps run 48 ticks ahead of it.
+        var stalled = h.Submit(Input(2, predictedTick: 1_048, moveX: 100));
 
         Assert.IsTrue(stalled.Accepted, $"input after a server stall was rejected: {stalled.Reason}");
         Assert.AreEqual(2L, stalled.AcknowledgedInput);
-        h.Simulation.Tick = 1_029;
+        h.Simulation.Tick = 1_039;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
-        Assert.AreEqual(1_030L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick);
         Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
     }
 
@@ -177,18 +177,18 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task FarFutureInput_IsClampedToThirtyTicks()
+    public async Task FarFutureInput_IsClampedToFortyTicks()
     {
         var h = await CoordinatorHarness.Started(serverTick: 100);
 
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 500)).Accepted);
 
-        h.Simulation.Tick = 128;
+        h.Simulation.Tick = 138;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
         Assert.IsFalse(h.Simulation.HasInput(10));
-        h.Simulation.Tick = 129;
+        h.Simulation.Tick = 139;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
-        Assert.AreEqual(130L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(140L, h.Simulation.LastInput(10).PredictedTick);
     }
 
     [TestMethod]

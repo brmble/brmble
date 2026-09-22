@@ -108,7 +108,7 @@ class SimulatedServer {
       if (message.type !== 'input' && message.type !== 'heartbeat') continue;
       const sequence = message.sequence as number;
       this.acknowledged = Math.max(this.acknowledged, sequence);
-      const stamp = Math.min(Math.max(message.predictedTick as number, this.authority.serverTick + 1), this.authority.serverTick + 30);
+      const stamp = Math.min(Math.max(message.predictedTick as number, this.authority.serverTick + 1), this.authority.serverTick + 40);
       const input: ArenaInputState = {
         moveX: message.moveX as number, moveY: message.moveY as number, aimX: message.aimX as number, aimY: message.aimY as number,
         charging: message.charging as boolean, fireReleased: (message.fireReleased as boolean | undefined) ?? false,
@@ -230,7 +230,7 @@ describe('arena client under latency (real hooks)', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([[0, 0], [50, 50], [100, 100]])('a shot fired while moving at %d/%d ms flies from the player without a gap or a jump back', async (up, down) => {
+  it.each([[0, 0], [50, 50], [100, 100], [220, 220]])('a shot fired while moving at %d/%d ms flies from the player without a gap or a jump back', async (up, down) => {
     // Run downwards while aiming right, charge past the minimum, release: the shot
     // must appear at once, be drawn on every tick until it leaves the arena, and only
     // ever move forward. Before own projectiles were drawn in the prediction frame
@@ -259,7 +259,7 @@ describe('arena client under latency (real hooks)', () => {
     expect(steps.filter(step => step > 3 * 240), `jumps of more than three ticks:\n${trace}`).toEqual([]);
   });
 
-  it.each([[0, 0], [50, 50], [100, 100]])('holding right at %d/%d ms never steps the local player backwards', async (up, down) => {
+  it.each([[0, 0], [50, 50], [100, 100], [220, 220]])('holding right at %d/%d ms never steps the local player backwards', async (up, down) => {
     const run = await play(up, down, 240, { pressAt: 60, releaseAt: 200 });
     // Ticks 61..199: the key is held and no input changes hands.
     const steps = run.displayed.slice(60, 199).map((x, index, all) => index === 0 ? 0 : x - all[index - 1]);

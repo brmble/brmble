@@ -189,7 +189,13 @@ server behaviour but not the wire shape.
   bounded window of 40 samples and use the 20th percentile, same discipline as `serverClock`.
   `serverClock` itself cannot yield RTT — its samples are offset and one-way latency
   confounded, in one direction.
-- **Lead**: `leadTicks = ceil(rttP20 × tickRate / 1000) + 2`, clamped to `[3, 20]`, starting
+- **Lead**: `leadTicks = ceil(rttP20 × tickRate / 1000) + 2`, clamped to `[3, 20]` (**raised
+  to `[3, 34]` on 2026-09-22, with the server's schedule-ahead clamp raised from 30 to 40
+  ticks.** The lead has to cover the whole round trip, since the local clock is anchored on
+  a snapshot that is a downlink old; at a 450 ms round trip the 20-tick cap stamped every
+  input in the past, the server applied them on arrival, and the 200/40 ms playtest showed
+  the pre-scheduling jitter on every key change. 34 covers a 533 ms round trip and sits six
+  ticks under the server clamp so an early estimate is still installed at its stamp), starting
   at 3 before the first sample. Changes are slewed at most one tick per 500 ms so the local
   clock never jumps; the lead survives a reconnect the way `serverClock` does.
 - **Local tick**: `currentPredictedTick = serverTick + max(1, elapsedTicks) + leadTicks`
@@ -210,7 +216,7 @@ server behaviour but not the wire shape.
 server `margin` ticks before `T`, the server applies at `T`, the next snapshot agrees, no
 correction. A late input (jitter spike beyond the margin) is applied at arrival `A > T`; the
 snapshot shows `(A - T) × speed` less movement than predicted and a small correction absorbs it.
-A runaway lead is bounded by the client cap (20 ticks) and the server clamp (30 ticks); worst
+A runaway lead is bounded by the client cap (34 ticks since 2026-09-22, 20 before) and the server clamp (40 ticks, 30 before); worst
 case degrades to today's behaviour with 500 ms of input buffering, which the Debug clamp log
 makes diagnosable.
 

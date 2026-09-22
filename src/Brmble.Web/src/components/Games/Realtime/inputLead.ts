@@ -56,7 +56,17 @@ export interface InputLead {
 export const DEFAULT_LEAD_WINDOW = 40;
 export const DEFAULT_LEAD_MARGIN_TICKS = 2;
 export const DEFAULT_LEAD_MIN_TICKS = 3;
-export const DEFAULT_LEAD_MAX_TICKS = 20;
+/**
+ * The lead has to cover the whole round trip, not the uplink: the local clock is
+ * anchored on the newest snapshot, which is a downlink old by the time it lands. The
+ * cap therefore bounds the round trip the client can stay ahead of - 34 ticks is
+ * (34 - 2 margin) / 60 = 533 ms - and sits six ticks under the server's 40-tick
+ * schedule-ahead clamp so an estimate that runs early by a jitter's worth is still
+ * installed at its stamp. Beyond it every input is stamped in the past and applied on
+ * arrival, and the pre-scheduling jitter returns on every key change; that is what the
+ * old cap of 20 produced at a 450 ms round trip.
+ */
+export const DEFAULT_LEAD_MAX_TICKS = 34;
 export const DEFAULT_LEAD_SLEW_MS = 500;
 
 export function createInputLead({
