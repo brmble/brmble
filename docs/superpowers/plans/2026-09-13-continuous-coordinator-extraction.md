@@ -16,31 +16,44 @@ Task 3 assumes the input queue from the scheduling plan exists.
 
 **Do not** commit to `main`, push, or open a PR without asking.
 
-## Status (2026-09-19)
+## Status (2026-09-22)
 
 Implemented on `refactor/continuous-coordinator-extraction`, stacked on
-`feature/arena-input-scheduling`. Deviations from the tasks below, each deliberate:
+`feature/arena-input-scheduling`. Both suites green (`dotnet test` 1132 + 438, `npm test`
+2591). Deviations from the tasks below, each deliberate:
 
-- **Hash fixture:** `ArenaDeterminismTests.HashFixture_MatchesRecordedValue` exists but its
-  constant is still `0` - the environment that implemented this could not run .NET. Run it
-  on commit `c7421c4e` (the commit before the extraction), paste the reported hash into
-  `RecordedFinalHash`, and run it again on the branch head. That run is the proof the
-  refactor changed nothing.
+- **Hash fixture:** `RecordedFinalHash = 0x6E117D823928FE4D`, recorded at `e5828bec` and
+  reproduced at the branch head and after every commit since. The determinism stream does
+  not go through `Admit`, so the fixture guards the simulation, not admission.
 - **Defaults on the interfaces:** `IContinuousGameDefinition.Timing` and
   `ValidateConfiguration`, and `IContinuousSimulation.MarkParticipantReady`, `InitialInput`
   and the wire-id-mapped `ParticipantSnapshot` overload have default implementations so
   the eleven test fakes did not each need five one-liners. `Admit` has none, as the spec
   requires. The mapped `ParticipantSnapshot` default delegates to the unmapped one, which
   is right only for a snapshot that carries no session identity - the doc comment says so.
-- **Task 3, commit 2 (prove or keep the duplication):** not done. `ArenaSimulation.Admit`
-  carries the strip verbatim, including the `AdmissionCooldownUntilTick` that duplicates
-  what `ProcessFire` already enforces. The distinguishing test (a fire during cooldown
-  while charging: cancelled charge vs preserved) still needs writing, with .NET.
-- **Task 5:** the connection tests stay in `useArenaConnection.test.tsx` and exercise the
-  generic hook through the arena codec; nothing was moved to a `useRealtimeConnection.test`.
-  `realtimeBoundary.test.ts` pins that `Realtime/` imports nothing from a game folder.
+- **Task 3, commit 2 (prove or keep the duplication):** proven **not** redundant, kept.
+  `ArenaAdmissionTests` runs the same stream through `Admit` and straight into `SetInput`
+  and gets different outcomes in two ways: `Admit` is evaluated before the step decrements
+  the timers, so it strips a shot on the last cooldown tick that the step itself would
+  have fired; and `AdmissionCooldownUntilTick` starts on every admitted fire, including an
+  under-charged release `ProcessFire` refuses without starting a cooldown, so the next
+  release inside that window is stripped and the banked charge survives where the
+  simulation would have cancelled it. Both were the coordinator's behaviour before the
+  move; the doc comment on `Admit` states them. The plan's suggested case (a fire during
+  a real cooldown while charging) does not distinguish the two: the step zeroes the charge
+  during a cooldown regardless. The dash clause is equivalent to `DashAvailable` as far as
+  the tests can tell and was left alone.
+- **Task 5:** done. `Realtime/useRealtimeConnection.test.tsx` drives the generic hook
+  through a made-up codec (one axis, a held button, one edge, a direction pair): 25 cases.
+  `useArenaConnection.test.tsx` keeps the 11 the arena codec adds (wire shape, aim
+  throttle, fire/dash carrying the true aim). `realtimeBoundary.test.ts` pins that
+  `Realtime/` imports nothing from a game folder.
 - `SpectatorSnapshot()` kept its signature: nothing calls it outside the arena and the
   test fakes.
+- `arenaClientLatency.test.tsx` runs the real `useArenaConnection` + `useArenaState`
+  against a simulated stamp-applying server at 0/50/100 ms one-way and asserts the local
+  player never steps backwards while holding a direction. It belongs to the scheduling
+  plan's Phase C but landed here because it needed the split hook.
 
 ## Read this first
 
@@ -118,7 +131,7 @@ Implemented on `refactor/continuous-coordinator-extraction`, stacked on
       against the *last submitted* input only, and accept that the first frame always counts
       as a change — simpler, one budget unit, and probably what should have been done. Pick
       one, say which, and pin it.)
-- [ ] Tests green; hash fixture unchanged.
+- [x] Tests green; hash fixture unchanged.
 
 ### 3. Admission moves into the simulation
 
@@ -135,7 +148,7 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
       `ActionValidation_…`, `Arena_DashReservationRemainsSpentUntilAuthoritativeRoundReset`)
       move to `ArenaCombatTests` or a new `ArenaAdmissionTests` and pass unchanged against
       `Admit` directly.
-- [ ] **Commit 2 — prove or keep the duplication.** `ProcessFire` already refuses a fire during
+- [x] **Commit 2 — prove or keep the duplication.** `ProcessFire` already refuses a fire during
       cooldown and `ProcessDashEdges` already refuses a dash when `!DashAvailable`. Write the
       test that would distinguish "strip in `Admit`" from "let the simulation refuse": a fire
       arriving during cooldown while charging — does the charge get cancelled (`refused`
@@ -172,10 +185,10 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
 - [x] `useArenaConnection` becomes `useRealtimeConnection` specialised with
       `parseServerMessage` and the Arena types. If that is one line, delete the file and update
       the imports; otherwise keep it as the one-line wrapper.
-- [ ] Move `useArenaConnection.test.tsx` cases that test generic behaviour to
+- [x] Move `useArenaConnection.test.tsx` cases that test generic behaviour to
       `useRealtimeConnection.test.tsx`; the Arena-specific ones (aim throttle, fire/dash
       carry the true aim) stay.
-- [ ] `npm test` green with the same number of tests minus the two deleted.
+- [x] `npm test` green with the same number of tests minus the two deleted (plus one: the arena wire-shape case).
 
 ### 6. Boundary
 
@@ -183,7 +196,7 @@ This is the only task that touches gameplay-adjacent code. Do it in two commits.
       remaining leak — fix it, do not exempt it.
 - [x] Add the web-side equivalent to `uiGuideCompliance`'s neighbourhood: no import from
       `components/Games/Arena/` inside `components/Games/Realtime/`.
-- [ ] `dotnet test` and `npm test` green. Hash fixture unchanged.
+- [x] `dotnet test` and `npm test` green. Hash fixture unchanged.
 
 ## Verification commands
 

@@ -17,6 +17,20 @@ merged, stop.
 
 **Do not** commit to `main`, push, or open a PR without asking.
 
+## Status (2026-09-22)
+
+Phases A, B (harness runs) and C are implemented on `feature/arena-input-scheduling`,
+stacked on `fix/arena-unconditional-acknowledgement`; the coordinator extraction is stacked
+on top. `dotnet test` and `npm test` are green at the head of the stack. The two playtests
+(Phase B on `main`, Phase C at 50/10 and 150/30) are the only open items; the Phase C one
+supersedes the baseline. What is prepared for it, locally and uncommitted:
+`docker-local/docker-compose.yml` has `ASPNETCORE_ENVIRONMENT=Development`,
+`Games__DevRealtimeDelayMs=50`, `Games__DevRealtimeJitterMs=10` and the coordinator's log
+level at `Debug` (the clamp log is the lead-estimate health signal and is Debug-only; the
+default `Information` level hides it). Those lines must go back to comments before the PR.
+`arenaClientLatency.test.tsx` runs the real hooks against a stamp-applying server model at
+0/50/100 ms one-way and is the automated stand-in until the round is played.
+
 ## Read this first
 
 - **Wire shape does not change.** RTT is measured from `acknowledgedInput`, which snapshots
@@ -109,9 +123,13 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 - [x] `docker-local/docker-compose.yml`: a commented block next to `Games__DevClockSkewMs`
       with the same "uncomment BOTH lines" instruction. Suggested default `50` delay, `10`
       jitter, i.e. ~100 ms RTT.
-- [ ] `RealtimeGameEndpointTests`: one test that with the null-object nothing changes (same
+- [x] `RealtimeGameEndpointTests`: one test that with the null-object nothing changes (same
       frames, same order), one that with a delay of 20 ms three snapshots written 5 ms apart
-      arrive in order and ~20 ms late each rather than 20, 40, 60.
+      arrive in order and ~20 ms late each rather than 20, 40, 60. *Pinned in
+      `DevRealtimeTransportDelayTests` against the wrapped socket instead of the endpoint,
+      since the delay became a `WebSocket` wrapper: `None` wraps to the same socket; three
+      sends and three receives 5 ms apart each leave ~60 ms after their own send, not
+      serialised; closing the output drains pending sends first.*
 
 ## Phase B — Baseline on current behaviour
 
@@ -128,7 +146,8 @@ to zero in Production by `Program.cs`, changes nothing when unset.
 - [ ] Playtest once in `docker-local` with the transport delay at 50/10 on `main`, two
       clients, and note `snapCount` from `ArenaRenderState` after 60 s of ordinary movement.
       (If there is no visible readout for it, add a `console.debug` behind the existing
-      dev-only guard rather than UI.)
+      dev-only guard rather than UI.) *Not done: the baseline on `main` was measured with the
+      deterministic harness only. Overtaken by the Phase C playtest below.*
 
 ## Phase C — Input scheduling
 
@@ -222,7 +241,14 @@ to zero in Production by `Program.cs`, changes nothing when unset.
         degrades gracefully rather than the test that it is good.
 - [ ] Playtest in `docker-local` with the transport delay at 50/10, same 60 s protocol as
       Phase B. Record `snapCount` and the subjective note. Then once at 150/30 (≈300 ms RTT,
-      lead at the 20-tick cap) and confirm it is playable, not that it is good.
+      lead at the 20-tick cap) and confirm it is playable, not that it is good. *Open as of
+      2026-09-22: the container, the Debug clamp log and both desktop clients are prepared
+      (see Status); the round itself still needs two hands on WASD. Lesson from the first
+      attempt: the desktop client bakes `src/Brmble.Web/dist` into
+      `bin/<Config>/net10.0-windows/web` at build time, and a bundle built before this work
+      made the player spasm under latency - that was a stale client, not a netcode defect.
+      Run `npm run build` and rebuild `Brmble.Client` (or copy `dist` into `web/`) before
+      every playtest.*
 
 ### C4. Docs
 

@@ -111,15 +111,30 @@ section *Finding 3*. All decisions are made; there is nothing to ask before star
 
 ### 4. Verify
 
-- [ ] Mutation-verify each changed guard, one at a time. Suggested mutations: remove the tick
+- [x] Mutation-verify each changed guard, one at a time. Suggested mutations: remove the tick
       clamp; remove the aim substitution; make the rate-limit path `return`; make the stale
       path advance acknowledgement. Each must turn exactly the tests that claim to pin it red.
-      Record which test went red for which mutation in the PR description.
-- [ ] `dotnet test` green (1718 tests before this plan's additions).
-- [ ] Grep the client for `staleSequence`/`sequenceGap`/`invalidRange`/`rateLimited` and
+      Record which test went red for which mutation in the PR description. *Done 2026-09-22
+      at the head of the stack, each mutation confirmed applied by `git diff` and reverted:*
+      - *remove the tick clamp (`Sanitize`) → `RangeViolations_AreClampedAndAcknowledged`,
+        `ServerStall_ClampsTheStampInsteadOfRejecting`, `LateInput_IsInstalledOnTheNextStep`,
+        `FarFutureInput_IsClampedToThirtyTicks` red; 139 others green.*
+      - *remove the aim substitution → `RangeViolations_AreClampedAndAcknowledged`,
+        `ZeroAim_IsReplacedByLastAcceptedAim` red.*
+      - *make the rate-limit path `return Reject(RateLimited)` →
+        `MessageRate_IsOneHundredTwentyPerRollingSecondWithExactBoundaryExpiry`,
+        `RateLimitedInput_IsAcknowledgedAppliesHeldStateAndStripsEdges`,
+        `MessageRate_HeartbeatHasItsOwnBudgetWhenTheInputBudgetIsSpent` red.*
+      - *make the stale path advance acknowledgement →
+        `StaleSequence_IsIgnoredAndAcknowledgementDoesNotRegress`,
+        `SequenceGap_AdvancesToReceivedSequence` red.*
+- [x] `dotnet test` green (1718 tests before this plan's additions). *1132 server + 438 client
+      tests at the head of the stack, after the transport-delay stopwatch fix.*
+- [x] Grep the client for `staleSequence`/`sequenceGap`/`invalidRange`/`rateLimited` and
       confirm nothing in it *depends* on receiving those reasons to stay correct. It should
       not; leave the branch at `useArenaConnection.ts:400` in place for the extraction to
-      remove.
+      remove. *The extraction removed the branch; the four strings survive only in the
+      `inputRejected` type unions in `arenaProtocol.ts` and `useRealtimeConnection.ts`.*
 
 ## Verification commands
 

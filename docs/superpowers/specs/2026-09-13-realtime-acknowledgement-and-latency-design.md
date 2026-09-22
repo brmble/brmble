@@ -1,6 +1,6 @@
 # Realtime Acknowledgement and Latency — Design
 
-**Status:** design agreed, all decisions made. Implemented on `fix/arena-unconditional-acknowledgement` (Finding 3) and `feature/arena-input-scheduling` (Finding 4); server side awaiting a `dotnet test` run. Supersedes the earlier version
+**Status:** implemented on `fix/arena-unconditional-acknowledgement` (Finding 3) and `feature/arena-input-scheduling` (Finding 4), with the coordinator extraction stacked on top; both suites green and the guards mutation-verified (see the plans' *Status*). The two-client playtest under the transport delay is the one open item. Supersedes the earlier version
 of this file; the second-opinion review that drove the changes is
 `docs/superpowers/reviews/2026-09-13-realtime-acknowledgement-and-latency-review.md`.
 
