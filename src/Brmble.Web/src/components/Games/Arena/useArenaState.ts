@@ -3,7 +3,9 @@ import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
-import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
+import {
+  constrainLocalDisplay, projectileReachedBody, reconcile, sampleTimeline, stepLocal, type PredictedArenaState,
+} from './arenaMath';
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
 } from './arenaKnockout';
@@ -394,10 +396,21 @@ export function useArenaState({
         // snapshot that carried the real one arrived, and the real one then appeared
         // at the spawn point the player had long left. In the prediction frame the
         // predicted projectile (negative id) and the authoritative one it becomes sit
-        // on the same tick, so the handover is invisible. Known residual: a hit is
-        // the server's call, so an own projectile can pass the displayed opponent by
-        // up to the frame gap before the snapshot removes it.
-        const ownProjectiles = presented.projectiles.filter(projectile => projectile.ownerSessionId === current.selfSessionId);
+        // on the same tick, so the handover is invisible.
+        //
+        // The hit is still the server's call, and its verdict arrives a round trip
+        // plus the lead after the shot reached the opponent in this frame - 20-odd
+        // ticks of travel at 100 ms RTT, during which the shot would be drawn sailing
+        // through the body the player aimed at. So an own shot stops being drawn once
+        // it has reached the displayed opponent (`projectileReachedBody`), and the
+        // knockback follows when the sampled frame catches up. The two disagree
+        // exactly when the opponent's displayed and authoritative positions differ by
+        // more than the hit radius: the shot vanishes at a body the server says it
+        // missed, or overshoots one the server says it hit. Closing that needs the
+        // server to judge the hit in the shooter's frame, which is a design change.
+        const hitRadius = welcome.prediction.playerRadius + welcome.prediction.projectileRadius;
+        const ownProjectiles = presented.projectiles.filter(projectile => projectile.ownerSessionId === current.selfSessionId
+          && (remote === null || !projectileReachedBody(projectile, remote, displayedLocal, hitRadius)));
         const theirProjectiles = sampled.projectiles.filter(projectile => projectile.ownerSessionId !== current.selfSessionId);
         // Deliberately ungated: a frame where authority did not change compares the
         // snapshot against itself, and `detectKnockout` is null for every such pair

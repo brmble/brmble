@@ -251,6 +251,21 @@ describe('useArenaState', () => {
     expect(hook.result.current.projectiles).toEqual([theirs, { ...own, x: 980 }]);
   });
 
+  it('stops drawing an own projectile once it has reached the displayed opponent', () => {
+    // The opponent is displayed at x = -1000, the local player at 1000. One own shot
+    // is still on its way to the body; the other has already crossed it and would be
+    // drawn sailing through the opponent until the server's verdict arrives.
+    const onTheWay = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 500 };
+    const passed = { id: 8, ownerSessionId: 10, x: -2000, y: 300, vx: -240, vy: 0, chargePermille: 500 };
+    const theirs = { id: 9, ownerSessionId: 20, x: 3000, y: 0, vx: 240, vy: 0, chargePermille: 500 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [onTheWay, passed, theirs] } };
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [], selfSessionId: 10,
+    }));
+    // The opponent's own shot is never subject to this: it is drawn in the same frame as its owner.
+    expect(hook.result.current.projectiles).toEqual([theirs, onTheWay]);
+  });
+
   it('presents predicted own projectiles immediately', () => {
     const initial = welcome(333);
     const fire: PendingArenaInput = {

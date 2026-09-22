@@ -5,7 +5,7 @@ import type {
 import type { PendingArenaInput } from './useArenaConnection';
 import {
   arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15, rearVector, shrinkIntensity,
-  recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
+  projectileReachedBody, recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
 const prediction: ArenaPredictionConstants = {
@@ -99,6 +99,26 @@ describe('arena client prediction', () => {
     expect(local.projectiles).toEqual([{
       id: -1, ownerSessionId: 10, x: 2350, y: 0, vx: 240, vy: 0, chargePermille: 11,
     }]);
+  });
+
+  describe('projectileReachedBody', () => {
+    const shooter = { x: 0, y: 0 };
+    const hitRadius = 600 + 180;
+    const shot = (x: number) => ({ id: 1, ownerSessionId: 10, x, y: 0, vx: 240, vy: 0, chargePermille: 500 });
+
+    it('is true on overlap, and once the body sits behind the shot within the hit radius of its line of flight', () => {
+      expect(projectileReachedBody(shot(3000), { x: 3600, y: 0 }, shooter, hitRadius)).toBe(true);
+      expect(projectileReachedBody(shot(5000), { x: 3000, y: 700 }, shooter, hitRadius)).toBe(true);
+      // Just within the slack behind the shooter's own projection.
+      expect(projectileReachedBody(shot(5000), { x: -500, y: 0 }, shooter, hitRadius)).toBe(true);
+    });
+
+    it('is false while the body is ahead, off the line, or further back than the shooter', () => {
+      expect(projectileReachedBody(shot(1000), { x: 3000, y: 0 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody(shot(5000), { x: 3000, y: 900 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody(shot(5000), { x: -2000, y: 0 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody({ ...shot(5000), vx: 0 }, { x: 3000, y: 0 }, shooter, hitRadius)).toBe(false);
+    });
   });
 
   it('advances every projectile one velocity per live tick and drops it at the arena edge, as the server does', () => {

@@ -94,9 +94,21 @@ problem and is handled in presentation.
 > showed at its spawn point, vanished when the snapshot carrying the real one
 > arrived, and the real one then appeared where the player had been. In the
 > prediction frame the predicted projectile and the authoritative one it becomes sit
-> on the same tick, so the handover is invisible. Accepted residual: an own shot can
-> pass the displayed (100 ms-old) opponent by up to the frame gap before the
-> snapshot that rules the hit removes it. Pinned by `arenaClientLatency.test.tsx`.
+> on the same tick, so the handover is invisible. Pinned by `arenaClientLatency.test.tsx`.
+>
+> The hit stays the server's call, and its verdict arrives a round trip plus the
+> lead after the shot reached the opponent in the prediction frame - 20-odd ticks of
+> travel at 100 ms RTT, during which the shot was drawn sailing through the body the
+> player aimed at (confirmed in the 100/20 ms playtest, opponent standing still). So
+> an own shot stops being drawn once it has reached the displayed opponent
+> (`projectileReachedBody`: overlap now, or the body behind it within the hit radius
+> of its line of flight and no further back than the shooter); the knockback follows
+> when the sampled frame catches up. Accepted residual: the displayed and the
+> authoritative opponent differ by the opponent's movement over the frame gap, so a
+> shot at a moving opponent can vanish at a body the server says it missed, or
+> overshoot one the server says it hit. Closing that means the server judging the
+> hit in the shooter's frame (lag compensation), which is a design change with
+> fairness consequences and has not been made.
 >
 > **Known residual (2026-09-22), found by observing that test per frame.** The
 > stamp clock in `useRealtimeConnection` (`serverTick + max(1, elapsed) + lead`) and

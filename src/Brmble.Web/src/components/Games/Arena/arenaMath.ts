@@ -434,6 +434,37 @@ export function stepLocal(
   return next;
 }
 
+/**
+ * Whether an own projectile, drawn in the prediction frame, has reached the body of
+ * the opponent as displayed in the sampled frame: it overlaps the body now, or the
+ * body lies within the hit radius of its line of flight, behind it, and no further
+ * back than the shooter it came from (with a body's worth of slack for the shooter
+ * having moved since firing). Presentation only. The hit itself is the server's
+ * call, ruled against the opponent's authoritative position; this only stops the
+ * shot being drawn sailing through the body the player aimed at while that verdict
+ * is in flight, which at 100 ms RTT is 20-odd ticks of travel. A shot the server
+ * rules a miss still disappears here if it crossed the displayed body; a shot the
+ * server rules a hit that the displayed body was not in the way of still overshoots.
+ */
+export function projectileReachedBody(
+  projectile: ArenaProjectileSnapshot, body: FixedVec, shooter: FixedVec, hitRadius: number,
+): boolean {
+  const dx = body.x - projectile.x;
+  const dy = body.y - projectile.y;
+  const distanceSquared = dx * dx + dy * dy;
+  const hitSquared = hitRadius * hitRadius;
+  if (distanceSquared <= hitSquared) return true;
+  const speedSquared = projectile.vx * projectile.vx + projectile.vy * projectile.vy;
+  if (speedSquared === 0) return false;
+  // The body's position along the flight, scaled by the speed: negative is behind.
+  const along = dx * projectile.vx + dy * projectile.vy;
+  if (along >= 0) return false;
+  const lateralSquared = distanceSquared - along * along / speedSquared;
+  if (lateralSquared > hitSquared) return false;
+  const shooterAlong = (shooter.x - projectile.x) * projectile.vx + (shooter.y - projectile.y) * projectile.vy;
+  return along >= shooterAlong - hitRadius * Math.sqrt(speedSquared);
+}
+
 function insideRadius(point: FixedVec, radius: number): boolean {
   const x = BigInt(point.x);
   const y = BigInt(point.y);
