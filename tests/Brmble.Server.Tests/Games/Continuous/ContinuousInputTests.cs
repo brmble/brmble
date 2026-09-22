@@ -126,6 +126,29 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
+    public async Task ViewTick_KeepsItsGapToTheStampAcrossAClampAndIsBounded()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 1_000);
+
+        // Stamped for the next step so each lands in the simulation at once. In range:
+        // passes untouched, gap 15.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_001, viewTick: 986)).Accepted);
+        Assert.AreEqual(986L, h.Simulation.LastInput(10).ViewTick);
+        // A late stamp is clamped to tick + 1; the view tick keeps its gap of 9 to it.
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 879, viewTick: 870)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(992L, h.Simulation.LastInput(10).ViewTick);
+        // A gap past the bound is cut to it; a view from the future is no gap at all.
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_001, viewTick: 700)).Accepted);
+        Assert.AreEqual(1_001L - ContinuousGameCoordinator.MaxViewLagTicks, h.Simulation.LastInput(10).ViewTick);
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_001, viewTick: 1_050)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).ViewTick);
+        // Unknown stays unknown.
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_001)).Accepted);
+        Assert.AreEqual(0L, h.Simulation.LastInput(10).ViewTick);
+    }
+
+    [TestMethod]
     public async Task ServerStall_ClampsTheStampInsteadOfRejecting()
     {
         // FixedStepScheduler forgives its catch-up debt after MaxCatchUpTicks, so after a
@@ -681,8 +704,9 @@ public class ContinuousInputTests
         short aimY = 0,
         bool charging = false,
         bool fireReleased = false,
-        bool dash = false) =>
-        new(sequence, predictedTick, moveX, moveY, aimX, aimY, charging, fireReleased, dash);
+        bool dash = false,
+        long viewTick = 0) =>
+        new(sequence, predictedTick, moveX, moveY, aimX, aimY, charging, fireReleased, dash, viewTick);
 
     private sealed class CoordinatorHarness
     {

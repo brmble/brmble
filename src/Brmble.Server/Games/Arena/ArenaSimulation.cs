@@ -152,6 +152,9 @@ public sealed class ArenaSimulation : IContinuousSimulation
         {
             FireReleased = input.FireReleased || player.Input.FireReleased,
             Dash = input.Dash || player.Input.Dash,
+            // A fire edge carried over from an earlier install keeps its view tick; a held
+            // frame on the same tick carries none of its own.
+            ViewTick = input.ViewTick != 0 ? input.ViewTick : player.Input.ViewTick,
         };
     }
 
@@ -233,11 +236,12 @@ public sealed class ArenaSimulation : IContinuousSimulation
             Write(player.Input.Sequence); Write(player.Input.PredictedTick);
             Write(player.Input.MoveX); Write(player.Input.MoveY); Write(player.Input.AimX); Write(player.Input.AimY);
             WriteBool(player.Input.Charging); WriteBool(player.Input.FireReleased); WriteBool(player.Input.Dash);
+            Write(player.Input.ViewTick);
         }
         foreach (var projectile in _projectiles.OrderBy(x => x.Id))
         {
             Write(projectile.Id); Write(projectile.OwnerSessionId); Write(projectile.X); Write(projectile.Y);
-            Write(projectile.Vx); Write(projectile.Vy); Write(projectile.ChargePermille);
+            Write(projectile.Vx); Write(projectile.Vy); Write(projectile.ChargePermille); Write(projectile.RewindTicks);
         }
         WriteSet(_readySessionIds); WriteSet(_fireReleasedSessionIds); WriteSet(_dashSessionIds);
         WriteSet(_forcedFireSessionIds); WriteSet(_hitProjectileIds);
@@ -372,7 +376,9 @@ public sealed class ArenaSimulation : IContinuousSimulation
             else
                 _fireReleasedSessionIds.Remove(player.SessionId);
 
-            player.Input = player.Input with { FireReleased = false };
+            // The view tick belongs to the release it came with; a later fire without one
+            // must not inherit it.
+            player.Input = player.Input with { FireReleased = false, ViewTick = 0 };
         }
     }
 
@@ -383,6 +389,14 @@ public sealed class ArenaSimulation : IContinuousSimulation
         var velocity = aim.Scale(ArenaRulesetV1.ProjectilePerTick);
         var chargePermille = ArenaRulesetV1.ChargePermille(player.ChargeTicks);
         var recoil = aim.Scale(ArenaRulesetV1.Recoil(chargePermille));
+        // The shooter aimed at the opponent as their view frame showed them, at ViewTick;
+        // this step produces tick Tick + 1, which is the shooter's prediction tick for the
+        // release. The difference is how far back the hit test looks for the shot's life.
+        // A late input, installed on arrival after its stamp, rewinds by the extra lateness
+        // too: the shooter's view was that much older relative to the actual spawn.
+        var rewind = player.Input.ViewTick <= 0
+            ? 0
+            : (int)Math.Clamp(Tick + 1 - player.Input.ViewTick, 0, ArenaRulesetV1.MaxHitRewindTicks);
 
         _projectiles.Add(new ArenaProjectile(
             _nextProjectileId,
@@ -391,7 +405,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
             checked(player.Y + spawnOffset.Y),
             velocity.X,
             velocity.Y,
-            chargePermille));
+            chargePermille,
+            rewind));
         _nextProjectileId = checked(_nextProjectileId + 1);
         player.Vx = checked(player.Vx - recoil.X);
         player.Vy = checked(player.Vy - recoil.Y);
@@ -552,8 +567,11 @@ public sealed class ArenaSimulation : IContinuousSimulation
             var opponent = Players[0].SessionId == projectile.OwnerSessionId
                 ? Players[1]
                 : Players[0];
-            var dx = checked((long)opponent.X - projectile.X);
-            var dy = checked((long)opponent.Y - projectile.Y);
+            // Judged where the shooter saw the opponent, RewindTicks ago; the knockback
+            // below still lands on the opponent as they are now.
+            var (targetX, targetY) = HitTestPosition(opponent, projectile.RewindTicks);
+            var dx = checked(targetX - projectile.X);
+            var dy = checked(targetY - projectile.Y);
             var hitRadius = ArenaRulesetV1.PlayerRadius + ArenaRulesetV1.ProjectileRadius;
             if (checked(dx * dx + dy * dy) > checked((long)hitRadius * hitRadius))
                 continue;
@@ -571,6 +589,36 @@ public sealed class ArenaSimulation : IContinuousSimulation
             var ownerSide = opponent.Side == 0 ? 1 : 0;
             _hits[ownerSide] = checked(_hits[ownerSide] + 1);
             _landedCharges[ownerSide].Add(projectile.ChargePermille);
+        }
+    }
+
+    /// <summary>
+    /// The opponent's position as the shooter's view frame showed it: <paramref name="rewind"/>
+    /// ticks before the tick this step produces. Falls back to the current position for no
+    /// rewind and when the history does not reach that far, which only happens in the first
+    /// ticks after a round reset clears it.
+    /// </summary>
+    private (long X, long Y) HitTestPosition(ArenaPlayerState opponent, int rewind)
+    {
+        if (rewind <= 0)
+            return (opponent.X, opponent.Y);
+        var tick = Tick + 1 - rewind;
+        if (tick < 0)
+            return (opponent.X, opponent.Y);
+        var index = (int)(tick % ArenaRulesetV1.HitHistoryTicks);
+        return opponent.HistoryTick[index] == tick
+            ? (opponent.HistoryX[index], opponent.HistoryY[index])
+            : (opponent.X, opponent.Y);
+    }
+
+    private void RecordPositionHistory()
+    {
+        var index = (int)(Tick % ArenaRulesetV1.HitHistoryTicks);
+        foreach (var player in Players)
+        {
+            player.HistoryX[index] = player.X;
+            player.HistoryY[index] = player.Y;
+            player.HistoryTick[index] = Tick;
         }
     }
 
@@ -658,6 +706,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
     private void FinishTickAndPhase()
     {
         Tick = checked(Tick + 1);
+        RecordPositionHistory();
         if (_roundResetThisTick)
         {
             _roundResetThisTick = false;
@@ -701,6 +750,9 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.CooldownTicks = 0; player.DashTicks = 0; player.DashAvailable = true;
             player.Input = NeutralInput; player.VelocityCause = ArenaKnockoutCause.DashOrMovement;
             player.BoundaryCause = null;
+            // No projectile survives a reset, so nothing can look back across one; the
+            // history is cleared so the first shots of the new round cannot either.
+            Array.Fill(player.HistoryTick, -1L);
         }
     }
 

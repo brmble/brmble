@@ -22,7 +22,16 @@ public enum ContinuousRejectReason { StaleSequence, SequenceGap, InvalidRange, R
 /// </summary>
 public sealed record ContinuousInput(
     long Sequence, long PredictedTick, short MoveX, short MoveY,
-    short AimX, short AimY, bool Charging, bool FireReleased, bool Dash);
+    short AimX, short AimY, bool Charging, bool FireReleased, bool Dash,
+    /// <summary>
+    /// The tick the client's view of the other players was showing when this input was
+    /// made: the sampled snapshot timeline sits a downlink plus the interpolation buffer
+    /// behind the stamp. A game that judges an aimed action in the shooter's frame
+    /// (arena hits) rewinds the target by <c>PredictedTick - ViewTick</c>. Zero means
+    /// unknown - an older client, a heartbeat, a held frame - and no compensation. The
+    /// coordinator bounds the gap and keeps it across a stamp clamp.
+    /// </summary>
+    long ViewTick = 0);
 
 public static class ContinuousInputs
 {
@@ -33,7 +42,7 @@ public static class ContinuousInputs
 
     /// <summary>The input with its edges cleared: what a heartbeat carries.</summary>
     public static ContinuousInput HeldOnly(this ContinuousInput input) =>
-        input with { FireReleased = false, Dash = false };
+        input with { FireReleased = false, Dash = false, ViewTick = 0 };
 
     /// <summary>The direction pair the direction-change budget watches.</summary>
     public static bool SameDirection(this ContinuousInput input, short x, short y) =>

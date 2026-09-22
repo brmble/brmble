@@ -465,6 +465,80 @@ export function projectileReachedBody(
   return along >= shooterAlong - hitRadius * Math.sqrt(speedSquared);
 }
 
+/**
+ * A hit this client has predicted on the displayed opponent and the server has not yet
+ * confirmed. See `predictedKnockbackOffset`.
+ */
+export interface PredictedHit {
+  /** The shot's line of flight, so the predicted and the authoritative projectile count once. */
+  key: string;
+  impulse: FixedVec;
+  /** The view tick the shot reached the displayed opponent at. */
+  hitViewTick: number;
+  /** Prediction tick minus view tick at that moment: how far the authority's knockback trails the predicted one. */
+  gapTicks: number;
+}
+
+/**
+ * Identifies a projectile by its line of flight rather than its id: `x·vy - y·vx` is
+ * invariant along the flight, so the predicted shot (negative id) and the authoritative
+ * one it becomes share a key. The charge separates two shots down the same line.
+ */
+export function projectileTrajectoryKey(projectile: ArenaProjectileSnapshot): string {
+  return `${projectile.ownerSessionId}:${projectile.vx}:${projectile.vy}:${projectile.x * projectile.vy - projectile.y * projectile.vx}:${projectile.chargePermille}`;
+}
+
+/** The impulse the server adds to the opponent's velocity when this projectile hits: its direction times the charge-scaled knockback. */
+export function knockbackImpulse(projectile: ArenaProjectileSnapshot): FixedVec {
+  const speed = Number(integerSqrt(BigInt(projectile.vx * projectile.vx + projectile.vy * projectile.vy)));
+  if (speed === 0) return { x: 0, y: 0 };
+  const direction = { x: Math.trunc(projectile.vx * 32767 / speed), y: Math.trunc(projectile.vy * 32767 / speed) };
+  return scaleBy(direction, knockback(projectile.chargePermille));
+}
+
+/**
+ * Displacement `ticks` after a knockback impulse under the server's physics: the impulse
+ * joins the velocity on the hit tick, and every following tick moves by the velocity and
+ * then damps it. Fractional ticks take a fraction of the next step, for smooth frames.
+ */
+function knockbackDisplacement(impulse: FixedVec, ticks: number): FixedVec {
+  if (ticks <= 0) return { x: 0, y: 0 };
+  const whole = Math.floor(ticks);
+  const fraction = ticks - whole;
+  let velocity = impulse;
+  let x = 0;
+  let y = 0;
+  for (let tick = 0; tick < whole; tick++) {
+    x += velocity.x;
+    y += velocity.y;
+    velocity = damp(velocity);
+  }
+  return { x: Math.trunc(x + velocity.x * fraction), y: Math.trunc(y + velocity.y * fraction) };
+}
+
+/**
+ * How far the displayed opponent is pushed by hits this client has predicted, at view tick
+ * `viewTick`. Each hit contributes the knockback as the shooter should see it - starting
+ * the tick after the shot reached the displayed body - minus the knockback the authority
+ * will have applied by the same view tick, which starts `gapTicks` later because the
+ * server's hit at the prediction tick reaches the view frame only then. The authority's
+ * share is already in the sampled position, so subtracting it here is what makes the
+ * handover seamless: as the timeline catches up the two terms converge and the offset
+ * decays to zero on its own. A hit the server rules a miss decays the same way, so the
+ * opponent is seen pushed and then eases back rather than snapping.
+ */
+export function predictedKnockbackOffset(hits: readonly PredictedHit[], viewTick: number): FixedVec {
+  let x = 0;
+  let y = 0;
+  for (const hit of hits) {
+    const predicted = knockbackDisplacement(hit.impulse, viewTick - hit.hitViewTick);
+    const authoritative = knockbackDisplacement(hit.impulse, viewTick - hit.hitViewTick - hit.gapTicks);
+    x += predicted.x - authoritative.x;
+    y += predicted.y - authoritative.y;
+  }
+  return { x, y };
+}
+
 function insideRadius(point: FixedVec, radius: number): boolean {
   const x = BigInt(point.x);
   const y = BigInt(point.y);
@@ -632,9 +706,18 @@ function interpolateProjectile(left: ArenaProjectileSnapshot, right: ArenaProjec
   };
 }
 
+/**
+ * A snapshot sampled from the timeline, plus the tick it represents: the interpolated
+ * position between its two source frames, fractional. This is the view frame's clock -
+ * what the opponent is drawn at - and the tick a fire is stamped with as `viewTick`.
+ */
+export interface SampledArenaFrame extends ArenaSnapshot {
+  viewTick: number;
+}
+
 export function sampleTimeline(
   frames: ArenaSnapshot[], nowMs: number, interpolationMs: number, maxExtrapolationMs: number,
-): ArenaSnapshot {
+): SampledArenaFrame {
   if (frames.length === 0) throw new Error('Cannot sample an empty arena timeline');
   const ordered = [...frames]
     .sort((left, right) => left.generatedAtUnixMs - right.generatedAtUnixMs || left.sequence - right.sequence)
@@ -643,13 +726,14 @@ export function sampleTimeline(
   const latest = ordered[ordered.length - 1];
   if (renderAt >= latest.generatedAtUnixMs) {
     const elapsed = renderAt - latest.generatedAtUnixMs;
-    if (elapsed <= 0 || elapsed > maxExtrapolationMs) return latest;
+    if (elapsed <= 0 || elapsed > maxExtrapolationMs) return { ...latest, viewTick: latest.serverTick };
     const tickNumerator = Math.trunc(elapsed * 60);
     const previous = ordered.length > 1 ? ordered[ordered.length - 2] : null;
     const previousPlayerIds = new Set(previous?.players.map(player => player.sessionId) ?? []);
     const previousProjectileIds = new Set(previous?.projectiles.map(projectile => projectile.id) ?? []);
     return {
       ...latest,
+      viewTick: latest.serverTick + tickNumerator / 1000,
       players: latest.players.map(player => !previousPlayerIds.has(player.sessionId) ? player : ({
         ...player,
         x: player.x + Math.trunc(player.vx * tickNumerator / 1000),
@@ -663,7 +747,7 @@ export function sampleTimeline(
     };
   }
   const rightIndex = ordered.findIndex(frame => frame.generatedAtUnixMs > renderAt);
-  if (rightIndex <= 0) return ordered[0];
+  if (rightIndex <= 0) return { ...ordered[0], viewTick: ordered[0].serverTick };
   const left = ordered[rightIndex - 1];
   const right = ordered[rightIndex];
   const fraction = (renderAt - left.generatedAtUnixMs) / (right.generatedAtUnixMs - left.generatedAtUnixMs || 1);
@@ -671,6 +755,7 @@ export function sampleTimeline(
   const rightProjectiles = new Map(right.projectiles.map(projectile => [projectile.id, projectile]));
   return {
     ...left,
+    viewTick: left.serverTick + (right.serverTick - left.serverTick) * fraction,
     players: left.players.map(player => {
       const later = rightPlayers.get(player.sessionId);
       return later ? { ...player, ...interpolatePlayer(player, later, fraction),

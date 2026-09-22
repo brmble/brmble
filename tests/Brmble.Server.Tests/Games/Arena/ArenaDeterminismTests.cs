@@ -25,7 +25,12 @@ public class ArenaDeterminismTests
     // change here is a behaviour change and needs to be justified against the spec.
     // Zero means "not recorded yet": the test then reports the value to record and is
     // inconclusive rather than green.
-    private const ulong RecordedFinalHash = 0x6E117D823928FE4D;
+    //
+    // Re-recorded 2026-09-22 for hit lag compensation: the hash now also covers each
+    // input's ViewTick and each projectile's RewindTicks (both zero in this stream). With
+    // those two writes removed the stream reproduced the previous value,
+    // 0x6E117D823928FE4D, so the simulation's behaviour on this stream is unchanged.
+    private const ulong RecordedFinalHash = 0xF15AD0892B3AC0ED;
 
     [TestMethod]
     public void HashFixture_MatchesRecordedValue()

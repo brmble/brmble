@@ -109,6 +109,12 @@ export interface ArenaInputState {
   charging: boolean;
   fireReleased: boolean;
   dash: boolean;
+  /**
+   * On a fire only: the view tick the board was showing when the player released, so
+   * the server judges the shot against the opponent where the player saw them. Held
+   * frames and heartbeats never carry it.
+   */
+  viewTick?: number;
 }
 
 export type ArenaClientMessage =

@@ -29,6 +29,7 @@ function inputHarness(
   reactStrictMode = false,
   localPlayer: Pick<ArenaPlayerSnapshot, 'x' | 'y'> = { x: 0, y: 0 },
   combatEnabled = true,
+  viewTick: number | null = null,
 ) {
   const canvas = document.createElement('canvas');
   document.body.append(canvas);
@@ -42,8 +43,11 @@ function inputHarness(
   };
   const renderer = { pointerToWorld: vi.fn(() => ({ x: 0, y: -1000 })) };
   const localPlayerRef = { current: localPlayer };
+  const viewTickRef = { current: viewTick };
   const hook = renderHook(
-    ({ enabled, combatEnabled }) => useArenaInput({ canvasRef, renderer: renderer as never, localPlayerRef, connection, enabled, combatEnabled }),
+    ({ enabled, combatEnabled }) => useArenaInput({
+      canvasRef, renderer: renderer as never, localPlayerRef, viewTickRef, connection, enabled, combatEnabled,
+    }),
     { initialProps: { enabled: true, combatEnabled }, reactStrictMode },
   );
   const keyDown = (code: string, init: KeyboardEventInit = {}) => {
@@ -140,6 +144,20 @@ describe('useArenaInput', () => {
     expect(h.sent).toContainEqual(expect.objectContaining({ aimX: 0, aimY: -32767 }));
     expect(h.sent).toContainEqual(expect.objectContaining({ charging: true, fireReleased: false }));
     expect(h.sent.at(-1)).toMatchObject({ charging: false, fireReleased: true });
+    h.hook.unmount();
+  });
+
+  it('stamps a fire with the view tick the board was showing, and nothing else with it', () => {
+    const h = inputHarness('connected', false, { x: 0, y: 0 }, true, 102.4);
+    h.clickBoard();
+    fireEvent.pointerDown(h.canvas, { button: 0 });
+    expect(h.sent.at(-1)).not.toHaveProperty('viewTick');
+    fireEvent.pointerUp(window, { button: 0 });
+    // Rounded to the tick: the server judges the shot against the opponent at that tick.
+    expect(h.sent.at(-1)).toMatchObject({ charging: false, fireReleased: true, viewTick: 102 });
+    fireEvent.pointerMove(h.canvas, { clientX: 140, clientY: 90 });
+    expect(h.sent.at(-1)).toMatchObject({ fireReleased: false });
+    expect(h.sent.at(-1)).not.toHaveProperty('viewTick');
     h.hook.unmount();
   });
 

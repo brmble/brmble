@@ -266,6 +266,37 @@ describe('useArenaState', () => {
     expect(hook.result.current.projectiles).toEqual([theirs, onTheWay]);
   });
 
+  it('pushes the displayed opponent as soon as an own shot reaches them, before the authority shows it', () => {
+    // The opponent is displayed at x = -1000. Replayed to tick 103 the shot sits exactly
+    // the hit radius from the body: reached. It is no longer drawn, and the push starts
+    // the next view tick, so the opponent has not moved yet.
+    const shot = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 333 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [shot] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(
+      ({ latest }) => useArenaState({
+        welcome: initial, latestSnapshot: latest, pendingInputs: [still], selfSessionId: 10,
+        currentPredictedTick: () => 103,
+      }),
+      { initialProps: { latest: null as ArenaSnapshot | null } },
+    );
+    expect(hook.result.current.projectiles).toEqual([]);
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000);
+    expect(hook.result.current.viewTick).toBe(100);
+
+    // Two view ticks later the authority still shows the opponent unmoved (the server's
+    // verdict is a round trip away), yet they are drawn pushed by the impulse and its
+    // damped successor: 203 + 186, along the shot.
+    vi.setSystemTime(1150);
+    hook.rerender({ latest: snapshot(2, 1050, 1000) });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.viewTick).toBe(102);
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000 - 389);
+  });
+
   it('presents predicted own projectiles immediately', () => {
     const initial = welcome(333);
     const fire: PendingArenaInput = {

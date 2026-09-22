@@ -5,7 +5,8 @@ import type {
 import type { PendingArenaInput } from './useArenaConnection';
 import {
   arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15, rearVector, shrinkIntensity,
-  projectileReachedBody, recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
+  knockbackImpulse, predictedKnockbackOffset, projectileReachedBody, projectileTrajectoryKey,
+  recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
 const prediction: ArenaPredictionConstants = {
@@ -119,6 +120,53 @@ describe('arena client prediction', () => {
       expect(projectileReachedBody(shot(5000), { x: -2000, y: 0 }, shooter, hitRadius)).toBe(false);
       expect(projectileReachedBody({ ...shot(5000), vx: 0 }, { x: 3000, y: 0 }, shooter, hitRadius)).toBe(false);
     });
+  });
+
+  describe('predicted knockback', () => {
+    const shot = { id: 1, ownerSessionId: 10, x: 0, y: 0, vx: 240, vy: 0, chargePermille: 333 };
+
+    it('derives the impulse the server applies from the projectile direction and charge', () => {
+      // Knockback at permille 333 is 130 + 220 * 333 / 1000 = 203, along the flight.
+      expect(knockbackImpulse(shot)).toEqual({ x: 203, y: 0 });
+      expect(knockbackImpulse({ ...shot, vx: 0, vy: -240 })).toEqual({ x: 0, y: -203 });
+    });
+
+    it('keys a projectile by its line of flight so the predicted shot and the authoritative one it becomes match', () => {
+      expect(projectileTrajectoryKey({ ...shot, id: 7, x: 720 })).toBe(projectileTrajectoryKey({ ...shot, id: -1 }));
+      expect(projectileTrajectoryKey({ ...shot, y: 500 })).not.toBe(projectileTrajectoryKey(shot));
+    });
+
+    it('pushes by the server physics from the tick after the hit and hands over to the authority without a jump', () => {
+      const hit = { key: 'k', impulse: { x: 203, y: 0 }, hitViewTick: 100, gapTicks: 15 };
+      expect(predictedKnockbackOffset([hit], 100)).toEqual({ x: 0, y: 0 });
+      // One tick: the impulse. Two: plus its damped successor, 203 * 920 / 1000 = 186.
+      expect(predictedKnockbackOffset([hit], 101)).toEqual({ x: 203, y: 0 });
+      expect(predictedKnockbackOffset([hit], 102)).toEqual({ x: 389, y: 0 });
+      expect(predictedKnockbackOffset([hit], 101.5)).toEqual({ x: 203 + 93, y: 0 });
+      // Until the authority's knockback reaches the view frame (gap ticks later) the whole
+      // predicted displacement is shown...
+      const atHandover = predictedKnockbackOffset([hit], 115).x;
+      expect(atHandover).toBeGreaterThan(1500);
+      // ...and from then on only the difference between the two paths, which the
+      // damping shrinks to exactly nothing.
+      const after = [116, 130, 160, 200].map(tick => predictedKnockbackOffset([hit], tick).x);
+      expect(after[0]).toBeLessThan(atHandover);
+      expect(after[1]).toBeLessThan(after[0]);
+      expect(after[2]).toBeLessThan(after[1]);
+      expect(after[3]).toBe(0);
+    });
+  });
+
+  it('reports the view tick a sample represents', () => {
+    const first = snapshot({ generatedAtUnixMs: 0, sequence: 1, serverTick: 100 });
+    const second = snapshot({ generatedAtUnixMs: 50, sequence: 2, serverTick: 103 });
+    // Interpolating halfway; exactly on the newest frame; extrapolating 25 ms past it;
+    // frozen past the extrapolation limit; before the first frame.
+    expect(sampleTimeline([first, second], 125, 100, 50).viewTick).toBe(101.5);
+    expect(sampleTimeline([first, second], 150, 100, 50).viewTick).toBe(103);
+    expect(sampleTimeline([first, second], 175, 100, 50).viewTick).toBe(104.5);
+    expect(sampleTimeline([first, second], 400, 100, 50).viewTick).toBe(103);
+    expect(sampleTimeline([first, second], 50, 100, 50).viewTick).toBe(100);
   });
 
   it('advances every projectile one velocity per live tick and drops it at the arena edge, as the server does', () => {

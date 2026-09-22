@@ -29,13 +29,10 @@ at 0/50/100/220 ms one-way and is the automated form of the playtest.
 
 Open after the playtest, each a design decision rather than a defect in this plan:
 
-- **Knockback delay.** The opponent's reaction to a hit is drawn a round trip plus the lead
-  plus the 100 ms sampling buffer after the shot reached them on screen - about 300 ms at a
-  50 ms round trip, 450 ms at 200 ms. Closing it means predicting the knockback locally when
-  an own shot reaches the displayed opponent and correcting on the verdict, and it belongs
-  with server-side lag compensation (judging the hit in the shooter's frame), since without
-  that a shot at a moving opponent disagrees with the server as often as the opponent has
-  moved a body's width over the frame gap. Not made; fairness call.
+- **Knockback delay** - *decided and done, 2026-09-22*: the fire carries the view tick, the
+  server judges the hit in the shooter's frame against a 64-tick position history, and the
+  client predicts the knockback on the displayed opponent and hands over to the authority
+  without a jump. Spec: `docs/superpowers/specs/2026-09-22-arena-hit-lag-compensation-design.md`.
 - **Two local clocks.** The stamp clock (`serverTick + max(1, elapsed) + lead`) and the
   presentation's tick-phase clock disagree by a tick or two around a snapshot, so every key
   press or release steps the display back by up to two ticks once. Pinned at its current

@@ -50,6 +50,11 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     // old 20-tick client cap stamped every input in the past, and the lateness came
     // back as the pre-scheduling jitter on every key change.
     internal const int MaxScheduleAheadTicks = 40;
+    // How far behind its stamp an input's view tick may sit: two seconds. The view tick is
+    // what a game rewinds a target by (arena hits), so the bound is what keeps a client
+    // from claiming to have aimed at a position from the distant past. The arena caps its
+    // own rewind lower still.
+    internal const int MaxViewLagTicks = 120;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -906,6 +911,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         ContinuousInput input, long serverTick, short lastAimX, short lastAimY)
     {
         var predictedTick = Math.Clamp(input.PredictedTick, serverTick + 1, serverTick + MaxScheduleAheadTicks);
+        // The view tick travels with the stamp: what matters is its gap to the stamp, so a
+        // clamped stamp drags it along, and a gap that is negative (a view from the future)
+        // or past the bound is corrected rather than refused. Zero stays zero: unknown.
+        var viewTick = input.ViewTick <= 0
+            ? 0
+            : predictedTick - Math.Clamp(input.PredictedTick - input.ViewTick, 0, MaxViewLagTicks);
 
         var move = FixedVec.NormalizeQ15(
             Math.Max(input.MoveX, (short)-32_767), Math.Max(input.MoveY, (short)-32_767));
@@ -922,6 +933,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         return input with
         {
             PredictedTick = predictedTick,
+            ViewTick = viewTick,
             MoveX = checked((short)move.X),
             MoveY = checked((short)move.Y),
             AimX = aimX,

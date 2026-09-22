@@ -230,6 +230,59 @@ public class ArenaCombatTests
     }
 
     [TestMethod]
+    public void RewoundHit_LandsWhereTheShooterSawTheOpponentAndTheSameShotUnrewoundMisses()
+    {
+        // The opponent stands at (1800, 0) long enough to fill the history, then walks
+        // down for ten ticks (900 units) before the shot and keeps walking while it flies.
+        // A shooter whose view is twenty ticks old still sees them at y = 0 and aims there.
+        var rewound = ArenaHarness.Live();
+        var direct = ArenaHarness.Live();
+        foreach (var h in new[] { rewound, direct })
+        {
+            h.Place(10, 0, 0); h.Place(20, 3000, 0);
+            h.Step(30);
+            h.Move(20, 0, 32767);
+            h.Step(10);
+            Assert.AreEqual(900, h.Player(20).Y);
+        }
+
+        // The view tick is the tick the shooter's frame showed: 19 before the tick the
+        // release's step produces, so the shot rewinds 20 ticks - into the standing period.
+        rewound.ReleaseFire(10, viewTick: rewound.Tick + 1 - 20);
+        direct.ReleaseFire(10);
+        rewound.Step();
+        direct.Step();
+        Assert.AreEqual(20, rewound.Projectiles[0].RewindTicks);
+        Assert.AreEqual(0, direct.Projectiles[0].RewindTicks);
+
+        // Spawned at 780 and advanced 240 a tick, the shot reaches x = 2220, within the 780
+        // hit radius of (3000, 0), on its sixth tick. The opponent has then walked to
+        // y = 1440 - well outside it.
+        rewound.Step(5);
+        direct.Step(5);
+        Assert.AreEqual(0, rewound.Projectiles.Count, "the rewound shot hits the position the shooter aimed at");
+        Assert.AreEqual(203, rewound.Player(20).Vx, "and the knockback lands on the opponent as they are now");
+        Assert.AreEqual(1, direct.Projectiles.Count, "the same shot judged against the present misses");
+        Assert.AreEqual(0, direct.Player(20).Vx);
+    }
+
+    [TestMethod]
+    public void RewindIsCappedAtOneSecondAndZeroWithoutAViewTick()
+    {
+        var h = ArenaHarness.Live();
+        h.Place(10, 0, 0); h.Place(20, 6000, 0);
+        // A view from the very start of the match: hundreds of ticks back.
+        h.ReleaseFire(10, viewTick: 1);
+        h.Step();
+        Assert.AreEqual(ArenaRulesetV1.MaxHitRewindTicks, h.Projectiles[0].RewindTicks);
+        h.Step(ArenaRulesetV1.ShotCooldownTicks + 1);
+        // A view tick in the future is a client mistake and rewinds nothing.
+        h.ReleaseFire(10, viewTick: h.Tick + 40);
+        h.Step();
+        Assert.AreEqual(0, h.Projectiles[^1].RewindTicks);
+    }
+
+    [TestMethod]
     public void ProjectileOutsideArenaIsRemovedAndIdsRemainMonotonic()
     {
         var sim = ArenaHarness.Live();
@@ -366,12 +419,16 @@ public class ArenaCombatTests
         // Most tests mean "take a shot" and do not care about the charge gate, so a
         // release arms the charge to the minimum first. Tests that exercise the gate
         // itself use ReleaseFireRaw and drive ChargeTicks deliberately.
-        public void ReleaseFire(long sessionId, short aimX = 32767, short aimY = 0)
+        public void ReleaseFire(long sessionId, short aimX = 32767, short aimY = 0, long viewTick = 0)
         {
             var player = Player(sessionId);
             player.ChargeTicks = Math.Max(player.ChargeTicks, ArenaRulesetV1.MinChargeTicks);
-            SetInput(sessionId, aimX: aimX, aimY: aimY, fireReleased: true);
+            SetInput(sessionId, aimX: aimX, aimY: aimY, fireReleased: true, viewTick: viewTick);
         }
+
+        public void Move(long sessionId, short moveX, short moveY) => SetInput(sessionId, moveX: moveX, moveY: moveY);
+
+        public long Tick => _simulation.Tick;
 
         public void ReleaseFireRaw(long sessionId, short aimX = 32767, short aimY = 0) =>
             SetInput(sessionId, aimX: aimX, aimY: aimY, fireReleased: true);
@@ -405,8 +462,9 @@ public class ArenaCombatTests
             short aimY = 0,
             bool charging = false,
             bool fireReleased = false,
-            bool dash = false) =>
+            bool dash = false,
+            long viewTick = 0) =>
             _simulation.SetInput(sessionId, new ContinuousInput(
-                1, _simulation.Tick, moveX, moveY, aimX, aimY, charging, fireReleased, dash));
+                1, _simulation.Tick, moveX, moveY, aimX, aimY, charging, fireReleased, dash, viewTick));
     }
 }

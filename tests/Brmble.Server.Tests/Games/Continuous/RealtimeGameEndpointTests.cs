@@ -257,6 +257,31 @@ public class RealtimeGameEndpointTests
     }
 
     [TestMethod]
+    public async Task InputMayCarryAViewTickAndIsStillAcceptedWithoutOne()
+    {
+        await using var h = await RealtimeHarness.ConnectedParticipantAsync();
+        using var welcome = await h.ReceiveJsonAsync();
+        await h.SendTextAsync($$"""
+            {"type":"attachAck","protocolVersion":1,"matchId":{{h.MatchId}},"snapshotSequence":{{welcome.RootElement.GetProperty("snapshotSequence").GetInt64()}}}
+            """);
+        _ = await h.ReceiveJsonAsync();
+        // The 13-field input of a client that reports its view tick, then the 12-field
+        // input of one that predates it. Both are accepted; a 13th field that is not
+        // viewTick is still malformed.
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":1,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":true,"dash":false,"viewTick":-5}
+            """);
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":2,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
+            """);
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":3,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false,"extra":1}
+            """);
+        await h.Simulation!.WaitForSequenceAsync(10, 2, TimeSpan.FromSeconds(2));
+        CollectionAssert.AreEqual(new long[] { 1, 2 }, h.Simulation.Sequences(10));
+    }
+
+    [TestMethod]
     public async Task SocketCloseDetachesExactlyOnceAndAllowsReattachment()
     {
         await using var h = await RealtimeHarness.ConnectedParticipantAsync();

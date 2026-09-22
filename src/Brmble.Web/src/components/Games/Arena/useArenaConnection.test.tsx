@@ -108,6 +108,18 @@ describe('useArenaConnection', () => {
     expect(h.result.current.pendingInputs[1].input).toEqual({ ...held, charging: true });
   });
 
+  it('carries the view tick on a fire and on nothing else', async () => {
+    const h = await connect();
+    act(() => h.result.current.sendInput({ ...held, charging: false, fireReleased: true, viewTick: 97 }));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', fireReleased: true, viewTick: 97 });
+    // The held state the frame leaves behind, and every heartbeat, are free of it.
+    expect(h.result.current.pendingInputs.at(-1)?.input).toMatchObject({ viewTick: 97 });
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat' });
+    expect(h.socket.sent.at(-1)).not.toHaveProperty('viewTick');
+    expect(h.result.current.pendingInputs.at(-1)?.input).not.toHaveProperty('viewTick');
+  });
+
   it.each([
     ['dash', { ...held, aimX: 0, aimY: 32767, dash: true }],
     ['fire', { ...held, aimX: 0, aimY: 32767, fireReleased: true }],

@@ -35,7 +35,11 @@ const neutralInput: ArenaInputState = {
  */
 export const arenaCodec: RealtimeCodec<ArenaInputState, ArenaWelcome, ArenaSnapshot, ArenaMatchClosed> = {
   neutral: neutralInput,
-  heldOnly: input => ({ ...input, fireReleased: false, dash: false }),
+  heldOnly: input => {
+    const { viewTick, ...held } = input;
+    void viewTick;
+    return { ...held, fireReleased: false, dash: false };
+  },
   sameHeld: (left, right) => left.moveX === right.moveX && left.moveY === right.moveY && left.charging === right.charging,
   hasEdges: input => input.fireReleased || input.dash,
   direction: input => ({ x: input.aimX, y: input.aimY }),
