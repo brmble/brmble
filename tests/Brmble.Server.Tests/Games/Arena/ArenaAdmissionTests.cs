@@ -75,6 +75,84 @@ public class ArenaAdmissionTests
         Assert.IsTrue(sim.Admit(10, Input(3, fireReleased: true)).FireReleased, "the cooldown has ended");
     }
 
+    // The two tests below are the proof that Admit's cooldown clause is not a duplicate
+    // of the cooldown ProcessFire already enforces (extraction plan, Task 3, commit 2).
+    // Each runs the same input stream through Admit and directly into SetInput; the
+    // outcomes differ, so the clause carries behaviour and stays.
+
+    [TestMethod]
+    public void Admit_StripsAFireOnTheLastCooldownTickThatTheSimulationItselfWouldHaveFired()
+    {
+        var admitted = Live();
+        var direct = Live();
+        foreach (var sim in new[] { admitted, direct })
+        {
+            var player = sim.Players.Single(x => x.SessionId == 10);
+            player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+            // Aimed along +y so the projectile neither hits the opponent nor leaves the
+            // arena inside this test, and the count below stays meaningful.
+            sim.SetInput(10, sim.Admit(10, Input(1, aimX: 0, aimY: 32_767, fireReleased: true)));
+            sim.Step();
+            Assert.AreEqual(ArenaRulesetV1.ShotCooldownTicks, player.CooldownTicks);
+            for (var tick = 0; tick < ArenaRulesetV1.ShotCooldownTicks - 1; tick++) sim.Step();
+            Assert.AreEqual(1, player.CooldownTicks, "the last cooldown tick");
+            player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+        }
+
+        // Admission is evaluated before the step decrements the timers, so on the last
+        // cooldown tick it still sees a cooldown and strips the shot...
+        var stripped = admitted.Admit(10, Input(2, aimX: 0, aimY: 32_767, fireReleased: true));
+        Assert.IsFalse(stripped.FireReleased);
+        admitted.SetInput(10, stripped);
+        admitted.Step();
+        Assert.AreEqual(1, admitted.Projectiles.Count);
+        Assert.AreEqual(0, admitted.Players.Single(x => x.SessionId == 10).CooldownTicks);
+
+        // ...whereas the step itself decrements the cooldown to zero and then fires.
+        direct.SetInput(10, Input(2, aimX: 0, aimY: 32_767, fireReleased: true));
+        direct.Step();
+        Assert.AreEqual(2, direct.Projectiles.Count, "the simulation alone fires on this tick");
+        Assert.AreEqual(ArenaRulesetV1.ShotCooldownTicks, direct.Players.Single(x => x.SessionId == 10).CooldownTicks);
+    }
+
+    [TestMethod]
+    public void Admit_StartsACooldownOnAnUnderchargedReleaseThatTheSimulationRefusesWithoutOne()
+    {
+        var admitted = Live();
+        var direct = Live();
+        foreach (var sim in new[] { admitted, direct })
+        {
+            var player = sim.Players.Single(x => x.SessionId == 10);
+            // A release with no charge: the simulation refuses the shot outright and
+            // starts no cooldown of its own.
+            sim.SetInput(10, sim.Admit(10, Input(1, fireReleased: true)));
+            sim.Step();
+            Assert.AreEqual(0, sim.Projectiles.Count);
+            Assert.AreEqual(0, player.CooldownTicks);
+            // Bank some charge, still inside the admission cooldown the refused release started.
+            for (var tick = 0; tick < 20; tick++)
+            {
+                sim.SetInput(10, sim.Admit(10, Input(2 + tick, charging: true)));
+                sim.Step();
+            }
+            Assert.AreEqual(20, player.ChargeTicks);
+        }
+
+        // Admission counts the refused release as a shot and strips the next one, which
+        // leaves the banked charge in place: the player keeps what they charged.
+        var stripped = admitted.Admit(10, Input(30, fireReleased: true));
+        Assert.IsFalse(stripped.FireReleased);
+        admitted.SetInput(10, stripped);
+        admitted.Step();
+        Assert.AreEqual(20, admitted.Players.Single(x => x.SessionId == 10).ChargeTicks, "a stripped release leaves the charge banked");
+
+        // The simulation alone would refuse the under-charged release and cancel the charge.
+        direct.SetInput(10, Input(30, fireReleased: true));
+        direct.Step();
+        Assert.AreEqual(0, direct.Projectiles.Count);
+        Assert.AreEqual(0, direct.Players.Single(x => x.SessionId == 10).ChargeTicks, "a refused release cancels the charge");
+    }
+
     [TestMethod]
     public void Admit_ReleasesTheDashReservationOnTheAuthoritativeRoundReset()
     {

@@ -104,6 +104,17 @@ public sealed class ArenaSimulation : IContinuousSimulation
     /// against the state the input will meet - the coordinator calls this at install
     /// time - so a fire stamped past the end of a cooldown is not refused against a
     /// cooldown that will have ended.
+    /// <para>
+    /// The cooldown clause is not a duplicate of the cooldown <see cref="ProcessFire"/>
+    /// enforces itself; it differs in two ways, both pinned by <c>ArenaAdmissionTests</c>
+    /// and both the behaviour the coordinator had before admission moved here, kept on
+    /// purpose. It is evaluated before the step decrements the timers, so on the last
+    /// cooldown tick it strips a shot the step itself would have fired. And
+    /// <see cref="ArenaPlayerState.AdmissionCooldownUntilTick"/> starts on every admitted
+    /// fire, including a release <see cref="ProcessFire"/> then refuses for want of charge
+    /// and starts no cooldown for, so a spam-clicked release is refused for the next
+    /// cooldown's worth of ticks and leaves any charge banked rather than cancelled.
+    /// </para>
     /// </summary>
     public ContinuousInput Admit(long sessionId, ContinuousInput input)
     {
