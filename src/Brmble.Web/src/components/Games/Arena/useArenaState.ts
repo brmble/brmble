@@ -38,7 +38,7 @@ interface UseArenaStateOptions {
   onFrame?: (state: ArenaRenderState) => void;
 }
 
-interface ArenaRenderState {
+export interface ArenaRenderState {
   localPlayer: ArenaPlayerSnapshot | null;
   remotePlayer: ArenaPlayerSnapshot | null;
   projectiles: ArenaProjectileSnapshot[];
@@ -386,7 +386,19 @@ export function useArenaState({
         const displayedLocal = constrainLocalDisplay(
           local, remote, welcome.prediction.playerRadius, sampled.arena.radius,
         );
-        const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
+        // Each projectile is drawn in the frame of the player who fired it. The local
+        // player lives in the prediction frame, `lead + elapsed` ticks ahead of the
+        // newest snapshot; the opponent lives in the sampled frame, ~100 ms behind it.
+        // Drawing an own shot in the sampled frame put it 12-15 ticks behind the
+        // player at 100 ms RTT: the predicted projectile showed, vanished when the
+        // snapshot that carried the real one arrived, and the real one then appeared
+        // at the spawn point the player had long left. In the prediction frame the
+        // predicted projectile (negative id) and the authoritative one it becomes sit
+        // on the same tick, so the handover is invisible. Known residual: a hit is
+        // the server's call, so an own projectile can pass the displayed opponent by
+        // up to the frame gap before the snapshot removes it.
+        const ownProjectiles = presented.projectiles.filter(projectile => projectile.ownerSessionId === current.selfSessionId);
+        const theirProjectiles = sampled.projectiles.filter(projectile => projectile.ownerSessionId !== current.selfSessionId);
         // Deliberately ungated: a frame where authority did not change compares the
         // snapshot against itself, and `detectKnockout` is null for every such pair
         // (live/live fails its next-phase guard, any other phase fails its
@@ -435,7 +447,7 @@ export function useArenaState({
         const frozenRemote = frozen?.players.find(player => player.sessionId !== current.selfSessionId);
         const nextRendered: ArenaRenderState = {
           localPlayer: frozenLocal ?? displayedLocal, remotePlayer: frozenRemote ?? remote,
-          projectiles: [...sampled.projectiles, ...predictedProjectiles],
+          projectiles: [...theirProjectiles, ...ownProjectiles],
           arena: frozen?.arena ?? sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
           score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,

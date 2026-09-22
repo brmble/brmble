@@ -418,6 +418,19 @@ export function stepLocal(
     }
   }
 
+  // Server stages 10 and 11, positions only. Every projectile moves one velocity per
+  // live tick - including the one fired this tick, which the server also advances in
+  // its spawn tick - and one that leaves the arena is removed against the radius
+  // before this tick's shrink, as RemoveExpiredProjectiles does. Hits are not
+  // predicted: the opponent here is dead-reckoned from a frame ~100 ms old, so a hit
+  // judged against it would be wrong exactly as often as the opponent moves, and the
+  // server removes the projectile authoritatively on the next snapshot.
+  if (live) {
+    next.projectiles = next.projectiles
+      .map(projectile => ({ ...projectile, x: projectile.x + projectile.vx, y: projectile.y + projectile.vy }))
+      .filter(projectile => insideRadius(projectile, next.arena.radius));
+  }
+
   return next;
 }
 

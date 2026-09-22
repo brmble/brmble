@@ -85,6 +85,33 @@ problem and is handled in presentation.
 > tick. See `docs/superpowers/specs/2026-09-13-realtime-acknowledgement-and-latency-design.md`,
 > *Finding 4*. The rest of this section stands.
 
+> **Superseded detail (2026-09-22).** Own projectiles are drawn in the prediction
+> frame, the opponent's in the sampled frame. `stepLocal()` advances every projectile
+> one velocity per live tick, including in its spawn tick, and drops one that leaves
+> the arena, mirroring the server's stages 10 and 11 for positions only; hits stay
+> authoritative. Before this the local player's shot was drawn from the sampled
+> timeline, 12-15 ticks behind the player at 100 ms RTT: the predicted projectile
+> showed at its spawn point, vanished when the snapshot carrying the real one
+> arrived, and the real one then appeared where the player had been. In the
+> prediction frame the predicted projectile and the authoritative one it becomes sit
+> on the same tick, so the handover is invisible. Accepted residual: an own shot can
+> pass the displayed (100 ms-old) opponent by up to the frame gap before the
+> snapshot that rules the hit removes it. Pinned by `arenaClientLatency.test.tsx`.
+>
+> **Known residual (2026-09-22), found by observing that test per frame.** The
+> stamp clock in `useRealtimeConnection` (`serverTick + max(1, elapsed) + lead`) and
+> the presentation's tick-phase clock in `useArenaState` are two clocks, and they
+> disagree by one or two ticks around a snapshot: the `max(1, …)` floor bumps the
+> stamp clock on the frame a snapshot lands, and the phase clock keeps its own
+> cadence in between. Every reconcile re-anchors the presentation to the stamp
+> clock. For the local player the authority path blends the difference as a
+> correction, but an input-only reconcile (any key press or release) replays
+> through the stamp and steps the display back by the difference, once, at up to
+> two ticks of movement; for an own projectile the re-anchor shows as up to three
+> ticks of travel in one frame. Both are pinned at their current size by
+> `arenaClientLatency.test.tsx`. The fix is a single local tick clock shared by the
+> stamp and the presentation, which is a design change and has not been made.
+
 `reconcile()` continues to rebuild local deterministic state from the newest
 authoritative snapshot and all unacknowledged input intervals. This state is the
 source for local movement, charge, fire, recoil, dash, and predicted local

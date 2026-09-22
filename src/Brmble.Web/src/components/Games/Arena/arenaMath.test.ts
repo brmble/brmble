@@ -94,13 +94,41 @@ describe('arena client prediction', () => {
     expect(local.player.x).toBe(1614);
     expect(local.player.vx).toBe(-42);
     expect(local.player.cooldownTicks).toBe(24);
+    // Spawned at the pre-movement position plus the spawn offset (1330 + 780) and
+    // then advanced by one velocity in its spawn tick, as the server does.
     expect(local.projectiles).toEqual([{
-      id: -1, ownerSessionId: 10, x: 2110, y: 0, vx: 240, vy: 0, chargePermille: 11,
+      id: -1, ownerSessionId: 10, x: 2350, y: 0, vx: 240, vy: 0, chargePermille: 11,
     }]);
   });
 
+  it('advances every projectile one velocity per live tick and drops it at the arena edge, as the server does', () => {
+    const base = reconcile(authority(snapshot({ projectiles: [
+      { id: 7, ownerSessionId: 10, x: 1000, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+      { id: 8, ownerSessionId: 20, x: -2000, y: 500, vx: -240, vy: 0, chargePermille: 500 },
+      { id: 9, ownerSessionId: 10, x: 8800, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+    ] })), [], prediction).local;
+    const still = { ...right, moveX: 0 };
+
+    const next = stepLocal(base, still, prediction);
+
+    // Own and opponent's alike, so an authoritative projectile replayed to the local
+    // tick lands exactly where the predicted one it replaces was; the one at 8800
+    // crosses the 9000 radius and goes, exactly as RemoveExpiredProjectiles would.
+    expect(next.projectiles).toEqual([
+      { id: 7, ownerSessionId: 10, x: 1240, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+      { id: 8, ownerSessionId: 20, x: -2240, y: 500, vx: -240, vy: 0, chargePermille: 500 },
+    ]);
+    // Not during positioning: the server's projectile stages are live-only.
+    const positioning = reconcile(authority(snapshot({ phase: 'positioning', projectiles: base.projectiles })), [], prediction).local;
+    expect(stepLocal(positioning, still, prediction).projectiles).toEqual(base.projectiles);
+  });
+
   it('starts the forced-fire countdown at full charge and fires only when it expires', () => {
-    let local = reconcile(authority(), [], prediction).local;
+    // Starting at x = 0: 120 ticks of charged movement from the fixture's 1000 would
+    // put the spawn point past the 9000 radius, and the shot would leave the arena in
+    // the tick it was fired - as it does on the server.
+    const start = snapshot({ players: snapshot().players.map(player => player.sessionId === 10 ? { ...player, x: 0 } : player) });
+    let local = reconcile(authority(start), [], prediction).local;
     for (let tick = 0; tick < prediction.chargeTicks; tick++) {
       local = stepLocal(local, { ...right, charging: true }, prediction);
     }

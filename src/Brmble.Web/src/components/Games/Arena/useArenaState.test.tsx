@@ -232,6 +232,25 @@ describe('useArenaState', () => {
     expect(latestFrame?.localPlayer?.x).toBe(1200);
   });
 
+  it('draws own projectiles in the prediction frame and the opponent\'s in the sampled frame', () => {
+    const own = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: 240, vy: 0, chargePermille: 500 };
+    const theirs = { id: 8, ownerSessionId: 20, x: -500, y: 0, vx: -240, vy: 0, chargePermille: 500 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [own, theirs] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    // The local frame is replayed two ticks past the snapshot (serverTick 100,
+    // through 102): the own shot has flown two velocities with the local player; the
+    // opponent's is still where the (single, unextrapolated) sampled frame has it,
+    // with the opponent.
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [still], selfSessionId: 10,
+      currentPredictedTick: () => 102,
+    }));
+    expect(hook.result.current.projectiles).toEqual([theirs, { ...own, x: 980 }]);
+  });
+
   it('presents predicted own projectiles immediately', () => {
     const initial = welcome(333);
     const fire: PendingArenaInput = {
