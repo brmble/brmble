@@ -77,9 +77,12 @@ public class DevRealtimeTransportDelayTests
         var inner = new RecordingWebSocket();
         inner.QueueReceive("hello");
         var delay = new DevRealtimeTransportDelay(TimeSpan.FromMilliseconds(40), TimeSpan.Zero);
+        // Started before the wrap: the receive pump stamps the queued message's due
+        // time as soon as the wrapper exists, so a stopwatch started afterwards measures
+        // 40 ms minus however long the thread pool took to get there and fails under load.
+        var started = Stopwatch.GetTimestamp();
         using var socket = delay.Wrap(inner);
 
-        var started = Stopwatch.GetTimestamp();
         var buffer = new byte[64];
         var received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), default);
         Assert.IsTrue(Stopwatch.GetElapsedTime(started) >= TimeSpan.FromMilliseconds(40));
