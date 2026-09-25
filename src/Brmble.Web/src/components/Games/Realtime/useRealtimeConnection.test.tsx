@@ -187,6 +187,48 @@ describe('useRealtimeConnection', () => {
     expect(h.result.current.inputLead.sampleCount).toBe(1);
   });
 
+  it('converts the round trip into ticks at the rate the welcome names', async () => {
+    const rendered = renderHook(() => useTestConnection({ matchId: 91, enabled: true }));
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    socket.message({ ...welcome(10), tickRate: 30 });
+    act(() => rendered.result.current.sendInput(held));
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    socket.message(world(2, 11));
+    // ceil(120 * 30 / 1000) = 4 ticks + 2 margin; at the default 60 Hz it would be 10.
+    expect(rendered.result.current.inputLead.targetTicks).toBe(6);
+  });
+
+  it('never stamps below the previous stamp when a late snapshot pulls the clock back', async () => {
+    const h = await connect();
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    // serverTick 100 + 3 elapsed + the 3-tick minimum lead.
+    act(() => h.result.current.sendInput(held));
+    expect(h.socket.sent.at(-1)).toMatchObject({ sequence: 1, predictedTick: 106 });
+    // A snapshot that arrives late re-anchors the clock at 101: the raw estimate is now
+    // 101 + 1 + 3 = 105. Stamped 105, this later input would be installed first.
+    h.socket.message({ ...world(2, 0), serverTick: 101 });
+    act(() => h.result.current.sendInput({ ...held, hold: true }));
+    expect(h.socket.sent.at(-1)).toMatchObject({ sequence: 2, predictedTick: 106 });
+    expect(h.result.current.pendingInputs.at(-1)).toMatchObject({ sequence: 2, fromTick: 106 });
+  });
+
+  it('drops the stamp floor on a new welcome', async () => {
+    const h = await connect(10);
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    act(() => h.result.current.sendInput(held));
+    // 100 + 30 elapsed + 3.
+    expect(h.socket.sent.at(-1)).toMatchObject({ predictedTick: 133 });
+    h.socket.fail();
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    const replacement = FakeWebSocket.instances[1];
+    replacement.open();
+    replacement.message(welcome(11, 40));
+    act(() => h.result.current.sendInput(held));
+    expect(replacement.sent.at(-1)).toMatchObject({ sequence: 12, predictedTick: 104 });
+  });
+
   // An edge press is ordinary pending input: it is not retained past the snapshot
   // that passes its tick, because the client cannot tell an edge the server honoured
   // from one it accepted and stripped - the game states the outcome authoritatively.

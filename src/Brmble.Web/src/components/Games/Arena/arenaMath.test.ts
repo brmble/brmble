@@ -5,7 +5,7 @@ import type {
 import type { PendingArenaInput } from './useArenaConnection';
 import {
   arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15, rearVector, shrinkIntensity,
-  knockbackImpulse, predictedKnockbackOffset, projectileReachedBody, projectileTrajectoryKey,
+  isSameShot, knockbackImpulse, predictedKnockbackOffset, projectileLaunchTick, projectileReachedBody, projectileTrajectoryKey,
   recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
@@ -136,8 +136,20 @@ describe('arena client prediction', () => {
       expect(projectileTrajectoryKey({ ...shot, y: 500 })).not.toBe(projectileTrajectoryKey(shot));
     });
 
+    it('dates a shot by its launch, the same all along its flight and a cooldown apart for the next one', () => {
+      // Tick 110 at x = 720 is the same shot as tick 107 at x = 0: three velocities on.
+      expect(projectileLaunchTick({ ...shot, x: 720 }, 110)).toBe(projectileLaunchTick(shot, 107));
+      expect(projectileLaunchTick({ ...shot, x: 720, y: 500 }, 110)).toBe(107);
+      const hit = { key: projectileTrajectoryKey(shot), launchTick: 107, impulse: { x: 0, y: 0 }, hitViewTick: 0, gapTicks: 0 };
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 107, 24)).toBe(true);
+      // An install a couple of ticks late is still the same shot; the next one is not.
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 109, 24)).toBe(true);
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 107 + 24, 24)).toBe(false);
+      expect(isSameShot(hit, projectileTrajectoryKey({ ...shot, y: 500 }), 107, 24)).toBe(false);
+    });
+
     it('pushes by the server physics from the tick after the hit and hands over to the authority without a jump', () => {
-      const hit = { key: 'k', impulse: { x: 203, y: 0 }, hitViewTick: 100, gapTicks: 15 };
+      const hit = { key: 'k', launchTick: 0, impulse: { x: 203, y: 0 }, hitViewTick: 100, gapTicks: 15 };
       expect(predictedKnockbackOffset([hit], 100)).toEqual({ x: 0, y: 0 });
       // One tick: the impulse. Two: plus its damped successor, 203 * 920 / 1000 = 186.
       expect(predictedKnockbackOffset([hit], 101)).toEqual({ x: 203, y: 0 });

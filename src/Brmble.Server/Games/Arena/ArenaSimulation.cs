@@ -152,9 +152,12 @@ public sealed class ArenaSimulation : IContinuousSimulation
         {
             FireReleased = input.FireReleased || player.Input.FireReleased,
             Dash = input.Dash || player.Input.Dash,
-            // A fire edge carried over from an earlier install keeps its view tick; a held
-            // frame on the same tick carries none of its own.
-            ViewTick = input.ViewTick != 0 ? input.ViewTick : player.Input.ViewTick,
+            // The view tick belongs to a fire edge, so only a release brings one in: a view
+            // tick on a frame whose release was stripped, or on a held frame, is dropped
+            // rather than left latched for a later fire to inherit. A fire edge carried
+            // over from an earlier install keeps its own; it is the only way the latched
+            // input holds a view tick at all.
+            ViewTick = input.FireReleased && input.ViewTick != 0 ? input.ViewTick : player.Input.ViewTick,
         };
     }
 

@@ -47,7 +47,16 @@ Implemented on `refactor/continuous-coordinator-extraction`, stacked on
   through a made-up codec (one axis, a held button, one edge, a direction pair): 25 cases.
   `useArenaConnection.test.tsx` keeps the 11 the arena codec adds (wire shape, aim
   throttle, fire/dash carrying the true aim). `realtimeBoundary.test.ts` pins that
-  `Realtime/` imports nothing from a game folder.
+  `Realtime/` imports nothing from a game folder - source and tests alike since the PR #651
+  review; the one test that sampled the arena timeline through the server clock moved to
+  `Arena/arenaTimelineClock.test.ts`.
+- **Task 6, the authority timeline stays in `Arena/`.** The spec calls the timeline
+  (`timelineRef`, `sampleTimeline`) generic and moves it out; it is not moved. What is
+  generic about it is the buffering and the clock it samples with, and the clock already
+  lives in `Realtime/serverClock.ts`. `sampleTimeline` itself interpolates arena-shaped
+  fields - players, projectiles, the arena radius, the view tick the hit rewind needs - so
+  moving it means inventing an interpolation codec with one implementation. Deferred to the
+  second realtime game, which will show what that codec has to be.
 - `SpectatorSnapshot()` kept its signature: nothing calls it outside the arena and the
   test fakes.
 - `arenaClientLatency.test.tsx` runs the real `useArenaConnection` + `useArenaState`

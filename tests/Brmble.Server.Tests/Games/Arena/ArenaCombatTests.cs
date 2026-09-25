@@ -283,6 +283,34 @@ public class ArenaCombatTests
     }
 
     [TestMethod]
+    public void AViewTickWithoutAFireEdgeIsNotInheritedByALaterFire()
+    {
+        var h = ArenaHarness.Live();
+        h.Place(10, 0, 0); h.Place(20, 6000, 0);
+        h.Step(30);
+        // A frame that carries a view tick but no release - a release the admission
+        // stripped arrives like this - followed on the same tick by a fire without one.
+        h.HeldFrameWithViewTick(10, viewTick: h.Tick + 1 - 20);
+        h.ReleaseFire(10);
+        h.Step();
+        Assert.AreEqual(0, h.Projectiles[0].RewindTicks, "the fire asked for no compensation");
+    }
+
+    [TestMethod]
+    public void AFireEdgeKeepsItsViewTickThroughAHeldFrameOnTheSameTick()
+    {
+        var h = ArenaHarness.Live();
+        h.Place(10, 0, 0); h.Place(20, 6000, 0);
+        h.Step(30);
+        h.ReleaseFire(10, viewTick: h.Tick + 1 - 20);
+        h.Aim(10, 32767, 0);
+        // Nor does a held frame's own view tick replace the edge's.
+        h.HeldFrameWithViewTick(10, viewTick: h.Tick + 1 - 5);
+        h.Step();
+        Assert.AreEqual(20, h.Projectiles[0].RewindTicks);
+    }
+
+    [TestMethod]
     public void ProjectileOutsideArenaIsRemovedAndIdsRemainMonotonic()
     {
         var sim = ArenaHarness.Live();
@@ -427,6 +455,8 @@ public class ArenaCombatTests
         }
 
         public void Move(long sessionId, short moveX, short moveY) => SetInput(sessionId, moveX: moveX, moveY: moveY);
+
+        public void HeldFrameWithViewTick(long sessionId, long viewTick) => SetInput(sessionId, viewTick: viewTick);
 
         public long Tick => _simulation.Tick;
 

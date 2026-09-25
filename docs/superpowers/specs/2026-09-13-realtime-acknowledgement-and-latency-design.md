@@ -211,6 +211,12 @@ server behaviour but not the wire shape.
   extends the newest interval to it, so the local state after a reconcile is at
   `S + elapsed + lead`, monotonic across snapshots. `advanceLocalPresentation` then supplies
   the sub-tick remainder exactly as it does now.
+- **Stamps never go backwards** (added after the PR #651 review). The raw estimate can: a
+  snapshot that arrives late re-anchors the clock a tick below what it had extrapolated, and
+  the lead slews down a tick at a time. A stamp below the previous one would have the server
+  install the later input first. The client floors each stamp at the last one it sent on this
+  attach, and the coordinator floors each scheduled stamp at the previous one, so arrival
+  order always wins and the queue is a plain append. Both floors reset on a reconnect.
 
 **What the player sees.** Movement start: the client predicts from `T`, the input reaches the
 server `margin` ticks before `T`, the server applies at `T`, the next snapshot agrees, no

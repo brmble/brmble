@@ -43,8 +43,11 @@ against the opponent as it is, `o(P)`. Two consequences:
 - The fire input carries **`viewTick`**: the view tick the shooter's frame was showing when
   they released. Optional on the wire (a 13th field on `input`; heartbeats never carry it; an
   absent or zero value means "no compensation"), so an older client is unaffected. The
-  coordinator sanitises it the way it sanitises the stamp: it keeps the *gap* to the stamp,
-  bounded to `[0, 120]` ticks, so a stamp that is clamped drags the view tick with it.
+  coordinator leaves the view tick where the client put it and bounds its gap to the stamp
+  that will actually apply (after the stamp's own clamp) to `[0, 120]` ticks. A view tick is
+  kept only with the fire edge it came with: `SetInput` drops one that arrives on a frame
+  without a release (a held frame, or a release admission stripped), so a later fire cannot
+  inherit it.
 - `ArenaSimulation` keeps a **64-tick position history** per player, recorded at the end of
   every step. A projectile fired from an input with a view tick records
   `RewindTicks = clamp(firedTick - viewTick, 0, 60)`; the hit test for that projectile uses the
@@ -53,6 +56,8 @@ against the opponent as it is, `o(P)`. Two consequences:
   is applied to the opponent's current state, as before.
 - A late input installed on arrival rather than at its stamp rewinds by the extra lateness as
   well, which is right: the shooter's view was that much older relative to the actual spawn.
+  (Until the PR #651 review the coordinator dragged the view tick along with a clamped stamp,
+  so this did not hold; it does now.)
 - The rewind is part of the projectile and of the input, so both enter the deterministic hash.
   The recorded fixture changes once for that reason; the stream's behaviour does not.
 
@@ -76,7 +81,11 @@ against the opponent as it is, `o(P)`. Two consequences:
   to disagree by more than the hit radius, i.e. half a tick of rounding, so it is rare.
 - Predicted hits are keyed by the shot's line of flight (`x·vy - y·vx` is invariant along it),
   not by projectile id, so the predicted-to-authoritative id handover cannot register a second
-  hit. They are dropped three seconds after the hit.
+  hit. The line alone does not tell apart two identical shots a cooldown apart (a player
+  standing still and tapping), so a hit also records the shot's launch tick - the prediction
+  tick minus its distance along the line in ticks of flight, also invariant - and a reached
+  shot is the same one only within half a cooldown of it. They are dropped three seconds
+  after the hit.
 
 ## What does not change
 
@@ -89,6 +98,15 @@ against the opponent as it is, `o(P)`. Two consequences:
 - **Favours the shooter.** A player can be hit by a shot they saw themselves dodge, by up to
   the shooter's frame gap. This is the standard trade in every shooter with lag compensation and
   is the price of the shooter's aim meaning what they see. The rewind is capped at one second.
+- **The view tick is the client's word.** The server cannot verify which frame the shooter
+  actually saw, so a modified client can claim the full one-second rewind on every shot and
+  hit a target that has since dodged. This is the same trust every lag-compensated shooter
+  extends (Source's `sv_maxunlag` is one second by default), and the cap is the whole of the
+  defence: it bounds what a lie buys to one second of the opponent's history. Tightening it
+  with server-verifiable timing - e.g. bounding the rewind by a server-measured round trip
+  plus the interpolation buffer - is possible later, but the server does not measure the
+  round trip today, and an honest client at the 450 ms playtest round trip already needs
+  about 50 ticks.
 - **Two views of one hit.** The victim sees the knockback when the authority reaches their
   view frame; the shooter sees it at once. Both see the same final positions.
 
@@ -96,8 +114,9 @@ against the opponent as it is, `o(P)`. Two consequences:
 
 - Server: a rewound hit lands on the opponent's past position and the same shot without a view
   tick misses; the rewind is recorded from the view tick, capped, and zero without one; the
-  coordinator keeps the gap through a stamp clamp and bounds it; the endpoint accepts the 13th
-  field and still accepts the 12-field input. Determinism fixture re-recorded.
+  coordinator keeps the view tick in place through a stamp clamp and bounds its gap to the
+  applied stamp; a view tick without a fire edge is not inherited; the endpoint accepts the
+  13th field and still accepts the 12-field input. Determinism fixture re-recorded.
 - Client: `sampleTimeline` reports the view tick; the offset is zero at the hit, grows by the
   server's knockback physics, and returns to zero after the gap; the state hook pushes the
   displayed opponent on a visual hit and keys hits by trajectory; the input hook stamps the fire

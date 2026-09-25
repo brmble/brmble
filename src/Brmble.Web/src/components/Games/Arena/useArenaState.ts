@@ -4,7 +4,8 @@ import type {
 } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
 import {
-  constrainLocalDisplay, knockbackImpulse, predictedKnockbackOffset, projectileReachedBody, projectileTrajectoryKey,
+  constrainLocalDisplay, isSameShot, knockbackImpulse, predictedKnockbackOffset, projectileLaunchTick,
+  projectileReachedBody, projectileTrajectoryKey,
   reconcile, sampleTimeline, stepLocal, type PredictedArenaState, type PredictedHit, type SampledArenaFrame,
 } from './arenaMath';
 import {
@@ -419,11 +420,10 @@ export function useArenaState({
         // ticks of travel at 100 ms RTT, during which the shot would be drawn sailing
         // through the body the player aimed at. So an own shot stops being drawn once
         // it has reached the displayed opponent (`projectileReachedBody`), and the
-        // knockback follows when the sampled frame catches up. The two disagree
-        // exactly when the opponent's displayed and authoritative positions differ by
-        // more than the hit radius: the shot vanishes at a body the server says it
-        // missed, or overshoots one the server says it hit. Closing that needs the
-        // server to judge the hit in the shooter's frame, which is a design change.
+        // knockback is predicted from that moment (below). The server judges the hit in
+        // this shooter's frame - the fire carries its view tick and the server rewinds
+        // the opponent to it - so the shot vanishing here and the server's verdict agree
+        // up to half a tick of rounding.
         const hitRadius = welcome.prediction.playerRadius + welcome.prediction.projectileRadius;
         const own = presented.projectiles.filter(projectile => projectile.ownerSessionId === current.selfSessionId);
         const reached = own.filter(projectile => remote !== null && projectileReachedBody(projectile, remote, displayedLocal, hitRadius));
@@ -440,11 +440,13 @@ export function useArenaState({
         } else {
           for (const projectile of reached) {
             const key = projectileTrajectoryKey(projectile);
-            if (predictedHitsRef.current.some(hit => hit.key === key)) continue;
+            const launchTick = projectileLaunchTick(projectile, presented.serverTick);
+            if (predictedHitsRef.current.some(hit =>
+              isSameShot(hit, key, launchTick, welcome.prediction.shotCooldownTicks))) continue;
             // The gap is rounded to whole ticks: the fire's view tick went out rounded,
             // so the server's rewind and its hit tick are whole ticks too.
             predictedHitsRef.current.push({
-              key, impulse: knockbackImpulse(projectile), hitViewTick: sampled.viewTick,
+              key, launchTick, impulse: knockbackImpulse(projectile), hitViewTick: sampled.viewTick,
               gapTicks: Math.max(0, Math.round(presented.serverTick - sampled.viewTick)),
             });
           }

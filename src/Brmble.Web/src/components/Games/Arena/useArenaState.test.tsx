@@ -297,6 +297,32 @@ describe('useArenaState', () => {
     expect(hook.result.current.remotePlayer?.x).toBe(-1000 - 389);
   });
 
+  it('counts two shots down the same line with the same charge as two hits', () => {
+    // A player standing still and tapping fires identical shots a cooldown apart: same
+    // line, same charge, so the same trajectory key. The second is 24 ticks behind the
+    // first along the flight, and reaching the body must push the opponent again.
+    const first = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 333 };
+    const second = { ...first, id: 8, x: 500 - 24 * 240 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [second, first] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(
+      ({ latest }) => useArenaState({
+        welcome: initial, latestSnapshot: latest, pendingInputs: [still], selfSessionId: 10,
+        currentPredictedTick: () => 103,
+      }),
+      { initialProps: { latest: null as ArenaSnapshot | null } },
+    );
+    expect(hook.result.current.projectiles).toEqual([]);
+    vi.setSystemTime(1150);
+    hook.rerender({ latest: snapshot(2, 1050, 1000) });
+    act(() => frame?.(performance.now()));
+    // Twice the single-shot push of 389.
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000 - 2 * 389);
+  });
+
   it('presents predicted own projectiles immediately', () => {
     const initial = welcome(333);
     const fire: PendingArenaInput = {

@@ -46,6 +46,12 @@ export interface InputLead {
   sample(rttMs: number, nowMs: number): void;
   /** The lead to stamp with right now, in ticks. Slews towards the target over time. */
   leadTicks(nowMs: number): number;
+  /**
+   * Retunes the lead for a game's tick rate, which the client learns from the welcome.
+   * The round trip is kept; a lead already in use is set to the new target at once,
+   * since its tick count means a different time at the new rate.
+   */
+  setTickRate(tickRate: number): void;
   /** The lead the samples currently justify, before slewing. */
   readonly targetTicks: number;
   /** The round-trip estimate in milliseconds, or null before the first sample. */
@@ -70,7 +76,7 @@ export const DEFAULT_LEAD_MAX_TICKS = 34;
 export const DEFAULT_LEAD_SLEW_MS = 500;
 
 export function createInputLead({
-  tickRate,
+  tickRate: initialTickRate,
   windowSize = DEFAULT_LEAD_WINDOW,
   marginTicks = DEFAULT_LEAD_MARGIN_TICKS,
   minTicks = DEFAULT_LEAD_MIN_TICKS,
@@ -78,7 +84,11 @@ export function createInputLead({
   slewMs = DEFAULT_LEAD_SLEW_MS,
   percentile = 0.2,
 }: InputLeadOptions): InputLead {
-  if (!Number.isFinite(tickRate) || tickRate <= 0) throw new RangeError('Input lead needs a positive tick rate');
+  const validTickRate = (rate: number) => {
+    if (!Number.isFinite(rate) || rate <= 0) throw new RangeError('Input lead needs a positive tick rate');
+    return rate;
+  };
+  let tickRate = validTickRate(initialTickRate);
   if (!Number.isInteger(windowSize) || windowSize < 1) throw new RangeError('Input lead window must be a positive integer');
   if (minTicks > maxTicks) throw new RangeError('Input lead minimum exceeds its maximum');
 
@@ -89,6 +99,9 @@ export function createInputLead({
   let lastSlewAt = Number.NEGATIVE_INFINITY;
 
   const clamp = (ticks: number) => Math.min(maxTicks, Math.max(minTicks, ticks));
+  const retarget = () => {
+    if (rttMs !== null) targetTicks = clamp(Math.ceil(rttMs * tickRate / 1000) + marginTicks);
+  };
 
   return {
     sample(rtt, nowMs) {
@@ -98,7 +111,7 @@ export function createInputLead({
       const sorted = [...samples].sort((left, right) => left - right);
       const index = Math.min(sorted.length - 1, Math.floor(sorted.length * percentile));
       rttMs = sorted[index];
-      targetTicks = clamp(Math.ceil(rttMs * tickRate / 1000) + marginTicks);
+      retarget();
       if (samples.length === 1) {
         currentTicks = targetTicks;
         lastSlewAt = nowMs;
@@ -110,6 +123,12 @@ export function createInputLead({
         lastSlewAt = nowMs;
       }
       return currentTicks;
+    },
+    setTickRate(rate) {
+      if (validTickRate(rate) === tickRate) return;
+      tickRate = rate;
+      retarget();
+      currentTicks = targetTicks;
     },
     get targetTicks() {
       return targetTicks;

@@ -472,6 +472,8 @@ export function projectileReachedBody(
 export interface PredictedHit {
   /** The shot's line of flight, so the predicted and the authoritative projectile count once. */
   key: string;
+  /** When the shot left, from `projectileLaunchTick`: tells apart two shots down the same line. */
+  launchTick: number;
   impulse: FixedVec;
   /** The view tick the shot reached the displayed opponent at. */
   hitViewTick: number;
@@ -482,10 +484,34 @@ export interface PredictedHit {
 /**
  * Identifies a projectile by its line of flight rather than its id: `x·vy - y·vx` is
  * invariant along the flight, so the predicted shot (negative id) and the authoritative
- * one it becomes share a key. The charge separates two shots down the same line.
+ * one it becomes share a key. Two shots down the same line with the same charge - a
+ * player standing still and tapping - share it too; `projectileLaunchTick` tells those
+ * apart.
  */
 export function projectileTrajectoryKey(projectile: ArenaProjectileSnapshot): string {
   return `${projectile.ownerSessionId}:${projectile.vx}:${projectile.vy}:${projectile.x * projectile.vy - projectile.y * projectile.vx}:${projectile.chargePermille}`;
+}
+
+/**
+ * The tick a projectile drawn at `tick` would have been at the line's origin: its
+ * distance along the line in ticks of flight, `(x·vx + y·vy) / |v|²`, grows by exactly
+ * one a tick, so `tick` minus it is invariant over the flight. The predicted shot and
+ * the authoritative one it becomes are drawn on the same tick at the same place and
+ * agree on it; two shots down the same line are a cooldown apart.
+ */
+export function projectileLaunchTick(projectile: ArenaProjectileSnapshot, tick: number): number {
+  const speedSquared = projectile.vx * projectile.vx + projectile.vy * projectile.vy;
+  if (speedSquared === 0) return tick;
+  return tick - (projectile.x * projectile.vx + projectile.y * projectile.vy) / speedSquared;
+}
+
+/**
+ * Whether a reached projectile is a shot a predicted hit was already recorded for. Half
+ * the cooldown apart is still the same shot: an install a tick or two late spawns the
+ * authoritative projectile that much later, and the next shot is a whole cooldown away.
+ */
+export function isSameShot(hit: PredictedHit, key: string, launchTick: number, shotCooldownTicks: number): boolean {
+  return hit.key === key && Math.abs(hit.launchTick - launchTick) < shotCooldownTicks / 2;
 }
 
 /** The impulse the server adds to the opponent's velocity when this projectile hits: its direction times the charge-scaled knockback. */

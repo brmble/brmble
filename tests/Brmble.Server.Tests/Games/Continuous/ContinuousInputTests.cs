@@ -126,7 +126,7 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task ViewTick_KeepsItsGapToTheStampAcrossAClampAndIsBounded()
+    public async Task ViewTick_StaysPutAcrossAStampClampAndIsBoundedToTheAppliedStamp()
     {
         var h = await CoordinatorHarness.Started(serverTick: 1_000);
 
@@ -134,18 +134,37 @@ public class ContinuousInputTests
         // passes untouched, gap 15.
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_001, viewTick: 986)).Accepted);
         Assert.AreEqual(986L, h.Simulation.LastInput(10).ViewTick);
-        // A late stamp is clamped to tick + 1; the view tick keeps its gap of 9 to it.
-        Assert.IsTrue(h.Submit(Input(2, predictedTick: 879, viewTick: 870)).Accepted);
+        // A late stamp is clamped to tick + 1 and the view tick stays where the shooter
+        // saw it: the gap grows by the six ticks of lateness, so the rewind covers them.
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 995, viewTick: 986)).Accepted);
         Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick);
-        Assert.AreEqual(992L, h.Simulation.LastInput(10).ViewTick);
-        // A gap past the bound is cut to it; a view from the future is no gap at all.
-        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_001, viewTick: 700)).Accepted);
+        Assert.AreEqual(986L, h.Simulation.LastInput(10).ViewTick);
+        // The bound is measured against the stamp that applies: this gap of 9 becomes 131
+        // after the clamp and is cut to the bound.
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 879, viewTick: 870)).Accepted);
         Assert.AreEqual(1_001L - ContinuousGameCoordinator.MaxViewLagTicks, h.Simulation.LastInput(10).ViewTick);
-        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_001, viewTick: 1_050)).Accepted);
+        // A gap past the bound is cut to it; a view from the future is no gap at all.
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_001, viewTick: 700)).Accepted);
+        Assert.AreEqual(1_001L - ContinuousGameCoordinator.MaxViewLagTicks, h.Simulation.LastInput(10).ViewTick);
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_001, viewTick: 1_050)).Accepted);
         Assert.AreEqual(1_001L, h.Simulation.LastInput(10).ViewTick);
         // Unknown stays unknown.
-        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_001)).Accepted);
+        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_001)).Accepted);
         Assert.AreEqual(0L, h.Simulation.LastInput(10).ViewTick);
+    }
+
+    [TestMethod]
+    public async Task ViewTick_OfAFarFutureStampIsBoundedToTheClampedStamp()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 1_000);
+
+        // Clamped down to 1_040. The view tick stays put, 1_045 is past the stamp that
+        // applies, so it is a view from the future: no rewind.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_055, viewTick: 1_045)).Accepted);
+        h.Simulation.Tick = 1_039;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).ViewTick);
     }
 
     [TestMethod]
@@ -215,22 +234,74 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task ScheduledInputs_InstallInStampOrderThenArrivalOrder()
+    public async Task ScheduledInputs_InstallInArrivalOrderWhenAStampGoesBackwards()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        // A late snapshot or the lead slewing down makes a client's next stamp one lower
+        // than its last. Installing by stamp would put the later input under the earlier
+        // one, and the server would keep the held state the client had already replaced.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 6, moveX: 60)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10), "the regressed stamp was raised to 6, not installed at 5");
+        h.Simulation.Tick = 5;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX, "arrival order: the later input wins");
+        Assert.AreEqual(6L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInputs_SameStampInstallsInArrivalOrder()
     {
         var h = await CoordinatorHarness.Started();
 
         Assert.IsTrue(h.Submit(Input(1, predictedTick: 6, moveX: 60)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2, predictedTick: 4, moveX: 40)).Accepted);
-        Assert.IsTrue(h.Submit(Input(3, predictedTick: 6, moveX: 61)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 6, moveX: 61)).Accepted);
 
-        h.Simulation.Tick = 3;
-        h.Coordinator.InstallScheduledInputs(h.MatchId);
-        Assert.AreEqual(40, h.Simulation.LastInput(10).MoveX);
-        Assert.AreEqual(1, h.Simulation.SetInputCount(10));
         h.Simulation.Tick = 5;
         h.Coordinator.InstallScheduledInputs(h.MatchId);
         Assert.AreEqual(61, h.Simulation.LastInput(10).MoveX, "same stamp: arrival order, so the later one wins");
-        Assert.AreEqual(3, h.Simulation.SetInputCount(10));
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
+    }
+
+    [TestMethod]
+    public async Task StampFloor_IsDroppedWithTheQueue()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 30, moveX: 100)).Accepted);
+
+        // The neutral timeout drops the queue; a client stamping afresh after it is not
+        // held to the stamp of an input that will never land.
+        h.Time.Advance(TimeSpan.FromMilliseconds(751));
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task StampFloor_IsDroppedOnDetach()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 30, moveX: 100)).Accepted);
+
+        await h.Coordinator.DetachAsync("one");
+        var attached = await h.Coordinator.AttachParticipantAsync(
+            h.MatchId, 501, 10, "again", new RealtimeSnapshotMailbox());
+        Assert.IsTrue(attached.Ok, attached.Error);
+        h.Coordinator.AcknowledgeAttach("again", attached.Welcome!.SnapshotSequence);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX);
     }
 
     [TestMethod]
@@ -366,6 +437,29 @@ public class ContinuousInputTests
         h.Time.Advance(TimeSpan.FromMilliseconds(1));
         Assert.IsTrue(h.Submit(Input(123, fireReleased: true)).Accepted);
         Assert.IsTrue(h.Simulation.LastInput(10).FireReleased, "the window expired at exactly one second");
+    }
+
+    [TestMethod]
+    public async Task RateLimitedFlood_CannotGrowTheScheduledQueuePastItsCap()
+    {
+        var h = await CoordinatorHarness.Started();
+        // The whole in-budget second is stamped as far out as the clamp allows, so every
+        // input is still waiting when the flood starts.
+        for (var sequence = 1; sequence <= 120; sequence++)
+            Assert.IsTrue(h.Submit(Input(sequence, predictedTick: 40)).Accepted);
+
+        // Over budget an input is acknowledged whether or not it is queued, but past the
+        // cap it is not queued: before the cap every one of these waited for its tick.
+        for (var sequence = 121; sequence <= 1_120; sequence++)
+        {
+            var flooded = h.Submit(Input(sequence, predictedTick: 40, moveX: 100));
+            Assert.IsTrue(flooded.Accepted);
+            Assert.AreEqual(sequence, flooded.AcknowledgedInput);
+        }
+
+        h.Simulation.Tick = 39;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(ContinuousGameCoordinator.MaxScheduledInputsOverBudget, h.Simulation.SetInputCount(10));
     }
 
     [TestMethod]

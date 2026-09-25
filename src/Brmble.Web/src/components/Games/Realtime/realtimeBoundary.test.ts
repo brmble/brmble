@@ -8,10 +8,12 @@ import { join } from 'node:path';
  * leak, so the boundary is pinned by reading the source.
  */
 describe('realtime boundary', () => {
-  it('imports nothing from a game folder and names no game', () => {
+  it('imports nothing from a game folder and names no game, in source or tests', () => {
     const folder = join(process.cwd(), 'src', 'components', 'Games', 'Realtime');
     const leaks = readdirSync(folder)
-      .filter(name => /\.(ts|tsx)$/.test(name) && !name.includes('.test.'))
+      // Tests are included: a test importing a game's code is the same leak. Only this
+      // file is exempt, because it names what it looks for.
+      .filter(name => /\.(ts|tsx)$/.test(name) && name !== 'realtimeBoundary.test.ts')
       .flatMap(name => readFileSync(join(folder, name), 'utf8').split('\n')
         .map((line, index) => ({ name, line, number: index + 1 }))
         .filter(({ line }) => /from '\.\.\/(Arena|Rps|Deathroll)/.test(line) || /\bArena\b/.test(line)))

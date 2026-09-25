@@ -140,6 +140,8 @@ interface Runtime<TInput> {
   serverTick: number;
   tickRate: number;
   clockStartedAt: number;
+  /** The newest stamp sent on this attach; the floor for the next one. */
+  lastStamp: number;
   lastSnapshotSequence: number;
   lastDirectionSentAt: number;
   transmittedDirection: RealtimeDirection;
@@ -161,11 +163,18 @@ function sameDirection(left: RealtimeDirection, right: RealtimeDirection): boole
  * with, so the stamp has to name a tick the input can still reach: the last known
  * server tick, plus the time since it was known, plus a lead covering the round trip.
  * Local prediction runs from the same tick, which is what makes the two agree.
+ *
+ * Never below the previous stamp. A snapshot that arrives late re-anchors the clock a
+ * tick lower than it had extrapolated, and the lead slews down a tick at a time, so
+ * the raw estimate can step back. A later input stamped below an earlier one would be
+ * installed before it, and the server would keep the held state this client had
+ * already replaced. The server floors stamps the same way; flooring here as well keeps
+ * the prediction on the tick the server will actually use.
  */
 function currentPredictedTick<TInput>(runtime: Runtime<TInput>): number {
   const now = performance.now();
   const elapsedTicks = Math.floor((now - runtime.clockStartedAt) * runtime.tickRate / 1000);
-  return runtime.serverTick + Math.max(1, elapsedTicks) + runtime.lead.leadTicks(now);
+  return Math.max(runtime.lastStamp, runtime.serverTick + Math.max(1, elapsedTicks) + runtime.lead.leadTicks(now));
 }
 
 export function useRealtimeConnection<TInput, TWelcome extends RealtimeWelcomeShape, TSnapshot extends RealtimeSnapshotShape, TClosed extends RealtimeMatchClosedShape>(
@@ -193,7 +202,8 @@ export function useRealtimeConnection<TInput, TWelcome extends RealtimeWelcomeSh
   const serverClockRef = useRef<ServerClock | null>(null);
   serverClockRef.current ??= createServerClock();
   // Same lifetime and the same discipline as the clock above: the round trip is a
-  // property of the network, not of the match, so it survives a reconnect.
+  // property of the network, not of the match, so it survives a reconnect. The tick
+  // rate is the game's and is set from every welcome.
   const inputLeadRef = useRef<InputLead | null>(null);
   inputLeadRef.current ??= createInputLead({ tickRate: DEFAULT_TICK_RATE });
   const sendStateRef = useRef<(runtime: Runtime<TInput>, input: TInput, heartbeat: boolean) => void>(() => {});
@@ -218,6 +228,7 @@ export function useRealtimeConnection<TInput, TWelcome extends RealtimeWelcomeSh
     if (!sendMessage(runtime, message)) return;
 
     runtime.nextSequence++;
+    runtime.lastStamp = predictedTick;
     const direction = codecRef.current.direction(input);
     const directionChanged = !sameDirection(direction, runtime.transmittedDirection);
     const directionSentAt = directionChanged || runtime.sentFrames.length === 0
@@ -325,7 +336,7 @@ export function useRealtimeConnection<TInput, TWelcome extends RealtimeWelcomeSh
       generation, matchId, socket: null, retryTimer: null, deadlineTimer: null,
       directionTimer: null, heartbeatTimer: null, reconnectStartedAt: null, retryIndex: 0,
       attemptGeneration: 0, sessionId: null, nextSequence: null, serverTick: 0,
-      tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastSnapshotSequence: -1,
+      tickRate: DEFAULT_TICK_RATE, clockStartedAt: performance.now(), lastStamp: 0, lastSnapshotSequence: -1,
       lastDirectionSentAt: Number.NEGATIVE_INFINITY, transmittedDirection: codecRef.current.direction(neutralInput),
       lastSentInput: neutralInput, currentInput: neutralInput, queuedDirectionInput: null,
       pendingInputs: [], sentFrames: [],
@@ -403,7 +414,12 @@ export function useRealtimeConnection<TInput, TWelcome extends RealtimeWelcomeSh
       runtime.serverTick = message.serverTick;
       runtime.sessionId = message.sessionId;
       runtime.tickRate = message.tickRate;
+      // The lead converts the round trip into ticks, so it has to use the game's rate,
+      // not the default; the round trip itself carries over from an earlier attach.
+      runtime.lead.setTickRate(message.tickRate);
       runtime.clockStartedAt = performance.now();
+      // The server drops its stamp floor with the queue on a reconnect; so does this.
+      runtime.lastStamp = 0;
       runtime.nextSequence = message.acknowledgedInput + 1;
       runtime.lastSnapshotSequence = message.snapshotSequence;
       runtime.retryIndex = 0;

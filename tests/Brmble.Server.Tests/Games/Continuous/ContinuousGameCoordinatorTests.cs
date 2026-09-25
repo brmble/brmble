@@ -502,6 +502,29 @@ public sealed class ContinuousGameCoordinatorTests
     }
 
     [TestMethod]
+    public async Task GameEndedCarriesTheSameConfigurationAsGameStarted()
+    {
+        // A configuration that shares nothing with the arena's, so a hardcoded arena
+        // gameType, format, ruleset or options on game.ended cannot pass.
+        var configuration = new DuelConfiguration("fault-test", "first-to-5", 7,
+            new Dictionary<string, object?> { ["arenaSize"] = "large" }, "continuous");
+        var h = await FaultHarness.StartAsync(new FaultSimulation(completeOnStep: true), configuration);
+        await h.AttachBothAsync();
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(20));
+        await WaitForGameEndedAsync(h.Publisher);
+
+        var started = h.Publisher.Payload("game.started");
+        var ended = h.Publisher.GameEnded();
+        Assert.AreEqual("fault-test", ended.GetProperty("gameType").GetString());
+        Assert.AreEqual("first-to-5", ended.GetProperty("format").GetString());
+        Assert.AreEqual(7, ended.GetProperty("rulesetVersion").GetInt32());
+        Assert.AreEqual("large", ended.GetProperty("options").GetProperty("arenaSize").GetString());
+        foreach (var field in new[] { "matchId", "gameType", "format", "rulesetVersion", "options" })
+            Assert.AreEqual(started.GetProperty(field).GetRawText(), ended.GetProperty(field).GetRawText(), field);
+    }
+
+    [TestMethod]
     public async Task DrawCompletionPublishesANullWinnerRatherThanInventingOne()
     {
         var h = await FaultHarness.StartAsync(new FaultSimulation(drawOnStep: true));
@@ -841,15 +864,17 @@ public sealed class ContinuousGameCoordinatorTests
         }
         public Task PublishToChannelAsync(int channelId, object message) => Task.CompletedTask;
 
-        public JsonElement GameEnded()
+        public JsonElement GameEnded() => Payload("game.ended");
+
+        public JsonElement Payload(string type)
         {
             string? payload;
             lock (_gate)
             {
-                var index = _types.IndexOf("game.ended");
+                var index = _types.IndexOf(type);
                 payload = index >= 0 ? _payloads[index] : null;
             }
-            Assert.IsNotNull(payload, "No game.ended message was published.");
+            Assert.IsNotNull(payload, $"No {type} message was published.");
             using var document = JsonDocument.Parse(payload);
             return document.RootElement.Clone();
         }
@@ -869,7 +894,8 @@ public sealed class ContinuousGameCoordinatorTests
         public long MatchId { get; }
         public int MatchCompletedCount { get; private set; }
 
-        public static async Task<FaultHarness> StartAsync(FaultSimulation simulation)
+        public static async Task<FaultHarness> StartAsync(
+            FaultSimulation simulation, DuelConfiguration? configuration = null)
         {
             var time = new ManualTimeProvider();
             var sink = new RecordingSink();
@@ -879,7 +905,7 @@ public sealed class ContinuousGameCoordinatorTests
                 NullLogger<ContinuousGameCoordinator>.Instance);
             var started = await coordinator.StartAsync(new DuelReservation(
                 9, 7, new DuelPlayer(10, 501, "Alice"), new DuelPlayer(20, 502, "Bob"),
-                new DuelConfiguration("fault-test", "bo3", 1, new Dictionary<string, object?>(), "continuous"),
+                configuration ?? new DuelConfiguration("fault-test", "bo3", 1, new Dictionary<string, object?>(), "continuous"),
                 DateTimeOffset.UnixEpoch, 1, null));
             Assert.IsTrue(started.Success, started.Error);
             var harness = new FaultHarness(time, coordinator, sink, publisher, started.MatchId);

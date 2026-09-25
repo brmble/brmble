@@ -73,4 +73,28 @@ describe('inputLead', () => {
     lead.sample(Number.POSITIVE_INFINITY, 2);
     expect(lead.sampleCount).toBe(0);
   });
+
+  it('retunes to a new tick rate, keeping the round trip and jumping to the new target', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500 });
+    lead.sample(200, 0); // ceil(12) + 2 = 14 at 60 Hz
+    expect(lead.leadTicks(0)).toBe(14);
+    lead.setTickRate(120);
+    // ceil(200 * 120 / 1000) = 24, plus the margin; no slew, the old count meant another time.
+    expect(lead.rttMs).toBe(200);
+    expect(lead.targetTicks).toBe(26);
+    expect(lead.leadTicks(1)).toBe(26);
+    lead.setTickRate(30);
+    expect(lead.leadTicks(2)).toBe(8);
+    expect(() => lead.setTickRate(0)).toThrow(RangeError);
+  });
+
+  it('keeps a slewing lead where it is when the tick rate does not change', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500, windowSize: 4 });
+    lead.sample(100, 0); // 8
+    for (let index = 0; index < 4; index++) lead.sample(200, 10 + index); // target 14, lead still 8
+    expect(lead.targetTicks).toBe(14);
+    lead.setTickRate(60);
+    expect(lead.leadTicks(100)).toBe(8);
+  });
 });
+

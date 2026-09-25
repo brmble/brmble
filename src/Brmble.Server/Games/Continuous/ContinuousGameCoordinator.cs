@@ -55,6 +55,11 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     // from claiming to have aimed at a position from the distant past. The arena caps its
     // own rewind lower still.
     internal const int MaxViewLagTicks = 120;
+    // How many inputs a participant may have waiting once it is over the message budget.
+    // Within the budget the queue is bounded by the rate times the schedule-ahead window
+    // (120/s over two thirds of a second, 80); past it an input still lands its held
+    // state, so without this cap a flood would grow the queue without bound.
+    internal const int MaxScheduledInputsOverBudget = MaxMessagesPerSecond;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -241,6 +246,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participant.Mailbox = null;
             participant.AttachAcknowledged = false;
             participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -358,14 +364,17 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             }
 
             // Out-of-range fields are corrected rather than refused. The tick is clamped
-            // into [tick + 1, tick + 30]: a late stamp applies on the next step, a
-            // far-future one no more than half a second out. The realistic way a stamp
+            // into [tick + 1, tick + 40]: a late stamp applies on the next step, a
+            // far-future one no more than two thirds of a second out. It is also never
+            // below the previous input's stamp, so arrival order wins over a stamp that
+            // went backwards and the queue stays in arrival order. The realistic way a stamp
             // leaves the window is the server falling behind wall time - FixedStepScheduler
             // forgives its catch-up debt after MaxCatchUpTicks - so a stall of half a
             // second used to put every subsequent input past the window until the next
             // snapshot, exactly when a reconnect storm was least affordable. The clamp is
             // logged because it is the health signal for the client's lead estimate.
-            var sanitized = Sanitize(input, state.Simulation.Tick, participant);
+            var sanitized = Sanitize(input, state.Simulation.Tick, participant.LastScheduledTick,
+                participant.DirectionX, participant.DirectionY);
             if (sanitized.PredictedTick != input.PredictedTick)
             {
                 _logger.LogDebug(
@@ -390,7 +399,16 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             // against the window, exactly as a rejected one never was, so a flood cannot
             // extend its own punishment; it is simply cheap and nearly inert.
             if (messageRateExceeded)
+            {
+                // The held state lands only while the queue has room. Past the cap a
+                // flood is acknowledged and dropped, which is what the old rejection did.
+                if (participant.Scheduled.Count >= MaxScheduledInputsOverBudget)
+                {
+                    participant.AcknowledgedInput = input.Sequence;
+                    return new InputResult(true, default, input.Sequence);
+                }
                 input = input.HeldOnly();
+            }
 
             // A direction-rate violation clamps the direction to the last accepted one
             // and lets the rest of the input through. Movement, charging and dash merely
@@ -459,13 +477,10 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     private static void Schedule(ParticipantInputState participant, ContinuousInput input)
     {
-        // Ordered by stamp, then by arrival. Stamps are monotonic on a sane client and the
-        // socket is ordered, so this is an append in practice; the walk back covers a
-        // clamp that pulled a far-future stamp below an earlier one.
-        var scheduled = participant.Scheduled;
-        var index = scheduled.Count;
-        while (index > 0 && scheduled[index - 1].PredictedTick > input.PredictedTick) index--;
-        scheduled.Insert(index, input);
+        // Ordered by stamp, then by arrival. Sanitize floors every stamp at the previous
+        // one, so stamp order is arrival order and this is always an append.
+        participant.Scheduled.Add(input);
+        participant.LastScheduledTick = input.PredictedTick;
     }
 
     private static void InstallDue(ContinuousMatchState state, ParticipantInputState participant)
@@ -544,6 +559,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         foreach (var participant in participants)
         {
             participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             try { state.Simulation.SetNeutralInput(participant.SimulationSessionId); }
             catch (Exception ex)
             {
@@ -907,16 +923,23 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     /// original range check refused outright (it has no positive counterpart), so it
     /// is folded to <c>-32_767</c> before scaling.
     /// </summary>
+    /// <param name="earliestTick">The previous input's stamp. A stamp below it is raised
+    /// to it, so a client whose stamp stepped back does not have a later input installed
+    /// before an earlier one; arrival order wins. Zero when there is none.</param>
     internal static ContinuousInput Sanitize(
-        ContinuousInput input, long serverTick, short lastAimX, short lastAimY)
+        ContinuousInput input, long serverTick, long earliestTick, short lastAimX, short lastAimY)
     {
-        var predictedTick = Math.Clamp(input.PredictedTick, serverTick + 1, serverTick + MaxScheduleAheadTicks);
-        // The view tick travels with the stamp: what matters is its gap to the stamp, so a
-        // clamped stamp drags it along, and a gap that is negative (a view from the future)
-        // or past the bound is corrected rather than refused. Zero stays zero: unknown.
+        var latest = serverTick + MaxScheduleAheadTicks;
+        var predictedTick = Math.Clamp(
+            input.PredictedTick, Math.Clamp(earliestTick, serverTick + 1, latest), latest);
+        // The view tick stays where the client put it: it names the frame the shooter saw,
+        // and a stamp moved later (a late input, installed on arrival) moves the spawn
+        // further from that frame, so the rewind grows by the lateness. Only its gap to the
+        // stamp that will actually apply is bounded, so a view from the future or one past
+        // the bound is corrected rather than refused. Zero stays zero: unknown.
         var viewTick = input.ViewTick <= 0
             ? 0
-            : predictedTick - Math.Clamp(input.PredictedTick - input.ViewTick, 0, MaxViewLagTicks);
+            : predictedTick - Math.Clamp(predictedTick - input.ViewTick, 0, MaxViewLagTicks);
 
         var move = FixedVec.NormalizeQ15(
             Math.Max(input.MoveX, (short)-32_767), Math.Max(input.MoveY, (short)-32_767));
@@ -941,10 +964,6 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         };
     }
 
-    private static ContinuousInput Sanitize(
-        ContinuousInput input, long serverTick, ParticipantInputState participant) =>
-        Sanitize(input, serverTick, participant.DirectionX, participant.DirectionY);
-
     private void NeutralizeIfStale(
         ContinuousMatchState state, ParticipantInputState participant, long acceptedGeneration)
     {
@@ -954,6 +973,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 return;
 
             participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -1028,6 +1048,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public long AcknowledgedInput;
         /// <summary>Received inputs not yet due, ordered by stamp then arrival.</summary>
         public List<ContinuousInput> Scheduled { get; } = [];
+        /// <summary>The newest scheduled stamp, the floor for the next one. Reset with the
+        /// queue: a reconnected client stamps afresh.</summary>
+        public long LastScheduledTick;
         public short DirectionX = 32_767;
         public short DirectionY;
         public long AcceptedGeneration;
