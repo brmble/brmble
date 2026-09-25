@@ -72,7 +72,11 @@ public static class RealtimeGameEndpoint
         }
 
         var connectionId = CreateConnectionId();
-        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        // Development-only artificial latency; the null object outside Development
+        // returns the accepted socket untouched.
+        var transportDelay = context.RequestServices.GetService<DevRealtimeTransportDelay>()
+            ?? DevRealtimeTransportDelay.None;
+        using var socket = transportDelay.Wrap(await context.WebSockets.AcceptWebSocketAsync());
         var mailbox = new RealtimeSnapshotMailbox();
         var attached = await coordinator.AttachParticipantAsync(
             scope.MatchId, scope.StableUserId, scope.SessionId, connectionId, mailbox);
@@ -185,7 +189,11 @@ public static class RealtimeGameEndpoint
             }
             if (type is not ("input" or "heartbeat")) return false;
             var heartbeat = type == "heartbeat";
-            if (root.EnumerateObject().Count() != (heartbeat ? 10 : 12)
+            // An input may carry a 13th field, viewTick (see ContinuousInput.ViewTick); a
+            // client that predates it sends 12 and is served exactly as before.
+            var fieldCount = root.EnumerateObject().Count();
+            var hasViewTick = !heartbeat && root.TryGetProperty("viewTick", out _);
+            if (fieldCount != (heartbeat ? 10 : hasViewTick ? 13 : 12)
                 || !TryInt64(root, "sequence", out var sequence)
                 || !TryInt64(root, "predictedTick", out var predictedTick)
                 || !TryInt16(root, "moveX", out var moveX) || !TryInt16(root, "moveY", out var moveY)
@@ -194,10 +202,12 @@ public static class RealtimeGameEndpoint
 
             var fireReleased = false;
             var dash = false;
+            long viewTick = 0;
             if (!heartbeat && (!TryBoolean(root, "fireReleased", out fireReleased)
-                || !TryBoolean(root, "dash", out dash))) return false;
+                || !TryBoolean(root, "dash", out dash)
+                || (hasViewTick && !TryInt64(root, "viewTick", out viewTick)))) return false;
             var input = new ContinuousInput(sequence, predictedTick, moveX, moveY,
-                aimX, aimY, charging, fireReleased, dash);
+                aimX, aimY, charging, fireReleased, dash, viewTick);
             var response = coordinator.SubmitInput(
                 scope.MatchId, scope.SessionId, scope.Role, input, heartbeat);
             if (!response.Accepted)

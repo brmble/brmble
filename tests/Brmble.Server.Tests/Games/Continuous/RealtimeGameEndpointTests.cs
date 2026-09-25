@@ -215,20 +215,21 @@ public class RealtimeGameEndpointTests
     {
         await using var h = await RealtimeHarness.ConnectedParticipantAsync();
         using var welcome = await h.ReceiveJsonAsync();
-        await h.SendTextAsync($$"""
-            {"type":"attachAck","protocolVersion":1,"matchId":{{h.MatchId}},"snapshotSequence":{{welcome.RootElement.GetProperty("snapshotSequence").GetInt64()}}}
-            """);
         _ = await h.ReceiveJsonAsync();
+        // Sent before the attach is acknowledged. That is the one rejection a
+        // participant can still reach over the wire: sequence and range mistakes are
+        // acknowledged and corrected rather than refused.
         await h.SendTextAsync($$"""
-            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":2,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":1,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
             """);
         using var rejected = await h.ReceiveJsonAsync();
         Assert.AreEqual("inputRejected", rejected.RootElement.GetProperty("type").GetString());
-        Assert.AreEqual("sequenceGap", rejected.RootElement.GetProperty("reason").GetString());
+        Assert.AreEqual(1, rejected.RootElement.GetProperty("sequence").GetInt64());
+        Assert.AreEqual("wrongMatch", rejected.RootElement.GetProperty("reason").GetString());
     }
 
     [TestMethod]
-    public async Task CompleteHeartbeatStaysConnectedAndAdvancesTheInputSequence()
+    public async Task HeartbeatAndGappedInputAreAcknowledgedWithoutRejection()
     {
         await using var h = await RealtimeHarness.ConnectedParticipantAsync();
         using var welcome = await h.ReceiveJsonAsync();
@@ -239,14 +240,45 @@ public class RealtimeGameEndpointTests
         await h.SendTextAsync($$"""
             {"type":"heartbeat","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":1,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false}
             """);
+        // A gap. It used to be rejected, which left the acknowledgement behind and made
+        // every later frame a gap too; now it is accepted by advancing to what arrived.
         await h.SendTextAsync($$"""
             {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":3,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
             """);
+        await h.Simulation!.WaitForSequenceAsync(10, 3, TimeSpan.FromSeconds(2));
+        CollectionAssert.AreEqual(new long[] { 1, 3 }, h.Simulation.Sequences(10));
 
-        using var rejected = await h.ReceiveJsonAsync();
-        Assert.AreEqual("inputRejected", rejected.RootElement.GetProperty("type").GetString());
-        Assert.AreEqual(3, rejected.RootElement.GetProperty("sequence").GetInt64());
-        Assert.AreEqual("sequenceGap", rejected.RootElement.GetProperty("reason").GetString());
+        // Any inputRejected for those two would already be queued ahead of the close;
+        // the seal keeps queued controls, so the first message after it is the proof.
+        await h.Coordinator.ForfeitAsync(h.MatchId, 501, "test");
+        using var closed = await h.ReceiveJsonAsync();
+        Assert.AreEqual("matchClosed", closed.RootElement.GetProperty("type").GetString(),
+            "an inputRejected was written for an acknowledged sequence");
+    }
+
+    [TestMethod]
+    public async Task InputMayCarryAViewTickAndIsStillAcceptedWithoutOne()
+    {
+        await using var h = await RealtimeHarness.ConnectedParticipantAsync();
+        using var welcome = await h.ReceiveJsonAsync();
+        await h.SendTextAsync($$"""
+            {"type":"attachAck","protocolVersion":1,"matchId":{{h.MatchId}},"snapshotSequence":{{welcome.RootElement.GetProperty("snapshotSequence").GetInt64()}}}
+            """);
+        _ = await h.ReceiveJsonAsync();
+        // The 13-field input of a client that reports its view tick, then the 12-field
+        // input of one that predates it. Both are accepted; a 13th field that is not
+        // viewTick is still malformed.
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":1,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":true,"dash":false,"viewTick":-5}
+            """);
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":2,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false}
+            """);
+        await h.SendTextAsync($$"""
+            {"type":"input","protocolVersion":1,"matchId":{{h.MatchId}},"sequence":3,"predictedTick":0,"moveX":0,"moveY":0,"aimX":32767,"aimY":0,"charging":false,"fireReleased":false,"dash":false,"extra":1}
+            """);
+        await h.Simulation!.WaitForSequenceAsync(10, 2, TimeSpan.FromSeconds(2));
+        CollectionAssert.AreEqual(new long[] { 1, 2 }, h.Simulation.Sequences(10));
     }
 
     [TestMethod]
@@ -502,6 +534,7 @@ public class RealtimeGameEndpointTests
         }
 
         public ManualTimeProvider Time { get; }
+        public TestSimulation? Simulation { get; set; }
         public ContinuousGameCoordinator Coordinator { get; }
         public RealtimeTicketStore Tickets { get; }
         public long MatchId { get; }
@@ -514,7 +547,8 @@ public class RealtimeGameEndpointTests
             Action<RealtimeSnapshotMailbox>? afterAttach = null)
         {
             var time = new ManualTimeProvider();
-            var coordinator = new ContinuousGameCoordinator([new TestDefinition()], time,
+            var definition = new TestDefinition();
+            var coordinator = new ContinuousGameCoordinator([definition], time,
                 new Sink(), new Publisher(), NullLogger<ContinuousGameCoordinator>.Instance);
             var factory = new BrmbleServerFactory().WithWebHostBuilder(builder =>
             {
@@ -540,6 +574,7 @@ public class RealtimeGameEndpointTests
             Assert.IsTrue(started.Success, started.Error);
             var harness = new RealtimeHarness(factory, time, coordinator,
                 factory.Services.GetRequiredService<RealtimeTicketStore>(), started.MatchId);
+            harness.Simulation = definition.Simulation;
             coordinator.ParticipantDetached += _ =>
             {
                 harness.DetachCount++;
@@ -661,14 +696,29 @@ public class RealtimeGameEndpointTests
             projectileRadius = 180, projectilePerTick = 240, projectileBaseKnockback = 130,
             projectileBonusKnockback = 220, recoilBase = 45, recoilBonus = 105, dashTicks = 6, dashPerTick = 240,
         };
-        public IContinuousSimulation Create(DuelReservation reservation) => new TestSimulation();
+        public TestSimulation? Simulation { get; private set; }
+        public IContinuousSimulation Create(DuelReservation reservation) => Simulation = new TestSimulation();
     }
 
     private sealed class TestSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<(long SessionId, long Sequence)> _received = new();
         public long Tick => 0;
         public ContinuousMatchPhase Phase => ContinuousMatchPhase.AwaitingParticipants;
-        public void SetInput(long sessionId, ContinuousInput input) { }
+        public void SetInput(long sessionId, ContinuousInput input) => _received.Enqueue((sessionId, input.Sequence));
+        public long[] Sequences(long sessionId) =>
+            _received.Where(x => x.SessionId == sessionId).Select(x => x.Sequence).ToArray();
+        public async Task WaitForSequenceAsync(long sessionId, long sequence, TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (!Sequences(sessionId).Contains(sequence))
+            {
+                if (DateTime.UtcNow > deadline)
+                    throw new AssertFailedException($"sequence {sequence} for session {sessionId} never reached the simulation; saw [{string.Join(", ", Sequences(sessionId))}]");
+                await Task.Delay(5);
+            }
+        }
         public void SetNeutralInput(long sessionId) { }
         public ContinuousStepResult Step() => new(false, null);
         public object ParticipantSnapshot(long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs) => new

@@ -5,7 +5,7 @@ import type { PendingArenaInput } from './useArenaConnection';
 import { reconcile, sampleTimeline } from './arenaMath';
 import { KNOCKOUT_DURATION_MS } from './arenaKnockout';
 import { advanceLocalPresentation, interpolateLocalPresentation, useArenaState } from './useArenaState';
-import { createServerClock } from './serverClock';
+import { createServerClock } from '../Realtime/serverClock';
 
 const prediction = {
   unitsPerWorldUnit: 1000, playerRadius: 600, baseMovePerTick: 90, chargedMovePerTick: 45,
@@ -80,6 +80,30 @@ describe('useArenaState', () => {
     expect(hook.result.current.remotePlayer?.x).toBe(-970);
     hook.unmount();
     expect(cancelAnimationFrame).toHaveBeenCalled();
+  });
+
+  it('replays the newest pending interval through the connection\'s local tick', () => {
+    const move: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    // Hoisted: a fresh welcome identity per render would re-run the [welcome] effect.
+    const initial = welcome();
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [move], currentInput: move.input, selfSessionId: 10,
+      // The connection stamps at serverTick + elapsed + lead; the local state after a
+      // reconcile has to sit at that same tick, ten ticks past the welcome's 100.
+      currentPredictedTick: () => 110,
+    }));
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.localPlayer?.x).toBe(1000 + 10 * 90);
+
+    // Without a local clock the newest interval is only as wide as its own stamp.
+    const bare = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [move], currentInput: move.input, selfSessionId: 10,
+    }));
+    act(() => frame?.(performance.now()));
+    expect(bare.result.current.localPlayer?.x).toBe(1090);
   });
 
   it('advances local held movement every fixed tick between network sends', () => {
@@ -206,6 +230,97 @@ describe('useArenaState', () => {
     expect(latestFrame?.localPlayer?.x).toBe(1200);
     act(() => frame?.(startedAt + 250));
     expect(latestFrame?.localPlayer?.x).toBe(1200);
+  });
+
+  it('draws own projectiles in the prediction frame and the opponent\'s in the sampled frame', () => {
+    const own = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: 240, vy: 0, chargePermille: 500 };
+    const theirs = { id: 8, ownerSessionId: 20, x: -500, y: 0, vx: -240, vy: 0, chargePermille: 500 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [own, theirs] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    // The local frame is replayed two ticks past the snapshot (serverTick 100,
+    // through 102): the own shot has flown two velocities with the local player; the
+    // opponent's is still where the (single, unextrapolated) sampled frame has it,
+    // with the opponent.
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [still], selfSessionId: 10,
+      currentPredictedTick: () => 102,
+    }));
+    expect(hook.result.current.projectiles).toEqual([theirs, { ...own, x: 980 }]);
+  });
+
+  it('stops drawing an own projectile once it has reached the displayed opponent', () => {
+    // The opponent is displayed at x = -1000, the local player at 1000. One own shot
+    // is still on its way to the body; the other has already crossed it and would be
+    // drawn sailing through the opponent until the server's verdict arrives.
+    const onTheWay = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 500 };
+    const passed = { id: 8, ownerSessionId: 10, x: -2000, y: 300, vx: -240, vy: 0, chargePermille: 500 };
+    const theirs = { id: 9, ownerSessionId: 20, x: 3000, y: 0, vx: 240, vy: 0, chargePermille: 500 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [onTheWay, passed, theirs] } };
+    const hook = renderHook(() => useArenaState({
+      welcome: initial, latestSnapshot: null, pendingInputs: [], selfSessionId: 10,
+    }));
+    // The opponent's own shot is never subject to this: it is drawn in the same frame as its owner.
+    expect(hook.result.current.projectiles).toEqual([theirs, onTheWay]);
+  });
+
+  it('pushes the displayed opponent as soon as an own shot reaches them, before the authority shows it', () => {
+    // The opponent is displayed at x = -1000. Replayed to tick 103 the shot sits exactly
+    // the hit radius from the body: reached. It is no longer drawn, and the push starts
+    // the next view tick, so the opponent has not moved yet.
+    const shot = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 333 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [shot] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(
+      ({ latest }) => useArenaState({
+        welcome: initial, latestSnapshot: latest, pendingInputs: [still], selfSessionId: 10,
+        currentPredictedTick: () => 103,
+      }),
+      { initialProps: { latest: null as ArenaSnapshot | null } },
+    );
+    expect(hook.result.current.projectiles).toEqual([]);
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000);
+    expect(hook.result.current.viewTick).toBe(100);
+
+    // Two view ticks later the authority still shows the opponent unmoved (the server's
+    // verdict is a round trip away), yet they are drawn pushed by the impulse and its
+    // damped successor: 203 + 186, along the shot.
+    vi.setSystemTime(1150);
+    hook.rerender({ latest: snapshot(2, 1050, 1000) });
+    act(() => frame?.(performance.now()));
+    expect(hook.result.current.viewTick).toBe(102);
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000 - 389);
+  });
+
+  it('counts two shots down the same line with the same charge as two hits', () => {
+    // A player standing still and tapping fires identical shots a cooldown apart: same
+    // line, same charge, so the same trajectory key. The second is 24 ticks behind the
+    // first along the flight, and reaching the body must push the opponent again.
+    const first = { id: 7, ownerSessionId: 10, x: 500, y: 0, vx: -240, vy: 0, chargePermille: 333 };
+    const second = { ...first, id: 8, x: 500 - 24 * 240 };
+    const initial = { ...welcome(), state: { ...state(), projectiles: [second, first] } };
+    const still: PendingArenaInput = {
+      sequence: 1, predictedTick: 101, fromTick: 101, toTick: 101,
+      input: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
+    };
+    const hook = renderHook(
+      ({ latest }) => useArenaState({
+        welcome: initial, latestSnapshot: latest, pendingInputs: [still], selfSessionId: 10,
+        currentPredictedTick: () => 103,
+      }),
+      { initialProps: { latest: null as ArenaSnapshot | null } },
+    );
+    expect(hook.result.current.projectiles).toEqual([]);
+    vi.setSystemTime(1150);
+    hook.rerender({ latest: snapshot(2, 1050, 1000) });
+    act(() => frame?.(performance.now()));
+    // Twice the single-shot push of 389.
+    expect(hook.result.current.remotePlayer?.x).toBe(-1000 - 2 * 389);
   });
 
   it('presents predicted own projectiles immediately', () => {

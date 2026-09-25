@@ -23,7 +23,7 @@ public class ContinuousInputTests
     }
 
     [TestMethod]
-    public async Task Validation_UsesMatchRoleThenSequenceOrderWithoutAdvancingAcknowledgement()
+    public async Task Validation_ConnectionLevelReasonsStillRejectWithoutAdvancingAcknowledgement()
     {
         var h = await CoordinatorHarness.Started();
 
@@ -31,32 +31,380 @@ public class ContinuousInputTests
             h.Submit(Input(1), matchId: h.MatchId + 1, role: RealtimeRole.Spectator).Reason);
         Assert.AreEqual(ContinuousRejectReason.WrongMatch,
             h.Submit(Input(1), sessionId: 99).Reason);
-        Assert.AreEqual(ContinuousRejectReason.WrongRole,
-            h.Submit(Input(1), role: RealtimeRole.Spectator).Reason);
+        var role = h.Submit(Input(1), role: RealtimeRole.Spectator);
+        Assert.IsFalse(role.Accepted);
+        Assert.AreEqual(ContinuousRejectReason.WrongRole, role.Reason);
+        Assert.AreEqual(0L, role.AcknowledgedInput);
+        Assert.AreEqual(0, h.Simulation.SetInputCount(10), "a connection-level rejection reaches nothing");
         Assert.IsTrue(h.Submit(Input(1)).Accepted);
-        Assert.AreEqual(ContinuousRejectReason.StaleSequence, h.Submit(Input(1, predictedTick: -121)).Reason);
-        var gap = h.Submit(Input(3, predictedTick: -121));
-        Assert.AreEqual(ContinuousRejectReason.SequenceGap, gap.Reason);
-        Assert.AreEqual(1L, gap.AcknowledgedInput);
-        Assert.IsTrue(h.Submit(Input(2)).Accepted);
     }
 
     [TestMethod]
-    public async Task RangeValidation_UsesInclusiveTickAndNormalizedVectorBoundaries()
+    public async Task StaleSequence_IsIgnoredAndAcknowledgementDoesNotRegress()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, moveX: 50)).Accepted);
+
+        // The socket is ordered, so a repeat is a retransmit or a client bug. It is
+        // acknowledged at the current position and not applied: Reject used to leave
+        // the acknowledgement behind, and a client with a later frame already in flight
+        // answered the resulting gap by reconnecting.
+        var stale = h.Submit(Input(1, moveX: 100));
+
+        Assert.IsTrue(stale.Accepted, $"stale sequence was rejected: {stale.Reason}");
+        Assert.AreEqual(2L, stale.AcknowledgedInput);
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX, "a stale sequence must not be applied");
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
+        Assert.IsTrue(h.Submit(Input(3)).Accepted);
+    }
+
+    [TestMethod]
+    public async Task SequenceGap_AdvancesToReceivedSequence()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2)).Accepted);
+
+        var gap = h.Submit(Input(5, moveX: 200));
+
+        Assert.IsTrue(gap.Accepted, $"sequence gap was rejected: {gap.Reason}");
+        Assert.AreEqual(5L, gap.AcknowledgedInput);
+        Assert.AreEqual(200, h.Simulation.LastInput(10).MoveX);
+        Assert.AreEqual(3, h.Simulation.SetInputCount(10));
+        Assert.IsTrue(h.Submit(Input(6)).Accepted);
+        Assert.AreEqual(6L, h.Submit(Input(4)).AcknowledgedInput, "a sequence inside the skipped range is stale now");
+        Assert.AreEqual(4, h.Simulation.SetInputCount(10));
+    }
+
+    [TestMethod]
+    public async Task RangeViolations_AreClampedAndAcknowledged()
     {
         var h = await CoordinatorHarness.Started(serverTick: 1_000);
 
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(1, predictedTick: 879)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(1, predictedTick: 1_031)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(1, predictedTick: 1_000, aimX: 0)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange,
-            h.Submit(Input(1, predictedTick: 1_000, moveX: 32_767, moveY: 256)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange,
-            h.Submit(Input(1, predictedTick: 1_000, aimX: 23_171, aimY: 23_170)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange,
-            h.Submit(Input(1, predictedTick: 1_000, moveX: -32_768)).Reason);
-        Assert.IsTrue(h.Submit(Input(1, predictedTick: 880,
+        // The tick is clamped into [tick + 1, tick + 40]: a late stamp applies on the
+        // next step, a far-future one no more than two thirds of a second out. What matters is
+        // what the simulation sees, so the far-future one is driven to its install.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 879)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a late stamp applies on the next step");
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 1_041)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick, "a future stamp waits for its tick");
+        h.Simulation.Tick = 1_039;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick, "clamped to tick + 40");
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 1_040)).Accepted);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick, "the lower boundary passes untouched");
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_079)).Accepted);
+        h.Simulation.Tick = 1_078;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_079L, h.Simulation.LastInput(10).PredictedTick, "the upper boundary passes untouched");
+
+        // A zero or over-length aim falls back to the last accepted aim.
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_079, aimX: 0, aimY: 0)).Accepted);
+        Assert.AreEqual(32_767, h.Simulation.LastInput(10).AimX);
+        Assert.AreEqual(0, h.Simulation.LastInput(10).AimY);
+        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_079, aimX: -23_170, aimY: 23_170)).Accepted);
+        Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX);
+        Assert.IsTrue(h.Submit(Input(7, predictedTick: 1_079, aimX: 23_171, aimY: 23_170)).Accepted);
+        Assert.AreEqual(-23_170, h.Simulation.LastInput(10).AimX, "an over-length aim falls back to the last accepted aim");
+        Assert.AreEqual(23_170, h.Simulation.LastInput(10).AimY);
+
+        // An over-length move is scaled down along its own direction; short.MinValue,
+        // which has no positive counterpart, is folded to -32767 first.
+        Assert.IsTrue(h.Submit(Input(8, predictedTick: 1_079, moveX: 32_767, moveY: 256)).Accepted);
+        var scaled = h.Simulation.LastInput(10);
+        Assert.IsTrue(scaled.MoveX is > 32_000 and < 32_767, $"MoveX {scaled.MoveX}");
+        Assert.IsTrue(scaled.MoveY is > 0 and <= 256, $"MoveY {scaled.MoveY}");
+        Assert.IsTrue(FixedVec.IntegerSqrt((long)scaled.MoveX * scaled.MoveX + (long)scaled.MoveY * scaled.MoveY) <= 32_767);
+        Assert.IsTrue(h.Submit(Input(9, predictedTick: 1_079, moveX: -32_768)).Accepted);
+        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveX);
+        Assert.IsTrue(h.Submit(Input(10, predictedTick: 1_079,
             moveX: 23_170, moveY: 23_170, aimX: -23_170, aimY: 23_170)).Accepted);
+        Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveX);
+        Assert.AreEqual(23_170, h.Simulation.LastInput(10).MoveY);
+        Assert.AreEqual(10, h.Simulation.SetInputCount(10), "every corrected input reached the simulation");
+    }
+
+    [TestMethod]
+    public async Task ViewTick_StaysPutAcrossAStampClampAndIsBoundedToTheAppliedStamp()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 1_000);
+
+        // Stamped for the next step so each lands in the simulation at once. In range:
+        // passes untouched, gap 15.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_001, viewTick: 986)).Accepted);
+        Assert.AreEqual(986L, h.Simulation.LastInput(10).ViewTick);
+        // A late stamp is clamped to tick + 1 and the view tick stays where the shooter
+        // saw it: the gap grows by the six ticks of lateness, so the rewind covers them.
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 995, viewTick: 986)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(986L, h.Simulation.LastInput(10).ViewTick);
+        // The bound is measured against the stamp that applies: this gap of 9 becomes 131
+        // after the clamp and is cut to the bound.
+        Assert.IsTrue(h.Submit(Input(3, predictedTick: 879, viewTick: 870)).Accepted);
+        Assert.AreEqual(1_001L - ContinuousGameCoordinator.MaxViewLagTicks, h.Simulation.LastInput(10).ViewTick);
+        // A gap past the bound is cut to it; a view from the future is no gap at all.
+        Assert.IsTrue(h.Submit(Input(4, predictedTick: 1_001, viewTick: 700)).Accepted);
+        Assert.AreEqual(1_001L - ContinuousGameCoordinator.MaxViewLagTicks, h.Simulation.LastInput(10).ViewTick);
+        Assert.IsTrue(h.Submit(Input(5, predictedTick: 1_001, viewTick: 1_050)).Accepted);
+        Assert.AreEqual(1_001L, h.Simulation.LastInput(10).ViewTick);
+        // Unknown stays unknown.
+        Assert.IsTrue(h.Submit(Input(6, predictedTick: 1_001)).Accepted);
+        Assert.AreEqual(0L, h.Simulation.LastInput(10).ViewTick);
+    }
+
+    [TestMethod]
+    public async Task ViewTick_OfAFarFutureStampIsBoundedToTheClampedStamp()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 1_000);
+
+        // Clamped down to 1_040. The view tick stays put, 1_045 is past the stamp that
+        // applies, so it is a view from the future: no rewind.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_055, viewTick: 1_045)).Accepted);
+        h.Simulation.Tick = 1_039;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).ViewTick);
+    }
+
+    [TestMethod]
+    public async Task ServerStall_ClampsTheStampInsteadOfRejecting()
+    {
+        // FixedStepScheduler forgives its catch-up debt after MaxCatchUpTicks, so after a
+        // stall the server's tick is behind wall time while the client keeps stamping
+        // from wall time. Every input then lands past serverTick + 40 until the next
+        // snapshot resets the client. Rejecting those turned a server hiccup into a
+        // reconnect storm at the moment the server was least able to afford one.
+        var h = await CoordinatorHarness.Started(serverTick: 1_000);
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 1_003)).Accepted);
+
+        // The server stalls for 800 ms; the client's stamps run 48 ticks ahead of it.
+        var stalled = h.Submit(Input(2, predictedTick: 1_048, moveX: 100));
+
+        Assert.IsTrue(stalled.Accepted, $"input after a server stall was rejected: {stalled.Reason}");
+        Assert.AreEqual(2L, stalled.AcknowledgedInput);
+        h.Simulation.Tick = 1_039;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(1_040L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInput_IsInstalledAtItsStampNotOnArrival()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 5, moveX: 100)).Accepted);
+
+        Assert.IsFalse(h.Simulation.HasInput(10), "stamped four ticks out; nothing is due yet");
+        h.Simulation.Tick = 3;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10), "tick 5 is not the next step after tick 3");
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.HasInput(10));
+        Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task LateInput_IsInstalledOnTheNextStep()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 100);
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 97, moveX: 100)).Accepted);
+
+        Assert.AreEqual(101L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(100, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task FarFutureInput_IsClampedToFortyTicks()
+    {
+        var h = await CoordinatorHarness.Started(serverTick: 100);
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 500)).Accepted);
+
+        h.Simulation.Tick = 138;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10));
+        h.Simulation.Tick = 139;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(140L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInputs_InstallInArrivalOrderWhenAStampGoesBackwards()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        // A late snapshot or the lead slewing down makes a client's next stamp one lower
+        // than its last. Installing by stamp would put the later input under the earlier
+        // one, and the server would keep the held state the client had already replaced.
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 6, moveX: 60)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsFalse(h.Simulation.HasInput(10), "the regressed stamp was raised to 6, not installed at 5");
+        h.Simulation.Tick = 5;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX, "arrival order: the later input wins");
+        Assert.AreEqual(6L, h.Simulation.LastInput(10).PredictedTick);
+    }
+
+    [TestMethod]
+    public async Task ScheduledInputs_SameStampInstallsInArrivalOrder()
+    {
+        var h = await CoordinatorHarness.Started();
+
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 6, moveX: 60)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 6, moveX: 61)).Accepted);
+
+        h.Simulation.Tick = 5;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(61, h.Simulation.LastInput(10).MoveX, "same stamp: arrival order, so the later one wins");
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
+    }
+
+    [TestMethod]
+    public async Task StampFloor_IsDroppedWithTheQueue()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 30, moveX: 100)).Accepted);
+
+        // The neutral timeout drops the queue; a client stamping afresh after it is not
+        // held to the stamp of an input that will never land.
+        h.Time.Advance(TimeSpan.FromMilliseconds(751));
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task StampFloor_IsDroppedOnDetach()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 30, moveX: 100)).Accepted);
+
+        await h.Coordinator.DetachAsync("one");
+        var attached = await h.Coordinator.AttachParticipantAsync(
+            h.MatchId, 501, 10, "again", new RealtimeSnapshotMailbox());
+        Assert.IsTrue(attached.Ok, attached.Error);
+        h.Coordinator.AcknowledgeAttach("again", attached.Welcome!.SnapshotSequence);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: 5, moveX: 50)).Accepted);
+
+        h.Simulation.Tick = 4;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(5L, h.Simulation.LastInput(10).PredictedTick);
+        Assert.AreEqual(50, h.Simulation.LastInput(10).MoveX);
+    }
+
+    [TestMethod]
+    public async Task Acknowledgement_AdvancesOnReceiptNotInstall()
+    {
+        // The client measures its round trip from the acknowledgement. Advancing it at
+        // install time would fold the client's own lead into that estimate.
+        var h = await CoordinatorHarness.Started();
+
+        var result = h.Submit(Input(1, predictedTick: 10));
+
+        Assert.AreEqual(1L, result.AcknowledgedInput);
+        Assert.IsFalse(h.Simulation.HasInput(10));
+    }
+
+    [TestMethod]
+    public async Task Detach_ClearsScheduledInputs()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 10, moveX: 100)).Accepted);
+
+        await h.Coordinator.DetachAsync("one");
+
+        h.Simulation.Tick = 9;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.IsNeutral(10), "a detached participant's future inputs must not land");
+    }
+
+    [TestMethod]
+    public async Task NeutralTimeout_ClearsScheduledInputs()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: 10, moveX: 100)).Accepted);
+
+        h.Time.Advance(TimeSpan.FromMilliseconds(751));
+
+        h.Simulation.Tick = 9;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Simulation.IsNeutral(10));
+    }
+
+    [TestMethod]
+    public async Task Arena_EdgeSurvivesAHeldStateInputScheduledForTheSameTick()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        var target = h.Simulation.Tick + 5;
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: target, dash: true)).Accepted);
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: target, moveX: 100)).Accepted);
+        Assert.IsFalse(h.Player.Input.Dash, "nothing is due yet");
+
+        while (h.Simulation.Tick < target - 1)
+        {
+            h.Coordinator.InstallScheduledInputs(h.MatchId);
+            h.Simulation.Step();
+        }
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+
+        // SetInput ORs the edge into the latched input, so the held-state frame that
+        // followed the dash on the same tick did not erase it.
+        Assert.IsTrue(h.Player.Input.Dash);
+        Assert.AreEqual(100, h.Player.Input.MoveX);
+    }
+
+    [TestMethod]
+    public async Task Arena_CooldownStripIsEvaluatedAtInstallTime()
+    {
+        var h = await ArenaCoordinatorHarness.Live();
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+        Assert.IsTrue(h.Submit(Input(1, predictedTick: h.Simulation.Tick, fireReleased: true)).Accepted);
+        h.Simulation.Step();
+        Assert.AreEqual(1, h.Simulation.Projectiles.Count);
+        Assert.IsTrue(h.Player.CooldownTicks > 0);
+
+        // Received while the cooldown has 23 ticks left, stamped 30 ticks out. A strip at
+        // receive time would refuse it; the cooldown it will actually meet has ended.
+        var target = h.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks + 6;
+        Assert.IsTrue(h.Submit(Input(2, predictedTick: target, fireReleased: true)).Accepted);
+
+        while (h.Simulation.Tick < target - 1)
+        {
+            h.Coordinator.InstallScheduledInputs(h.MatchId);
+            h.Simulation.Step();
+        }
+        Assert.AreEqual(0, h.Player.CooldownTicks);
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.IsTrue(h.Player.Input.FireReleased, "the fire was stripped against a cooldown that had already ended");
+        h.Player.ChargeTicks = ArenaRulesetV1.MinChargeTicks;
+        h.Simulation.Step();
+
+        Assert.AreEqual(ArenaRulesetV1.ShotCooldownTicks, h.Player.CooldownTicks, "the second shot fired");
+    }
+
+    [TestMethod]
+    public async Task ZeroAim_IsReplacedByLastAcceptedAim()
+    {
+        var h = await CoordinatorHarness.Started();
+        Assert.IsTrue(h.Submit(Input(1, aimX: 0, aimY: -32_767)).Accepted);
+
+        Assert.IsTrue(h.Submit(Input(2, aimX: 0, aimY: 0)).Accepted);
+
+        Assert.AreEqual(0, h.Simulation.LastInput(10).AimX);
+        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).AimY);
+        Assert.AreEqual(2, h.Simulation.SetInputCount(10));
     }
 
     [TestMethod]
@@ -79,27 +427,84 @@ public class ContinuousInputTests
         for (var sequence = 1; sequence <= 120; sequence++)
             Assert.IsTrue(h.Submit(Input(sequence)).Accepted, $"Sequence {sequence}");
 
-        Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121)).Reason);
+        // Over budget the edges are stripped. An over-budget message is not counted, so
+        // the window still expires exactly one second after the first message.
+        Assert.IsTrue(h.Submit(Input(121, fireReleased: true)).Accepted);
+        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased, "over budget at 0 ms");
         h.Time.Advance(TimeSpan.FromMilliseconds(999));
-        Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121)).Reason);
+        Assert.IsTrue(h.Submit(Input(122, fireReleased: true)).Accepted);
+        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased, "still over budget at 999 ms");
         h.Time.Advance(TimeSpan.FromMilliseconds(1));
-        Assert.IsTrue(h.Submit(Input(121)).Accepted);
+        Assert.IsTrue(h.Submit(Input(123, fireReleased: true)).Accepted);
+        Assert.IsTrue(h.Simulation.LastInput(10).FireReleased, "the window expired at exactly one second");
     }
 
     [TestMethod]
-    public async Task RateLimit_DoesNotMaskSequenceOrRangeReasons()
+    public async Task RateLimitedFlood_CannotGrowTheScheduledQueuePastItsCap()
+    {
+        var h = await CoordinatorHarness.Started();
+        // The whole in-budget second is stamped as far out as the clamp allows, so every
+        // input is still waiting when the flood starts.
+        for (var sequence = 1; sequence <= 120; sequence++)
+            Assert.IsTrue(h.Submit(Input(sequence, predictedTick: 40)).Accepted);
+
+        // Over budget an input is acknowledged whether or not it is queued, but past the
+        // cap it is not queued: before the cap every one of these waited for its tick.
+        for (var sequence = 121; sequence <= 1_120; sequence++)
+        {
+            var flooded = h.Submit(Input(sequence, predictedTick: 40, moveX: 100));
+            Assert.IsTrue(flooded.Accepted);
+            Assert.AreEqual(sequence, flooded.AcknowledgedInput);
+        }
+
+        h.Simulation.Tick = 39;
+        h.Coordinator.InstallScheduledInputs(h.MatchId);
+        Assert.AreEqual(ContinuousGameCoordinator.MaxScheduledInputsOverBudget, h.Simulation.SetInputCount(10));
+    }
+
+    [TestMethod]
+    public async Task RateLimitedInput_IsAcknowledgedAppliesHeldStateAndStripsEdges()
     {
         var h = await CoordinatorHarness.Started();
         for (var sequence = 1; sequence <= 120; sequence++)
             Assert.IsTrue(h.Submit(Input(sequence)).Accepted);
 
-        Assert.AreEqual(ContinuousRejectReason.StaleSequence, h.Submit(Input(120)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.SequenceGap, h.Submit(Input(122)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.InvalidRange, h.Submit(Input(121, predictedTick: 31)).Reason);
-        Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121)).Reason);
+        // Rate limiting is about message volume. Applying the held state of an
+        // over-budget message costs nothing, and discarding it makes the character
+        // freeze, which reads as a broken game rather than as a rate limit. The edges
+        // are what the budget refuses to feed the simulation.
+        var over = h.Submit(Input(121, moveX: 32_767, fireReleased: true, dash: true));
+
+        Assert.IsTrue(over.Accepted, $"rate-limited input was rejected: {over.Reason}");
+        Assert.AreEqual(121L, over.AcknowledgedInput);
+        var applied = h.Simulation.LastInput(10);
+        Assert.AreEqual(121L, applied.Sequence);
+        Assert.AreEqual(32_767, applied.MoveX);
+        Assert.IsFalse(applied.FireReleased);
+        Assert.IsFalse(applied.Dash);
+        Assert.IsTrue(h.Simulation.DashAvailable, "the stripped dash never reached the simulation");
+        Assert.AreEqual(121, h.Simulation.SetInputCount(10));
     }
 
+    [TestMethod]
+    public async Task RateLimit_DoesNotMaskAMalformedHeartbeatOrApplyAStaleOne()
+    {
+        var h = await CoordinatorHarness.Started();
+        for (var sequence = 1; sequence <= 12; sequence++)
+            Assert.IsTrue(h.Submit(Input(sequence, moveY: -32_767), heartbeat: true).Accepted);
 
+        // The heartbeat budget is spent. Malformed beats rate-limited: a heartbeat
+        // bearing an edge is a broken client and is still refused as such.
+        var malformed = h.Submit(Input(13, fireReleased: true), heartbeat: true);
+        Assert.IsFalse(malformed.Accepted);
+        Assert.AreEqual(ContinuousRejectReason.InvalidRange, malformed.Reason);
+        Assert.AreEqual(12L, malformed.AcknowledgedInput);
+
+        // A stale sequence over budget is still ignored, never applied.
+        Assert.AreEqual(12L, h.Submit(Input(12, moveY: 0), heartbeat: true).AcknowledgedInput);
+        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY);
+        Assert.AreEqual(12, h.Simulation.SetInputCount(10));
+    }
 
     [TestMethod]
     public async Task HeartbeatRate_IsTwelvePerRollingSecondSoTheExemptionCannotBeAbused()
@@ -111,15 +516,21 @@ public class ContinuousInputTests
 
         // The exemption exists so held state survives an input flood, not as an
         // unmetered channel: the client sends four a second and has no reason to reach
-        // twelve.
-        Assert.AreEqual(ContinuousRejectReason.RateLimited,
-            h.Submit(Input(13, moveY: -32_767), heartbeat: true).Reason);
+        // twelve. Unlike the input budget, which normal play can reach, this one is only
+        // ever reached by abuse, so an over-budget heartbeat is acknowledged and
+        // otherwise ignored - it neither lands nor refreshes the neutral deadline.
+        var thirteenth = h.Submit(Input(13, moveY: 12_345), heartbeat: true);
+        Assert.IsTrue(thirteenth.Accepted, $"over-budget heartbeat was rejected: {thirteenth.Reason}");
+        Assert.AreEqual(13L, thirteenth.AcknowledgedInput);
+        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY, "an over-budget heartbeat is not applied");
+        Assert.AreEqual(12, h.Simulation.SetInputCount(10));
 
         h.Time.Advance(TimeSpan.FromSeconds(1));
-        Assert.IsTrue(h.Submit(Input(13, moveY: -32_767), heartbeat: true).Accepted);
+        Assert.IsTrue(h.Submit(Input(14, moveY: 12_345), heartbeat: true).Accepted);
+        Assert.AreEqual(12_345, h.Simulation.LastInput(10).MoveY);
     }
     [TestMethod]
-    public async Task MessageRate_HeartbeatStillRefreshesHeldStateWhenTheInputBudgetIsSpent()
+    public async Task MessageRate_HeartbeatHasItsOwnBudgetWhenTheInputBudgetIsSpent()
     {
         var h = await CoordinatorHarness.Started();
 
@@ -127,16 +538,17 @@ public class ContinuousInputTests
         // second on the wire, so the input budget is genuinely reachable in normal play.
         for (var sequence = 1; sequence <= 120; sequence++)
             h.Submit(Input(sequence, moveY: -32_767));
-        Assert.AreEqual(ContinuousRejectReason.RateLimited, h.Submit(Input(121, moveY: -32_767)).Reason);
+        var over = h.Submit(Input(121, moveY: -32_767, fireReleased: true));
+        Assert.IsTrue(over.Accepted);
+        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased, "the input budget is spent");
 
-        // The heartbeat carries held state and nothing else. If it is rejected too, a
-        // player who keeps mashing never recovers the movement that was dropped, which
-        // is the difference between a dropped frame and a character that stops
-        // responding until you let go.
-        var beat = h.Submit(Input(121, moveY: -32_767), heartbeat: true);
+        // The heartbeat is budgeted separately, so it lands in full regardless of how
+        // many inputs preceded it: a player who keeps mashing still has their movement.
+        var beat = h.Submit(Input(122, moveY: 32_767), heartbeat: true);
 
         Assert.IsTrue(beat.Accepted, $"heartbeat was rejected: {beat.Reason}");
-        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY);
+        Assert.AreEqual(32_767, h.Simulation.LastInput(10).MoveY);
+        Assert.AreEqual(122, h.Simulation.SetInputCount(10));
     }
     [TestMethod]
     public async Task AimChangeRate_IsFortyFivePerRollingSecondAndDoesNotCountUnchangedAim()
@@ -190,66 +602,6 @@ public class ContinuousInputTests
         h.Time.Advance(TimeSpan.FromMilliseconds(600));
         Assert.IsTrue(h.Submit(Input(sequence, aimX: 32_766, aimY: -1)).Accepted);
         Assert.AreEqual(-1, h.Simulation.LastInput(10).AimY, "the budget should have recovered");
-    }
-
-    [TestMethod]
-    public async Task RefusedAction_StripsTheActionButKeepsTheInputAndItsSequence()
-    {
-        var h = await CoordinatorHarness.Started();
-
-        Assert.IsTrue(h.Submit(Input(1, fireReleased: true)).Accepted);
-
-        // Spam clicking means most clicks land during the shot cooldown, which the
-        // server is right to refuse. Rejecting the whole message does not advance
-        // AcknowledgedInput, so every later frame becomes a SequenceGap and the client
-        // reconnects - and reconnecting drops input capture, which silently clears the
-        // player's held movement keys. A refused action must not cost the input.
-        var refused = h.Submit(Input(2, moveY: -32_767, fireReleased: true));
-
-        Assert.IsTrue(refused.Accepted, $"input was rejected: {refused.Reason}");
-        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY, "movement rode down with the refused shot");
-        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased, "the shot itself must still be refused");
-
-        // The sequence advanced, so the next frame is not a gap.
-        Assert.IsTrue(h.Submit(Input(3, moveY: -32_767)).Accepted);
-    }
-
-    [TestMethod]
-    public async Task RefusedDash_StripsOnlyTheDash()
-    {
-        var h = await CoordinatorHarness.Started();
-        Assert.IsTrue(h.Submit(Input(1, dash: true)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2)).Accepted);
-
-        var refused = h.Submit(Input(3, moveY: -32_767, dash: true));
-
-        Assert.IsTrue(refused.Accepted, $"input was rejected: {refused.Reason}");
-        Assert.AreEqual(-32_767, h.Simulation.LastInput(10).MoveY);
-        Assert.IsFalse(h.Simulation.LastInput(10).Dash);
-    }
-    [TestMethod]
-    public async Task ActionValidation_StripsRefusedActionsInsteadOfRejectingTheInput()
-    {
-        var h = await CoordinatorHarness.Started(phase: ContinuousMatchPhase.Positioning);
-
-        // Refused actions are stripped, not rejected: the input and its sequence stand
-        // so the client is never forced to reconnect over an ordinary cooldown.
-        Assert.IsTrue(h.Submit(Input(1, charging: true)).Accepted);
-        Assert.IsTrue(h.Submit(Input(2, fireReleased: true)).Accepted);
-        Assert.IsFalse(h.Simulation.LastInput(10).FireReleased);
-        Assert.IsTrue(h.Submit(Input(3, dash: true)).Accepted);
-        Assert.IsFalse(h.Simulation.LastInput(10).Dash);
-
-        h.Simulation.Phase = ContinuousMatchPhase.Live;
-        Assert.IsTrue(h.Submit(Input(4, fireReleased: true)).Accepted);
-        Assert.IsTrue(h.Simulation.LastInput(10).FireReleased, "a legal shot must survive");
-        Assert.IsTrue(h.Submit(Input(5)).Accepted);
-        Assert.IsTrue(h.Submit(Input(6, fireReleased: true)).Accepted);
-
-        var dash = await CoordinatorHarness.Started();
-        Assert.IsTrue(dash.Submit(Input(1, dash: true)).Accepted);
-        Assert.IsTrue(dash.Submit(Input(2)).Accepted);
-        Assert.IsTrue(dash.Submit(Input(3, dash: true)).Accepted);
     }
 
     [TestMethod]
@@ -446,8 +798,9 @@ public class ContinuousInputTests
         short aimY = 0,
         bool charging = false,
         bool fireReleased = false,
-        bool dash = false) =>
-        new(sequence, predictedTick, moveX, moveY, aimX, aimY, charging, fireReleased, dash);
+        bool dash = false,
+        long viewTick = 0) =>
+        new(sequence, predictedTick, moveX, moveY, aimX, aimY, charging, fireReleased, dash, viewTick);
 
     private sealed class CoordinatorHarness
     {
@@ -588,19 +941,24 @@ public class ContinuousInputTests
 
     private sealed class TestSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         private readonly Dictionary<long, ContinuousInput> _inputs = [];
         public long Tick { get; set; }
         public ContinuousMatchPhase Phase { get; set; } = ContinuousMatchPhase.Live;
         public bool DashAvailable { get; private set; } = true;
+        private readonly Dictionary<long, int> _setInputCounts = [];
         public void SetInput(long sessionId, ContinuousInput input)
         {
             _inputs[sessionId] = input;
+            _setInputCounts[sessionId] = SetInputCount(sessionId) + 1;
             if (input.Dash)
                 DashAvailable = false;
         }
+        public int SetInputCount(long sessionId) => _setInputCounts.GetValueOrDefault(sessionId);
         public void SetNeutralInput(long sessionId) =>
             _inputs[sessionId] = Input(0, aimX: 32_767);
         public ContinuousInput LastInput(long sessionId) => _inputs[sessionId];
+        public bool HasInput(long sessionId) => _inputs.ContainsKey(sessionId);
 
         public bool IsNeutral(long sessionId) =>
             _inputs.TryGetValue(sessionId, out var input)

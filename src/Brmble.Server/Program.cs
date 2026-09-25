@@ -55,6 +55,21 @@ var devClockSkewMs = builder.Environment.IsDevelopment()
 builder.Services.AddSingleton<TimeProvider>(devClockSkewMs == 0
     ? TimeProvider.System
     : new DevClockSkewTimeProvider(TimeProvider.System, TimeSpan.FromMilliseconds(devClockSkewMs)));
+// Development-only. Games:DevRealtimeDelayMs (plus Games:DevRealtimeJitterMs) holds every
+// realtime game message for that long in each direction, so the client's prediction of
+// its own inputs across a round trip can be exercised on one machine - where the round
+// trip is otherwise under a millisecond and that class of bug is invisible. Ignored
+// outside Development.
+var devRealtimeDelayMs = builder.Environment.IsDevelopment()
+    ? builder.Configuration.GetValue<int>("Games:DevRealtimeDelayMs")
+    : 0;
+var devRealtimeJitterMs = builder.Environment.IsDevelopment()
+    ? builder.Configuration.GetValue<int>("Games:DevRealtimeJitterMs")
+    : 0;
+builder.Services.AddSingleton(devRealtimeDelayMs == 0 && devRealtimeJitterMs == 0
+    ? DevRealtimeTransportDelay.None
+    : new DevRealtimeTransportDelay(
+        TimeSpan.FromMilliseconds(devRealtimeDelayMs), TimeSpan.FromMilliseconds(devRealtimeJitterMs)));
 builder.Services.AddSingleton<MessageDeletionService>();
 builder.Services.AddOptions<PaintStorageOptions>()
     .BindConfiguration("PaintStorage");
@@ -143,6 +158,14 @@ if (devClockSkewMs != 0)
         "Games:DevClockSkewMs is {Skew} ms: snapshot timestamps are deliberately wrong by that "
         + "much. This is a local testing aid and must never be set outside Development.",
         devClockSkewMs);
+}
+if (devRealtimeDelayMs != 0 || devRealtimeJitterMs != 0)
+{
+    app.Logger.LogWarning(
+        "Games:DevRealtimeDelayMs is {Delay} ms with {Jitter} ms jitter: every realtime game "
+        + "message is deliberately held that long in each direction. This is a local testing "
+        + "aid and must never be set outside Development.",
+        devRealtimeDelayMs, devRealtimeJitterMs);
 }
 
 app.UseWebSockets();

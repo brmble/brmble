@@ -7,7 +7,8 @@ import { ArenaBoard } from './ArenaBoard';
 import { ArenaRenderer, type ArenaRenderView } from './ArenaRenderer';
 import { GameSurface } from '../GameSurface';
 import bridge from '../../../bridge';
-import { createServerClock } from './serverClock';
+import { createServerClock } from '../Realtime/serverClock';
+import { createInputLead } from '../Realtime/inputLead';
 
 const connection = vi.hoisted(() => ({ current: {} as ArenaConnection }));
 const state = vi.hoisted(() => ({
@@ -58,7 +59,7 @@ describe('ArenaBoard', () => {
     connection.current = {
       status: 'connected', welcome: { serverTick: 100, tickRate: 60 } as ArenaConnection['welcome'],
       latestSnapshot: null, closed: null, pendingInputs: [], pendingInputCount: 0,
-      serverClock: createServerClock(),
+      serverClock: createServerClock(), inputLead: createInputLead({ tickRate: 60 }), currentPredictedTick: () => 101,
       currentInput: { moveX: 0, moveY: 0, aimX: 32767, aimY: 0, charging: false, fireReleased: false, dash: false },
       sendInput: vi.fn(), sendHeartbeat: vi.fn(),
     };
@@ -66,7 +67,7 @@ describe('ArenaBoard', () => {
       localPlayer: player(10, 0), remotePlayer: player(20, 1, { chargePermille: 0, forcedFireTicks: null }),
       projectiles: [{ id: 1, ownerSessionId: 20, x: 0, y: 0, vx: 1, vy: 0, chargePermille: 0 }],
       arena: { radius: 7600, shrinkPhase: 'collapse' }, phase: 'live', phaseEndsAtTick: 160,
-      score: [1, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [],
+      score: [1, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [], viewTick: null,
     };
     connection.current.welcome = {
       serverTick: 100, tickRate: 60,

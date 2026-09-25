@@ -2,6 +2,13 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useArenaConnection } from './useArenaConnection';
 
+/**
+ * What the arena's codec adds to the generic realtime connection: its wire shape, and
+ * the aim as the budgeted direction - throttled when it moves on its own, carried true
+ * on a fire or dash. The connection itself (ticket, welcome, sequencing, pending
+ * intervals, reconnect, rejections) is covered in `Realtime/useRealtimeConnection.test`.
+ */
+
 const { requestRealtimeTicket } = vi.hoisted(() => ({ requestRealtimeTicket: vi.fn() }));
 vi.mock('../../../api/games', () => ({ requestRealtimeTicket }));
 
@@ -28,8 +35,6 @@ class FakeWebSocket {
   send(raw: string) { this.sent.push(JSON.parse(raw)); }
   open() { act(() => { this.readyState = FakeWebSocket.OPEN; this.onopen?.(new Event('open')); }); }
   message(value: unknown) { act(() => this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value) }))); }
-  fail() { act(() => this.onerror?.(new Event('error'))); }
-  closed() { act(() => this.onclose?.(new CloseEvent('close'))); }
 }
 
 const held = {
@@ -60,27 +65,6 @@ const welcome = (acknowledgedInput = 0, snapshotSequence = 1) => ({
   acknowledgedInput,
 });
 
-const world = (sequence: number, acknowledgedInput = 0) => ({
-  type: 'snapshot', protocolVersion: 1, matchId: 91, sequence, serverTick: 120,
-  generatedAtUnixMs: 1784989801350, phase: 'live', phaseEndsAtTick: null,
-  score: [0, 0], consecutiveDoubleKos: 0,
-  arena: { radius: 9000, shrinkPhase: 'hold' },
-  players: [
-    { sessionId: 10, side: 0, x: -3500, y: 0, vx: 0, vy: 0, aimX: 32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput },
-    { sessionId: 20, side: 1, x: 3500, y: 0, vx: 0, vy: 0, aimX: -32767, aimY: 0, chargePermille: 0, forcedFireTicks: null, cooldownTicks: 0, dashAvailable: true, dashTicksRemaining: 0, acknowledgedInput: 0 },
-  ], projectiles: [],
-});
-
-const matchClosed = () => ({
-  type: 'matchClosed', protocolVersion: 1, matchId: 91, sequence: 121,
-  serverTick: 3601, reason: 'completed',
-  finalState: {
-    ...world(1), type: undefined, protocolVersion: undefined, matchId: undefined,
-    sequence: undefined, serverTick: undefined, generatedAtUnixMs: undefined,
-    score: [2, 1], phase: 'ended',
-  },
-});
-
 async function connect(acknowledgedInput = 0) {
   const rendered = renderHook(() => useArenaConnection({ matchId: 91, enabled: true }));
   await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
@@ -106,61 +90,35 @@ describe('useArenaConnection', () => {
     vi.unstubAllGlobals();
   });
 
-  it('opens the direct URL, acknowledges welcome, sequences input, and sends a complete heartbeat', async () => {
+  it('sends the arena wire shape: every field on an input, held state and aim on a heartbeat', async () => {
     const h = await connect();
-    expect(h.socket.url).toBe('wss://chat.example/games/realtime?ticket=ticket+%2B%2F%3D');
     expect(h.socket.sent[0]).toEqual({ type: 'attachAck', protocolVersion: 1, matchId: 91, snapshotSequence: 1 });
 
-    act(() => h.result.current.sendInput(held));
-    expect(h.socket.sent[1]).toMatchObject({ type: 'input', sequence: 1, ...held });
+    act(() => h.result.current.sendInput({ ...held, charging: true, dash: true }));
+    expect(h.socket.sent[1]).toEqual({
+      type: 'input', protocolVersion: 1, matchId: 91, sequence: 1, predictedTick: 104,
+      ...held, charging: true, dash: true,
+    });
     await act(() => vi.advanceTimersByTimeAsync(250));
+    // serverTick 100 + 15 ticks elapsed + the 3-tick minimum lead; no edges.
     expect(h.socket.sent[2]).toEqual({
       type: 'heartbeat', protocolVersion: 1, matchId: 91, sequence: 2,
-      predictedTick: 115, moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: false,
+      predictedTick: 118, moveX: 32767, moveY: 0, aimX: 32767, aimY: 0, charging: true,
     });
-    expect(h.result.current.pendingInputs[1].input).toEqual(held);
+    expect(h.result.current.pendingInputs[1].input).toEqual({ ...held, charging: true });
   });
 
-  it('records exact prediction intervals and removes acknowledged inputs', async () => {
-    const h = await connect(10);
-    act(() => h.result.current.sendInput(held));
-    expect(h.result.current.pendingInputs).toEqual([{
-      sequence: 11, predictedTick: 101, fromTick: 101, toTick: 101, input: held,
-    }]);
-    h.socket.message(world(2, 11));
-    expect(h.result.current.pendingInputs).toEqual([]);
-  });
-
-  // A dash press is no longer retained after acknowledgement. It used to be, so that
-  // the client could reconstruct the dash window from its own sent inputs — an
-  // inference that could not distinguish a dash the server honoured from one it
-  // accepted and stripped. The window is now stated by the server on every snapshot
-  // (`dashTicksRemaining`), so the press is ordinary pending input and clears on ack.
-  it('clears an acknowledged dash press like any other input', async () => {
+  it('carries the view tick on a fire and on nothing else', async () => {
     const h = await connect();
-    act(() => h.result.current.sendInput({ ...held, dash: true }));
-    expect(h.result.current.pendingInputs).toHaveLength(1);
-    h.socket.message({ ...world(2, 101), serverTick: 101,
-      players: world(2, 1).players.map(player => player.sessionId === 10
-        ? { ...player, dashAvailable: false, dashTicksRemaining: 5, acknowledgedInput: 1 }
-        : player) });
-    expect(h.result.current.pendingInputs).toEqual([]);
+    act(() => h.result.current.sendInput({ ...held, charging: false, fireReleased: true, viewTick: 97 }));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', fireReleased: true, viewTick: 97 });
+    // The held state the frame leaves behind, and every heartbeat, are free of it.
+    expect(h.result.current.pendingInputs.at(-1)?.input).toMatchObject({ viewTick: 97 });
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat' });
+    expect(h.socket.sent.at(-1)).not.toHaveProperty('viewTick');
+    expect(h.result.current.pendingInputs.at(-1)?.input).not.toHaveProperty('viewTick');
   });
-
-  it('uses non-overlapping inclusive intervals and preserves same-tick edges in empty intervals', async () => {
-    const h = await connect();
-    act(() => h.result.current.sendInput(held));
-    act(() => h.result.current.sendInput({ ...held, dash: true }));
-    act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
-
-    expect(h.result.current.pendingInputs).toEqual([
-      { sequence: 1, predictedTick: 101, fromTick: 101, toTick: 100, input: held },
-      { sequence: 2, predictedTick: 101, fromTick: 101, toTick: 100, input: { ...held, dash: true } },
-      { sequence: 3, predictedTick: 101, fromTick: 101, toTick: 101, input: { ...held, moveX: -32767 } },
-    ]);
-  });
-
-
 
   it.each([
     ['dash', { ...held, aimX: 0, aimY: 32767, dash: true }],
@@ -168,8 +126,8 @@ describe('useArenaConnection', () => {
   ])('sends an immediate %s with the true aim rather than the throttled one', async (_label, input) => {
     // A shot or dash commits to a direction. Sending it with the previously
     // transmitted aim fires it where the player used to be pointing, which is the
-    // visible flick back to the old facing. These are rare enough � the shot cooldown
-    // caps firing at about 2.5/s � that spending an aim change on them is cheap.
+    // visible flick back to the old facing. These are rare enough - the shot cooldown
+    // caps firing at about 2.5/s - that spending an aim change on them is cheap.
     const h = await connect();
     act(() => h.result.current.sendInput(held));
     await act(() => vi.advanceTimersByTimeAsync(10));
@@ -184,6 +142,7 @@ describe('useArenaConnection', () => {
     await act(() => vi.advanceTimersByTimeAsync(40));
     expect(h.socket.sent).toHaveLength(afterAction);
   });
+
   it('stays under the server aim-change budget under spam clicking', async () => {
     const h = await connect();
     let aimAngle = 0;
@@ -208,13 +167,14 @@ describe('useArenaConnection', () => {
       previousX = message.aimX;
       previousY = message.aimY;
     }
-    // ContinuousGameCoordinator allows 120 messages and MaxAimChangesPerSecond aim
-    // changes per second. Nothing else guards this relationship, and it is not
-    // generous: the 40ms throttle intends 25/s, heartbeats carry aim too, and fire and
-    // dash deliberately bypass the throttle to keep their direction honest.
+    // ContinuousGameCoordinator allows 120 messages and MaxDirectionChangesPerSecond
+    // direction changes per second. Nothing else guards this relationship, and it is
+    // not generous: the 40ms throttle intends 25/s, heartbeats carry aim too, and fire
+    // and dash deliberately bypass the throttle to keep their direction honest.
     expect(wire.length).toBeLessThan(120);
     expect(aimChanges).toBeLessThan(45);
   });
+
   it('sends held changes and edges immediately but limits aim-only changes to 25Hz', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -264,157 +224,6 @@ describe('useArenaConnection', () => {
     expect(h.socket.sent.at(-1)).toMatchObject({ sequence: 4, moveX: 0, aimX: -32767, aimY: 0 });
   });
 
-  it('resumes at acknowledged input plus one and keeps final state through close', async () => {
-    const h = await connect(87);
-    act(() => h.result.current.sendInput(held));
-    expect(h.socket.sent[1]).toMatchObject({ sequence: 88 });
-    h.socket.message(matchClosed());
-    // JSON serialization drops the undefined envelope fields, leaving the complete inner state.
-    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
-    h.socket.closed();
-    expect(h.result.current.closed?.reason).toBe('completed');
-    expect(h.result.current.status).toBe('closed');
-  });
-
-  it('invalidates public input production when the match closes', async () => {
-    const h = await connect();
-    act(() => h.result.current.sendInput(held));
-    h.socket.message(matchClosed());
-    const sentAtClose = h.socket.sent.length;
-
-    act(() => {
-      h.result.current.sendInput({ ...held, moveX: -32767, dash: true });
-      h.result.current.sendHeartbeat();
-    });
-
-    expect(h.socket.sent).toHaveLength(sentAtClose);
-    expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
-    h.socket.closed();
-    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
-    expect(h.result.current.status).toBe('closed');
-  });
-
-  it('ignores already-queued aim and heartbeat callbacks after the match closes', async () => {
-    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
-    const h = await connect();
-    const heartbeatCallback = setIntervalSpy.mock.calls.find(([, delay]) => delay === 250)?.[0] as () => void;
-    setIntervalSpy.mockRestore();
-    act(() => h.result.current.sendInput(held));
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
-    const aimCallback = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 40)?.[0] as () => void;
-    setTimeoutSpy.mockRestore();
-    expect(heartbeatCallback).toBeTypeOf('function');
-    expect(aimCallback).toBeTypeOf('function');
-
-    h.socket.message(matchClosed());
-    const sentAtClose = h.socket.sent.length;
-    act(() => {
-      aimCallback();
-      heartbeatCallback();
-    });
-
-    expect(h.socket.sent).toHaveLength(sentAtClose);
-    expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
-  });
-
-  it('ignores an old in-flight ticket after a replacement match closes', async () => {
-    let resolveStaleTicket: ((ticket: object) => void) | undefined;
-    requestRealtimeTicket
-      .mockImplementationOnce(() => new Promise(resolve => { resolveStaleTicket = resolve; }))
-      .mockResolvedValueOnce({
-        protocolVersion: 1, ticket: 'current', url: 'wss://chat.example/current', expiresAt: 'later',
-      });
-    const h = renderHook(
-      ({ matchId }) => useArenaConnection({ matchId, enabled: true }),
-      { initialProps: { matchId: 90 } },
-    );
-    await waitFor(() => expect(requestRealtimeTicket).toHaveBeenCalledWith(90, 'participant'));
-    expect(resolveStaleTicket).toBeTypeOf('function');
-    h.rerender({ matchId: 91 });
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    const current = FakeWebSocket.instances[0];
-    current.open();
-    current.message(welcome());
-
-    current.message(matchClosed());
-    expect(h.result.current.status).toBe('closed');
-    resolveStaleTicket?.({
-      protocolVersion: 1, ticket: 'stale', url: 'wss://chat.example/stale', expiresAt: 'later',
-    });
-    await act(async () => {});
-
-    expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    expect(h.result.current.status).toBe('closed');
-    expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.closed?.finalState.score).toEqual([2, 1]);
-  });
-
-  it('requests a fresh ticket with 250/500/1000/2000ms reconnect backoff', async () => {
-    const h = await connect();
-    h.socket.fail();
-    for (const [index, delay] of [250, 500, 1000, 2000].entries()) {
-      await act(() => vi.advanceTimersByTimeAsync(delay));
-      await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(index + 2));
-      FakeWebSocket.instances[index + 1].open();
-      FakeWebSocket.instances[index + 1].fail();
-    }
-    expect(requestRealtimeTicket).toHaveBeenCalledTimes(5);
-  });
-
-  it('fails at the reconnect deadline when a ticket request stalls', async () => {
-    const h = await connect();
-    let resolveTicket!: (ticket: object) => void;
-    requestRealtimeTicket.mockImplementationOnce(() => new Promise(resolve => { resolveTicket = resolve; }));
-    h.socket.fail();
-    await act(() => vi.advanceTimersByTimeAsync(5000));
-    expect(h.result.current.status).toBe('failed');
-    resolveTicket({ protocolVersion: 1, ticket: 'stale', url: 'wss://chat.example/stale', expiresAt: 'later' });
-    await act(async () => {});
-    expect(FakeWebSocket.instances).toHaveLength(1);
-  });
-
-  it('closes a CONNECTING replacement socket and fails at the reconnect deadline', async () => {
-    const h = await connect();
-    h.socket.fail();
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    const stalled = FakeWebSocket.instances[1];
-    expect(stalled.readyState).toBe(FakeWebSocket.CONNECTING);
-    await act(() => vi.advanceTimersByTimeAsync(4750));
-    expect(stalled.close).toHaveBeenCalledOnce();
-    expect(h.result.current.status).toBe('failed');
-    stalled.open();
-    stalled.message(welcome());
-    expect(h.result.current.status).toBe('failed');
-  });
-
-  it('fails at the reconnect deadline when an OPEN socket never sends welcome', async () => {
-    const h = await connect();
-    h.socket.fail();
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    const stalled = FakeWebSocket.instances[1];
-    stalled.open();
-    await act(() => vi.advanceTimersByTimeAsync(4750));
-    expect(stalled.close).toHaveBeenCalledOnce();
-    expect(h.result.current.status).toBe('failed');
-  });
-
-  it('preserves URL query and fragment while replacing one ticket parameter', async () => {
-    requestRealtimeTicket.mockResolvedValueOnce({
-      protocolVersion: 1, ticket: 'new token',
-      url: 'wss://chat.example/games/realtime?transport=websocket&ticket=old#arena',
-      expiresAt: '2026-08-28T12:00:15Z',
-    });
-    renderHook(() => useArenaConnection({ matchId: 91, enabled: true }));
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    expect(FakeWebSocket.instances[0].url).toBe(
-      'wss://chat.example/games/realtime?transport=websocket&ticket=new+token#arena',
-    );
-  });
-
   it('rebases queued aim on heartbeat and keeps aim-changing sends 40ms apart', async () => {
     const h = await connect();
     act(() => h.result.current.sendInput(held));
@@ -444,54 +253,6 @@ describe('useArenaConnection', () => {
     });
     expect(h.socket.sent).toHaveLength(3);
   });
-
-  it('rewinds a rejected newest sequence without creating a sequence gap', async () => {
-    const h = await connect();
-    act(() => h.result.current.sendInput(held));
-    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason: 'rateLimited' });
-    expect(h.result.current.pendingInputs).toEqual([]);
-    await act(() => vi.advanceTimersByTimeAsync(40));
-    act(() => h.result.current.sendInput({ ...held, aimX: 0, aimY: 32767 }));
-    expect(h.socket.sent.at(-1)).toMatchObject({ type: 'input', sequence: 1 });
-  });
-
-  it.each(['staleSequence', 'sequenceGap'] as const)(
-    'reconnects on %s without repeating the rejected sequence',
-    async reason => {
-      const h = await connect();
-      act(() => h.result.current.sendInput(held));
-      h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
-      expect(h.result.current.status).toBe('reconnecting');
-      expect(h.socket.close).toHaveBeenCalledOnce();
-      await act(() => vi.advanceTimersByTimeAsync(250));
-      expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
-      expect(h.socket.sent.filter(message => (message as { sequence?: number }).sequence === 1)).toHaveLength(1);
-    },
-  );
-
-  it.each(['wrongMatch', 'wrongRole'] as const)('fails and closes on terminal rejection %s', async reason => {
-    const h = await connect();
-    act(() => h.result.current.sendInput(held));
-    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
-    expect(h.result.current.status).toBe('failed');
-    expect(h.socket.close).toHaveBeenCalledOnce();
-    await act(() => vi.advanceTimersByTimeAsync(5000));
-    expect(requestRealtimeTicket).toHaveBeenCalledTimes(1);
-  });
-
-  it.each(['invalidRange', 'rateLimited', 'phaseDenied', 'cooldown', 'dashSpent'] as const)(
-    'safely rewinds newest %s rejection without auto-resending an edge',
-    async reason => {
-      const h = await connect();
-      act(() => h.result.current.sendInput({ ...held, dash: true }));
-      h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason });
-      expect(h.result.current.pendingInputs).toEqual([]);
-      await act(() => vi.advanceTimersByTimeAsync(250));
-      expect(h.socket.sent.filter(message => (message as { dash?: boolean }).dash)).toHaveLength(1);
-      expect(h.socket.sent.at(-1)).toMatchObject({ type: 'heartbeat', sequence: 1 });
-      expect(h.socket.sent.at(-1)).not.toHaveProperty('dash');
-    },
-  );
 
   it('cancels queued aim on rejection instead of retrying the rejected sequence', async () => {
     const h = await connect();
@@ -525,70 +286,5 @@ describe('useArenaConnection', () => {
       type: 'input', sequence: 3, aimX: 32767, aimY: 0,
     });
     expect(h.result.current.currentInput).toMatchObject({ moveX: -32767, aimX: 32767, aimY: 0 });
-  });
-
-  it('reconnects when a rejected sequence already has later frames', async () => {
-    const h = await connect();
-    act(() => h.result.current.sendInput(held));
-    act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
-    h.socket.message({ type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 1, reason: 'rateLimited' });
-    expect(h.result.current.status).toBe('reconnecting');
-    expect(h.socket.close).toHaveBeenCalledOnce();
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    expect(requestRealtimeTicket).toHaveBeenCalledTimes(2);
-  });
-
-  it('fails and clears the heartbeat when an active socket sends a duplicate welcome', async () => {
-    const h = await connect();
-    h.socket.message(welcome(20, 2));
-    expect(h.socket.close).toHaveBeenCalledOnce();
-    expect(h.result.current.status).toBe('failed');
-    await act(() => vi.advanceTimersByTimeAsync(500));
-    expect(h.socket.sent).toHaveLength(1);
-  });
-
-  it('clears pending input, installs neutral, and uses the new welcome acknowledgement', async () => {
-    const h = await connect(10);
-    act(() => h.result.current.sendInput(held));
-    act(() => h.result.current.sendInput({ ...held, moveX: -32767 }));
-    h.socket.fail();
-    expect(h.result.current.pendingInputs).toEqual([]);
-    expect(h.result.current.currentInput).toMatchObject({ moveX: 0, moveY: 0, charging: false });
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    const replacement = FakeWebSocket.instances[1];
-    replacement.open();
-    replacement.message(welcome(11, 40));
-    act(() => h.result.current.sendInput(held));
-    expect(replacement.sent.at(-1)).toMatchObject({ type: 'input', sequence: 12 });
-    expect(h.result.current.pendingInputCount).toBe(1);
-  });
-
-  it('rejects backwards snapshots and stale sockets cannot mutate the current generation', async () => {
-    const h = await connect();
-    h.socket.message(world(30));
-    h.socket.message(world(29));
-    expect(h.result.current.latestSnapshot?.sequence).toBe(30);
-    h.socket.fail();
-    await act(() => vi.advanceTimersByTimeAsync(250));
-    const replacement = FakeWebSocket.instances[1];
-    replacement.message(welcome(3, 40));
-    h.socket.message(world(99));
-    expect(h.result.current.latestSnapshot).toBeNull();
-  });
-
-  it('closes sockets and cancels retries on disable and match changes', async () => {
-    const { result, rerender, unmount } = renderHook(
-      ({ matchId, enabled }) => useArenaConnection({ matchId, enabled }),
-      { initialProps: { matchId: 91, enabled: true } },
-    );
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    FakeWebSocket.instances[0].open();
-    FakeWebSocket.instances[0].message(welcome());
-    rerender({ matchId: 92, enabled: false });
-    expect(FakeWebSocket.instances[0].close).toHaveBeenCalledOnce();
-    await act(() => vi.advanceTimersByTimeAsync(5000));
-    expect(requestRealtimeTicket).toHaveBeenCalledTimes(1);
-    expect(result.current.status).toBe('disabled');
-    unmount();
   });
 });

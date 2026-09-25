@@ -5,8 +5,13 @@ namespace Brmble.Server.Games.Arena;
 public enum ArenaShrinkPhase { Hold, Normal, Collapse }
 public enum ArenaKnockoutCause { OpponentProjectile, Recoil, DashOrMovement, Collapse }
 
+/// <param name="RewindTicks">
+/// How far into the opponent's past the hit test looks: the gap between the shooter's
+/// prediction frame and the view frame they aimed in, fixed when the shot was fired.
+/// Zero for a shot whose input carried no view tick.
+/// </param>
 public sealed record ArenaProjectile(
-    long Id, long OwnerSessionId, int X, int Y, int Vx, int Vy, int ChargePermille);
+    long Id, long OwnerSessionId, int X, int Y, int Vx, int Vy, int ChargePermille, int RewindTicks = 0);
 
 public sealed class ArenaPlayerState
 {
@@ -24,6 +29,17 @@ public sealed class ArenaPlayerState
     public int DashTicks;
     public bool DashAvailable = true;
     public ContinuousInput Input = new(0, 0, 0, 0, 32767, 0, false, false, false);
+    // Admission bookkeeping (see ArenaSimulation.Admit). Not part of the deterministic
+    // hash: it decides what an input is allowed to ask for, not what the simulation does.
+    public long AdmissionCooldownUntilTick;
+    public bool DashReserved;
+    public long DashReservationRound;
+    // Position history for hit lag compensation, one entry per completed tick in a ring
+    // keyed by tick modulo length; HistoryTick says which tick an entry belongs to, -1 for
+    // none. Derived from the hashed state, so not hashed itself.
+    internal readonly int[] HistoryX = new int[ArenaRulesetV1.HitHistoryTicks];
+    internal readonly int[] HistoryY = new int[ArenaRulesetV1.HitHistoryTicks];
+    internal readonly long[] HistoryTick = Enumerable.Repeat(-1L, ArenaRulesetV1.HitHistoryTicks).ToArray();
     internal ArenaKnockoutCause VelocityCause = ArenaKnockoutCause.DashOrMovement;
     internal ArenaKnockoutCause? BoundaryCause;
 }

@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Brmble.Server.Games.Arena;
 using Brmble.Server.Games.Duels;
 
 namespace Brmble.Server.Games.Continuous;
@@ -36,15 +35,33 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
     private const int MaxMessagesPerSecond = 120;
     // The client sends four a second; this only has to stop abuse.
     private const int MaxHeartbeatsPerSecond = 12;
-    // The client's aim throttle intends 25 changes/second, heartbeats carry aim as
-    // well, and fire and dash bypass the throttle so their direction stays honest.
-    // Aggressive spam measures around 33, so 30 sat below legitimate play. The client
-    // test 'stays under the server aim-change budget' guards this relationship.
-    private const int MaxAimChangesPerSecond = 45;
+    // Direction (the input's aim pair) changes per second. The client's aim throttle
+    // intends 25 changes/second, heartbeats carry the direction as well, and fire and
+    // dash bypass the throttle so their direction stays honest. Aggressive spam
+    // measures around 33, so 30 sat below legitimate play. The client test 'stays
+    // under the server aim-change budget' guards this relationship.
+    private const int MaxDirectionChangesPerSecond = 45;
+    // How far ahead of the simulation an input may be scheduled: two thirds of a second.
+    // A stamp past this applies then rather than never. The client's lead has to cover
+    // its whole round trip (its clock is anchored on snapshots that are a downlink old),
+    // and it caps that lead at 34 ticks, six below this, so a stamp that is early by a
+    // jitter's worth or a snapshot interval is still installed at its tick rather than
+    // clamped. Raised from 30 after the 200/40 ms playtest: at a 450 ms round trip the
+    // old 20-tick client cap stamped every input in the past, and the lateness came
+    // back as the pre-scheduling jitter on every key change.
+    internal const int MaxScheduleAheadTicks = 40;
+    // How far behind its stamp an input's view tick may sit: two seconds. The view tick is
+    // what a game rewinds a target by (arena hits), so the bound is what keeps a client
+    // from claiming to have aimed at a position from the distant past. The arena caps its
+    // own rewind lower still.
+    internal const int MaxViewLagTicks = 120;
+    // How many inputs a participant may have waiting once it is over the message budget.
+    // Within the budget the queue is bounded by the rate times the schedule-ahead window
+    // (120/s over two thirds of a second, 80); past it an input still lands its held
+    // state, so without this cap a flood would grow the queue without bound.
+    internal const int MaxScheduledInputsOverBudget = MaxMessagesPerSecond;
     private static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan NeutralTimeout = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ReconnectGrace = TimeSpan.FromSeconds(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
@@ -88,12 +105,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         if (reservation.PlayerOne.UserId == reservation.PlayerTwo.UserId
             || reservation.PlayerOne.SessionId == reservation.PlayerTwo.SessionId)
             return new GameStartResult(false, 0, null, "Continuous games require two distinct participants.");
-        if (string.Equals(reservation.Configuration.GameType, "arena-knockoff", StringComparison.OrdinalIgnoreCase)
-            && (reservation.Configuration.GameType != "arena-knockoff"
-                || reservation.Configuration.Format != "bo3"
-                || reservation.Configuration.RulesetVersion != ArenaRulesetV1.Version
-                || reservation.Configuration.Options.Count != 0))
-            return new GameStartResult(false, 0, null, "Arena configuration is not canonical.");
+        if (definition.ValidateConfiguration(reservation.Configuration) is { } configurationError)
+            return new GameStartResult(false, 0, null, configurationError);
 
         var matchId = Interlocked.Increment(ref _nextMatchId);
         var startedAt = _time.GetUtcNow();
@@ -174,11 +187,13 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             var acknowledged = AcknowledgedInputs(state);
             var view = ParticipantView(state, participant, acknowledged);
             var attachedAt = _time.GetUtcNow();
+            var timing = state.Definition.Timing;
             welcome = new WelcomeMessage(
                 1, state.Reservation.Configuration.RulesetVersion, matchId, RealtimeRole.Participant,
                 sessionId, participant.AttachSequence, state.Simulation.Tick,
                 attachedAt.ToUnixTimeMilliseconds(),
-                ArenaRulesetV1.TickRate, ArenaRulesetV1.SnapshotRate, 100, 50, 250, 750, 5000,
+                timing.TickRate, timing.SnapshotRate, timing.InterpolationMs, timing.MaxExtrapolationMs,
+                timing.InputHeartbeatMs, timing.NeutralAfterMs, timing.ReconnectGraceMs,
                 state.Definition.PredictionConstants, view, participant.AcknowledgedInput);
             snapshot = SerializeSnapshot(matchId, participant.AttachSequence, state.Simulation.Tick,
                 attachedAt, view);
@@ -208,9 +223,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 state.AttachTimer?.Dispose();
                 state.AttachTimer = null;
                 state.AttachGeneration++;
-                if (state.Simulation is ArenaSimulation arena)
-                    foreach (var slot in state.ParticipantsByUser.Values)
-                        arena.MarkParticipantReady(slot.SimulationSessionId);
+                foreach (var slot in state.ParticipantsByUser.Values)
+                    state.Simulation.MarkParticipantReady(slot.SimulationSessionId);
                 startScheduler = true;
             }
         }
@@ -231,6 +245,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             participant.ConnectionId = null;
             participant.Mailbox = null;
             participant.AttachAcknowledged = false;
+            participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -240,14 +256,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 participant.ReconnectTimer?.Dispose();
                 participant.ReconnectTimer = _time.CreateTimer(
                     _ => ReconnectExpired(state, participant, generation), null,
-                    ReconnectGrace, Timeout.InfiniteTimeSpan);
+                    state.ReconnectGrace, Timeout.InfiniteTimeSpan);
             }
             control = new RealtimeControl("connectionState", participant.SessionId, null,
                 JsonSerializer.Serialize(new
                 {
                     type = "connectionState", protocolVersion = 1, matchId = state.MatchId,
                     sessionId = participant.SessionId, state = "reconnecting",
-                    graceEndsAtUnixMs = _time.GetUtcNow().Add(ReconnectGrace).ToUnixTimeMilliseconds(),
+                    graceEndsAtUnixMs = _time.GetUtcNow().Add(state.ReconnectGrace).ToUnixTimeMilliseconds(),
                 }, JsonOptions), Coalescible: true);
             survivors = state.ParticipantsByUser.Values
                 .Where(x => x.Mailbox is not null).Select(x => x.Mailbox!).ToList();
@@ -290,99 +306,149 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (participant.ConnectionId is null || !participant.AttachAcknowledged)
                 return Reject(ContinuousRejectReason.WrongMatch, participant);
 
+            // Everything above is connection-level and stays a rejection: the client
+            // treats those as fatal and that is the intent. Everything below is
+            // acknowledged. Reject does not advance AcknowledgedInput, and a client whose
+            // next frame is already in flight when the rejection lands answers the
+            // resulting SequenceGap by reconnecting, which drops input capture and
+            // silently clears the player's held movement keys. On any real network the
+            // client's in-place rewind loses that race almost every time, so one refused
+            // message became a dropped connection mid-fight. Game-level refusal is
+            // therefore expressed only as a stripped or substituted field, never as a
+            // rejected message.
+            //
+            // The single exception is a heartbeat carrying a fire or a dash. Heartbeats
+            // carry held state and nothing else, so that is a malformed client, not
+            // drift, and refusing it is the point.
+            if (isHeartbeat && input.HasEdges())
+                return Reject(ContinuousRejectReason.InvalidRange, participant);
+
             var now = _time.GetTimestamp();
             // Heartbeats are budgeted separately. They carry held state and nothing
-            // else — IsInRange already refuses a heartbeat bearing a fire or a dash — so
-            // letting the input budget silence them is what turns a dropped frame into a
-            // character that ignores the player until they let go of the keys. The
-            // client sends four a second; this budget only has to stop abuse.
+            // else, so letting the input budget silence them is what turns a dropped
+            // frame into a character that ignores the player until they let go of the
+            // keys. The client sends four a second; this budget only has to stop abuse.
             var timestamps = isHeartbeat ? participant.HeartbeatTimestamps : participant.MessageTimestamps;
             var budget = isHeartbeat ? MaxHeartbeatsPerSecond : MaxMessagesPerSecond;
             RemoveExpired(timestamps, now);
             var messageRateExceeded = timestamps.Count >= budget;
 
+            // The socket is ordered and reliable, so a stale or skipped sequence can only
+            // be a retransmit or a client bug. Neither is a reason to drop the player:
+            // a repeat is ignored and a gap is accepted by advancing to what arrived.
+            // Both are logged because after this change they should never happen.
             var acknowledgedInput = participant.AcknowledgedInput;
             if (input.Sequence <= acknowledgedInput)
-                return Reject(ContinuousRejectReason.StaleSequence, participant);
+            {
+                _logger.LogInformation(
+                    "Realtime input for match {MatchId}, session {SessionId} repeated sequence {Sequence} at or below acknowledged {AcknowledgedInput}; ignored.",
+                    matchId, sessionId, input.Sequence, acknowledgedInput);
+                return new InputResult(true, default, acknowledgedInput);
+            }
             if (input.Sequence != acknowledgedInput + 1)
-                return Reject(ContinuousRejectReason.SequenceGap, participant);
-            if (!IsInRange(input, state.Simulation.Tick, isHeartbeat))
-                return Reject(ContinuousRejectReason.InvalidRange, participant);
-
-            var arenaPlayer = state.Simulation is ArenaSimulation arena
-                ? arena.Players.First(player => player.SessionId == participant.SimulationSessionId)
-                : null;
-            if (state.Simulation is ArenaSimulation arenaSimulation
-                && participant.RoundGeneration != arenaSimulation.RoundGeneration)
             {
-                participant.DashSpent = false;
-                participant.RoundGeneration = arenaSimulation.RoundGeneration;
+                _logger.LogInformation(
+                    "Realtime input for match {MatchId}, session {SessionId} skipped {Gap} sequences before {Sequence}; accepted.",
+                    matchId, sessionId, input.Sequence - acknowledgedInput - 1, input.Sequence);
             }
 
-            var aimChanged = input.AimX != participant.AimX || input.AimY != participant.AimY;
-            var aimRateExceeded = false;
-            if (aimChanged)
+            // The heartbeat budget - twelve a second against the four the client sends -
+            // is only ever reached by abuse, so an over-budget heartbeat is acknowledged
+            // and otherwise ignored: it neither lands nor refreshes the neutral deadline.
+            // The input budget is different, normal play reaches it, so an over-budget
+            // input still applies its held state further down.
+            if (messageRateExceeded && isHeartbeat)
             {
-                RemoveExpired(participant.AimChangeTimestamps, now);
-                aimRateExceeded = participant.AimChangeTimestamps.Count >= MaxAimChangesPerSecond;
+                participant.AcknowledgedInput = input.Sequence;
+                return new InputResult(true, default, input.Sequence);
             }
 
-            // A refused action strips itself from the input rather than rejecting the
-            // whole message. Reject does not advance AcknowledgedInput, so rejecting
-            // sequence N turns every later frame into a SequenceGap and forces the
-            // client to reconnect — and reconnecting drops input capture, which
-            // silently clears the player's held movement keys. Spam clicking means most
-            // clicks land during the shot cooldown, so this fired constantly in normal
-            // play. The action is still refused; only the disconnect is gone.
-            if (state.Simulation.Phase != ContinuousMatchPhase.Live)
+            // Out-of-range fields are corrected rather than refused. The tick is clamped
+            // into [tick + 1, tick + 40]: a late stamp applies on the next step, a
+            // far-future one no more than two thirds of a second out. It is also never
+            // below the previous input's stamp, so arrival order wins over a stamp that
+            // went backwards and the queue stays in arrival order. The realistic way a stamp
+            // leaves the window is the server falling behind wall time - FixedStepScheduler
+            // forgives its catch-up debt after MaxCatchUpTicks - so a stall of half a
+            // second used to put every subsequent input past the window until the next
+            // snapshot, exactly when a reconnect storm was least affordable. The clamp is
+            // logged because it is the health signal for the client's lead estimate.
+            var sanitized = Sanitize(input, state.Simulation.Tick, participant.LastScheduledTick,
+                participant.DirectionX, participant.DirectionY);
+            if (sanitized.PredictedTick != input.PredictedTick)
             {
-                if (input.FireReleased || input.Dash)
-                    input = input with { FireReleased = false, Dash = false };
+                _logger.LogDebug(
+                    "Realtime input for match {MatchId}, session {SessionId} stamped tick {PredictedTick} against server tick {ServerTick}; clamped by {Distance} ticks.",
+                    matchId, sessionId, input.PredictedTick, state.Simulation.Tick,
+                    sanitized.PredictedTick - input.PredictedTick);
             }
-            else
+            input = sanitized;
+
+            var directionChanged = !input.SameDirection(participant.DirectionX, participant.DirectionY);
+            var directionRateExceeded = false;
+            if (directionChanged)
             {
-                if (input.FireReleased
-                    && (state.Simulation.Tick < participant.CooldownUntilTick
-                        || arenaPlayer is { CooldownTicks: > 0 }))
-                {
-                    input = input with { FireReleased = false };
-                }
-                if (input.Dash && participant.DashSpent)
-                    input = input with { Dash = false };
+                RemoveExpired(participant.DirectionChangeTimestamps, now);
+                directionRateExceeded = participant.DirectionChangeTimestamps.Count >= MaxDirectionChangesPerSecond;
             }
+
+            // Over the message budget the held state still lands and only the edges are
+            // discarded, for the same reason the aim-rate clamp below keeps movement:
+            // rate limiting is about message volume, and a character that freezes reads
+            // as a broken game rather than as a rate limit. The message is not counted
+            // against the window, exactly as a rejected one never was, so a flood cannot
+            // extend its own punishment; it is simply cheap and nearly inert.
             if (messageRateExceeded)
-                return Reject(ContinuousRejectReason.RateLimited, participant);
-
-            // An aim-rate violation clamps the aim to the last accepted one and lets the
-            // rest of the input through. Movement, charging and dash merely shared a
-            // message with the offending aim; discarding them makes the character stop
-            // responding to the player, which reads as a broken game rather than as a
-            // rate limit. Volume is still capped by the message budget above, and an aim
-            // that is refused here simply does not move.
-            if (aimRateExceeded)
             {
-                input = input with { AimX = participant.AimX, AimY = participant.AimY };
-                aimChanged = false;
+                // The held state lands only while the queue has room. Past the cap a
+                // flood is acknowledged and dropped, which is what the old rejection did.
+                if (participant.Scheduled.Count >= MaxScheduledInputsOverBudget)
+                {
+                    participant.AcknowledgedInput = input.Sequence;
+                    return new InputResult(true, default, input.Sequence);
+                }
+                input = input.HeldOnly();
             }
 
-            timestamps.Enqueue(now);
-            if (aimChanged)
-                participant.AimChangeTimestamps.Enqueue(now);
-            state.Simulation.SetInput(participant.SimulationSessionId, input);
+            // A direction-rate violation clamps the direction to the last accepted one
+            // and lets the rest of the input through. Movement, charging and dash merely
+            // shared a message with the offending direction; discarding them makes the
+            // character stop responding to the player, which reads as a broken game
+            // rather than as a rate limit. Volume is still capped by the message budget
+            // above, and a direction that is refused here simply does not move.
+            if (directionRateExceeded)
+            {
+                input = input with { AimX = participant.DirectionX, AimY = participant.DirectionY };
+                directionChanged = false;
+            }
 
-            participant.AimX = input.AimX;
-            participant.AimY = input.AimY;
+            if (!messageRateExceeded)
+                timestamps.Enqueue(now);
+            if (directionChanged)
+                participant.DirectionChangeTimestamps.Enqueue(now);
+            participant.DirectionX = input.AimX;
+            participant.DirectionY = input.AimY;
+
+            // Acknowledgement means received, and it must stay that way: the client
+            // measures its round trip from it, and an acknowledgement that waited for
+            // the install would fold the client's own lead into that estimate.
             participant.AcknowledgedInput = input.Sequence;
-            if (input.FireReleased)
-                participant.CooldownUntilTick = checked(state.Simulation.Tick + ArenaRulesetV1.ShotCooldownTicks);
-            if (input.Dash)
-                participant.DashSpent = true;
+
+            // The stamp names the tick the input applies at. The client runs ahead of the
+            // server by its measured round trip plus a margin and predicts from the same
+            // tick, so installing here at the stamp - rather than on arrival - is what
+            // makes the two agree. An input due for the very next step is installed now;
+            // that is the same order the scheduler would install it in, and it keeps a
+            // "now" input visible to the simulation the moment it is accepted.
+            Schedule(participant, input);
+            InstallDue(state, participant);
+
             participant.AcceptedGeneration = checked(participant.AcceptedGeneration + 1);
             participant.NeutralTimer?.Dispose();
             var timerResolution = TimeSpan.FromTicks(Math.Max(
                 1L,
                 (long)Math.Ceiling((double)TimeSpan.TicksPerSecond / _time.TimestampFrequency)));
-            var neutralDelay = NeutralTimeout + timerResolution;
+            var neutralDelay = state.NeutralTimeout + timerResolution;
             var acceptedGeneration = participant.AcceptedGeneration;
             participant.NeutralTimer = _time.CreateTimer(
                 _ => NeutralizeIfStale(state, participant, acceptedGeneration),
@@ -391,6 +457,52 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                 Timeout.InfiniteTimeSpan);
             return new InputResult(true, default, input.Sequence);
         }
+    }
+
+    /// <summary>
+    /// Installs every scheduled input that is due for the next step. What the scheduler
+    /// runs before each <c>Step()</c>; exposed so tests can drive it against a
+    /// simulation whose tick they advance by hand.
+    /// </summary>
+    internal void InstallScheduledInputs(long matchId)
+    {
+        if (!_matches.TryGetValue(matchId, out var state)) return;
+        lock (state.SyncRoot)
+        {
+            if (!state.Active) return;
+            foreach (var participant in state.ParticipantsByUser.Values)
+                InstallDue(state, participant);
+        }
+    }
+
+    private static void Schedule(ParticipantInputState participant, ContinuousInput input)
+    {
+        // Ordered by stamp, then by arrival. Sanitize floors every stamp at the previous
+        // one, so stamp order is arrival order and this is always an append.
+        participant.Scheduled.Add(input);
+        participant.LastScheduledTick = input.PredictedTick;
+    }
+
+    private static void InstallDue(ContinuousMatchState state, ParticipantInputState participant)
+    {
+        var scheduled = participant.Scheduled;
+        while (scheduled.Count > 0 && scheduled[0].PredictedTick <= state.Simulation.Tick + 1)
+        {
+            var input = scheduled[0];
+            scheduled.RemoveAt(0);
+            Install(state, participant, input);
+        }
+    }
+
+    /// <summary>
+    /// Installation. Admission is the game's: <see cref="IContinuousSimulation.Admit"/>
+    /// runs here, at install time, against the state the input will actually meet -
+    /// which for a scheduled input is not the state it was received against.
+    /// </summary>
+    private static void Install(ContinuousMatchState state, ParticipantInputState participant, ContinuousInput input)
+    {
+        var admitted = state.Simulation.Admit(participant.SimulationSessionId, input);
+        state.Simulation.SetInput(participant.SimulationSessionId, admitted);
     }
 
     public async Task ForfeitAsync(long matchId, long stableUserId, string reason)
@@ -446,6 +558,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         var acknowledged = AcknowledgedInputs(state);
         foreach (var participant in participants)
         {
+            participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             try { state.Simulation.SetNeutralInput(participant.SimulationSessionId); }
             catch (Exception ex)
             {
@@ -513,7 +627,9 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             await _publisher.PublishToUsersAsync(ParticipantUserIds(state.Reservation), new
             {
                 type = "game.ended", matchId,
-                gameType = "arena-knockoff", format = "bo3", rulesetVersion = 1,
+                gameType = state.Reservation.Configuration.GameType,
+                format = state.Reservation.Configuration.Format,
+                rulesetVersion = state.Reservation.Configuration.RulesetVersion,
                 options = state.Reservation.Configuration.Options,
                 abandoned = abandonReason is not null, reason = abandonReason,
                 winnerId = winnerSessionId,
@@ -577,7 +693,7 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         {
             // start_failed (:128) and scheduler_error (:659) blame PlayerOne purely by
             // convention for a server fault neither player caused. Naming a winner here
-            // would make ArenaBoard vanish PlayerOne as the loser, so the wire must stay
+            // would make the client vanish PlayerOne as the loser, so the wire must stay
             // silent. The persisted record keeps its existing (invisible) convention.
             // connection_timeout and realtime_disconnect are excluded deliberately: those
             // do blame the participant who actually dropped.
@@ -660,7 +776,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
 
     private async Task RunSchedulerAsync(ContinuousMatchState state)
     {
-        var scheduler = new FixedStepScheduler(_time, ArenaRulesetV1.TickRate, ArenaRulesetV1.MaxCatchUpTicks);
+        var timing = state.Definition.Timing;
+        var scheduler = new FixedStepScheduler(_time, timing.TickRate, timing.MaxCatchUpTicks);
         scheduler.Start(_time.GetTimestamp());
         try
         {
@@ -673,9 +790,11 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
                     lock (state.SyncRoot)
                     {
                         if (!state.Active) return;
+                        foreach (var participant in state.ParticipantsByUser.Values)
+                            InstallDue(state, participant);
                         var result = state.Simulation.Step();
                         if (result.Completed) completion = result.Completion;
-                        if (state.Simulation.Tick % ArenaRulesetV1.SnapshotEveryTicks == 0)
+                        if (state.Simulation.Tick % timing.SnapshotEveryTicks == 0)
                         {
                             var acknowledged = AcknowledgedInputs(state);
                             foreach (var participant in state.ParticipantsByUser.Values.Where(
@@ -736,22 +855,12 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         ParticipantInputState participant,
         IReadOnlyDictionary<long, long> acknowledgedInputs)
     {
-        var view = state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledgedInputs);
-        if (view is not ArenaSnapshotView arena) return view;
-
-        var currentBySimulation = state.ParticipantsByUser.Values
+        // A reconnected participant has a new wire session id while the simulation
+        // keeps the one it started with. The game substitutes wherever its snapshot
+        // names a session; the coordinator only knows the mapping.
+        var wireSessionIds = state.ParticipantsByUser.Values
             .ToDictionary(x => x.SimulationSessionId, x => x.SessionId);
-        return arena with
-        {
-            Players = Array.AsReadOnly(arena.Players.Select(player => player with
-            {
-                SessionId = currentBySimulation[player.SessionId],
-            }).ToArray()),
-            Projectiles = Array.AsReadOnly(arena.Projectiles.Select(projectile => projectile with
-            {
-                OwnerSessionId = currentBySimulation[projectile.OwnerSessionId],
-            }).ToArray()),
-        };
+        return state.Simulation.ParticipantSnapshot(participant.SimulationSessionId, acknowledgedInputs, wireSessionIds);
     }
 
     private static HashSet<long> ParticipantUserIds(DuelReservation reservation) =>
@@ -805,22 +914,54 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             timestamps.Dequeue();
     }
 
-    private static bool IsInRange(ContinuousInput input, long serverTick, bool isHeartbeat)
+    /// <summary>
+    /// Corrects an input's out-of-range fields instead of refusing the message. The
+    /// tick is clamped into the window the scheduler will install it in; a movement vector longer
+    /// than unit is scaled down along its own direction; an aim that is zero or longer
+    /// than unit is replaced by the last accepted aim, which is what the aim-rate clamp
+    /// already substitutes. <c>short.MinValue</c> is the one component value the
+    /// original range check refused outright (it has no positive counterpart), so it
+    /// is folded to <c>-32_767</c> before scaling.
+    /// </summary>
+    /// <param name="earliestTick">The previous input's stamp. A stamp below it is raised
+    /// to it, so a client whose stamp stepped back does not have a later input installed
+    /// before an earlier one; arrival order wins. Zero when there is none.</param>
+    internal static ContinuousInput Sanitize(
+        ContinuousInput input, long serverTick, long earliestTick, short lastAimX, short lastAimY)
     {
-        if (input.PredictedTick < serverTick - 120 || input.PredictedTick > serverTick + 30)
-            return false;
-        if (isHeartbeat && (input.FireReleased || input.Dash))
-            return false;
+        var latest = serverTick + MaxScheduleAheadTicks;
+        var predictedTick = Math.Clamp(
+            input.PredictedTick, Math.Clamp(earliestTick, serverTick + 1, latest), latest);
+        // The view tick stays where the client put it: it names the frame the shooter saw,
+        // and a stamp moved later (a late input, installed on arrival) moves the spawn
+        // further from that frame, so the rewind grows by the lateness. Only its gap to the
+        // stamp that will actually apply is bounded, so a view from the future or one past
+        // the bound is corrected rather than refused. Zero stays zero: unknown.
+        var viewTick = input.ViewTick <= 0
+            ? 0
+            : predictedTick - Math.Clamp(predictedTick - input.ViewTick, 0, MaxViewLagTicks);
 
-        var movementSquared = (long)input.MoveX * input.MoveX + (long)input.MoveY * input.MoveY;
-        var aimSquared = (long)input.AimX * input.AimX + (long)input.AimY * input.AimY;
-        return input.MoveX >= -32_767
-               && input.MoveY >= -32_767
-               && input.AimX >= -32_767
-               && input.AimY >= -32_767
-               && FixedVec.IntegerSqrt(movementSquared) <= 32_767
-               && aimSquared > 0
-               && FixedVec.IntegerSqrt(aimSquared) <= 32_767;
+        var move = FixedVec.NormalizeQ15(
+            Math.Max(input.MoveX, (short)-32_767), Math.Max(input.MoveY, (short)-32_767));
+
+        var aimX = Math.Max(input.AimX, (short)-32_767);
+        var aimY = Math.Max(input.AimY, (short)-32_767);
+        var aimSquared = (long)aimX * aimX + (long)aimY * aimY;
+        if (aimSquared == 0 || FixedVec.IntegerSqrt(aimSquared) > 32_767)
+        {
+            aimX = lastAimX;
+            aimY = lastAimY;
+        }
+
+        return input with
+        {
+            PredictedTick = predictedTick,
+            ViewTick = viewTick,
+            MoveX = checked((short)move.X),
+            MoveY = checked((short)move.Y),
+            AimX = aimX,
+            AimY = aimY,
+        };
     }
 
     private void NeutralizeIfStale(
@@ -831,6 +972,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             if (!state.Active || participant.AcceptedGeneration != acceptedGeneration)
                 return;
 
+            participant.Scheduled.Clear();
+            participant.LastScheduledTick = 0;
             state.Simulation.SetNeutralInput(participant.SimulationSessionId);
             participant.NeutralTimer?.Dispose();
             participant.NeutralTimer = null;
@@ -856,6 +999,8 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public DuelReservation Reservation { get; }
         public IContinuousGameDefinition Definition { get; }
         public IContinuousSimulation Simulation { get; }
+        public TimeSpan NeutralTimeout => TimeSpan.FromMilliseconds(Definition.Timing.NeutralAfterMs);
+        public TimeSpan ReconnectGrace => TimeSpan.FromMilliseconds(Definition.Timing.ReconnectGraceMs);
         public DateTimeOffset StartedAt { get; }
         public object SyncRoot { get; } = new();
         public bool Active { get; set; } = true;
@@ -874,13 +1019,14 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
             var byUser = new[] { reservation.PlayerOne, reservation.PlayerTwo }
                 .ToDictionary(x => x.UserId, x => new ParticipantInputState(x.UserId, x.SessionId));
             var participants = byUser.Values.ToDictionary(x => x.SessionId);
-            if (simulation is ArenaSimulation arena)
+            foreach (var participant in participants.Values)
             {
-                foreach (var player in arena.Players)
-                {
-                    participants[player.SessionId].AimX = checked((short)player.AimX);
-                    participants[player.SessionId].AimY = checked((short)player.AimY);
-                }
+                // The direction-change budget compares against the last accepted
+                // direction; seeding it from the game's initial input means the first
+                // frame is compared against the true starting direction.
+                var initial = simulation.InitialInput(participant.SimulationSessionId);
+                participant.DirectionX = initial.AimX;
+                participant.DirectionY = initial.AimY;
             }
 
             return participants;
@@ -900,15 +1046,17 @@ public sealed class ContinuousGameCoordinator : IDuelMatchRunner
         public long ConnectionGeneration;
         public ITimer? ReconnectTimer;
         public long AcknowledgedInput;
-        public short AimX = 32_767;
-        public short AimY;
-        public long CooldownUntilTick;
-        public bool DashSpent;
-        public long RoundGeneration;
+        /// <summary>Received inputs not yet due, ordered by stamp then arrival.</summary>
+        public List<ContinuousInput> Scheduled { get; } = [];
+        /// <summary>The newest scheduled stamp, the floor for the next one. Reset with the
+        /// queue: a reconnected client stamps afresh.</summary>
+        public long LastScheduledTick;
+        public short DirectionX = 32_767;
+        public short DirectionY;
         public long AcceptedGeneration;
         public Queue<long> MessageTimestamps { get; } = [];
         public Queue<long> HeartbeatTimestamps { get; } = [];
-        public Queue<long> AimChangeTimestamps { get; } = [];
+        public Queue<long> DirectionChangeTimestamps { get; } = [];
         public ITimer? NeutralTimer;
     }
 }

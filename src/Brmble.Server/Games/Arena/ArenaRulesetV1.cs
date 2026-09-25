@@ -34,6 +34,10 @@ public static class ArenaRulesetV1
     public const int RecoilBonus = 105;
     public const int DashTicks = 6;
     public const int DashPerTick = 240;
+    // Hit lag compensation: a shot is judged against the opponent where the shooter saw
+    // them, at most this far in the past (one second), from a history one tick longer.
+    public const int MaxHitRewindTicks = 60;
+    public const int HitHistoryTicks = MaxHitRewindTicks + 4;
     public const int OpeningHoldTicks = 600;
     public const int NormalShrinkTicks = 1_800;
     public const int CollapseTicks = 1_200;

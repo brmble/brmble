@@ -39,7 +39,7 @@ describe('parseServerMessage', () => {
     const messages = [
       welcome(),
       snapshot(),
-      { type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 44, reason: 'phaseDenied' },
+      { type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 44, reason: 'wrongMatch' },
       { type: 'inputRejected', protocolVersion: 1, matchId: 91, sequence: 45, reason: 'invalidRange' },
       { type: 'connectionState', protocolVersion: 1, matchId: 91, sessionId: 20, state: 'reconnecting', graceEndsAtUnixMs: 1784989806000 },
       { type: 'matchClosed', protocolVersion: 1, matchId: 91, sequence: 121, serverTick: 3601, reason: 'completed', finalState: { ...state(), phase: 'ended', phaseEndsAtTick: null } },

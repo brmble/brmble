@@ -3,11 +3,15 @@ import type {
   ArenaInputState, ArenaPlayerSnapshot, ArenaProjectileSnapshot, ArenaSnapshot, ArenaStateSnapshot, ArenaWelcome,
 } from './arenaProtocol';
 import type { PendingArenaInput } from './useArenaConnection';
-import { constrainLocalDisplay, reconcile, sampleTimeline, stepLocal, type PredictedArenaState } from './arenaMath';
+import {
+  constrainLocalDisplay, isSameShot, knockbackImpulse, predictedKnockbackOffset, projectileLaunchTick,
+  projectileReachedBody, projectileTrajectoryKey,
+  reconcile, sampleTimeline, stepLocal, type PredictedArenaState, type PredictedHit, type SampledArenaFrame,
+} from './arenaMath';
 import {
   detectKnockout, sampleKnockout, KNOCKOUT_DURATION_MS, type ArenaKnockout, type ArenaKnockoutFrame,
 } from './arenaKnockout';
-import { createServerClock, type ServerClock } from './serverClock';
+import { createServerClock, type ServerClock } from '../Realtime/serverClock';
 
 interface UseArenaStateOptions {
   welcome: ArenaWelcome | null;
@@ -27,10 +31,18 @@ interface UseArenaStateOptions {
    * pass the one `useArenaConnection` samples from real traffic.
    */
   serverClock?: ServerClock;
+  /**
+   * The client's current local tick, from `useArenaConnection`: the tick its frames
+   * are stamped with. Pending intervals are replayed through it, so the local state
+   * after a reconcile sits at the same tick the next input will be stamped with.
+   * Without it the newest interval is replayed only to its own stamp, which is the
+   * pre-scheduling behaviour and what the tests without a connection exercise.
+   */
+  currentPredictedTick?: () => number;
   onFrame?: (state: ArenaRenderState) => void;
 }
 
-interface ArenaRenderState {
+export interface ArenaRenderState {
   localPlayer: ArenaPlayerSnapshot | null;
   remotePlayer: ArenaPlayerSnapshot | null;
   projectiles: ArenaProjectileSnapshot[];
@@ -42,11 +54,20 @@ interface ArenaRenderState {
   snapCount: number;
   /** Presentation only, and empty when nothing is animating. */
   knockout: ArenaKnockoutFrame[];
+  /**
+   * The view tick this frame shows the opponent at: the sampled timeline's tick,
+   * fractional. A fire is stamped with it so the server judges the shot where the
+   * player saw the opponent. Null when nothing has been sampled yet.
+   */
+  viewTick: number | null;
 }
+
+/** Predicted hits older than this are forgotten; their offset has long decayed to nothing. */
+const PREDICTED_HIT_TTL_TICKS = 180;
 
 const emptyState: ArenaRenderState = {
   localPlayer: null, remotePlayer: null, projectiles: [], arena: null, phase: null,
-  phaseEndsAtTick: null, score: [0, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [],
+  phaseEndsAtTick: null, score: [0, 0], consecutiveDoubleKos: 0, snapCount: 0, knockout: [], viewTick: null,
 };
 const neutralInput: ArenaInputState = {
   moveX: 0, moveY: 0, aimX: 32767, aimY: 0,
@@ -108,12 +129,13 @@ function renderFinalState(finalState: ArenaStateSnapshot, selfSessionId: number)
     consecutiveDoubleKos: finalState.consecutiveDoubleKos,
     snapCount: 0,
     knockout: [],
+    viewTick: null,
   };
 }
 
 export function useArenaState({
   welcome, latestSnapshot, pendingInputs, currentInput = neutralInput, selfSessionId, finalState,
-  reducedMotion = false, serverClock, onFrame,
+  reducedMotion = false, serverClock, currentPredictedTick, onFrame,
 }: UseArenaStateOptions): ArenaRenderState {
   // One fallback instance per hook, never shared: a module-level singleton would let
   // one match's samples leak into another's.
@@ -160,8 +182,13 @@ export function useArenaState({
   // The board the round was decided on, held for the duration of the fall so the
   // arena and the survivor do not snap to their reset positions mid-animation.
   const frozenBoardRef = useRef<ArenaStateSnapshot | null>(null);
+  // Presentation only: hits this client has predicted on the displayed opponent, read
+  // once per frame to offset the drawn opponent and never fed back into prediction.
+  const predictedHitsRef = useRef<PredictedHit[]>([]);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
+  const currentPredictedTickRef = useRef(currentPredictedTick);
+  currentPredictedTickRef.current = currentPredictedTick;
 
   useEffect(() => {
     if (sessionRef.current !== selfSessionId) {
@@ -175,6 +202,7 @@ export function useArenaState({
       knockoutRef.current = null;
       previousAuthorityRef.current = null;
       frozenBoardRef.current = null;
+      predictedHitsRef.current = [];
       snappedRef.current = false;
       snapCountRef.current = 0;
       authorityDirtyRef.current = true;
@@ -238,6 +266,7 @@ export function useArenaState({
     knockoutRef.current = null;
     previousAuthorityRef.current = null;
     frozenBoardRef.current = null;
+    predictedHitsRef.current = [];
     snappedRef.current = false;
     snapCountRef.current = 0;
     authorityDirtyRef.current = true;
@@ -298,6 +327,7 @@ export function useArenaState({
             },
             current.finalState ? [] : current.pendingInputs,
             welcome.prediction,
+            current.finalState ? undefined : currentPredictedTickRef.current?.(),
           );
           const tickMs = 1000 / welcome.tickRate;
           if (authorityChanged) {
@@ -344,8 +374,8 @@ export function useArenaState({
           presented, current.currentInput, frameTime - presentedAtRef.current,
           welcome.tickRate, welcome.prediction,
         );
-        const sampled = current.finalState
-          ? authority
+        const sampled: SampledArenaFrame = current.finalState
+          ? { ...authority, viewTick: authority.serverTick }
           // Server time, not client time. `generatedAtUnixMs` on every frame in the
           // timeline comes from the server's clock, so the render point has to be
           // expressed in that clock or the 100 ms buffer means whatever the offset
@@ -375,7 +405,55 @@ export function useArenaState({
         const displayedLocal = constrainLocalDisplay(
           local, remote, welcome.prediction.playerRadius, sampled.arena.radius,
         );
-        const predictedProjectiles = presented.projectiles.filter(projectile => projectile.id < 0);
+        // Each projectile is drawn in the frame of the player who fired it. The local
+        // player lives in the prediction frame, `lead + elapsed` ticks ahead of the
+        // newest snapshot; the opponent lives in the sampled frame, ~100 ms behind it.
+        // Drawing an own shot in the sampled frame put it 12-15 ticks behind the
+        // player at 100 ms RTT: the predicted projectile showed, vanished when the
+        // snapshot that carried the real one arrived, and the real one then appeared
+        // at the spawn point the player had long left. In the prediction frame the
+        // predicted projectile (negative id) and the authoritative one it becomes sit
+        // on the same tick, so the handover is invisible.
+        //
+        // The hit is still the server's call, and its verdict arrives a round trip
+        // plus the lead after the shot reached the opponent in this frame - 20-odd
+        // ticks of travel at 100 ms RTT, during which the shot would be drawn sailing
+        // through the body the player aimed at. So an own shot stops being drawn once
+        // it has reached the displayed opponent (`projectileReachedBody`), and the
+        // knockback is predicted from that moment (below). The server judges the hit in
+        // this shooter's frame - the fire carries its view tick and the server rewinds
+        // the opponent to it - so the shot vanishing here and the server's verdict agree
+        // up to half a tick of rounding.
+        const hitRadius = welcome.prediction.playerRadius + welcome.prediction.projectileRadius;
+        const own = presented.projectiles.filter(projectile => projectile.ownerSessionId === current.selfSessionId);
+        const reached = own.filter(projectile => remote !== null && projectileReachedBody(projectile, remote, displayedLocal, hitRadius));
+        const ownProjectiles = own.filter(projectile => !reached.includes(projectile));
+        const theirProjectiles = sampled.projectiles.filter(projectile => projectile.ownerSessionId !== current.selfSessionId);
+        // Predicted knockback. The server judges the hit in this shooter's frame (the fire
+        // carried the view tick), so a shot that reaches the displayed opponent is a hit
+        // the server will confirm a round trip later. The opponent is pushed now, and
+        // `predictedKnockbackOffset` hands over to the authority's knockback without a
+        // jump. Keyed by line of flight so the predicted shot and the authoritative one
+        // it becomes register once; cleared whenever the round is not live.
+        if (presented.phase !== 'live') {
+          predictedHitsRef.current = [];
+        } else {
+          for (const projectile of reached) {
+            const key = projectileTrajectoryKey(projectile);
+            const launchTick = projectileLaunchTick(projectile, presented.serverTick);
+            if (predictedHitsRef.current.some(hit =>
+              isSameShot(hit, key, launchTick, welcome.prediction.shotCooldownTicks))) continue;
+            // The gap is rounded to whole ticks: the fire's view tick went out rounded,
+            // so the server's rewind and its hit tick are whole ticks too.
+            predictedHitsRef.current.push({
+              key, launchTick, impulse: knockbackImpulse(projectile), hitViewTick: sampled.viewTick,
+              gapTicks: Math.max(0, Math.round(presented.serverTick - sampled.viewTick)),
+            });
+          }
+          predictedHitsRef.current = predictedHitsRef.current.filter(hit => sampled.viewTick - hit.hitViewTick < PREDICTED_HIT_TTL_TICKS);
+        }
+        const knock = predictedKnockbackOffset(predictedHitsRef.current, sampled.viewTick);
+        const displayedRemote = remote === null ? null : { ...remote, x: remote.x + knock.x, y: remote.y + knock.y };
         // Deliberately ungated: a frame where authority did not change compares the
         // snapshot against itself, and `detectKnockout` is null for every such pair
         // (live/live fails its next-phase guard, any other phase fails its
@@ -423,12 +501,13 @@ export function useArenaState({
         const frozenLocal = frozen?.players.find(player => player.sessionId === current.selfSessionId);
         const frozenRemote = frozen?.players.find(player => player.sessionId !== current.selfSessionId);
         const nextRendered: ArenaRenderState = {
-          localPlayer: frozenLocal ?? displayedLocal, remotePlayer: frozenRemote ?? remote,
-          projectiles: [...sampled.projectiles, ...predictedProjectiles],
+          localPlayer: frozenLocal ?? displayedLocal, remotePlayer: frozenRemote ?? displayedRemote,
+          projectiles: [...theirProjectiles, ...ownProjectiles],
           arena: frozen?.arena ?? sampled.arena, phase: sampled.phase, phaseEndsAtTick: sampled.phaseEndsAtTick,
           score: [sampled.score[0], sampled.score[1]], consecutiveDoubleKos: sampled.consecutiveDoubleKos,
           snapCount: snapCountRef.current,
           knockout,
+          viewTick: sampled.viewTick,
         };
         onFrameRef.current?.(nextRendered);
         if (predictionChanged) setRendered(nextRendered);
