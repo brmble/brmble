@@ -5,6 +5,7 @@ import type {
 import type { PendingArenaInput } from './useArenaConnection';
 import {
   arenaRadius, computeLayout, constrainLocalDisplay, damp, knockback, movePerTick, normalizeQ15, rearVector, shrinkIntensity,
+  isSameShot, knockbackImpulse, predictedKnockbackOffset, projectileLaunchTick, projectileReachedBody, projectileTrajectoryKey,
   recoil, reconcile, resolveBodyOverlap, sampleTimeline, screenToWorld, stepLocal, worldToScreen,
 } from './arenaMath';
 
@@ -94,13 +95,120 @@ describe('arena client prediction', () => {
     expect(local.player.x).toBe(1614);
     expect(local.player.vx).toBe(-42);
     expect(local.player.cooldownTicks).toBe(24);
+    // Spawned at the pre-movement position plus the spawn offset (1330 + 780) and
+    // then advanced by one velocity in its spawn tick, as the server does.
     expect(local.projectiles).toEqual([{
-      id: -1, ownerSessionId: 10, x: 2110, y: 0, vx: 240, vy: 0, chargePermille: 11,
+      id: -1, ownerSessionId: 10, x: 2350, y: 0, vx: 240, vy: 0, chargePermille: 11,
     }]);
   });
 
+  describe('projectileReachedBody', () => {
+    const shooter = { x: 0, y: 0 };
+    const hitRadius = 600 + 180;
+    const shot = (x: number) => ({ id: 1, ownerSessionId: 10, x, y: 0, vx: 240, vy: 0, chargePermille: 500 });
+
+    it('is true on overlap, and once the body sits behind the shot within the hit radius of its line of flight', () => {
+      expect(projectileReachedBody(shot(3000), { x: 3600, y: 0 }, shooter, hitRadius)).toBe(true);
+      expect(projectileReachedBody(shot(5000), { x: 3000, y: 700 }, shooter, hitRadius)).toBe(true);
+      // Just within the slack behind the shooter's own projection.
+      expect(projectileReachedBody(shot(5000), { x: -500, y: 0 }, shooter, hitRadius)).toBe(true);
+    });
+
+    it('is false while the body is ahead, off the line, or further back than the shooter', () => {
+      expect(projectileReachedBody(shot(1000), { x: 3000, y: 0 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody(shot(5000), { x: 3000, y: 900 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody(shot(5000), { x: -2000, y: 0 }, shooter, hitRadius)).toBe(false);
+      expect(projectileReachedBody({ ...shot(5000), vx: 0 }, { x: 3000, y: 0 }, shooter, hitRadius)).toBe(false);
+    });
+  });
+
+  describe('predicted knockback', () => {
+    const shot = { id: 1, ownerSessionId: 10, x: 0, y: 0, vx: 240, vy: 0, chargePermille: 333 };
+
+    it('derives the impulse the server applies from the projectile direction and charge', () => {
+      // Knockback at permille 333 is 130 + 220 * 333 / 1000 = 203, along the flight.
+      expect(knockbackImpulse(shot)).toEqual({ x: 203, y: 0 });
+      expect(knockbackImpulse({ ...shot, vx: 0, vy: -240 })).toEqual({ x: 0, y: -203 });
+    });
+
+    it('keys a projectile by its line of flight so the predicted shot and the authoritative one it becomes match', () => {
+      expect(projectileTrajectoryKey({ ...shot, id: 7, x: 720 })).toBe(projectileTrajectoryKey({ ...shot, id: -1 }));
+      expect(projectileTrajectoryKey({ ...shot, y: 500 })).not.toBe(projectileTrajectoryKey(shot));
+    });
+
+    it('dates a shot by its launch, the same all along its flight and a cooldown apart for the next one', () => {
+      // Tick 110 at x = 720 is the same shot as tick 107 at x = 0: three velocities on.
+      expect(projectileLaunchTick({ ...shot, x: 720 }, 110)).toBe(projectileLaunchTick(shot, 107));
+      expect(projectileLaunchTick({ ...shot, x: 720, y: 500 }, 110)).toBe(107);
+      const hit = { key: projectileTrajectoryKey(shot), launchTick: 107, impulse: { x: 0, y: 0 }, hitViewTick: 0, gapTicks: 0 };
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 107, 24)).toBe(true);
+      // An install a couple of ticks late is still the same shot; the next one is not.
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 109, 24)).toBe(true);
+      expect(isSameShot(hit, projectileTrajectoryKey(shot), 107 + 24, 24)).toBe(false);
+      expect(isSameShot(hit, projectileTrajectoryKey({ ...shot, y: 500 }), 107, 24)).toBe(false);
+    });
+
+    it('pushes by the server physics from the tick after the hit and hands over to the authority without a jump', () => {
+      const hit = { key: 'k', launchTick: 0, impulse: { x: 203, y: 0 }, hitViewTick: 100, gapTicks: 15 };
+      expect(predictedKnockbackOffset([hit], 100)).toEqual({ x: 0, y: 0 });
+      // One tick: the impulse. Two: plus its damped successor, 203 * 920 / 1000 = 186.
+      expect(predictedKnockbackOffset([hit], 101)).toEqual({ x: 203, y: 0 });
+      expect(predictedKnockbackOffset([hit], 102)).toEqual({ x: 389, y: 0 });
+      expect(predictedKnockbackOffset([hit], 101.5)).toEqual({ x: 203 + 93, y: 0 });
+      // Until the authority's knockback reaches the view frame (gap ticks later) the whole
+      // predicted displacement is shown...
+      const atHandover = predictedKnockbackOffset([hit], 115).x;
+      expect(atHandover).toBeGreaterThan(1500);
+      // ...and from then on only the difference between the two paths, which the
+      // damping shrinks to exactly nothing.
+      const after = [116, 130, 160, 200].map(tick => predictedKnockbackOffset([hit], tick).x);
+      expect(after[0]).toBeLessThan(atHandover);
+      expect(after[1]).toBeLessThan(after[0]);
+      expect(after[2]).toBeLessThan(after[1]);
+      expect(after[3]).toBe(0);
+    });
+  });
+
+  it('reports the view tick a sample represents', () => {
+    const first = snapshot({ generatedAtUnixMs: 0, sequence: 1, serverTick: 100 });
+    const second = snapshot({ generatedAtUnixMs: 50, sequence: 2, serverTick: 103 });
+    // Interpolating halfway; exactly on the newest frame; extrapolating 25 ms past it;
+    // frozen past the extrapolation limit; before the first frame.
+    expect(sampleTimeline([first, second], 125, 100, 50).viewTick).toBe(101.5);
+    expect(sampleTimeline([first, second], 150, 100, 50).viewTick).toBe(103);
+    expect(sampleTimeline([first, second], 175, 100, 50).viewTick).toBe(104.5);
+    expect(sampleTimeline([first, second], 400, 100, 50).viewTick).toBe(103);
+    expect(sampleTimeline([first, second], 50, 100, 50).viewTick).toBe(100);
+  });
+
+  it('advances every projectile one velocity per live tick and drops it at the arena edge, as the server does', () => {
+    const base = reconcile(authority(snapshot({ projectiles: [
+      { id: 7, ownerSessionId: 10, x: 1000, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+      { id: 8, ownerSessionId: 20, x: -2000, y: 500, vx: -240, vy: 0, chargePermille: 500 },
+      { id: 9, ownerSessionId: 10, x: 8800, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+    ] })), [], prediction).local;
+    const still = { ...right, moveX: 0 };
+
+    const next = stepLocal(base, still, prediction);
+
+    // Own and opponent's alike, so an authoritative projectile replayed to the local
+    // tick lands exactly where the predicted one it replaces was; the one at 8800
+    // crosses the 9000 radius and goes, exactly as RemoveExpiredProjectiles would.
+    expect(next.projectiles).toEqual([
+      { id: 7, ownerSessionId: 10, x: 1240, y: 0, vx: 240, vy: 0, chargePermille: 500 },
+      { id: 8, ownerSessionId: 20, x: -2240, y: 500, vx: -240, vy: 0, chargePermille: 500 },
+    ]);
+    // Not during positioning: the server's projectile stages are live-only.
+    const positioning = reconcile(authority(snapshot({ phase: 'positioning', projectiles: base.projectiles })), [], prediction).local;
+    expect(stepLocal(positioning, still, prediction).projectiles).toEqual(base.projectiles);
+  });
+
   it('starts the forced-fire countdown at full charge and fires only when it expires', () => {
-    let local = reconcile(authority(), [], prediction).local;
+    // Starting at x = 0: 120 ticks of charged movement from the fixture's 1000 would
+    // put the spawn point past the 9000 radius, and the shot would leave the arena in
+    // the tick it was fired - as it does on the server.
+    const start = snapshot({ players: snapshot().players.map(player => player.sessionId === 10 ? { ...player, x: 0 } : player) });
+    let local = reconcile(authority(start), [], prediction).local;
     for (let tick = 0; tick < prediction.chargeTicks; tick++) {
       local = stepLocal(local, { ...right, charging: true }, prediction);
     }
@@ -129,13 +237,30 @@ describe('arena client prediction', () => {
     expect(next.local.player.dashAvailable).toBe(true);
   });
 
-  it('discards acknowledged sequences before replaying', () => {
-    const authority = snapshot({ players: snapshot().players.map(player => player.sessionId === 10
-      ? { ...player, acknowledgedInput: 9 }
-      : player) });
-    const next = reconcile({ snapshot: authority, selfSessionId: 10 }, [pending(8, 101, 103), pending(9, 104, 105), pending(10, 106, 106)], prediction);
-    expect(next.pending.map(x => x.sequence)).toEqual([10]);
-    expect(next.replayedTicks).toBe(1);
+  it('replays by tick, not by acknowledgement, and through the local tick when given one', () => {
+    // Acknowledged means received: the server applies at the stamp, so an
+    // acknowledged interval past the snapshot's tick is still replayed.
+    const authorityAt = snapshot({
+      serverTick: 103,
+      players: snapshot().players.map(player => player.sessionId === 10 ? { ...player, acknowledgedInput: 9 } : player),
+    });
+    const acknowledgedButFuture = reconcile(authority(authorityAt), [pending(9, 104, 106)], prediction);
+    expect(acknowledgedButFuture.replayedTicks).toBe(3);
+    expect(acknowledgedButFuture.local.player.x).toBe(1000 + 3 * 90);
+
+    // The newest interval is open-ended: given the local tick, it replays through it.
+    const through = reconcile(authority(authorityAt), [pending(9, 104, 104)], prediction, 110);
+    expect(through.replayedTicks).toBe(7);
+    expect(through.local.player.x).toBe(1000 + 7 * 90);
+
+    // Only the newest is widened; a superseded interval keeps its bounds.
+    const two = reconcile(authority(authorityAt), [pending(9, 104, 105), pending(10, 106, 106, { ...right, moveX: 0 })], prediction, 110);
+    expect(two.replayedTicks).toBe(7);
+    expect(two.local.player.x).toBe(1000 + 2 * 90);
+
+    // An interval already behind the snapshot contributes nothing either way.
+    const behind = reconcile(authority(authorityAt), [pending(8, 100, 102), pending(9, 104, 104)], prediction);
+    expect(behind.replayedTicks).toBe(1);
   });
 
   it('carries same-tick empty edge flags into the next nonempty interval exactly once', () => {

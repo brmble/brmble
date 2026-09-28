@@ -93,6 +93,7 @@ export function ArenaBoard({
     welcome: connection.welcome, latestSnapshot: connection.latestSnapshot,
     pendingInputs: connection.pendingInputs,
     currentInput: connection.currentInput, serverClock: connection.serverClock,
+    currentPredictedTick: connection.currentPredictedTick,
     selfSessionId, finalState, reducedMotion, onFrame: current => drawFrameRef.current(current),
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -100,6 +101,7 @@ export function ArenaBoard({
   const latestFrameRef = useRef(state);
   const [renderer, setRenderer] = useState<ArenaRenderer | null>(null);
   const localPlayerRef = useRef(state.localPlayer);
+  const viewTickRef = useRef<number | null>(state.viewTick);
   // Presentation only, and never written back into any state the hook owns. A
   // forfeit or abandon ends the match with the loser standing still, so they are
   // puffed out of existence rather than left frozen on the board. Armed once and
@@ -135,6 +137,7 @@ export function ArenaBoard({
     canvasRef,
     renderer,
     localPlayerRef,
+    viewTickRef,
     connection,
     enabled: renderer !== null && connection.status === 'connected' && connection.closed === null && ended === null,
     combatEnabled: state.phase === 'live' && state.localPlayer?.cooldownTicks === 0,
@@ -150,6 +153,8 @@ export function ArenaBoard({
     // path by which the constrained value re-enters `useArenaState` — and only as a
     // normalised unit aim vector in the input stream, never as a position.
     localPlayerRef.current = current.localPlayer;
+    // Same coupling for the view tick: a fire is stamped with the frame the player aimed in.
+    viewTickRef.current = current.viewTick;
     const players = [current.localPlayer, current.remotePlayer].filter((player): player is ArenaPlayerSnapshot => player !== null);
     // welcome is null on the terminal final-state path (useArenaState.ts:329), which still
     // renders a non-null arena. Safe: ArenaPredictionConstants is literal-typed, so any

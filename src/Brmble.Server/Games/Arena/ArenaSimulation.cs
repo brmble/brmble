@@ -84,6 +84,67 @@ public sealed class ArenaSimulation : IContinuousSimulation
         }
     }
 
+    public ContinuousInput InitialInput(long sessionId)
+    {
+        // The spawn-facing aim, whatever the player is aiming at by now: this seeds the
+        // coordinator's direction budget at match creation, and it must be the same
+        // answer whenever it is asked.
+        var player = FindPlayer(sessionId);
+        return NeutralInput with
+        {
+            AimX = checked((short)(player.Side == 0 ? ArenaRulesetV1.AimQuantizationMax : -ArenaRulesetV1.AimQuantizationMax)),
+            AimY = 0,
+        };
+    }
+
+    /// <summary>
+    /// What the arena refuses, expressed by stripping the action from the input rather
+    /// than rejecting the message: fire and dash outside the live phase, a fire inside
+    /// the shot cooldown, and a second dash in a round whose dash is spent. Evaluated
+    /// against the state the input will meet - the coordinator calls this at install
+    /// time - so a fire stamped past the end of a cooldown is not refused against a
+    /// cooldown that will have ended.
+    /// <para>
+    /// The cooldown clause is not a duplicate of the cooldown <see cref="ProcessFire"/>
+    /// enforces itself; it differs in two ways, both pinned by <c>ArenaAdmissionTests</c>
+    /// and both the behaviour the coordinator had before admission moved here, kept on
+    /// purpose. It is evaluated before the step decrements the timers, so on the last
+    /// cooldown tick it strips a shot the step itself would have fired. And
+    /// <see cref="ArenaPlayerState.AdmissionCooldownUntilTick"/> starts on every admitted
+    /// fire, including a release <see cref="ProcessFire"/> then refuses for want of charge
+    /// and starts no cooldown for, so a spam-clicked release is refused for the next
+    /// cooldown's worth of ticks and leaves any charge banked rather than cancelled.
+    /// </para>
+    /// </summary>
+    public ContinuousInput Admit(long sessionId, ContinuousInput input)
+    {
+        var player = FindPlayer(sessionId);
+        if (player.DashReservationRound != RoundGeneration)
+        {
+            player.DashReserved = false;
+            player.DashReservationRound = RoundGeneration;
+        }
+
+        if (Phase != ContinuousMatchPhase.Live)
+        {
+            if (input.FireReleased || input.Dash)
+                input = input with { FireReleased = false, Dash = false };
+        }
+        else
+        {
+            if (input.FireReleased && (Tick < player.AdmissionCooldownUntilTick || player.CooldownTicks > 0))
+                input = input with { FireReleased = false };
+            if (input.Dash && player.DashReserved)
+                input = input with { Dash = false };
+        }
+
+        if (input.FireReleased)
+            player.AdmissionCooldownUntilTick = checked(Tick + ArenaRulesetV1.ShotCooldownTicks);
+        if (input.Dash)
+            player.DashReserved = true;
+        return input;
+    }
+
     public void SetInput(long sessionId, ContinuousInput input)
     {
         var player = FindPlayer(sessionId);
@@ -91,6 +152,12 @@ public sealed class ArenaSimulation : IContinuousSimulation
         {
             FireReleased = input.FireReleased || player.Input.FireReleased,
             Dash = input.Dash || player.Input.Dash,
+            // The view tick belongs to a fire edge, so only a release brings one in: a view
+            // tick on a frame whose release was stripped, or on a held frame, is dropped
+            // rather than left latched for a later fire to inherit. A fire edge carried
+            // over from an earlier install keeps its own; it is the only way the latched
+            // input holds a view tick at all.
+            ViewTick = input.FireReleased && input.ViewTick != 0 ? input.ViewTick : player.Input.ViewTick,
         };
     }
 
@@ -142,9 +209,14 @@ public sealed class ArenaSimulation : IContinuousSimulation
 
     public object ParticipantSnapshot(
         long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs) =>
-        CreateSnapshot(acknowledgedInputs);
+        CreateSnapshot(acknowledgedInputs, null);
 
-    public object SpectatorSnapshot() => CreateSnapshot(null);
+    public object ParticipantSnapshot(
+        long sessionId, IReadOnlyDictionary<long, long> acknowledgedInputs,
+        IReadOnlyDictionary<long, long> wireSessionIds) =>
+        CreateSnapshot(acknowledgedInputs, wireSessionIds);
+
+    public object SpectatorSnapshot() => CreateSnapshot(null, null);
 
     public ulong DeterministicHash()
     {
@@ -167,11 +239,12 @@ public sealed class ArenaSimulation : IContinuousSimulation
             Write(player.Input.Sequence); Write(player.Input.PredictedTick);
             Write(player.Input.MoveX); Write(player.Input.MoveY); Write(player.Input.AimX); Write(player.Input.AimY);
             WriteBool(player.Input.Charging); WriteBool(player.Input.FireReleased); WriteBool(player.Input.Dash);
+            Write(player.Input.ViewTick);
         }
         foreach (var projectile in _projectiles.OrderBy(x => x.Id))
         {
             Write(projectile.Id); Write(projectile.OwnerSessionId); Write(projectile.X); Write(projectile.Y);
-            Write(projectile.Vx); Write(projectile.Vy); Write(projectile.ChargePermille);
+            Write(projectile.Vx); Write(projectile.Vy); Write(projectile.ChargePermille); Write(projectile.RewindTicks);
         }
         WriteSet(_readySessionIds); WriteSet(_fireReleasedSessionIds); WriteSet(_dashSessionIds);
         WriteSet(_forcedFireSessionIds); WriteSet(_hitProjectileIds);
@@ -306,7 +379,9 @@ public sealed class ArenaSimulation : IContinuousSimulation
             else
                 _fireReleasedSessionIds.Remove(player.SessionId);
 
-            player.Input = player.Input with { FireReleased = false };
+            // The view tick belongs to the release it came with; a later fire without one
+            // must not inherit it.
+            player.Input = player.Input with { FireReleased = false, ViewTick = 0 };
         }
     }
 
@@ -317,6 +392,14 @@ public sealed class ArenaSimulation : IContinuousSimulation
         var velocity = aim.Scale(ArenaRulesetV1.ProjectilePerTick);
         var chargePermille = ArenaRulesetV1.ChargePermille(player.ChargeTicks);
         var recoil = aim.Scale(ArenaRulesetV1.Recoil(chargePermille));
+        // The shooter aimed at the opponent as their view frame showed them, at ViewTick;
+        // this step produces tick Tick + 1, which is the shooter's prediction tick for the
+        // release. The difference is how far back the hit test looks for the shot's life.
+        // A late input, installed on arrival after its stamp, rewinds by the extra lateness
+        // too: the shooter's view was that much older relative to the actual spawn.
+        var rewind = player.Input.ViewTick <= 0
+            ? 0
+            : (int)Math.Clamp(Tick + 1 - player.Input.ViewTick, 0, ArenaRulesetV1.MaxHitRewindTicks);
 
         _projectiles.Add(new ArenaProjectile(
             _nextProjectileId,
@@ -325,7 +408,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
             checked(player.Y + spawnOffset.Y),
             velocity.X,
             velocity.Y,
-            chargePermille));
+            chargePermille,
+            rewind));
         _nextProjectileId = checked(_nextProjectileId + 1);
         player.Vx = checked(player.Vx - recoil.X);
         player.Vy = checked(player.Vy - recoil.Y);
@@ -486,8 +570,11 @@ public sealed class ArenaSimulation : IContinuousSimulation
             var opponent = Players[0].SessionId == projectile.OwnerSessionId
                 ? Players[1]
                 : Players[0];
-            var dx = checked((long)opponent.X - projectile.X);
-            var dy = checked((long)opponent.Y - projectile.Y);
+            // Judged where the shooter saw the opponent, RewindTicks ago; the knockback
+            // below still lands on the opponent as they are now.
+            var (targetX, targetY) = HitTestPosition(opponent, projectile.RewindTicks);
+            var dx = checked(targetX - projectile.X);
+            var dy = checked(targetY - projectile.Y);
             var hitRadius = ArenaRulesetV1.PlayerRadius + ArenaRulesetV1.ProjectileRadius;
             if (checked(dx * dx + dy * dy) > checked((long)hitRadius * hitRadius))
                 continue;
@@ -505,6 +592,36 @@ public sealed class ArenaSimulation : IContinuousSimulation
             var ownerSide = opponent.Side == 0 ? 1 : 0;
             _hits[ownerSide] = checked(_hits[ownerSide] + 1);
             _landedCharges[ownerSide].Add(projectile.ChargePermille);
+        }
+    }
+
+    /// <summary>
+    /// The opponent's position as the shooter's view frame showed it: <paramref name="rewind"/>
+    /// ticks before the tick this step produces. Falls back to the current position for no
+    /// rewind and when the history does not reach that far, which only happens in the first
+    /// ticks after a round reset clears it.
+    /// </summary>
+    private (long X, long Y) HitTestPosition(ArenaPlayerState opponent, int rewind)
+    {
+        if (rewind <= 0)
+            return (opponent.X, opponent.Y);
+        var tick = Tick + 1 - rewind;
+        if (tick < 0)
+            return (opponent.X, opponent.Y);
+        var index = (int)(tick % ArenaRulesetV1.HitHistoryTicks);
+        return opponent.HistoryTick[index] == tick
+            ? (opponent.HistoryX[index], opponent.HistoryY[index])
+            : (opponent.X, opponent.Y);
+    }
+
+    private void RecordPositionHistory()
+    {
+        var index = (int)(Tick % ArenaRulesetV1.HitHistoryTicks);
+        foreach (var player in Players)
+        {
+            player.HistoryX[index] = player.X;
+            player.HistoryY[index] = player.Y;
+            player.HistoryTick[index] = Tick;
         }
     }
 
@@ -592,6 +709,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
     private void FinishTickAndPhase()
     {
         Tick = checked(Tick + 1);
+        RecordPositionHistory();
         if (_roundResetThisTick)
         {
             _roundResetThisTick = false;
@@ -635,6 +753,9 @@ public sealed class ArenaSimulation : IContinuousSimulation
             player.CooldownTicks = 0; player.DashTicks = 0; player.DashAvailable = true;
             player.Input = NeutralInput; player.VelocityCause = ArenaKnockoutCause.DashOrMovement;
             player.BoundaryCause = null;
+            // No projectile survives a reset, so nothing can look back across one; the
+            // history is cleared so the first shots of the new round cannot either.
+            Array.Fill(player.HistoryTick, -1L);
         }
     }
 
@@ -665,7 +786,8 @@ public sealed class ArenaSimulation : IContinuousSimulation
         Array.AsReadOnly(_landedCharges.Select(x => (IReadOnlyList<int>)Array.AsReadOnly(x.ToArray())).ToArray()),
         Array.AsReadOnly((int[])_dashUses.Clone()), Array.AsReadOnly(_koRadii.ToArray()));
 
-    private ArenaSnapshotView CreateSnapshot(IReadOnlyDictionary<long, long>? acknowledgedInputs) => new(
+    private ArenaSnapshotView CreateSnapshot(
+        IReadOnlyDictionary<long, long>? acknowledgedInputs, IReadOnlyDictionary<long, long>? wireSessionIds) => new(
         Phase,
         Phase switch
         {
@@ -677,7 +799,7 @@ public sealed class ArenaSimulation : IContinuousSimulation
         _consecutiveDoubleKos,
         new ArenaArenaView(ArenaRadius, ShrinkPhase),
         Players.Select(player => new ArenaPlayerView(
-            player.SessionId,
+            WireSessionId(player.SessionId, wireSessionIds),
             player.Side,
             player.X,
             player.Y,
@@ -695,12 +817,19 @@ public sealed class ArenaSimulation : IContinuousSimulation
                 : null)).ToList().AsReadOnly(),
         _projectiles.Select(projectile => new ArenaProjectileView(
             projectile.Id,
-            projectile.OwnerSessionId,
+            WireSessionId(projectile.OwnerSessionId, wireSessionIds),
             projectile.X,
             projectile.Y,
             projectile.Vx,
             projectile.Vy,
             projectile.ChargePermille)).ToList().AsReadOnly());
+
+    // A reconnected participant has a new wire session id while the simulation keeps
+    // the one it started with; the acknowledgement map above is keyed by the latter.
+    private static long WireSessionId(long simulationSessionId, IReadOnlyDictionary<long, long>? wireSessionIds) =>
+        wireSessionIds is not null && wireSessionIds.TryGetValue(simulationSessionId, out var wire)
+            ? wire
+            : simulationSessionId;
 
     private void RecordBoundaryTransition(
         ArenaPlayerState player, bool wasInside, ArenaKnockoutCause cause)

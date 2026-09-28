@@ -179,6 +179,7 @@ public class ContinuousContractTests
 
     private sealed class FakeSimulation : IContinuousSimulation
     {
+        public ContinuousInput Admit(long sessionId, ContinuousInput input) => input;
         public long Tick { get; private set; }
         public ContinuousMatchPhase Phase => ContinuousMatchPhase.Live;
         public void SetInput(long sessionId, ContinuousInput input) { }

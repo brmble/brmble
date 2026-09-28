@@ -1,0 +1,100 @@
+import { describe, expect, it } from 'vitest';
+import { createInputLead } from './inputLead';
+
+describe('inputLead', () => {
+  it('starts at the minimum before any sample and reports no round trip', () => {
+    const lead = createInputLead({ tickRate: 60 });
+    expect(lead.leadTicks(0)).toBe(3);
+    expect(lead.rttMs).toBeNull();
+    expect(lead.targetTicks).toBe(3);
+  });
+
+  it('takes a low percentile of the window, not the mean', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 0 });
+    // Nine samples at 100 ms and one spike at 900 ms: the mean is 180, the 20th
+    // percentile is 100.
+    for (let index = 0; index < 9; index++) lead.sample(100, index);
+    lead.sample(900, 9);
+    expect(lead.rttMs).toBe(100);
+    // ceil(100 ms * 60 / 1000) = 6, plus the 2-tick margin.
+    expect(lead.targetTicks).toBe(8);
+  });
+
+  it('does not move on a single outlier', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 0 });
+    for (let index = 0; index < 20; index++) lead.sample(50, index);
+    const before = lead.targetTicks;
+    lead.sample(2000, 20);
+    expect(lead.targetTicks).toBe(before);
+  });
+
+  it('takes the first sample at once, then slews no faster than one tick per interval', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500, windowSize: 4 });
+    // First sample: a guess becomes a measurement, so the lead jumps to it.
+    lead.sample(100, 0); // target ceil(6) + 2 = 8
+    expect(lead.leadTicks(0)).toBe(8);
+
+    // Later samples move the target; the lead follows one tick per slew interval.
+    for (let index = 0; index < 4; index++) lead.sample(200, 10 + index); // target 14
+    expect(lead.targetTicks).toBe(14);
+    expect(lead.leadTicks(100)).toBe(8);
+    expect(lead.leadTicks(500)).toBe(9);
+    expect(lead.leadTicks(999)).toBe(9);
+    expect(lead.leadTicks(1000)).toBe(10);
+
+    for (let index = 0; index < 4; index++) lead.sample(0, 1100 + index);
+    expect(lead.targetTicks).toBe(3);
+    expect(lead.leadTicks(1400)).toBe(10);
+    expect(lead.leadTicks(1500)).toBe(9);
+  });
+
+  it('clamps the target to the configured range', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 0, minTicks: 3, maxTicks: 20 });
+    lead.sample(5000, 0);
+    expect(lead.targetTicks).toBe(20);
+    const low = createInputLead({ tickRate: 60, slewMs: 0 });
+    low.sample(0, 0);
+    expect(low.targetTicks).toBe(3);
+  });
+
+  it('ages samples out of the window so a recovered network lowers the lead', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 0, windowSize: 10 });
+    for (let index = 0; index < 10; index++) lead.sample(300, index);
+    expect(lead.targetTicks).toBe(20);
+    for (let index = 0; index < 10; index++) lead.sample(30, 10 + index);
+    expect(lead.rttMs).toBe(30);
+    expect(lead.targetTicks).toBe(4);
+  });
+
+  it('ignores non-finite or negative samples', () => {
+    const lead = createInputLead({ tickRate: 60 });
+    lead.sample(Number.NaN, 0);
+    lead.sample(-5, 1);
+    lead.sample(Number.POSITIVE_INFINITY, 2);
+    expect(lead.sampleCount).toBe(0);
+  });
+
+  it('retunes to a new tick rate, keeping the round trip and jumping to the new target', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500 });
+    lead.sample(200, 0); // ceil(12) + 2 = 14 at 60 Hz
+    expect(lead.leadTicks(0)).toBe(14);
+    lead.setTickRate(120);
+    // ceil(200 * 120 / 1000) = 24, plus the margin; no slew, the old count meant another time.
+    expect(lead.rttMs).toBe(200);
+    expect(lead.targetTicks).toBe(26);
+    expect(lead.leadTicks(1)).toBe(26);
+    lead.setTickRate(30);
+    expect(lead.leadTicks(2)).toBe(8);
+    expect(() => lead.setTickRate(0)).toThrow(RangeError);
+  });
+
+  it('keeps a slewing lead where it is when the tick rate does not change', () => {
+    const lead = createInputLead({ tickRate: 60, slewMs: 500, windowSize: 4 });
+    lead.sample(100, 0); // 8
+    for (let index = 0; index < 4; index++) lead.sample(200, 10 + index); // target 14, lead still 8
+    expect(lead.targetTicks).toBe(14);
+    lead.setTickRate(60);
+    expect(lead.leadTicks(100)).toBe(8);
+  });
+});
+

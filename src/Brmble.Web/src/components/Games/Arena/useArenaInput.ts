@@ -15,12 +15,18 @@ interface ArenaInputOptions {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   renderer: ArenaRenderer | null;
   localPlayerRef: RefObject<Pick<ArenaPlayerSnapshot, 'x' | 'y'> | null>;
+  /**
+   * The view tick the board is currently showing the opponent at, from the last drawn
+   * frame. A fire is stamped with it so the server judges the shot in the frame the
+   * player aimed in. Optional so callers without a board (tests) can leave it out.
+   */
+  viewTickRef?: RefObject<number | null>;
   connection: ArenaConnection;
   enabled: boolean;
   combatEnabled: boolean;
 }
 
-export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection, enabled, combatEnabled }: ArenaInputOptions) {
+export function useArenaInput({ canvasRef, renderer, localPlayerRef, viewTickRef, connection, enabled, combatEnabled }: ArenaInputOptions) {
   const captureIdRef = useRef<string | null>(null);
   captureIdRef.current ??= crypto.randomUUID();
   const captureId = captureIdRef.current;
@@ -40,8 +46,13 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
   connectionRef.current = connection;
 
   const send = (patch: Partial<ArenaInputState>) => {
-    const next = { ...inputRef.current, fireReleased: false, dash: false, ...patch };
-    inputRef.current = { ...next, fireReleased: false, dash: false };
+    // Edges and the view tick belong to one frame: they never linger in the held state.
+    const { viewTick, ...held } = inputRef.current;
+    void viewTick;
+    const next: ArenaInputState = { ...held, fireReleased: false, dash: false, ...patch };
+    const { viewTick: sentViewTick, ...retained } = next;
+    void sentViewTick;
+    inputRef.current = { ...retained, fireReleased: false, dash: false };
     connectionRef.current.sendInput(next);
   };
 
@@ -158,7 +169,8 @@ export function useArenaInput({ canvasRef, renderer, localPlayerRef, connection,
       if (!capturedRef.current) return;
       consume(event);
       if (event.button === 0 && heldRef.current.delete('MouseLeft') && combatEnabledRef.current) {
-        send({ charging: false, fireReleased: true });
+        const viewTick = viewTickRef?.current;
+        send(viewTick == null ? { charging: false, fireReleased: true } : { charging: false, fireReleased: true, viewTick: Math.round(viewTick) });
       }
     };
     const onVisibility = () => {
