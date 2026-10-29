@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PaintPreview, PaintSessionSnapshot, PaintStrokeInput, PaintTool } from '../../types/paint';
 import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint } from '../../utils/paintCanvas';
 import { DEFAULT_PAINT_COLOR } from '../../utils/paintPalette';
@@ -7,6 +7,7 @@ import './PaintEditor.css';
 
 type Api = {
   getSource(id: string): Promise<Blob>;
+  getSnapshot(id: string): Promise<PaintSessionSnapshot>;
   commitStroke(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   sendPreview(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   undo(id: string): Promise<unknown> | void;
@@ -31,15 +32,20 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const lastPreviewAtRef = useRef<number | null>(null);
   const pendingLocalCommitIdsRef = useRef<Set<string>>(new Set());
   const pendingLocalStrokesRef = useRef<Map<string, PaintStrokeInput>>(new Map());
+  const pendingCommitsRef = useRef<Set<Promise<boolean>>>(new Set());
+  const savingRef = useRef(false);
   const cancelledLocalPreviewIdsRef = useRef<Set<string>>(new Set());
   const generationRef = useRef(snapshot.generation);
   const drawingRef = useRef({ strokes: snapshot.strokes, previews });
   const [tool, setTool] = useState<PaintTool>('pen');
   const [color, setColor] = useState<string>(DEFAULT_PAINT_COLOR);
   const [width, setWidth] = useState(6);
+  const [decodedAspect, setDecodedAspect] = useState<{ fingerprint: string; ratio: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveCaptured, setSaveCaptured] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const loadedSourceFingerprintRef = useRef<string | null>(null);
   const sourceLoadGenerationRef = useRef(0);
   const host = snapshot.isHost ?? snapshot.hostUserId === currentUserId;
@@ -72,6 +78,9 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const sourceFingerprint = snapshot.source
     ? `${sessionId}:${snapshot.source.mimeType}:${snapshot.source.width}:${snapshot.source.height}:${snapshot.source.sizeBytes}`
     : null;
+  const canvasAspectRatio = decodedAspect && decodedAspect.fingerprint === sourceFingerprint
+    ? decodedAspect.ratio
+    : snapshot.source ? snapshot.source.width / snapshot.source.height : 1;
 
   useEffect(() => {
     if (!sourceFingerprint || !sourceRef.current || !annotationRef.current) return;
@@ -84,6 +93,9 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
         if (cancelled || generation !== sourceLoadGenerationRef.current) return;
         loadedSourceFingerprintRef.current = sourceFingerprint;
         imageRef.current = image;
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+          setDecodedAspect({ fingerprint: sourceFingerprint, ratio: image.naturalWidth / image.naturalHeight });
+        }
         initializePaintCanvases(sourceRef.current!, annotationRef.current!, image);
         redraw();
       })
@@ -142,7 +154,14 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const currentTime = performance.now();
     if (lastPreviewAtRef.current !== null && currentTime - lastPreviewAtRef.current < PAINT_PREVIEW_THROTTLE_MS) return;
     lastPreviewAtRef.current = currentTime;
-    void paintApi.sendPreview(sessionId, buildInput());
+    try {
+      void Promise.resolve(paintApi.sendPreview(sessionId, buildInput())).then(
+        () => setPreviewUnavailable(false),
+        () => setPreviewUnavailable(true),
+      );
+    } catch {
+      setPreviewUnavailable(true);
+    }
   };
 
   const resetGesture = (pointerId: number) => {
@@ -155,7 +174,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   };
 
   const down = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (activePointerId.current !== null) return;
+    if (savingRef.current || savePngRef.current || activePointerId.current !== null) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     activePointerId.current = event.pointerId;
     correlationId.current = crypto.randomUUID();
@@ -181,13 +200,22 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const committedInput = buildInput();
     pendingLocalCommitIdsRef.current.add(committedInput.correlationId);
     pendingLocalStrokesRef.current.set(committedInput.correlationId, committedInput);
-    void Promise.resolve(paintApi.commitStroke(sessionId, committedInput)).catch(reason => {
+    let request: Promise<unknown> | void;
+    try {
+      request = paintApi.commitStroke(sessionId, committedInput);
+    } catch (reason) {
+      request = Promise.reject(reason);
+    }
+    const commit = Promise.resolve(request).then(() => true, reason => {
       pendingLocalCommitIdsRef.current.delete(committedInput.correlationId);
       pendingLocalStrokesRef.current.delete(committedInput.correlationId);
       cancelledLocalPreviewIdsRef.current.add(committedInput.correlationId);
       redraw();
       setError(reason instanceof Error ? reason.message : 'Unable to commit stroke. Please try again.');
+      return false;
     });
+    pendingCommitsRef.current.add(commit);
+    void commit.then(() => pendingCommitsRef.current.delete(commit));
     resetGesture(event.pointerId);
   };
 
@@ -201,17 +229,31 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   };
 
   const save = async () => {
-    if (!onSave || !imageRef.current || saving || saved) return;
+    if (!onSave || !imageRef.current || savingRef.current || saved) return;
+    if (activePointerId.current !== null) {
+      setError('Finish your current stroke before saving.');
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
-      const png = savePngRef.current ?? await composePaintPng(imageRef.current, imageRef.current.naturalWidth, imageRef.current.naturalHeight, snapshot.strokes);
+      let png = savePngRef.current;
+      if (!png) {
+        const commits = await Promise.all([...pendingCommitsRef.current]);
+        if (commits.some(success => !success)) throw new Error('A stroke could not be saved. Please try again.');
+        const latest = await paintApi.getSnapshot(sessionId);
+        if (latest.status !== 'active') throw new Error('This paint session is no longer active.');
+        png = await composePaintPng(imageRef.current, imageRef.current.naturalWidth, imageRef.current.naturalHeight, latest.strokes);
+      }
       savePngRef.current = png;
+      setSaveCaptured(true);
       await onSave(png);
       setSaved(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save to chat. Please try again.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -224,16 +266,20 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   return (
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
-      <div className="paint-canvas-stack">
-        <canvas ref={sourceRef} data-testid="paint-source-canvas" />
-        <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
+      <div className="paint-canvas-area">
+        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': canvasAspectRatio } as CSSProperties}>
+          <canvas ref={sourceRef} data-testid="paint-source-canvas" />
+          <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
+        </div>
       </div>
       {error && <p role="alert">{error}</p>}
+      {previewUnavailable && <p role="status">Live preview unavailable. Your finished strokes can still be sent.</p>}
+      {saveCaptured && !saved && !saving && <p role="status">Drawing is paused here. Retry will post the image captured on your first attempt and end the session; later strokes by other participants will not be included.</p>}
       <div className="paint-actions">
-        <button type="button" className="btn btn-secondary" onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
+        <button type="button" className="btn btn-secondary" disabled={saving || saveCaptured} onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
-          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
-          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
+          <button type="button" className="btn btn-danger" disabled={saving || saveCaptured} onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
+          <button type="button" className="btn btn-danger" disabled={saving} onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
         </>}
       </div>

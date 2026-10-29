@@ -13,6 +13,7 @@ const activeSnapshot: PaintSessionSnapshot = {
 function fakePaintApi() {
   return {
     getSource: vi.fn().mockResolvedValue(new Blob(['image'], { type: 'image/png' })),
+    getSnapshot: vi.fn().mockResolvedValue(activeSnapshot),
     commitStroke: vi.fn(),
     sendPreview: vi.fn(),
     undo: vi.fn(),
@@ -21,7 +22,7 @@ function fakePaintApi() {
   };
 }
 
-async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
+async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>, paintApi = fakePaintApi()) {
   vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:source'), revokeObjectURL: vi.fn() });
   Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { configurable: true, get: () => 100 });
   Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { configurable: true, get: () => 100 });
@@ -32,7 +33,7 @@ async function renderLoadedEditor(onSave: (png: Blob) => Promise<void>) {
   } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(new Blob(['png'], { type: 'image/png' })));
 
-  render(<PaintEditor sessionId="session-1" paintApi={fakePaintApi()} snapshot={activeSnapshot} currentUserId={1} onSave={onSave} />);
+  render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} onSave={onSave} />);
   await waitFor(() => expect(drawImage).toHaveBeenCalled());
 }
 
@@ -129,6 +130,21 @@ describe('PaintEditor', () => {
 
     expect(stroke).toHaveBeenCalled();
     expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps drawing and commits when a preview request fails', async () => {
+    const paintApi = { ...fakePaintApi(), sendPreview: vi.fn().mockRejectedValue(new Error('offline')) };
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    expect(paintApi.sendPreview).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/live preview unavailable/i)).toBeInTheDocument();
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+
+    expect(paintApi.commitStroke).toHaveBeenCalledOnce();
   });
 
   it('throttles preview sends while retaining every committed point in order', () => {
@@ -406,6 +422,40 @@ describe('PaintEditor', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Saved to chat' })).toBeDisabled());
   });
 
+  it('waits for a pending stroke and fetches the server snapshot before saving', async () => {
+    let finishCommit!: () => void;
+    const paintApi = fakePaintApi();
+    paintApi.commitStroke.mockImplementation(() => new Promise<void>(resolve => { finishCommit = resolve; }));
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await renderLoadedEditor(onSave, paintApi);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(paintApi.getSnapshot).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+    finishCommit();
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(paintApi.getSnapshot).toHaveBeenCalledWith('session-1');
+  });
+
+  it('does not save when a pending stroke is rejected', async () => {
+    let rejectCommit!: (reason: Error) => void;
+    const paintApi = fakePaintApi();
+    paintApi.commitStroke.mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectCommit = reject; }));
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await renderLoadedEditor(onSave, paintApi);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    rejectCommit(new Error('offline'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('A stroke could not be saved');
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it('shows a retryable error and does not mark saved when save fails', async () => {
     const onSave = vi.fn().mockRejectedValueOnce(new Error('Upload failed'));
     await renderLoadedEditor(onSave);
@@ -414,6 +464,21 @@ describe('PaintEditor', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
     expect(screen.getByRole('button', { name: 'Save to chat' })).toBeEnabled();
+  });
+
+  it('pauses local editing after a failed save so retry uses the captured image', async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new Error('Upload failed'));
+    const paintApi = fakePaintApi();
+    await renderLoadedEditor(onSave, paintApi);
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
+    expect(screen.getByText(/drawing is paused/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeDisabled();
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    expect(paintApi.commitStroke).not.toHaveBeenCalled();
   });
 
   it('reuses the same composed PNG when retrying a failed save lifecycle', async () => {

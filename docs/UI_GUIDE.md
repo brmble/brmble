@@ -217,6 +217,10 @@ Rules:
 
 Reference: `components/Paint/`
 
+The editor supplies `--paint-aspect-ratio` from the decoded image dimensions so CSS can fit
+the canvas to the available pane without distorting it. This image-dependent value is an inline
+style exception scoped to `PaintEditor`; the layout itself stays in CSS.
+
 Collaborative paint opens above channel chat and keeps the chat pane mounted. The header entry
 point is an icon-only `btn btn-ghost btn-icon` using the `palette` icon. It is disabled whenever
 the user cannot start paint **or** a paint session is already active; wrap the disabled button in

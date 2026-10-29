@@ -1,1 +1,44 @@
-.paint-editor { display:grid; gap:var(--space-sm); padding:var(--space-sm); }.paint-canvas-stack { position:relative; width:100%; margin:auto; }.paint-canvas-stack canvas { display:block; width:100%; height:auto; }.paint-canvas-stack canvas + canvas { position:absolute; inset:0; touch-action:none; }.paint-actions { display:flex; gap:var(--space-xs); justify-content:center; }
+.paint-editor {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  min-width: 0;
+  padding: var(--space-sm);
+}
+
+.paint-canvas-area {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 40px;
+  container-type: size;
+}
+
+.paint-canvas-stack {
+  position: relative;
+  width: min(100cqw, calc(100cqh * var(--paint-aspect-ratio)));
+  aspect-ratio: var(--paint-aspect-ratio);
+}
+
+.paint-canvas-stack canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.paint-canvas-stack canvas + canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.paint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: center;
+}
