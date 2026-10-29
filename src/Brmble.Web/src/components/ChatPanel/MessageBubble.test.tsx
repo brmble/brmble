@@ -27,6 +27,11 @@ function renderBubble(props: Partial<React.ComponentProps<typeof MessageBubble>>
 }
 
 describe('MessageBubble', () => {
+  it('labels messages that are still sending', () => {
+    renderBubble({ pending: true });
+    expect(screen.getByRole('status')).toHaveTextContent('Sending');
+  });
+
   it('renders deleted placeholder when message is redacted', () => {
     renderBubble({ content: '', redacted: true });
     expect(screen.getByText('Message deleted')).toBeInTheDocument();

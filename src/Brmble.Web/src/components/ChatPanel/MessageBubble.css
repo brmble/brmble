@@ -324,3 +324,9 @@ p.message-text {
 .reaction-count {
   font-weight: 500;
 }
+
+.message-send-status {
+  display: block;
+  font-size: var(--text-xs);
+  opacity: 0.8;
+}

@@ -1815,11 +1815,8 @@ function App() {
 
   useLayoutEffect(() => {
     matrixClient.setActiveChannel(activeConversationIsDm ? null : permittedActiveMatrixChannelId);
-  }, [activeConversationIsDm, matrixClient.setActiveChannel, permittedActiveMatrixChannelId]);
-
-  useLayoutEffect(() => {
-    matrixClient.setActiveDmContact(activeDmMatrixContactId);
-  }, [activeDmMatrixContactId, matrixClient.setActiveDmContact]);
+    matrixClient.setActiveDmContact(activeConversationIsDm ? activeDmMatrixContactId : null);
+  }, [activeConversationIsDm, activeDmMatrixContactId, permittedActiveMatrixChannelId, matrixClient.setActiveChannel, matrixClient.setActiveDmContact]);
 
   // Determine active Matrix room ID (depends on dmStore.selectedContact)
   const activeMatrixRoomId = useMemo(() => {
@@ -3719,6 +3716,7 @@ const handleConnect = (serverData: SavedServer) => {
   };
 
   const handleDismissMessage = (messageId: string) => {
+    matrixClient.dismissOutgoing(messageId);
     setOptimisticImages(prev => {
       const msg = prev.find(m => m.id === messageId);
       if (msg?.media) {
@@ -5171,6 +5169,7 @@ const handleConnect = (serverData: SavedServer) => {
       messages: activeDmMessages,
       currentUsername: username,
       onSendMessage: handleSendDmMessage,
+      onDismissMessage: handleDismissMessage,
       isDM: true,
       matrixClient: activeDmContact && !selectedDmIsMumble ? matrixClient.client : null,
       matrixRoomId: activeDmContact && !selectedDmIsMumble ? dmMatrixRoomId : null,

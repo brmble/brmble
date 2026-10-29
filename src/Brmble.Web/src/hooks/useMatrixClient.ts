@@ -403,6 +403,28 @@ export function useMatrixClient(
   const activeDmContactIdRef = useRef<string | null>(null);
   const activeRoomVersionRef = useRef(0);
   const activeDmVersionRef = useRef(0);
+  const outgoingRef = useRef(new Map<string, ChatMessage[]>());
+  const mergeOutgoing = useCallback((key: string, timeline: ChatMessage[]) => {
+    const outgoing = outgoingRef.current.get(key) ?? [];
+    const remaining = outgoing.filter(local => !timeline.some(message =>
+      message.id.startsWith('$') && (message.id === local.id || (message.transactionId && message.transactionId === local.transactionId))));
+    if (remaining.length) outgoingRef.current.set(key, remaining);
+    else outgoingRef.current.delete(key);
+    return remaining.reduce(insertMessage, timeline);
+  }, []);
+  const updateOutgoing = useCallback((key: string, message: ChatMessage, isDm: boolean) => {
+    const existing = outgoingRef.current.get(key) ?? [];
+    outgoingRef.current.set(key, [...existing.filter(item => item.transactionId !== message.transactionId), message]);
+    const active = isDm ? activeDmContactIdRef.current : activeChannelIdRef.current;
+    if (active === key) {
+      const setter = isDm ? setActiveDmMessages : setActiveMessages;
+      setter(prev => {
+        const without = prev.filter(item => item.transactionId !== message.transactionId && item.id !== message.id);
+        return insertMessage(without, message);
+      });
+    }
+  }, []);
+
   const roomTypingRef = useRef<Map<string, TypingEntry[]>>(new Map());
   const typingExpiryTimerRef = useRef<number | null>(null);
   const localTypingRoomRef = useRef<string | null>(null);
@@ -588,6 +610,7 @@ export function useMatrixClient(
       setClient(null);
       setLastMessages(new Map());
       setDmLastMessages(new Map());
+      outgoingRef.current.clear();
       setActiveMessages([]);
       setActiveDmMessages([]);
       setActiveTypingText(null);
@@ -781,6 +804,11 @@ export function useMatrixClient(
           });
           return next;
         });
+        if (!message.id.startsWith('$') && outgoingRef.current.get(channelId)?.some(item => item.transactionId === message.transactionId)) return;
+        if (message.id.startsWith('$')) {
+          const local = outgoingRef.current.get(channelId) ?? [];
+          outgoingRef.current.set(channelId, local.filter(item => item.id !== message.id && (!message.transactionId || item.transactionId !== message.transactionId)));
+        }
         if (activeChannelIdRef.current === channelId) {
           setActiveMessages(prev => {
             const updated = insertMessage(prev, message);
@@ -828,6 +856,11 @@ export function useMatrixClient(
         });
         return next;
       });
+      if (!dmMessage.id.startsWith('$') && outgoingRef.current.get(dmUserId)?.some(item => item.transactionId === dmMessage.transactionId)) return;
+      if (dmMessage.id.startsWith('$')) {
+        const local = outgoingRef.current.get(dmUserId) ?? [];
+        outgoingRef.current.set(dmUserId, local.filter(item => item.id !== dmMessage.id && (!dmMessage.transactionId || item.transactionId !== dmMessage.transactionId)));
+      }
       if (activeDmContactIdRef.current === dmUserId) {
         setActiveDmMessages(prev => {
           const updated = insertMessage(prev, dmMessage);
@@ -848,6 +881,15 @@ export function useMatrixClient(
       let derivedState: string;
       if (state === 'PREPARED' || state === 'SYNCING') {
         derivedState = 'connected';
+        if (state === 'SYNCING' && lastSyncStateRef.current && lastSyncStateRef.current !== 'connected') {
+          const channel = activeChannelIdRef.current;
+          const contact = activeDmContactIdRef.current;
+          if (channel && credentials.roomMap[channel]) {
+            setActiveMessages(mergeOutgoing(channel, loadMessagesFromTimeline(client, credentials.roomMap[channel], channel, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId)));
+          } else if (contact && dmRoomMapRef.current.get(contact)) {
+            setActiveDmMessages(mergeOutgoing(contact, loadMessagesFromTimeline(client, dmRoomMapRef.current.get(contact)!, contact, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId)));
+          }
+        }
         if (state === 'PREPARED') {
           isPrepared = true;
           // Only publish overlay messages for events that arrive after initial sync completes.
@@ -925,7 +967,7 @@ export function useMatrixClient(
               const myVersion = activeRoomVersionRef.current;
               const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
               if (activeRoomVersionRef.current === myVersion) {
-                setActiveMessages(messages);
+                setActiveMessages(mergeOutgoing(channelId, messages));
               }
 
               // waitForRoom resolves immediately when the SDK already has the room,
@@ -938,7 +980,7 @@ export function useMatrixClient(
                   // target, and onTimeline drops a reaction whose target it has not
                   // seen. loadMessagesFromTimeline collects them order-independently.
                   if (activeRoomVersionRef.current !== myVersion) return;
-                  setActiveMessages(loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                  setActiveMessages(mergeOutgoing(channelId, loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit)));
                 })
                 .catch(error => {
                   console.warn(`[Matrix] Failed to load channel history for ${roomId}:`, error);
@@ -953,14 +995,14 @@ export function useMatrixClient(
               const myVersion = activeDmVersionRef.current;
               const messages = loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
               if (activeDmVersionRef.current === myVersion) {
-                setActiveDmMessages(messages);
+                setActiveDmMessages(mergeOutgoing(dmContactId, messages));
               }
 
               waitForRoomRef.current?.(dmRoomId)
                 .then(room => client.scrollback(room, 50))
                 .then(() => {
                   if (activeDmVersionRef.current !== myVersion) return;
-                  setActiveDmMessages(loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit));
+                  setActiveDmMessages(mergeOutgoing(dmContactId, loadMessagesFromTimeline(client, dmRoomId, dmContactId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit)));
                 })
                 .catch(error => {
                   console.warn(`[Matrix] Failed to load DM history for ${dmRoomId}:`, error);
@@ -1028,7 +1070,7 @@ export function useMatrixClient(
           if (m) messages.push(m);
         }
         if (activeDmVersionRef.current === myVersion) {
-          setActiveDmMessages(messages);
+          setActiveDmMessages(mergeOutgoing(otherUserId, messages));
         }
       }
     };
@@ -1122,6 +1164,7 @@ export function useMatrixClient(
       clearLocalTypingState();
       roomTypingRef.current.clear();
       setActiveTypingText(null);
+      outgoingRef.current.clear();
       client.off(RoomEvent.Timeline, onTimeline);
       client.off(RoomStateEvent.Members, onMemberChanged);
       client.off(RoomMemberEvent.Typing, onMemberTyping);
@@ -1132,26 +1175,32 @@ export function useMatrixClient(
       setClient(null);
       updateStatus('chat', { state: 'idle', error: undefined });
     };
-  }, [clearLocalTypingState, credentials, forgetReplacementEdit, reconcileRedaction, rememberReplacementEdit, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
+  }, [clearLocalTypingState, credentials, forgetReplacementEdit, mergeOutgoing, reconcileRedaction, rememberReplacementEdit, replaceRoomTypingFromMembers, roomIdToChannelId, stopTypingForRoom, updateStatus]);
 
   const sendMessage = useCallback(async (channelId: string, text: string) => {
     if (!credentials || !clientRef.current) return;
     const roomId = credentials.roomMap[channelId];
     if (!roomId) return;
-    const txnId = clientRef.current.makeTxnId();
-    const response = await clientRef.current.sendMessage(roomId, { msgtype: MsgType.Text, body: text }, txnId);
-    if (response.event_id) {
-      setActiveMessages(prev => {
-        const index = prev.findIndex(message => message.transactionId === txnId);
-        if (index < 0 || prev[index].id === response.event_id) return prev;
-        const updated = [...prev];
-        updated[index] = { ...updated[index], id: response.event_id };
-        return updated;
-      });
+    const client = clientRef.current;
+    const txnId = client.makeTxnId();
+    const sender = client.getRoom(roomId)?.getMember(credentials.userId);
+    const message: ChatMessage = { id: `local-${txnId}`, transactionId: txnId, channelId, sender: sender?.rawDisplayName || sender?.name || credentials.userId, senderMatrixUserId: credentials.userId, content: text, timestamp: new Date(), pending: true };
+    updateOutgoing(channelId, message, false);
+    try {
+      const response = await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text }, txnId);
+      // A timeline event may have already reconciled this send.
+      if (clientRef.current === client && outgoingRef.current.get(channelId)?.some(item => item.transactionId === txnId)) {
+        updateOutgoing(channelId, { ...message, id: response.event_id || message.id, pending: false }, false);
+      }
+    } catch (error) {
+      if (clientRef.current === client && outgoingRef.current.get(channelId)?.some(item => item.transactionId === txnId)) {
+        updateOutgoing(channelId, { ...message, pending: false, error: true }, false);
+      }
+      throw error;
     }
     await stopTypingForRoom(roomId);
     clearLocalTypingState();
-  }, [clearLocalTypingState, credentials, stopTypingForRoom]);
+  }, [clearLocalTypingState, credentials, stopTypingForRoom, updateOutgoing]);
 
   const sendImageMessage = useCallback(async (
     channelId: string,
@@ -1196,90 +1245,99 @@ export function useMatrixClient(
     const client = clientRef.current;
     if (!client || !credentials) return;
 
-    let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
+    const txnId = client.makeTxnId();
+    const knownRoomId = dmRoomMapRef.current.get(targetMatrixUserId);
+    const sender = knownRoomId ? client.getRoom(knownRoomId)?.getMember(credentials.userId) : undefined;
+    const message: ChatMessage = { id: `local-${txnId}`, transactionId: txnId, channelId: targetMatrixUserId, sender: sender?.rawDisplayName || sender?.name || credentials.userId, senderMatrixUserId: credentials.userId, content: text, timestamp: new Date(), pending: true };
+    updateOutgoing(targetMatrixUserId, message, true);
+    try {
+      let roomId = dmRoomMapRef.current.get(targetMatrixUserId);
 
-    if (!roomId) {
-      // Check if a room resolution is already in flight for this user
-      const pending = pendingRoomCreations.current.get(targetMatrixUserId);
-      if (pending) {
-        roomId = await pending;
-      } else {
-        // Request room from server via bridge (server creates if needed)
-        const resolvePromise = new Promise<string>((resolve, reject) => {
-          let settled = false;
-          const cleanup = () => {
-            bridge.off('dm.roomResolved', onResolved);
-            bridge.off('dm.roomError', onError);
-            clearTimeout(timeout);
-          };
-          const onResolved = (data: unknown) => {
-            const d = data as { targetMatrixUserId?: string; roomId?: string };
-            if (d?.targetMatrixUserId === targetMatrixUserId && d?.roomId) {
-              settled = true;
-              cleanup();
-              resolve(d.roomId);
-            }
-          };
-          const onError = (data: unknown) => {
-            const d = data as { targetMatrixUserId?: string; error?: string };
-            if (d?.targetMatrixUserId === targetMatrixUserId) {
-              settled = true;
-              cleanup();
-              reject(new Error(d?.error || 'Failed to get DM room'));
-            }
-          };
-          const timeout = setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              cleanup();
-              reject(new Error('DM room creation timed out'));
-            }
-          }, 15_000);
-          bridge.on('dm.roomResolved', onResolved);
-          bridge.on('dm.roomError', onError);
-          bridge.send('dm.getOrCreateRoom', { targetMatrixUserId });
-        });
+      if (!roomId) {
+        // Check if a room resolution is already in flight for this user
+        const pending = pendingRoomCreations.current.get(targetMatrixUserId);
+        if (pending) {
+          roomId = await pending;
+        } else {
+          // Request room from server via bridge (server creates if needed)
+          const resolvePromise = new Promise<string>((resolve, reject) => {
+            let settled = false;
+            const cleanup = () => {
+              bridge.off('dm.roomResolved', onResolved);
+              bridge.off('dm.roomError', onError);
+              clearTimeout(timeout);
+            };
+            const onResolved = (data: unknown) => {
+              const d = data as { targetMatrixUserId?: string; roomId?: string };
+              if (d?.targetMatrixUserId === targetMatrixUserId && d?.roomId) {
+                settled = true;
+                cleanup();
+                resolve(d.roomId);
+              }
+            };
+            const onError = (data: unknown) => {
+              const d = data as { targetMatrixUserId?: string; error?: string };
+              if (d?.targetMatrixUserId === targetMatrixUserId) {
+                settled = true;
+                cleanup();
+                reject(new Error(d?.error || 'Failed to get DM room'));
+              }
+            };
+            const timeout = setTimeout(() => {
+              if (!settled) {
+                settled = true;
+                cleanup();
+                reject(new Error('DM room creation timed out'));
+              }
+            }, 15_000);
+            bridge.on('dm.roomResolved', onResolved);
+            bridge.on('dm.roomError', onError);
+            bridge.send('dm.getOrCreateRoom', { targetMatrixUserId });
+          });
 
-        pendingRoomCreations.current.set(targetMatrixUserId, resolvePromise);
-        try {
-          roomId = await resolvePromise;
+          pendingRoomCreations.current.set(targetMatrixUserId, resolvePromise);
+          try {
+            roomId = await resolvePromise;
 
-          // Update local maps
-          setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
-          dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
-          roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
-        } finally {
-          pendingRoomCreations.current.delete(targetMatrixUserId);
+            // Update local maps
+            setDmRoomMap(prev => new Map(prev).set(targetMatrixUserId, roomId!));
+            dmRoomMapRef.current = new Map(dmRoomMapRef.current).set(targetMatrixUserId, roomId);
+            roomIdToDMUserIdRef.current = new Map(roomIdToDMUserIdRef.current).set(roomId, targetMatrixUserId);
+          } finally {
+            pendingRoomCreations.current.delete(targetMatrixUserId);
+          }
         }
       }
-    }
 
-    // Ensure the SDK has synced the room before sending — the server may have
-    // just created it via appservice and the local store doesn't know about it yet.
-    if (waitForRoomRef.current) {
-      try {
-        await waitForRoomRef.current(roomId);
-      } catch (err) {
-        // Room may not be in local store yet; attempt send anyway
+      // Ensure the SDK has synced the room before sending — the server may have
+      // just created it via appservice and the local store doesn't know about it yet.
+      if (waitForRoomRef.current) {
+        try {
+          await waitForRoomRef.current(roomId);
+        } catch {
+          // Room may not be in local store yet; attempt send anyway
+        }
       }
-    }
 
-    const txnId = client.makeTxnId();
-    const response = await client.sendMessage(
-      roomId,
-      { msgtype: MsgType.Text, body: text },
-      txnId,
-    );
-    if (response.event_id) {
-      setActiveDmMessages(prev => {
-        const index = prev.findIndex(message => message.transactionId === txnId);
-        if (index < 0 || prev[index].id === response.event_id) return prev;
-        const updated = [...prev];
-        updated[index] = { ...updated[index], id: response.event_id };
-        return updated;
-      });
+      const response = await client.sendMessage(roomId, { msgtype: MsgType.Text, body: text }, txnId);
+      if (clientRef.current === client && outgoingRef.current.get(targetMatrixUserId)?.some(item => item.transactionId === txnId)) {
+        updateOutgoing(targetMatrixUserId, { ...message, id: response.event_id || message.id, pending: false }, true);
+      }
+    } catch (error) {
+      if (clientRef.current === client && outgoingRef.current.get(targetMatrixUserId)?.some(item => item.transactionId === txnId)) {
+        updateOutgoing(targetMatrixUserId, { ...message, pending: false, error: true }, true);
+      }
+      throw error;
     }
-  }, [credentials]);
+  }, [credentials, updateOutgoing]);
+
+  const dismissOutgoing = useCallback((id: string) => {
+    for (const [key, messages] of outgoingRef.current) {
+      outgoingRef.current.set(key, messages.filter(message => message.id !== id || !message.error));
+    }
+    setActiveMessages(prev => prev.filter(message => message.id !== id || !message.error));
+    setActiveDmMessages(prev => prev.filter(message => message.id !== id || !message.error));
+  }, []);
 
   const fetchDMHistory = useCallback(async (targetMatrixUserId: string) => {
     const client = clientRef.current;
@@ -1343,7 +1401,7 @@ export function useMatrixClient(
     const previousRoomId = getActiveMatrixRoomId();
     activeRoomVersionRef.current += 1;
     const myVersion = activeRoomVersionRef.current;
-    activeDmContactIdRef.current = null;
+    if (channelId) activeDmContactIdRef.current = null;
     activeChannelIdRef.current = channelId;
     const nextRoomId = getActiveMatrixRoomId();
     if (previousRoomId && previousRoomId !== nextRoomId) {
@@ -1370,17 +1428,17 @@ export function useMatrixClient(
     const messages = loadMessagesFromTimeline(client, roomId, channelId, credentials.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials.botUserId);
 
     if (activeRoomVersionRef.current === myVersion) {
-      setActiveMessages(messages);
+      setActiveMessages(mergeOutgoing(channelId, messages));
     }
     hydrateRoomTypingFromCurrentMembers(nextRoomId);
-  }, [clearLocalTypingState, credentials, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, rememberReplacementEdit, stopTypingForRoom]);
+  }, [clearLocalTypingState, credentials, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, mergeOutgoing, rememberReplacementEdit, stopTypingForRoom]);
 
   // No deps: dmRoomMapRef is mutable and always reflects the latest map.
   const setActiveDmContact = useCallback((matrixUserId: string | null) => {
     const previousRoomId = getActiveMatrixRoomId();
     activeDmVersionRef.current += 1;
     const myVersion = activeDmVersionRef.current;
-    activeChannelIdRef.current = null;
+    if (matrixUserId) activeChannelIdRef.current = null;
     activeDmContactIdRef.current = matrixUserId;
     const nextRoomId = getActiveMatrixRoomId();
     if (previousRoomId && previousRoomId !== nextRoomId) {
@@ -1400,17 +1458,17 @@ export function useMatrixClient(
     }
     const roomId = dmRoomMapRef.current.get(matrixUserId);
     if (!roomId) {
-      setActiveDmMessages([]);
+      setActiveDmMessages(mergeOutgoing(matrixUserId, []));
       hydrateRoomTypingFromCurrentMembers(nextRoomId);
       return;
     }
     const messages = loadMessagesFromTimeline(client, roomId, matrixUserId, credentials?.userId, reactionEventsRef, ownReactionEventIdsRef, rememberReplacementEdit, credentials?.botUserId);
 
     if (activeDmVersionRef.current === myVersion) {
-      setActiveDmMessages(messages);
+      setActiveDmMessages(mergeOutgoing(matrixUserId, messages));
     }
     hydrateRoomTypingFromCurrentMembers(nextRoomId);
-  }, [clearLocalTypingState, credentials?.userId, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, rememberReplacementEdit, stopTypingForRoom]);
+  }, [clearLocalTypingState, credentials?.userId, credentials?.botUserId, getActiveMatrixRoomId, hydrateRoomTypingFromCurrentMembers, mergeOutgoing, rememberReplacementEdit, stopTypingForRoom]);
 
   // Resolve display names for DM partners from Matrix room membership.
   // This works even when the other user isn't connected to Mumble.
@@ -1533,7 +1591,7 @@ export function useMatrixClient(
     }
   }, [credentials]);
 
-  return { lastMessages, activeMessages, setActiveChannel, deleteMessage,
+  return { lastMessages, activeMessages, setActiveChannel, deleteMessage, dismissOutgoing,
            sendMessage, sendImageMessage, uploadContent, fetchHistory,
            sendReaction, removeReaction,
            dmLastMessages, activeDmMessages, setActiveDmContact, dmRoomMap,

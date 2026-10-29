@@ -52,6 +52,13 @@ beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 
+describe('Matrix local messages', () => {
+  it('recognizes a pending message as the current user by Matrix ID', () => {
+    render(<ChatPanel channelId="42" channelName="Chat" currentUsername="Alice" currentUserMatrixId="@alice:test" onSendMessage={() => {}} messages={[{ id: 'local-1', channelId: '42', sender: '@alice:test', senderMatrixUserId: '@alice:test', content: 'hello', timestamp: new Date(), pending: true }]} />);
+    expect(screen.getByText('hello').closest('.message-bubble')).toHaveClass('own');
+  });
+});
+
 describe('ChatPanel image paint background menu', () => {
   const image = {
     type: 'image' as const,

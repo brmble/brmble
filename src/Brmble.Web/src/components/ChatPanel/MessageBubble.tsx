@@ -319,6 +319,7 @@ export const MessageBubble = forwardRef<HTMLDivElement, MessageBubbleProps & Rea
         {firstUrl && matrixClient && (
           <LinkPreview url={firstUrl} client={matrixClient} />
         )}
+        {pending && <span className="message-send-status" role="status">Sending…</span>}
         {error && messageId && (
           <div className="message-error-overlay">
             <span className="message-error-text">Failed to send</span>
