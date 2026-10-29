@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PaintPreview, PaintSessionSnapshot, PaintStrokeInput, PaintTool } from '../../types/paint';
 import { applyPaintStrokeToContext, composePaintPng, initializePaintCanvases, loadPaintSourceImage, normalizeCanvasPoint } from '../../utils/paintCanvas';
 import { DEFAULT_PAINT_COLOR } from '../../utils/paintPalette';
@@ -224,9 +224,11 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   return (
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
-      <div className="paint-canvas-stack">
-        <canvas ref={sourceRef} data-testid="paint-source-canvas" />
-        <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
+      <div className="paint-canvas-area">
+        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': snapshot.source ? snapshot.source.width / snapshot.source.height : 1 } as CSSProperties}>
+          <canvas ref={sourceRef} data-testid="paint-source-canvas" />
+          <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
+        </div>
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="paint-actions">
