@@ -466,6 +466,21 @@ describe('PaintEditor', () => {
     expect(screen.getByRole('button', { name: 'Save to chat' })).toBeEnabled();
   });
 
+  it('pauses local editing after a failed save so retry uses the captured image', async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new Error('Upload failed'));
+    const paintApi = fakePaintApi();
+    await renderLoadedEditor(onSave, paintApi);
+    await userEvent.click(screen.getByRole('button', { name: 'Save to chat' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed');
+    expect(screen.getByText(/drawing is paused/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeDisabled();
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    expect(paintApi.commitStroke).not.toHaveBeenCalled();
+  });
+
   it('reuses the same composed PNG when retrying a failed save lifecycle', async () => {
     const onSave = vi.fn()
       .mockRejectedValueOnce(new Error('Chat post failed'))

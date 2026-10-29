@@ -42,6 +42,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const [width, setWidth] = useState(6);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveCaptured, setSaveCaptured] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const loadedSourceFingerprintRef = useRef<string | null>(null);
@@ -166,7 +167,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   };
 
   const down = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (savingRef.current || activePointerId.current !== null) return;
+    if (savingRef.current || savePngRef.current || activePointerId.current !== null) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     activePointerId.current = event.pointerId;
     correlationId.current = crypto.randomUUID();
@@ -239,6 +240,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
         png = await composePaintPng(imageRef.current, imageRef.current.naturalWidth, imageRef.current.naturalHeight, latest.strokes);
       }
       savePngRef.current = png;
+      setSaveCaptured(true);
       await onSave(png);
       setSaved(true);
     } catch (reason) {
@@ -265,10 +267,11 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       </div>
       {error && <p role="alert">{error}</p>}
       {previewUnavailable && <p role="status">Live preview unavailable. Your finished strokes can still be sent.</p>}
+      {saveCaptured && !saved && <p role="status">Drawing is paused here. Retry will save the image captured on your first attempt; other participants may continue drawing.</p>}
       <div className="paint-actions">
-        <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
+        <button type="button" className="btn btn-secondary" disabled={saving || saveCaptured} onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
-          <button type="button" className="btn btn-danger" disabled={saving} onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
+          <button type="button" className="btn btn-danger" disabled={saving || saveCaptured} onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
           <button type="button" className="btn btn-danger" disabled={saving} onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
         </>}
