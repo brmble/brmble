@@ -7,6 +7,7 @@ import './PaintEditor.css';
 
 type Api = {
   getSource(id: string): Promise<Blob>;
+  getSnapshot(id: string): Promise<PaintSessionSnapshot>;
   commitStroke(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   sendPreview(id: string, stroke: PaintStrokeInput): Promise<unknown> | void;
   undo(id: string): Promise<unknown> | void;
@@ -31,6 +32,8 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const lastPreviewAtRef = useRef<number | null>(null);
   const pendingLocalCommitIdsRef = useRef<Set<string>>(new Set());
   const pendingLocalStrokesRef = useRef<Map<string, PaintStrokeInput>>(new Map());
+  const pendingCommitsRef = useRef<Set<Promise<boolean>>>(new Set());
+  const savingRef = useRef(false);
   const cancelledLocalPreviewIdsRef = useRef<Set<string>>(new Set());
   const generationRef = useRef(snapshot.generation);
   const drawingRef = useRef({ strokes: snapshot.strokes, previews });
@@ -163,7 +166,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   };
 
   const down = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (activePointerId.current !== null) return;
+    if (savingRef.current || activePointerId.current !== null) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     activePointerId.current = event.pointerId;
     correlationId.current = crypto.randomUUID();
@@ -189,13 +192,22 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const committedInput = buildInput();
     pendingLocalCommitIdsRef.current.add(committedInput.correlationId);
     pendingLocalStrokesRef.current.set(committedInput.correlationId, committedInput);
-    void Promise.resolve(paintApi.commitStroke(sessionId, committedInput)).catch(reason => {
+    let request: Promise<unknown> | void;
+    try {
+      request = paintApi.commitStroke(sessionId, committedInput);
+    } catch (reason) {
+      request = Promise.reject(reason);
+    }
+    const commit = Promise.resolve(request).then(() => true, reason => {
       pendingLocalCommitIdsRef.current.delete(committedInput.correlationId);
       pendingLocalStrokesRef.current.delete(committedInput.correlationId);
       cancelledLocalPreviewIdsRef.current.add(committedInput.correlationId);
       redraw();
       setError(reason instanceof Error ? reason.message : 'Unable to commit stroke. Please try again.');
+      return false;
     });
+    pendingCommitsRef.current.add(commit);
+    void commit.then(() => pendingCommitsRef.current.delete(commit));
     resetGesture(event.pointerId);
   };
 
@@ -209,17 +221,30 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   };
 
   const save = async () => {
-    if (!onSave || !imageRef.current || saving || saved) return;
+    if (!onSave || !imageRef.current || savingRef.current || saved) return;
+    if (activePointerId.current !== null) {
+      setError('Finish your current stroke before saving.');
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
-      const png = savePngRef.current ?? await composePaintPng(imageRef.current, imageRef.current.naturalWidth, imageRef.current.naturalHeight, snapshot.strokes);
+      let png = savePngRef.current;
+      if (!png) {
+        const commits = await Promise.all([...pendingCommitsRef.current]);
+        if (commits.some(success => !success)) throw new Error('A stroke could not be saved. Please try again.');
+        const latest = await paintApi.getSnapshot(sessionId);
+        if (latest.status !== 'active') throw new Error('This paint session is no longer active.');
+        png = await composePaintPng(imageRef.current, imageRef.current.naturalWidth, imageRef.current.naturalHeight, latest.strokes);
+      }
       savePngRef.current = png;
       await onSave(png);
       setSaved(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save to chat. Please try again.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -241,10 +266,10 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       {error && <p role="alert">{error}</p>}
       {previewUnavailable && <p role="status">Live preview unavailable. Your finished strokes can still be sent.</p>}
       <div className="paint-actions">
-        <button type="button" className="btn btn-secondary" onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
+        <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
-          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
-          <button type="button" className="btn btn-danger" onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
+          <button type="button" className="btn btn-danger" disabled={saving} onClick={() => runMutation(() => paintApi.clear(sessionId), 'Unable to clear. Please try again.')}>Clear</button>
+          <button type="button" className="btn btn-danger" disabled={saving} onClick={() => runMutation(() => paintApi.end(sessionId), 'Unable to end paint. Please try again.')}>End</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || saved}>{saved ? 'Saved to chat' : saving ? 'Saving...' : 'Save to chat'}</button>
         </>}
       </div>
