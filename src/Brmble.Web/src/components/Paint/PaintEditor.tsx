@@ -40,6 +40,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const [tool, setTool] = useState<PaintTool>('pen');
   const [color, setColor] = useState<string>(DEFAULT_PAINT_COLOR);
   const [width, setWidth] = useState(6);
+  const [decodedAspect, setDecodedAspect] = useState<{ fingerprint: string; ratio: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveCaptured, setSaveCaptured] = useState(false);
@@ -89,6 +90,9 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
         if (cancelled || generation !== sourceLoadGenerationRef.current) return;
         loadedSourceFingerprintRef.current = sourceFingerprint;
         imageRef.current = image;
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+          setDecodedAspect({ fingerprint: sourceFingerprint, ratio: image.naturalWidth / image.naturalHeight });
+        }
         initializePaintCanvases(sourceRef.current!, annotationRef.current!, image);
         redraw();
       })
@@ -260,7 +264,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
       <div className="paint-canvas-area">
-        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': snapshot.source ? snapshot.source.width / snapshot.source.height : 1 } as CSSProperties}>
+        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': decodedAspect && decodedAspect.fingerprint === sourceFingerprint ? decodedAspect.ratio : snapshot.source ? snapshot.source.width / snapshot.source.height : 1 } as CSSProperties}>
           <canvas ref={sourceRef} data-testid="paint-source-canvas" />
           <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
         </div>
