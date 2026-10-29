@@ -59,7 +59,7 @@ function isChatEvent(event: CompanionOverlayEvent): boolean {
 }
 
 function isJoinLeaveEvent(event: CompanionOverlayEvent): boolean {
-  return event.kind === 'user-joined' || event.kind === 'user-left' || event.kind === 'user-muted' || event.kind === 'user-unmuted';
+  return event.kind === 'user-joined' || event.kind === 'user-left' || event.kind === 'user-muted' || event.kind === 'user-unmuted' || event.kind === 'user-kicked' || event.kind === 'user-banned';
 }
 
 function displayNameFromEvent(event: CompanionOverlayEvent): string {
@@ -100,7 +100,7 @@ function displayFromEvent(
   const isProxy = !companion?.companionId && representedSession !== snapshot.fullCompanion.localUser.session;
   const isLocal = representedSession === snapshot.fullCompanion.localUser.session;
   const kind = event.kind === 'user-joined' ? 'join' 
-    : event.kind === 'user-left' ? 'leave' 
+    : (event.kind === 'user-left' || event.kind === 'user-kicked' || event.kind === 'user-banned') ? 'leave' 
     : event.kind === 'user-muted' || event.kind === 'user-unmuted' ? 'join'
     : 'chat';
 
