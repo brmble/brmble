@@ -131,6 +131,21 @@ describe('PaintEditor', () => {
     expect(paintApi.sendPreview).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps drawing and commits when a preview request fails', async () => {
+    const paintApi = { ...fakePaintApi(), sendPreview: vi.fn().mockRejectedValue(new Error('offline')) };
+    render(<PaintEditor sessionId="session-1" paintApi={paintApi} snapshot={activeSnapshot} currentUserId={1} />);
+    const canvas = screen.getByTestId('paint-annotation-canvas');
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 20, clientY: 20, pointerId: 1 });
+    expect(paintApi.sendPreview).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/live preview unavailable/i)).toBeInTheDocument();
+    fireEvent.pointerUp(canvas, { clientX: 30, clientY: 30, pointerId: 1 });
+
+    expect(paintApi.commitStroke).toHaveBeenCalledOnce();
+  });
+
   it('throttles preview sends while retaining every committed point in order', () => {
     vi.useFakeTimers();
     const paintApi = fakePaintApi();

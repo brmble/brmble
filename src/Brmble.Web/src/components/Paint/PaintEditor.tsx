@@ -40,6 +40,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const loadedSourceFingerprintRef = useRef<string | null>(null);
   const sourceLoadGenerationRef = useRef(0);
   const host = snapshot.isHost ?? snapshot.hostUserId === currentUserId;
@@ -142,7 +143,14 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     const currentTime = performance.now();
     if (lastPreviewAtRef.current !== null && currentTime - lastPreviewAtRef.current < PAINT_PREVIEW_THROTTLE_MS) return;
     lastPreviewAtRef.current = currentTime;
-    void paintApi.sendPreview(sessionId, buildInput());
+    try {
+      void Promise.resolve(paintApi.sendPreview(sessionId, buildInput())).then(
+        () => setPreviewUnavailable(false),
+        () => setPreviewUnavailable(true),
+      );
+    } catch {
+      setPreviewUnavailable(true);
+    }
   };
 
   const resetGesture = (pointerId: number) => {
@@ -231,6 +239,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
         </div>
       </div>
       {error && <p role="alert">{error}</p>}
+      {previewUnavailable && <p role="status">Live preview unavailable. Your finished strokes can still be sent.</p>}
       <div className="paint-actions">
         <button type="button" className="btn btn-secondary" onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
