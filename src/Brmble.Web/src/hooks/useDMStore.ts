@@ -89,7 +89,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   // ---- Core state ----------------------------------------------------------
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
-  const [pendingMessages, setPendingMessages] = useState<Map<string, ChatMessage[]>>(new Map());
   const [pendingMatrixContacts, setPendingMatrixContacts] = useState<Map<string, DMContact>>(new Map());
   const [mumbleContacts, setMumbleContacts] = useState<Map<string, DMContact>>(new Map());
   const [mumbleMessages, setMumbleMessages] = useState<Map<string, ChatMessage[]>>(new Map());
@@ -107,7 +106,6 @@ export function useDMStore(options: DMStoreOptions): DMStore {
   useEffect(() => {
     if (users.length === 0) {
       setSelectedContactId(null);
-      setPendingMessages(new Map());
       setPendingMatrixContacts(new Map());
       setMumbleContacts(new Map());
       setMumbleMessages(new Map());
@@ -275,9 +273,8 @@ export function useDMStore(options: DMStoreOptions): DMStore {
     }
 
     const matrixMsgs = activeDmMessages ?? [];
-    const pending = pendingMessages.get(selectedContactId) ?? [];
-    return [...matrixMsgs, ...pending];
-  }, [selectedContactId, selectedContact, contacts, activeDmMessages, pendingMessages, mumbleMessages]);
+    return matrixMsgs;
+  }, [selectedContactId, selectedContact, contacts, activeDmMessages, mumbleMessages]);
 
   // ---- Actions -------------------------------------------------------------
 
@@ -398,41 +395,11 @@ export function useDMStore(options: DMStoreOptions): DMStore {
       return;
     }
 
-    // Insert optimistic local echo
-    const optimisticMsg: ChatMessage = {
-      id: `pending-${Date.now()}-${Math.random()}`,
-      channelId: targetContactId,
-      sender: username,
-      content,
-      timestamp: new Date(),
-      pending: true,
-    };
-    setPendingMessages(prev => {
-      const next = new Map(prev);
-      const existing = next.get(targetContactId) ?? [];
-      next.set(targetContactId, [...existing, optimisticMsg]);
-      return next;
-    });
-
+    // Matrix owns the local echo and reconciles it with the server event.
     if (sendMatrixDM) {
-      sendMatrixDM(targetContactId, content)
-        .then(() => {
-          setPendingMessages(prev => {
-            const next = new Map(prev);
-            const existing = next.get(targetContactId) ?? [];
-            next.set(targetContactId, existing.filter(m => m.id !== optimisticMsg.id));
-            return next;
-          });
-        })
-        .catch(err => {
-          console.error('Matrix DM send failed:', err);
-          setPendingMessages(prev => {
-            const next = new Map(prev);
-            const existing = next.get(targetContactId) ?? [];
-            next.set(targetContactId, existing.filter(m => m.id !== optimisticMsg.id));
-            return next;
-          });
-        });
+      sendMatrixDM(targetContactId, content).catch(err => {
+        console.error('Matrix DM send failed:', err);
+      });
     }
   }, [selectedContactId, username, sendMatrixDM, mumbleContacts, contacts, sendMumbleDM]);
 

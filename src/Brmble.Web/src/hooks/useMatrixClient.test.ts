@@ -166,6 +166,93 @@ describe('useMatrixClient', () => {
     expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$sent', content: 'hello' })]);
   });
 
+  it('keeps the channel active when the inactive DM is cleared', () => {
+    const room = { roomId: '!room:example.com', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => [] }) };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTimeline = mockClient.on.mock.calls.find(c => c[0] === 'Room.timeline')?.[1];
+    act(() => { result.current.setActiveChannel('42'); result.current.setActiveDmContact(null); });
+    act(() => onTimeline(fakeRoomMessage('$incoming', '@alice:test', 'hello', 1000), room));
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$incoming' })]);
+  });
+
+  it('shows a pending channel send and retains it when the server accepts without a timeline event', async () => {
+    const room = { roomId: '!room:example.com', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => [] }) };
+    mockClient.getRoom.mockReturnValue(room);
+    let resolve!: (value: {event_id: string}) => void;
+    mockClient.sendMessage.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.sendMessage('42', 'hello'); });
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ content: 'hello', pending: true })]);
+    await act(async () => { resolve({event_id: '$accepted'}); await sending; });
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$accepted', content: 'hello', pending: false })]);
+  });
+
+  it('keeps a failed channel send visible after switching away and back', async () => {
+    const room = { roomId: '!room:example.com', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => [] }) };
+    mockClient.getRoom.mockReturnValue(room);
+    mockClient.sendMessage.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    act(() => result.current.setActiveChannel('42'));
+    await act(async () => { await expect(result.current.sendMessage('42', 'failed')).rejects.toThrow('offline'); });
+    act(() => { result.current.setActiveDmContact('@bob:test'); result.current.setActiveChannel('42'); });
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ content: 'failed', error: true, pending: false })]);
+  });
+
+  it('reloads missed channel events after sync recovery', () => {
+    const events: ReturnType<typeof fakeRoomMessage>[] = [];
+    const room = { roomId: '!room:example.com', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => events }) };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onSync = mockClient.on.mock.calls.find(c => c[0] === 'sync')?.[1];
+    act(() => { result.current.setActiveChannel('42'); onSync('RECONNECTING'); });
+    events.push(fakeRoomMessage('$missed', '@alice:test', 'missed', 1000));
+    act(() => onSync('SYNCING'));
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$missed' })]);
+  });
+
+  it('retains a successful DM when the timeline event is delayed', async () => {
+    const dmCredentials = { ...creds, dmRoomMap: { '@bob:test': '!dm:test' } };
+    const room = { roomId: '!dm:test', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => [] }) };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(dmCredentials), { wrapper });
+    const onSync = mockClient.on.mock.calls.find(c => c[0] === 'sync')?.[1];
+    act(() => { onSync('PREPARED'); result.current.setActiveDmContact('@bob:test'); });
+    await act(async () => { await result.current.sendDMMessage('@bob:test', 'hello'); });
+    expect(result.current.activeDmMessages).toEqual([expect.objectContaining({ id: '$sent-event', content: 'hello', pending: false })]);
+  });
+
+  it('reconciles a delayed timeline echo without duplicating the accepted send', async () => {
+    const events: ReturnType<typeof fakeRoomMessage>[] = [];
+    const room = { roomId: '!room:example.com', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => events }) };
+    mockClient.getRoom.mockReturnValue(room);
+    const { result } = renderHook(() => useMatrixClient(creds), { wrapper });
+    const onTimeline = mockClient.on.mock.calls.find(c => c[0] === 'Room.timeline')?.[1];
+    act(() => result.current.setActiveChannel('42'));
+    await act(async () => { await result.current.sendMessage('42', 'hello'); });
+    const event = fakeRoomMessage('$sent-event', '@1:example.com', 'hello', 1000, undefined, 'txn-1');
+    events.push(event);
+    act(() => onTimeline(event, room));
+    act(() => { result.current.setActiveDmContact('@bob:test'); result.current.setActiveChannel('42'); });
+    expect(result.current.activeMessages).toEqual([expect.objectContaining({ id: '$sent-event', content: 'hello' })]);
+  });
+
+  it('shows failed DM sends and allows dismissal', async () => {
+    const dmCredentials = { ...creds, dmRoomMap: { '@bob:test': '!dm:test' } };
+    const room = { roomId: '!dm:test', getMember: () => undefined, getMembers: () => [], getLiveTimeline: () => ({ getEvents: () => [] }) };
+    mockClient.getRoom.mockReturnValue(room);
+    mockClient.sendMessage.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useMatrixClient(dmCredentials), { wrapper });
+    const onSync = mockClient.on.mock.calls.find(c => c[0] === 'sync')?.[1];
+    act(() => { onSync('PREPARED'); result.current.setActiveDmContact('@bob:test'); });
+    await act(async () => { await expect(result.current.sendDMMessage('@bob:test', 'hello')).rejects.toThrow('offline'); });
+    expect(result.current.activeDmMessages).toEqual([expect.objectContaining({ content: 'hello', error: true })]);
+    act(() => result.current.dismissOutgoing(result.current.activeDmMessages[0].id));
+    expect(result.current.activeDmMessages).toEqual([]);
+  });
+
   it('updates a local echo with the canonical ID returned by sendMessage', async () => {
     const room = {
       roomId: '!room:example.com',
