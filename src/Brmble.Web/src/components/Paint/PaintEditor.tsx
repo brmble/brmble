@@ -78,6 +78,9 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
   const sourceFingerprint = snapshot.source
     ? `${sessionId}:${snapshot.source.mimeType}:${snapshot.source.width}:${snapshot.source.height}:${snapshot.source.sizeBytes}`
     : null;
+  const canvasAspectRatio = decodedAspect && decodedAspect.fingerprint === sourceFingerprint
+    ? decodedAspect.ratio
+    : snapshot.source ? snapshot.source.width / snapshot.source.height : 1;
 
   useEffect(() => {
     if (!sourceFingerprint || !sourceRef.current || !annotationRef.current) return;
@@ -264,7 +267,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
     <section className="paint-editor">
       <PaintToolbar tool={tool} color={color} width={width} onTool={setTool} onColor={setColor} onWidth={setWidth} />
       <div className="paint-canvas-area">
-        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': decodedAspect && decodedAspect.fingerprint === sourceFingerprint ? decodedAspect.ratio : snapshot.source ? snapshot.source.width / snapshot.source.height : 1 } as CSSProperties}>
+        <div className="paint-canvas-stack" style={{ '--paint-aspect-ratio': canvasAspectRatio } as CSSProperties}>
           <canvas ref={sourceRef} data-testid="paint-source-canvas" />
           <canvas ref={annotationRef} data-testid="paint-annotation-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} />
         </div>

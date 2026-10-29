@@ -55,6 +55,7 @@ const inlineStyleAllowList = [
 ];
 
 const paintToolbarSwatchStyle = /^style=\{\{\s*'--paint-swatch-color':\s*value\s*\}\s*as CSSProperties\}$/;
+const paintCanvasAspectStyle = /^style=\{\{\s*'--paint-aspect-ratio':\s*canvasAspectRatio\s*\}\s*as CSSProperties\}$/;
 
 const filesToScan = collectFiles(sourceRoot).filter((file) => {
   const rel = toPosix(relative(sourceRoot, file));
@@ -166,7 +167,8 @@ function findInlineStyleViolations(): string[] {
 
 function isAllowedInlineStyle(relativePath: string, expression: string): boolean {
   return inlineStyleAllowList.some((pattern) => pattern.test(expression))
-    || (relativePath === 'components/Paint/PaintToolbar.tsx' && paintToolbarSwatchStyle.test(expression));
+    || (relativePath === 'components/Paint/PaintToolbar.tsx' && paintToolbarSwatchStyle.test(expression))
+    || (relativePath === 'components/Paint/PaintEditor.tsx' && paintCanvasAspectStyle.test(expression));
 }
 
 function findNativeSelectViolations(): string[] {
@@ -306,6 +308,12 @@ describe('UI guide compliance', () => {
     expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', swatchStyle)).toBe(true);
     expect(isAllowedInlineStyle('components/Example.tsx', swatchStyle)).toBe(false);
     expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', "style={{ color: value }}")).toBe(false);
+  });
+
+  test('limits the dynamic paint aspect ratio to PaintEditor', () => {
+    const aspectStyle = "style={{ '--paint-aspect-ratio': canvasAspectRatio } as CSSProperties}";
+    expect(isAllowedInlineStyle('components/Paint/PaintEditor.tsx', aspectStyle)).toBe(true);
+    expect(isAllowedInlineStyle('components/Example.tsx', aspectStyle)).toBe(false);
   });
 
   test('tooltips use Tooltip instead of native title attributes', () => {
