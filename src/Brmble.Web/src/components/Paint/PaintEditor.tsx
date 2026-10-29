@@ -271,7 +271,7 @@ export function PaintEditor({ sessionId, paintApi, snapshot, previews = [], curr
       </div>
       {error && <p role="alert">{error}</p>}
       {previewUnavailable && <p role="status">Live preview unavailable. Your finished strokes can still be sent.</p>}
-      {saveCaptured && !saved && <p role="status">Drawing is paused here. Retry will save the image captured on your first attempt; other participants may continue drawing.</p>}
+      {saveCaptured && !saved && !saving && <p role="status">Drawing is paused here. Retry will post the image captured on your first attempt and end the session; later strokes by other participants will not be included.</p>}
       <div className="paint-actions">
         <button type="button" className="btn btn-secondary" disabled={saving || saveCaptured} onClick={() => runMutation(() => paintApi.undo(sessionId), 'Unable to undo. Please try again.')}>Undo</button>
         {host && <>
