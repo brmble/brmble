@@ -48,7 +48,7 @@ function CompanionPreview({
   return (
     <span className={className}>
       {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt={`${entry.name} preview`} />
+        <span className="custom-companion-moderation-sprite" role="img" aria-label={`${entry.name} preview`} style={{ backgroundImage: `url(${thumbnailUrl})` }} />
       ) : (
         <span
           className="custom-companion-moderation-placeholder"
@@ -72,8 +72,25 @@ function CustomCompanionModerationRow({
   onDelete: (eventId: string) => Promise<void>;
 }) {
   const { ref, thumbnailUrl } = useViewportThumbnail(entry, gallery);
+  const [showSheet, setShowSheet] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
+  const [sheetError, setSheetError] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const toggleSheet = () => {
+    if (showSheet) {
+      setShowSheet(false);
+      return;
+    }
+    setShowSheet(true);
+    setSheetError(false);
+    if (!sheetUrl) {
+      void gallery.requestAtlas(entry, new Set([entry.atlasCacheKey]))
+        .then(setSheetUrl)
+        .catch(() => setSheetError(true));
+    }
+  };
 
   const remove = async () => {
     const accepted = await confirm({
@@ -132,6 +149,13 @@ function CustomCompanionModerationRow({
           <span aria-hidden="true">{'\u00b7'}</span>
           <span>{entry.width} {'\u00d7'} {entry.height}</span>
         </span>
+        {thumbnailUrl && (
+          <button type="button" className="custom-companion-sheet-toggle" aria-expanded={showSheet}
+            aria-label={`${showSheet ? 'Hide' : 'Show'} sprite sheet for ${entry.name}`}
+            onClick={toggleSheet}>
+            {showSheet ? 'Hide sprite sheet' : 'View sprite sheet'}
+          </button>
+        )}
         {error && <span className="custom-companion-moderation-error" role="alert">{error}</span>}
       </div>
       <button
@@ -143,6 +167,12 @@ function CustomCompanionModerationRow({
       >
         {deleting ? 'Removing\u2026' : 'Remove'}
       </button>
+      {showSheet && (
+        <div className="custom-companion-moderation-sheet">
+          {sheetUrl ? <img src={sheetUrl} alt={`${entry.name} sprite sheet`} />
+            : <p role="status">{sheetError ? 'Could not load the sprite sheet. Close and try again.' : 'Loading sprite sheet…'}</p>}
+        </div>
+      )}
     </article>
   );
 }

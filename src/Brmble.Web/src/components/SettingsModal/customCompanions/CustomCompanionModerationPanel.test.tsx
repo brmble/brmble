@@ -112,9 +112,27 @@ describe('CustomCompanionModerationPanel', () => {
       );
     });
 
-    expect(await screen.findByRole('img', { name: 'Orbit preview' })).toHaveAttribute('src', 'blob:thumbnail');
+    expect(await screen.findByRole('img', { name: 'Orbit preview' })).toHaveStyle({ backgroundImage: 'url(blob:thumbnail)' });
     expect(readyGallery.requestThumbnail).toHaveBeenCalledWith(orbit, expect.any(Symbol));
     expect(readyGallery.requestAtlas).not.toHaveBeenCalled();
+  });
+
+  it('shows a single frame and lets moderators inspect the full sprite sheet', async () => {
+    const user = userEvent.setup();
+    render(<CustomCompanionModerationPanel gallery={gallery('ready', [orbit])} onDelete={vi.fn()} />);
+    act(() => {
+      intersectionCallback(
+        [{ isIntersecting: true, target: observedElement } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+    const preview = await screen.findByRole('img', { name: 'Orbit preview' });
+    expect(preview).toHaveClass('custom-companion-moderation-sprite');
+    expect(screen.queryByRole('img', { name: 'Orbit sprite sheet' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show sprite sheet for Orbit' }));
+    expect(await screen.findByRole('img', { name: 'Orbit sprite sheet' })).toHaveAttribute('src', 'blob:atlas');
+    await user.click(screen.getByRole('button', { name: 'Hide sprite sheet for Orbit' }));
+    expect(screen.queryByRole('img', { name: 'Orbit sprite sheet' })).not.toBeInTheDocument();
   });
 
   it('confirms with preview, name, and uploader before deleting', async () => {
