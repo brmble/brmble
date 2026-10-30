@@ -20,6 +20,8 @@ internal static class Win32Window
 
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_MOVE = 0x0003;
+    public const uint WM_DISPLAYCHANGE = 0x007E;
+    public const uint WM_SETTINGCHANGE = 0x001A;
     public const uint WM_CLOSE = 0x0010;
     public const uint WM_SIZE = 0x0005;
     public const uint WM_ACTIVATE = 0x0006;

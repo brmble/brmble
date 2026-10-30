@@ -37,6 +37,15 @@ describe('overlayModel', () => {
     });
   });
 
+  it('displays and queues moderation events in full mode', () => {
+    const settings = { ...DEFAULT_OVERLAY, showModerationEvents: true };
+    const event = createMembershipOverlayEvent({ kind: 'user-kicked', actorName: 'Alex', currentChannelId: '7', eventChannelId: '7', timestamp: Date.now() });
+    const first = appendOverlayEvent(createOverlaySnapshot('7', 'Raid'), event, settings);
+    expect(first.fullCompanion.activeDisplay).toEqual(expect.objectContaining({ kind: 'leave' }));
+    const second = appendOverlayEvent(first, event, settings);
+    expect(second.fullCompanion.eventQueue).toHaveLength(1);
+  });
+
   it('keeps only the newest 8 events', () => {
     let snapshot = createOverlaySnapshot('7', 'Raid');
 

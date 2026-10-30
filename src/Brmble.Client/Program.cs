@@ -383,7 +383,16 @@ static class Program
             _bridge = new NativeBridge(controller.CoreWebView2, hwnd);
             _overlayRelay = new CompanionOverlayRelay();
             _overlayHost = new CompanionOverlayHost(env, _overlayRelay, hwnd, useDevServer, webRoot);
-            await _overlayHost.InitializeAsync();
+            try
+            {
+                await _overlayHost.InitializeAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Overlay] Initialization failed: {ex}");
+                _overlayHost.Dispose();
+                _overlayHost = null;
+            }
 
             // Send zoom percentage to the frontend whenever the user zooms (Ctrl+scroll)
             // and debounce-save the zoom level to config for persistence across restarts.
@@ -844,6 +853,8 @@ static class Program
                 }
                 return IntPtr.Zero;
 
+            case Win32Window.WM_DISPLAYCHANGE:
+            case Win32Window.WM_SETTINGCHANGE:
             case Win32Window.WM_MOVE:
                 _overlayHost?.SyncToMainWindow();
                 return IntPtr.Zero;
