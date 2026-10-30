@@ -166,7 +166,9 @@ function findInlineStyleViolations(): string[] {
 
 function isAllowedInlineStyle(relativePath: string, expression: string): boolean {
   return inlineStyleAllowList.some((pattern) => pattern.test(expression))
-    || (relativePath === 'components/Paint/PaintToolbar.tsx' && paintToolbarSwatchStyle.test(expression));
+    || (relativePath === 'components/Paint/PaintToolbar.tsx' && paintToolbarSwatchStyle.test(expression))
+    || (relativePath === 'components/SettingsModal/customCompanions/CustomCompanionModerationPanel.tsx'
+      && expression === 'style={{ backgroundImage: `url(${thumbnailUrl})` }}');
 }
 
 function findNativeSelectViolations(): string[] {
@@ -306,6 +308,13 @@ describe('UI guide compliance', () => {
     expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', swatchStyle)).toBe(true);
     expect(isAllowedInlineStyle('components/Example.tsx', swatchStyle)).toBe(false);
     expect(isAllowedInlineStyle('components/Paint/PaintToolbar.tsx', "style={{ color: value }}")).toBe(false);
+  });
+
+  test('limits the dynamic companion thumbnail exception to its panel', () => {
+    const thumbnailStyle = 'style={{ backgroundImage: `url(${thumbnailUrl})` }}';
+    expect(isAllowedInlineStyle('components/SettingsModal/customCompanions/CustomCompanionModerationPanel.tsx', thumbnailStyle)).toBe(true);
+    expect(isAllowedInlineStyle('components/Example.tsx', thumbnailStyle)).toBe(false);
+    expect(isAllowedInlineStyle('components/SettingsModal/customCompanions/CustomCompanionModerationPanel.tsx', "style={{ color: 'red' }}")).toBe(false);
   });
 
   test('tooltips use Tooltip instead of native title attributes', () => {
